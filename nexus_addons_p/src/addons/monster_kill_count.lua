@@ -6,6 +6,13 @@ end
 function Monster_kill_count_load_settings()
     g.mkc_path = string.format("../addons/%s/%s/monster_kill_count.json", addon_name_lower, g.active_id)
     g.mkc_old_path = string.format("../addons/%s/%s/settings.json", "klcount", g.active_id)
+    -- マップ別記録の保存先。元は旧 klcount からの移行分岐でしか作っておらず、
+    -- 新規利用者ではフォルダが無いまま g.save_json が毎回失敗し、討伐数が一切
+    -- 記録されなかった。設定ファイルが既にある人は下の early return で抜けるので、
+    -- 作成はその手前に置くこと(ここを下げると既存利用者に修正が届かない)。
+    local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
+    local win_folder_path = string.gsub(folder_path, "/", "\\")
+    os.execute('mkdir "' .. win_folder_path .. '"')
     local settings = g.load_json(g.mkc_path)
     if settings then
         g.mkc_settings = settings
@@ -58,12 +65,7 @@ function Monster_kill_count_load_settings()
             map_ids = {}
         }
     end
-    local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
-    local win_folder_path = string.gsub(folder_path, "/", "\\")
-    -- 旧 klcount からの移行がある場合(上の分岐)しかフォルダを作っていなかったため、
-    -- 新規ユーザーではマップ別記録の保存先が存在せず、以降 g.save_json が毎回失敗し、
-    -- 討伐数が一切記録されないままだった。移行の有無によらずここで作る。
-    os.execute('mkdir "' .. win_folder_path .. '"')
+    -- folder_path / win_folder_path は関数の先頭で作成済み
     local list_file_path = folder_path .. "/filelist_temp.txt"
     os.execute('dir "' .. win_folder_path .. '\\*.json" /b > "' .. list_file_path .. '"')
     local list_file = io.open(list_file_path, "r")
