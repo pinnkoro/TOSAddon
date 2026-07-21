@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "1.0.0"
+local ver = "1.0.1"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -356,8 +356,11 @@ end
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
 -- GetClass は IES 引きで重い一方、MapType は同じマップなら不変なので、
 -- マップ名をキーにメモ化する。マップが変われば引き直すので意味は変わらない。
--- (キャッシュの有無は「値」ではなく「キー(map_type_cache_name)」で判定する。
---  結果が nil のマップもあり、値だけ見ると毎回ミス扱いになってしまうため)
+--
+-- キャッシュするのは引けたときだけ。nil を覚えると、ロード中などに一度でも nil を
+-- 掴んだ時点でそのマップに居る間ずっと nil が返り続け(無効化する契機が無い)、
+-- guild_event_warp の移動可否チェックが素通りする等、呼び出し側の判定が全部壊れる。
+-- 引けなかったマップは毎回引き直す = メモ化前と同じ挙動なので、退行にはならない。
 function g.get_map_type()
     local map_name = session.GetMapName()
     if g.map_type_cache_name == map_name then
@@ -366,13 +369,12 @@ function g.get_map_type()
     local map_cls = GetClass("Map", map_name)
     -- 未知/インスタンスマップでは GetClass が nil を返しうるので nil ガード。
     -- 呼び出し側はいずれも文字列比較(== "Dungeon" 等)なので nil で問題ない。
-    local map_type = nil
-    if map_cls then
-        map_type = map_cls.MapType
+    if not map_cls then
+        return nil
     end
     g.map_type_cache_name = map_name
-    g.map_type_cache = map_type
-    return map_type
+    g.map_type_cache = map_cls.MapType
+    return g.map_type_cache
 end
 
 function g.debug_print_table(tbl, indent)

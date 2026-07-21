@@ -285,15 +285,20 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
         if icon then
             local icon_info = icon:GetInfo()
             local iesid = icon_info:GetIESID()
+            -- guid からオブジェクトを引けないことがあるので nil ガード。
+            -- (ACCOUNTWAREHOUSE_CLOSE 側と同じ理由。ここで落ちると以降のスロットを
+            --  走査できず、保存自体が行われず .dat が前回のまま残る)
             local obj = GetObjectByGuid(iesid)
-            local clsid = obj.ClassID
-            local item_cls = GetClassByType('Item', clsid)
-            local category = "false"
-            if item_cls and item_cls.MarketCategory ~= "None" then
-                category = item_cls.MarketCategory:match("^(.-)_")
+            if obj then
+                local clsid = obj.ClassID
+                local item_cls = GetClassByType('Item', clsid)
+                local category = "false"
+                if item_cls and item_cls.MarketCategory ~= "None" then
+                    category = item_cls.MarketCategory:match("^(.-)_")
+                end
+                local item_name = string.lower(dictionary.ReplaceDicIDInCompStr(obj.Name))
+                table.insert(items, {g.login_name, iesid, clsid, icon_info.count, item_name, "warehouse", category})
             end
-            local item_name = string.lower(dictionary.ReplaceDicIDInCompStr(obj.Name))
-            table.insert(items, {g.login_name, iesid, clsid, icon_info.count, item_name, "warehouse", category})
         end
     end
     local warehouse_dat = g.characters_item_serch_dat_tbl[1]

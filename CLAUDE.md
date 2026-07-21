@@ -66,11 +66,13 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、**`main` に直接マージ**する（PR 経由）。
 * **配布リリース**: 公開したいタイミングで **`main` → `release` にマージ**する。
-  * `main` は `.ipf` を毎回作り直さない運用なので、**採番と `.ipf` の再ビルドはこのタイミングでまとめて行う**。
-    リリース前に版番号を 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
-    `.ipf` のファイル名）へ反映し、`.ipf` を再ビルドすること。main→release の PR では
-    [ci.yml](.github/workflows/ci.yml) の `ipf` ジョブがこれを検証して、
-    **古い `.ipf` のまま公開するのを止める**。
+  * 版番号は 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+    `.ipf` のファイル名）に散っているので、**採番するときは 3 箇所を揃え、同時に `.ipf` も再ビルドする**。
+    `main` は `.ipf` を毎回作り直さない運用なので、まとめて release 直前に行うのが既定。
+    ただし PR 側で採番してしまっても、3 箇所 + `.ipf` が揃っていれば問題ない
+    （更新履歴に「未リリース」のような仮の見出しを残さずに済む分、そちらが望ましい）。
+    main→release の PR では [ci.yml](.github/workflows/ci.yml) の `ipf` ジョブが
+    採番のタイミングによらずこれを検証して、**古い `.ipf` のまま公開するのを止める**。
   * `release` への push を GitHub Actions（[.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml)）が
     検知し、移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。

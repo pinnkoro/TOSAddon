@@ -510,18 +510,13 @@ function _nexus_addons_p_update_frames()
     if root_frame and root_frame:IsVisible() == 0 then
         root_frame:ShowWindow(1)
     end
-    -- マップ種別は pick_item_tracker が隠れているときにしか要らないので、
-    -- 必要になった時点で 1 回だけ引く(以前は同じ行で 2 回呼んでいた)。
-    -- 引けなかった場合(nil)は false を入れて再取得を防ぐ。どちらも "City"/"Instance"
-    -- とは一致しないので、表示するという従来の挙動は変わらない。
-    local map_type
+    -- マップ種別の取得は g.get_map_type() 側でマップ単位にメモ化済みなので、
+    -- ここで重ねてキャッシュしない(以前は同じ行で 2 回呼んでいた分だけが無駄だった)。
     for _, entry in ipairs(update_check_frames) do
         local frame = ui.GetFrame(entry.name)
         if frame and frame:IsVisible() == 0 then
             if entry.city_hidden then
-                if map_type == nil then
-                    map_type = g.get_map_type() or false
-                end
+                local map_type = g.get_map_type()
                 if map_type ~= "City" and map_type ~= "Instance" then
                     AUTO_CAST(frame)
                     frame:ShowWindow(1)

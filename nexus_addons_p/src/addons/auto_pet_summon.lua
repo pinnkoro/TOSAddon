@@ -28,7 +28,11 @@ function auto_pet_summon_on_init()
     local cid = session.GetMySession():GetCID()
     if g.get_map_type() == "City" and (not g.auto_pet_summon_cid or cid ~= g.auto_pet_summon_cid) then
         g.auto_pet_summon_cid = cid
-        if not g.auto_pet_summon_settings then
+        -- 判定に g.cid のエントリまで含めるのは必須。g はキャラチェンジをまたいで
+        -- 生き残る一方、settings[cid] を作るのは Auto_pet_summon_load_settings だけなので、
+        -- テーブルの有無だけで判定すると「初めて使うキャラへ CC」でエントリが作られず、
+        -- 以降 g.auto_pet_summon_settings[g.cid] が nil のまま参照される。
+        if not g.auto_pet_summon_settings or not g.auto_pet_summon_settings[g.cid] then
             Auto_pet_summon_load_settings()
         end
         local old_func = g.settings.auto_pet_summon.old_init_func

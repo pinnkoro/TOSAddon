@@ -44,6 +44,7 @@ import json
 import os
 import re
 import struct
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +54,8 @@ sys.path.insert(0, HERE)
 import bundle_from_src  # noqa: E402  (同ディレクトリのビルド定義を正として再利用)
 
 ADDON = "_nexus_addons_p"
+ADDON_ID = "nexus_addons_p"  # addons.json の file（一度決めたら変えられない永続 ID）
+PACK_ROOT = os.path.join(REPO, "nexus_addons_p")  # .ipf 内部パスはここからの相対
 BUNDLE_DIR = os.path.join(REPO, "nexus_addons_p", ADDON)
 ADDONS_JSON = os.path.join(REPO, "addons.json")
 HEADER_LUA = os.path.join(REPO, "nexus_addons_p", "src", "core", "00_header.lua")
@@ -107,23 +110,51 @@ def read_ipf_table(path):
     return entries
 
 
-def expected_contents():
+def tracked_bundle_files():
+    """bundle ディレクトリ配下の *追跡されている* ファイルを内部パスで返す。
+
+    ディスクを walk して集めると、未追跡の作業ファイル（.bak / .orig / 手で展開した
+    残骸）まで期待値に混ざる。build_addon_ipf.py も同じくディスクを walk して詰めるので、
+    手元では「.ipf にも期待値にも在る」ので通ってしまい、追跡ファイルしか無い CI で
+    初めて落ちる。しかもメッセージは「.ipf にだけ在る」となり原因を指さない。
+    追跡ファイルを正とすれば、手元と CI で同じ判定になる。
+    """
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", "--", BUNDLE_DIR],
+                             cwd=REPO, check=True, capture_output=True).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(f"[verify] git ls-files を実行できない: {exc}")
+    repo_rels = [p for p in out.decode("utf-8").split("\0") if p]
+    return {
+        os.path.relpath(os.path.join(REPO, p), PACK_ROOT).replace("\\", "/"): os.path.join(REPO, p)
+        for p in repo_rels
+    }
+
+
+def stray_untracked(built):
+    """bundle ディレクトリに在る未追跡ファイル（生成物 .lua を除く）を返す。"""
+    known = set(tracked_bundle_files())
+    known |= {f"{ADDON}/{target}" for target in built}
+    strays = []
+    for dirpath, _dirs, names in os.walk(BUNDLE_DIR):
+        for name in names:
+            rel = os.path.relpath(os.path.join(dirpath, name), PACK_ROOT).replace("\\", "/")
+            if rel not in known:
+                strays.append(rel)
+    return sorted(strays)
+
+
+def expected_contents(built):
     """{内部パス: 平文bytes} を組み立てる。
 
     bundle の .lua は .gitignore 済みなので、ディスクではなく manifest から
     その場で連結して作る（CI の素のチェックアウトでも動くようにするため）。
-    それ以外（.xml）はディスクの実ファイルを正とする。
+    それ以外（.xml）は *追跡されている* 実ファイルを正とする。
     """
-    manifest = bundle_from_src.load_manifest()
-    built = bundle_from_src.build(manifest)  # manifest 脱落チェックもここで走る
-
     out = {}
-    for dirpath, _dirs, names in os.walk(BUNDLE_DIR):
-        for name in names:
-            full = os.path.join(dirpath, name)
-            rel = os.path.relpath(full, os.path.dirname(BUNDLE_DIR)).replace("\\", "/")
-            with open(full, "rb") as f:
-                out[rel] = f.read()
+    for rel, full in tracked_bundle_files().items():
+        with open(full, "rb") as f:
+            out[rel] = f.read()
     # 生成物はディスクの内容（古いかもしれない）ではなく src 連結結果で上書きする
     for target, data in built.items():
         out[f"{ADDON}/{target}"] = data
@@ -131,10 +162,16 @@ def expected_contents():
 
 
 def check_content(ipf_path):
-    expected = expected_contents()
+    manifest = bundle_from_src.load_manifest()
+    built = bundle_from_src.build(manifest)  # manifest 脱落チェックもここで走る
+    expected = expected_contents(built)
     actual = read_ipf_table(ipf_path)
 
     problems = []
+    for name in stray_untracked(built):
+        problems.append(
+            f"{name}: bundle ディレクトリに未追跡ファイルが在る"
+            "（build_addon_ipf.py はこれも .ipf に詰めてしまう。削除するか commit すること）")
     missing = sorted(set(expected) - set(actual))
     extra = sorted(set(actual) - set(expected))
     for name in missing:
@@ -174,8 +211,16 @@ def check_version(ipf_path):
         raise SystemExit(f"[verify] {HEADER_LUA} から ver を読めない")
     lua_ver = norm(m.group(1))
 
+    # 位置（[0]）ではなく永続 ID の file で引く。このリポジトリは複数アドオンを
+    # 収録しうるので、先頭決め打ちだと別アドオンの版数と突き合わせてしまう。
     with open(ADDONS_JSON, encoding="utf-8") as f:
-        json_ver = norm(json.load(f)[0]["fileVersion"])
+        entries = json.load(f)
+    matched = [e for e in entries if e.get("file") == ADDON_ID]
+    if len(matched) != 1:
+        raise SystemExit(
+            f'[verify] addons.json の file == "{ADDON_ID}" のエントリが {len(matched)} 件'
+            "（ちょうど 1 件であること）")
+    json_ver = norm(matched[0]["fileVersion"])
 
     base = os.path.basename(ipf_path)
     m = re.search(r"-(v\d+\.\d+\.\d+)\.ipf$", base)
@@ -197,9 +242,22 @@ def check_version(ipf_path):
     return False
 
 
+USAGE = "  使い方: python docs/verify_ipf.py [--version-only | --content-only]"
+
+
 def main():
-    version_only = "--version-only" in sys.argv
-    content_only = "--content-only" in sys.argv
+    # リリースを止めるためのゲートなので、「何も検証しないまま成功」だけは作らない。
+    # 未知の引数と、両方指定（= 全分岐スキップ）はここで弾く。
+    args = sys.argv[1:]
+    unknown = [a for a in args if a not in ("--version-only", "--content-only")]
+    if unknown:
+        raise SystemExit("[verify] 未知の引数: " + " ".join(unknown) + "\n" + USAGE)
+    version_only = "--version-only" in args
+    content_only = "--content-only" in args
+    if version_only and content_only:
+        raise SystemExit(
+            "[verify] --version-only と --content-only は同時に指定できない"
+            "（何も検証しないまま成功扱いになるため）\n" + USAGE)
     ipf_path = find_ipf()
     print(f"[verify] 対象 .ipf: {os.path.relpath(ipf_path, REPO)}")
 

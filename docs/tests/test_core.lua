@@ -89,15 +89,30 @@ state.map_name = "raid1";   check("raid1", g.get_map_type(), "Instance")
 state.map_name = "unknown"; check("unknown(GetClass が nil)", g.get_map_type(), nil)
 state.map_name = "town";    check("town に戻る(古い値が残らない)", g.get_map_type(), "City")
 
--- ===== 2. get_map_type: 同一マップではメモ化される =====
+-- ===== 2. get_map_type: 引けたマップだけメモ化される =====
 print("[2] 同一マップでの GetClass 呼び出し回数")
-for _, map in ipairs({"field1", "unknown"}) do
-    state.map_name = map
-    g.get_map_type() -- ここで 1 回引かせる
-    state.getclass_calls = 0
-    for _ = 1, 5 do g.get_map_type() end
-    check(map .. " を5回引いたときの GetClass 回数", state.getclass_calls, 0)
-end
+state.map_name = "field1"
+g.get_map_type() -- ここで 1 回引かせる
+state.getclass_calls = 0
+for _ = 1, 5 do g.get_map_type() end
+check("field1(引けた) を5回引いたときの GetClass 回数", state.getclass_calls, 0)
+
+-- 引けなかった結果は覚えない。覚えると、ロード中などに一度 nil を掴んだだけで
+-- そのマップに居る間ずっと nil が返り続け(無効化する契機が無い)、
+-- guild_event_warp の移動可否チェック等の呼び出し側が全部壊れる。
+state.map_name = "unknown"
+g.get_map_type()
+state.getclass_calls = 0
+for _ = 1, 5 do g.get_map_type() end
+check("unknown(引けない) を5回引いたときの GetClass 回数", state.getclass_calls, 5)
+
+-- ===== 2-2. 一時的に引けなかった後、引けるようになったら拾い直す =====
+print("[2-2] 一時的な取得失敗から回復する")
+state.map_name = "late_map" -- MAP_TYPES 未登録 = まだ引けない
+check("引けない間は nil", g.get_map_type(), nil)
+MAP_TYPES["late_map"] = "Field" -- IES が引けるようになった
+check("引けるようになれば拾い直す", g.get_map_type(), "Field")
+MAP_TYPES["late_map"] = nil
 
 -- ===== 3. update_frames: 非表示フレームの表示判定 =====
 local FRAME_KEYS = {"always_status", "pick_item_tracker", "monster_kill_count", "debuff_notice",
