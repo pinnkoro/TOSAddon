@@ -28,7 +28,7 @@ Tree of Savior 用アドオンの配布リポジトリ。
 アドオンマネージャー（[MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager)）から
 インストールできます。
 
-* **アドオンマネージャー登録申請中**（[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)）
+* **アドオンマネージャー登録済み**（[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100) マージ済み）
 
 <details>
 <summary>アドオンマネージャーへの登録の仕組み</summary>
@@ -40,7 +40,7 @@ Tree of Savior 用アドオンの配布リポジトリ。
 
 マネージャーは `managers.json` を 2 つ読む（`Source/AddonManager/MainWindow.xaml.cs`）。
 本家 `ajinorisan/TOSAddon-public` と同じ **JToS タブ = `master` ブランチ**が宛先で、
-`itos` ブランチは国際版タブ用。申請 PR: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)
+`itos` ブランチは国際版タブ用。登録 PR: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)（マージ済み）
 
 `file`（= `nexus_addons_p`）は一度登録したら**変更してはいけない**永続 ID。
 
