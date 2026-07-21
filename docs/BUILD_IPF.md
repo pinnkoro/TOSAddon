@@ -31,11 +31,18 @@ _nexus_addons_p/_nexus_addons_p_conclude.lua     ← 生成物(.gitignore)
 
 | ツール | 場所 | 用途 |
 | --- | --- | --- |
-| `ipf_unpack.exe` | `C:\Users\pinnk\Documents\TOSAddon_Tools\workspace\` | encrypt / decrypt / extract(**パック機能は無い**) |
+| `ipf_unpack.exe` | `$TOOLS_DIR` | encrypt / decrypt / extract(**パック機能は無い**) |
 | `IPFSuite.exe` | 同上 | GUI でコンテナを作る(方式 A) |
 | `encrypt.bat` | 同上 | `ipf_unpack.exe %1 encrypt` のラッパー |
 | `build_addon_ipf.py` | 本フォルダ `docs/` | 平文コンテナを自動生成(方式 B) |
-| `tos_extract.py` | `...\TosSukillSimulator\tools\` | 検証時に中身を展開して確認(任意) |
+| `tos_extract.py` | TosSukillSimulator の `tools/` | 検証時に中身を展開して確認(任意) |
+
+`$TOOLS_DIR` はリポジトリ外部の IPF ツール置き場(各自の環境で用意する)。
+以下のコマンド例ではこの変数を使うので、実行前に自分のパスを設定しておくこと:
+
+```bash
+export TOOLS_DIR="/path/to/TOSAddon_Tools/workspace"   # 例: Git Bash なら /c/... 形式
+```
 
 Python は python.org 版(`Python312`)を使う(uv 同梱ビルドは避ける。詳細は個人メモ参照)。
 
@@ -63,7 +70,7 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p ./_nexus_addons_
     --require _nexus_addons_p/_nexus_addons_p.lua,_nexus_addons_p/_nexus_addons_p_conclude.lua
 
 # 2) PKware 暗号化(配布形式に変換)
-"C:/Users/pinnk/Documents/TOSAddon_Tools/workspace/ipf_unpack.exe" ./_nexus_addons_p-plain.ipf encrypt
+"$TOOLS_DIR/ipf_unpack.exe" ./_nexus_addons_p-plain.ipf encrypt
 
 # 3) 正式名にリネームして配置(⛄ = U+26C4)
 mv ./_nexus_addons_p-plain.ipf "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf"
@@ -92,7 +99,7 @@ mv ./_nexus_addons_p-plain.ipf "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf"
 cp "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" /tmp/verify.ipf
 
 # decrypt → extract。extract は「カレントディレクトリ/extract/<packname>/<内部パス>」に出す
-cd "C:/Users/pinnk/Documents/TOSAddon_Tools/workspace"
+cd "$TOOLS_DIR"
 ./ipf_unpack.exe /tmp/verify.ipf decrypt
 ./ipf_unpack.exe /tmp/verify.ipf extract lua xml
 # → 出力先: ./extract/addon_d.ipf/_nexus_addons_p/_nexus_addons_p.lua など

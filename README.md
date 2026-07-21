@@ -45,7 +45,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 40種類以上のアドオンの詰合せ。各機能の説明はゲーム内のヘルプ（`?` ボタン）を参照。
 
-* **アドオンマネージャー登録済**
+* **アドオンマネージャー登録申請中**（[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)）
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
@@ -100,9 +100,13 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 ## アドオンマネージャーへの登録
 
 [MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager#submitting-addons) の仕組みでは、
-[JToSAddon/Addons](https://github.com/JToSAddon/Addons/tree/itos) の `managers.json` に
+[JTosAddon/Addons](https://github.com/JTosAddon/Addons) の `managers.json` に
 `{"repo": "pinnkoro/TOSAddon"}` を追加する PR を出すことで、このリポジトリの
 [addons.json](addons.json) がアドオンマネージャーから参照されるようになる。
+
+マネージャーは `managers.json` を 2 つ読む（`Source/AddonManager/MainWindow.xaml.cs`）。
+本家 `ajinorisan/TOSAddon-public` と同じ **JToS タブ = `master` ブランチ**が宛先で、
+`itos` ブランチは国際版タブ用。申請 PR: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)
 
 `file`（= `nexus_addons_p`）は一度登録したら**変更してはいけない**永続 ID。
 
