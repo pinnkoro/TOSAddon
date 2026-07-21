@@ -18,6 +18,12 @@ permissions:
 
 jobs:
   release:
+    # release ブランチ自体の新規作成(github.event.created)では走らせない。
+    # 作成時の push は「何もマージしていない」ため紐づく PR が無く、リリースノートが
+    # 既定文にフォールバックした空リリースが 1 本できてしまう。ブランチを用意する
+    # 操作と公開する操作を分けたいので、作成だけは素通りさせる。
+    # (workflow_dispatch では github.event.created が未定義 = 手動実行は従来どおり通る)
+    if: ${{ !github.event.created }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
