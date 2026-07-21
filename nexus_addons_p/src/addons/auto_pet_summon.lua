@@ -28,7 +28,7 @@ function auto_pet_summon_on_init()
     local cid = session.GetMySession():GetCID()
     if g.get_map_type() == "City" and (not g.auto_pet_summon_cid or cid ~= g.auto_pet_summon_cid) then
         g.auto_pet_summon_cid = cid
-        if not g.auto_pet_summon then
+        if not g.auto_pet_summon_settings then
             Auto_pet_summon_load_settings()
         end
         local old_func = g.settings.auto_pet_summon.old_init_func

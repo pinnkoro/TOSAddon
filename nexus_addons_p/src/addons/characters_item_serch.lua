@@ -66,7 +66,7 @@ function characters_item_serch_on_init()
     g.setup_hook_and_event(g.addon, "APPS_TRY_LEAVE", "Characters_item_serch_APPS_TRY_LEAVE", true)
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Characters_item_serch_INVENTORY_CLOSE", true)
     g.setup_hook_and_event(g.addon, "ACCOUNTWAREHOUSE_CLOSE", "Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE", true)
-    g.setup_hook_and_event(g.addon, "'WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
+    g.setup_hook_and_event(g.addon, "WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
     local sysmenu = ui.GetFrame("sysmenu")
     local inven = GET_CHILD(sysmenu, "inven")
     AUTO_CAST(inven)
@@ -269,8 +269,14 @@ end
 
 function Characters_item_serch_WAREHOUSE_CLOSE()
     local warehouse = ui.GetFrame('warehouse')
+    if not warehouse then
+        return
+    end
     local gbox = warehouse:GetChild("gbox")
-    local slotset = gbox:GetChild("slotset")
+    local slotset = gbox and gbox:GetChild("slotset")
+    if not slotset then
+        return
+    end
     AUTO_CAST(slotset)
     local items = {}
     for i = 0, slotset:GetSlotCount() - 1 do

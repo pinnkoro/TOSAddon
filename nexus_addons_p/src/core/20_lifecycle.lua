@@ -329,14 +329,18 @@ function _nexus_addons_p_frame_init()
         local help_btn = list_gb:CreateOrGetControl('button', 'help_btn' .. i, buttons_x + 100, current_y + 5, 40, 30)
         AUTO_CAST(help_btn)
         help_btn:SetText("{ol}{img question_mark 20 15}")
+        -- 登録リストに追加したのに翻訳を書き忘れると、ここの index で一覧フレームごと
+        -- 落ちる(この関数は pcall の外)。説明が無いだけで一覧は開けるようにしておく。
+        local trans = g._nexus_addons_p_trans[child_addon_name] or {}
         local tooltip_text
         if g.lang == "Japanese" then
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].ja
+            tooltip_text = trans.ja
         elseif g.lang == "kr" then
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].kr
+            tooltip_text = trans.kr
         else
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].etc
+            tooltip_text = trans.etc
         end
+        tooltip_text = tooltip_text or ("{ol}" .. data.name)
         help_btn:SetTextTooltip(tooltip_text)
         help_btn:SetSkinName("test_pvp_btn")
     end

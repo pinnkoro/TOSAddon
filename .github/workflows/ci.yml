@@ -1,0 +1,44 @@
+name: CI
+
+# main への PR / push で、配布物を壊す種類の事故を機械的に止める。
+#   1. src と golden sha の食い違い    … src を触ったのに --bless し忘れた / CRLF 混入
+#   2. manifest 未登録の src ファイル  … ビルドから黙って脱落する
+#   3. 連結後の Lua 構文エラー         … 分割ソース単体では気付けない結合バグ
+# いずれも従来は手元で気付くしかなく、release まで素通りしていた。
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --check は既存 bundle の有無に依存せず、src の連結結果だけを検証する。
+      # manifest 未登録ファイルの検出もここで走る(build() 内)。
+      - name: bundle の再現性を検証 (golden sha / manifest 脱落)
+        run: python3 docs/bundle_from_src.py --check
+
+      # 構文チェックは連結後の bundle に対して行う。src 単体では guard_open.lua が
+      # `if ... then` を開いたまま終わるなど、ファイル単位では構文的に不完全なため。
+      - name: bundle を生成
+        run: python3 docs/bundle_from_src.py
+
+      - name: LuaJIT を用意
+        run: sudo apt-get update && sudo apt-get install -y luajit
+
+      # ToS クライアントは LuaJIT(5.1) 系。loadfile はロードのみで実行はしないので、
+      # ゲーム API が無い環境でも構文エラーだけを確実に検出できる。
+      - name: bundle の Lua 構文チェック
+        run: |
+          set -euo pipefail
+          for f in nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua \
+                   nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua; do
+            luajit -e "local c, e = loadfile('$f'); if not c then io.stderr:write(e, '\n'); os.exit(1) end"
+            echo "  syntax OK: $f"
+          done
