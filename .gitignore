@@ -4,6 +4,9 @@
 .serena/
 ipf_unpack.exe
 
+# docs/verify_ipf.py が docs/bundle_from_src.py を import するため生成される
+__pycache__/
+
 # nexus_addons_p: 生成物（source of truth は nexus_addons_p/src/**。
 # docs/bundle_from_src.py で再生成する）。手書きの .xml と配布 .ipf は追跡継続。
 /nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua

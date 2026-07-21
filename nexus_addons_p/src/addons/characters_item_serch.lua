@@ -66,7 +66,7 @@ function characters_item_serch_on_init()
     g.setup_hook_and_event(g.addon, "APPS_TRY_LEAVE", "Characters_item_serch_APPS_TRY_LEAVE", true)
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Characters_item_serch_INVENTORY_CLOSE", true)
     g.setup_hook_and_event(g.addon, "ACCOUNTWAREHOUSE_CLOSE", "Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE", true)
-    g.setup_hook_and_event(g.addon, "'WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
+    g.setup_hook_and_event(g.addon, "WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
     local sysmenu = ui.GetFrame("sysmenu")
     local inven = GET_CHILD(sysmenu, "inven")
     AUTO_CAST(inven)
@@ -165,19 +165,23 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
         if aw_item then
             local clsid = aw_item.type
             local iesid = aw_item:GetIESID()
+            -- WAREHOUSE_CLOSE 側と同じ扱い。ここは is_overwrite=true で .dat を丸ごと
+            -- 置き換えるので、引けなかった分を落として保存すると検索から消える。
             local obj = GetObjectByGuid(iesid)
-            if obj then
-                local item_name = string.lower(dictionary.ReplaceDicIDInCompStr(obj.Name))
-                local item_count = aw_item.count
-                local item_cls = GetClassByType('Item', clsid)
-                local category = "false"
-                if item_cls and item_cls.MarketCategory ~= "None" then
-                    category = item_cls.MarketCategory:match("^(.-)_")
-                end
-                table.insert(items_to_save,
-                    {g.lang == "Japanese" and "チーム倉庫" or "Account Warehouse", iesid, clsid, item_count,
-                     item_name, "accountwarehouse", category})
+            if not obj then
+                g.vlog("characters_item_serch: チーム倉庫アイテムを引けないため保存を中止 iesid=%s", tostring(iesid))
+                return
             end
+            local item_name = string.lower(dictionary.ReplaceDicIDInCompStr(obj.Name))
+            local item_count = aw_item.count
+            local item_cls = GetClassByType('Item', clsid)
+            local category = "false"
+            if item_cls and item_cls.MarketCategory ~= "None" then
+                category = item_cls.MarketCategory:match("^(.-)_")
+            end
+            table.insert(items_to_save,
+                {g.lang == "Japanese" and "チーム倉庫" or "Account Warehouse", iesid, clsid, item_count, item_name,
+                 "accountwarehouse", category})
         end
     end
     local dat_file_path = g.characters_item_serch_dat_tbl[4]
@@ -269,8 +273,14 @@ end
 
 function Characters_item_serch_WAREHOUSE_CLOSE()
     local warehouse = ui.GetFrame('warehouse')
+    if not warehouse then
+        return
+    end
     local gbox = warehouse:GetChild("gbox")
-    local slotset = gbox:GetChild("slotset")
+    local slotset = gbox and gbox:GetChild("slotset")
+    if not slotset then
+        return
+    end
     AUTO_CAST(slotset)
     local items = {}
     for i = 0, slotset:GetSlotCount() - 1 do
@@ -279,7 +289,15 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
         if icon then
             local icon_info = icon:GetInfo()
             local iesid = icon_info:GetIESID()
+            -- guid からオブジェクトを引けないことがあるので nil ガード。
+            -- 保存はこのキャラの倉庫行を全部書き換えるので、引けなかった分を
+            -- 黙って落とすと検索結果から消える。1 件でも引けなければ中止して
+            -- 前回の .dat を残す(欠落したまま上書きするより実害が小さい)。
             local obj = GetObjectByGuid(iesid)
+            if not obj then
+                g.vlog("characters_item_serch: 倉庫アイテムを引けないため保存を中止 iesid=%s", tostring(iesid))
+                return
+            end
             local clsid = obj.ClassID
             local item_cls = GetClassByType('Item', clsid)
             local category = "false"

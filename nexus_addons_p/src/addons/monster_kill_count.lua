@@ -6,8 +6,23 @@ end
 function Monster_kill_count_load_settings()
     g.mkc_path = string.format("../addons/%s/%s/monster_kill_count.json", addon_name_lower, g.active_id)
     g.mkc_old_path = string.format("../addons/%s/%s/settings.json", "klcount", g.active_id)
+    -- マップ別記録の保存先。元は旧 klcount からの移行分岐でしか作っておらず、
+    -- 新規利用者ではフォルダが無いまま g.save_json が毎回失敗し、討伐数が一切
+    -- 記録されなかった。設定ファイルが既にある人は下の early return で抜けるので、
+    -- 作成はその手前に置くこと(ここを下げると既存利用者に修正が届かない)。
+    local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
+    local win_folder_path = string.gsub(folder_path, "/", "\\")
+    g.create_folder(win_folder_path, folder_path .. "/mkdir.txt")
     local settings = g.load_json(g.mkc_path)
     if settings then
+        -- この経路は下のスキーマ構築を丸ごと飛ばすので、欠けたキーはここで補う。
+        -- 特に map_ids が無いと monster_kill_count_on_init の ipairs で落ち、
+        -- pcall に飲まれてアドオンが無言で止まる(frame_x/y も比較で落ちる)。
+        if type(settings.map_ids) ~= "table" then
+            settings.map_ids = {}
+        end
+        settings.frame_x = tonumber(settings.frame_x) or 1340
+        settings.frame_y = tonumber(settings.frame_y) or 20
         g.mkc_settings = settings
         return
     end
@@ -32,11 +47,10 @@ function Monster_kill_count_load_settings()
             map_ids = {}
         }
         local old_dir = string.format("../addons/%s/%s/", "klcount", g.active_id)
-        local new_folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
-        os.execute('mkdir "' .. new_folder_path .. '"')
+        -- 保存先は関数の先頭で作成済み(folder_path と同一)
         for map_id, _ in pairs(allowed_map_ids_by_level) do
             local old_file_path = old_dir .. map_id .. ".json"
-            local new_file_path = new_folder_path .. "/" .. map_id .. ".json"
+            local new_file_path = folder_path .. "/" .. map_id .. ".json"
             local old_file = io.open(old_file_path, "r")
             if old_file then
                 local content = old_file:read("*a")
@@ -58,8 +72,7 @@ function Monster_kill_count_load_settings()
             map_ids = {}
         }
     end
-    local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
-    local win_folder_path = string.gsub(folder_path, "/", "\\")
+    -- folder_path / win_folder_path は関数の先頭で作成済み
     local list_file_path = folder_path .. "/filelist_temp.txt"
     os.execute('dir "' .. win_folder_path .. '\\*.json" /b > "' .. list_file_path .. '"')
     local list_file = io.open(list_file_path, "r")
@@ -163,6 +176,21 @@ function monster_kill_count_on_init()
             end
             g.mkc_map_data = map_data
             g.save_json(map_file_path, map_data)
+            -- map_ids は Monster_kill_count_load_settings でしか作られず、そこは
+            -- 設定ファイルが既に在ると即 return する。つまり初回以降は更新されず、
+            -- 新しく通ったマップが「マップ情報」の一覧に永久に出てこなかった。
+            -- 記録ファイルを作ったこの場で登録する。
+            local known = false
+            for _, id in ipairs(g.mkc_settings.map_ids) do
+                if tostring(id) == tostring(g.map_id) then
+                    known = true
+                    break
+                end
+            end
+            if not known then
+                table.insert(g.mkc_settings.map_ids, g.map_id)
+                Monster_kill_count_save_settings()
+            end
             Monster_kill_count_frame_init()
         end
     else
@@ -218,8 +246,8 @@ function Monster_kill_count_ITEM_PICK(frame, msg, class_id, item_count)
 end
 
 function Monster_kill_count_frame_init()
-    local monster_kill_count =
-        ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "monster_kill_count", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local monster_kill_count = g.create_persistent_frame(addon_name_lower .. "monster_kill_count")
     AUTO_CAST(monster_kill_count)
     monster_kill_count:SetSkinName("shadow_box")
     monster_kill_count:SetTitleBarSkin("None")
@@ -310,9 +338,11 @@ function Monster_kill_count_information_context()
         local map_id = sorted_map_ids[i]
         local map_id_str = tostring(map_id)
         local map_file_path = Monster_kill_count_get_map_filepath(map_id_str)
+        local map_cls = GetClassByType("Map", map_id)
         local map_data = g.load_json(map_file_path)
-        if not map_data or not next(map_data.get_items) then
-            local map_cls = GetClassByType("Map", map_id)
+        if not map_data then
+            -- 記録ファイルが無い/壊れているときだけ雛形を作る。
+            -- 中身がある場合にここで作り直すと討伐数と滞在時間まで消える。
             map_data = {
                 map_name = map_cls and map_cls.ClassName,
                 stay_time = 0,
@@ -321,8 +351,22 @@ function Monster_kill_count_information_context()
             }
             g.save_json(map_file_path, map_data)
         else
-            local display_text = map_id .. " " .. GetClassByType("Map", map_id).Name
-            ui.AddContextMenuItem(context, display_text, string.format("Monster_kill_count_map_information(%d)", map_id))
+            -- get_items が無い形式のファイルが残っていると下の next(nil) で落ち、
+            -- コンテキストメニューが一切開かなくなる(= 設定ボタンが無反応に見える)。
+            -- 欠けたキーだけ補い、既存の記録は必ず残す。
+            if type(map_data.get_items) ~= "table" then
+                map_data.get_items = {}
+                g.save_json(map_file_path, map_data)
+            end
+            -- 一覧に出すかは「何か記録があるか」で決める。get_items だけを見ていた頃は、
+            -- 討伐しただけでアイテムを拾わなかったマップが一覧から漏れていた。
+            local has_record = (tonumber(map_data.kill_count) or 0) > 0 or
+                                   (tonumber(map_data.stay_time) or 0) > 0 or next(map_data.get_items) ~= nil
+            if has_record and map_cls then
+                local display_text = map_id .. " " .. map_cls.Name
+                ui.AddContextMenuItem(context, display_text,
+                    string.format("Monster_kill_count_map_information(%d)", map_id))
+            end
         end
     end
     ui.OpenContextMenu(context)

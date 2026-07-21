@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "1.0.0"
+local ver = "1.0.1"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -52,26 +52,32 @@ local function print_all_child(ctrl, prefix)
     end
 end
 
-function g.mkdir_new_folder()
-    local function create_folder(folder_path, file_path)
-        local file = io.open(file_path, "r")
-        if not file then
-            os.execute('mkdir "' .. folder_path .. '"')
-            file = io.open(file_path, "w")
-            if file then
-                file:write("A new file has been created")
-                file:close()
-            end
-        else
-            file:close()
-        end
+-- フォルダを作る。作成済みを示すマーカーファイルが読めるときは何もしない。
+-- os.execute は cmd.exe を同期起動する(コンソール窓が一瞬出ることもある)ので、
+-- 起動のたびに空振りさせないためのガード。フォルダを作る箇所はすべてここを通すこと。
+--
+-- folder_path はそのまま cmd へ渡す。区切り文字の扱いは呼び出し側の既存挙動を
+-- 変えないよう、こちらでは正規化しない(monster_kill_count はバックスラッシュ、
+-- mkdir_new_folder はスラッシュのまま渡してきた)。
+function g.create_folder(folder_path, marker_path)
+    local file = io.open(marker_path, "r")
+    if file then
+        file:close()
+        return
     end
-    local folder = string.format("../addons/%s", addon_name_lower)
-    local file_path = string.format("../addons/%s/mkdir.txt", addon_name_lower)
-    create_folder(folder, file_path)
-    local user_folder = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
-    local user_file_path = string.format("../addons/%s/%s/mkdir.txt", addon_name_lower, g.active_id)
-    create_folder(user_folder, user_file_path)
+    os.execute('mkdir "' .. folder_path .. '"')
+    file = io.open(marker_path, "w")
+    if file then
+        file:write("A new file has been created")
+        file:close()
+    end
+end
+
+function g.mkdir_new_folder()
+    g.create_folder(string.format("../addons/%s", addon_name_lower),
+        string.format("../addons/%s/mkdir.txt", addon_name_lower))
+    g.create_folder(string.format("../addons/%s/%s", addon_name_lower, g.active_id),
+        string.format("../addons/%s/%s/mkdir.txt", addon_name_lower, g.active_id))
 end
 
 -- ===== 本家 Nexus Addons(_nexus_addons)との関係 =====
@@ -353,15 +359,118 @@ function g.save_json(path, tbl)
     return true
 end
 
+-- 詳細ログ。アドオンメニューボタン右クリックの設定画面にある
+-- 「詳細なログをシステムに出力する」が ON のときだけ、チャットのシステムメッセージへ出す。
+-- 既定は OFF なので、通常の利用者のチャットは今までどおり静かなまま。
+--
+-- 保存先は g.settings(= ../addons/_nexus_addons_p/<AID>/settings.json)。
+-- UI を出している 90_addons_menu.lua 側の addons_menu.json はメニューの位置と
+-- 表示設定だけを持つので、アドオン全体の設定であるこれは置かない(詳細は 90 側のコメント)。
+--
+-- 初期化前(g.settings がまだ nil)や、本家検出で初期化を止めた場合も黙って何もしない。
+-- 書式化の失敗でデバッグ用のログが本体を巻き込んで落とすことがないよう pcall で包む。
+--
+-- チャットは流れてしまい後から読み返せないので、同じ内容をファイルにも残す。
+-- 不具合報告用に「そのまま送れる」ことを狙っており、
+--   * 出力先は debug_log.txt とは別。あちらはエラーの履歴を追記し続ける用途で、
+--     詳細ログを混ぜると際限なく育ち、必要な部分も探しにくくなる。
+--   * 作り直すのはクライアント起動後の最初の 1 行だけ(下の vlog_write)。
+--   * 色やタグ({ol} 等)は読みづらいだけなので、ファイル側では外す。
+local vlog_file_path = string.format('../addons/%s/verbose_log.txt', addon_name_lower)
+-- 行数の上限。マップ移動のたびに全アドオンの init 行(50 行前後)が出るため、
+-- 1 回のプレイでも積み上がる。到達したら取り直して際限なく育たないようにする。
+local vlog_max_lines = 20000
+
+local function vlog_write(line)
+    local mode, notice = "a", nil
+    if not g.vlog_started then
+        -- 作り直すのはここだけ。GAME_START はマップ移動のたびに来るので、
+        -- そこで毎回作り直すと直前のマップのログ(初期化エラーを含む)が消える。
+        -- g はクライアント起動中ずっと生きるので、1 回のプレイで 1 ファイルになる。
+        g.vlog_started, g.vlog_lines, mode = true, 0, "w"
+    elseif g.vlog_lines >= vlog_max_lines then
+        g.vlog_lines, mode = 0, "w"
+        notice = "===== 行数が上限に達したのでここから取り直し ====="
+    end
+    local file = io.open(vlog_file_path, mode)
+    if not file then
+        return
+    end
+    local stamp = os.date("[%H:%M:%S] ")
+    if notice then
+        file:write(stamp .. notice .. "\n")
+        g.vlog_lines = g.vlog_lines + 1
+    end
+    file:write(stamp .. line .. "\n")
+    file:close()
+    g.vlog_lines = g.vlog_lines + 1
+end
+
+function g.vlog(fmt, ...)
+    if not g.settings or g.settings.verbose_log ~= 1 then
+        return
+    end
+    local ok, msg = pcall(string.format, fmt, ...)
+    if not ok then
+        msg = tostring(fmt)
+    end
+    ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
+    local plain = msg:gsub("{[^}]*}", "")
+    vlog_write(plain)
+end
+
+-- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
+-- GetClass は IES 引きで重い一方、MapType は同じマップなら不変なので、
+-- マップ名をキーにメモ化する。マップが変われば引き直すので意味は変わらない。
+--
+-- キャッシュするのは引けたときだけ。nil を覚えると、ロード中などに一度でも nil を
+-- 掴んだ時点でそのマップに居る間ずっと nil が返り続け(無効化する契機が無い)、
+-- guild_event_warp の移動可否チェックが素通りする等、呼び出し側の判定が全部壊れる。
+-- 引けなかったマップは毎回引き直す = メモ化前と同じ挙動なので、退行にはならない。
 function g.get_map_type()
     local map_name = session.GetMapName()
+    if g.map_type_cache_name == map_name then
+        return g.map_type_cache
+    end
     local map_cls = GetClass("Map", map_name)
     -- 未知/インスタンスマップでは GetClass が nil を返しうるので nil ガード。
     -- 呼び出し側はいずれも文字列比較(== "Dungeon" 等)なので nil で問題ない。
     if not map_cls then
+        -- 失敗はキャッシュしない = 毎フレームここへ来るので、ログはマップごとに 1 回だけ。
+        -- (絞らないと FPS_UPDATE 経由でシステムメッセージが毎フレーム流れる)
+        if g.map_type_failed_name ~= map_name then
+            g.map_type_failed_name = map_name
+            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name))
+        end
         return nil
     end
-    return map_cls.MapType
+    local map_type = map_cls.MapType
+    if map_type == nil or map_type == "" then
+        -- クラスは引けたが MapType が空。これも「引けなかった」と同じ扱いにする。
+        -- ここでキャッシュすると無効化する契機が無く、そのマップに居る間ずっと
+        -- nil が返り続けてしまう(上のコメントと同じ理由)。
+        if g.map_type_failed_name ~= map_name then
+            g.map_type_failed_name = map_name
+            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name))
+        end
+        return nil
+    end
+    g.map_type_failed_name = nil
+    g.map_type_cache_name = map_name
+    g.map_type_cache = map_type
+    -- ここを通るのは「マップが変わった」ときだけなので、移動のたびに 1 行出る。
+    g.vlog("MapType: %s = %s", tostring(map_name), tostring(map_type))
+    return map_type
+end
+
+-- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。
+--
+-- ゲーム側の chat_memberlist.xml は <option hideable="true"> で、ESC はこの hideable な
+-- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
+-- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
+-- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
+function g.create_persistent_frame(frame_name)
+    return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end
 
 function g.debug_print_table(tbl, indent)

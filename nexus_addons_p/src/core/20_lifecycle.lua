@@ -12,6 +12,9 @@ function _nexus_addons_p_load_settings()
     for _, entry in ipairs(g._nexus_addons_p) do
         valid_keys[entry.key] = true
     end
+    -- アドオン登録キー以外のトップレベル設定はここに列挙する。書き忘れると
+    -- すぐ下のプルーニングで毎回消され、設定を保存しても復元できない。
+    valid_keys.verbose_log = true
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -51,6 +54,10 @@ function _nexus_addons_p_load_settings()
             end
         end
     end
+    if settings.verbose_log == nil then
+        settings.verbose_log = 0 -- 既定は OFF（普段のチャットを埋めない）
+        changed = true
+    end
     g.settings = settings
     if changed then
         _nexus_addons_p_save_settings()
@@ -60,6 +67,12 @@ end
 function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.addon = addon
     g.frame = frame
+    -- 返るのは「国UI名」で、日本語は "Japanese"、韓国語は "Korean" ではなく "kr"。
+    -- 言語名と2文字コードが混在するのはゲーム側の仕様で、こちらの typo ではない。
+    -- 根拠: クライアントの systemoption.lua / barrack_charlist.lua が言語ドロップダウンを
+    -- 組む際に lanUIString ~= "kr" と lanUIString ~= "Japanese" を並べて比較している。
+    -- (norisan さんの native_lang アドオンも {Japanese="ja", kr="ko"} で対応付けている)
+    -- "kr" を "Korean" に直すと韓国語表示が全滅するので触らないこと。
     g.lang = option.GetCurrentCountry()
     g.cid = session.GetMySession():GetCID()
     g.active_id = session.loginInfo.GetAID()
@@ -126,6 +139,18 @@ function _nexus_addons_p_CHAT_SYSTEM(msg, color)
     g.FUNCS["CHAT_SYSTEM"](msg, color)
 end
 
+-- 成功した init の詳細ログ。ON のアドオンだけに絞る。
+-- on_init は ON/OFF によらず全アドオン分呼ばれる(OFF 側はフレームの後始末に使う)ため、
+-- 絞らないとマップ移動のたびに 48 行流れて、肝心の行が埋もれる。
+-- 失敗(FAILED)は OFF でも知りたいので、そちらは絞らずそのまま出す。
+function _nexus_addons_p_vlog_init(name, duration)
+    local setting = g.settings and g.settings[name]
+    if not setting or setting.use ~= 1 then
+        return
+    end
+    g.vlog("init: %s (%dms)", name, duration)
+end
+
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
     g.error_count = 0
     local function safe_call(func, name)
@@ -139,6 +164,9 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
                 local err_msg = string.format("Error during on_init of '%s': %s", name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
+                g.vlog("{#FF6347}init: %s FAILED{/} %s", name, tostring(err))
+            else
+                _nexus_addons_p_vlog_init(name, duration)
             end
         end
     end
@@ -232,6 +260,9 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
                 local err_msg = string.format("Error during on_init of '%s': %s", func_name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
+                g.vlog("{#FF6347}init: %s FAILED{/} %s", func_name, tostring(err))
+            else
+                _nexus_addons_p_vlog_init(func_name, duration)
             end
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)
@@ -329,14 +360,18 @@ function _nexus_addons_p_frame_init()
         local help_btn = list_gb:CreateOrGetControl('button', 'help_btn' .. i, buttons_x + 100, current_y + 5, 40, 30)
         AUTO_CAST(help_btn)
         help_btn:SetText("{ol}{img question_mark 20 15}")
+        -- 登録リストに追加したのに翻訳を書き忘れると、ここの index で一覧フレームごと
+        -- 落ちる(この関数は pcall の外)。説明が無いだけで一覧は開けるようにしておく。
+        local trans = g._nexus_addons_p_trans[child_addon_name] or {}
         local tooltip_text
         if g.lang == "Japanese" then
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].ja
+            tooltip_text = trans.ja
         elseif g.lang == "kr" then
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].kr
+            tooltip_text = trans.kr
         else
-            tooltip_text = g._nexus_addons_p_trans[child_addon_name].etc
+            tooltip_text = trans.etc
         end
+        tooltip_text = tooltip_text or ("{ol}" .. data.name)
         help_btn:SetTextTooltip(tooltip_text)
         help_btn:SetSkinName("test_pvp_btn")
     end
@@ -419,6 +454,11 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- if not g.settings then
     _nexus_addons_p_load_settings()
     -- end
+    -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
+    -- GAME_START はマップ移動のたびに来るので、この行はマップごとの区切りにもなる
+    -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
+    g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
+        tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
     if g.migrate_result == "copied" or g.migrate_result == "partial" then
         g.migrate_result = false
         g.pending_messages = g.pending_messages or {}
@@ -443,10 +483,17 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     end
     frame_name = "norisan_menu_frame"
     menu_frame = ui.GetFrame(frame_name)
-    if not menu_frame then
+    -- norisan_menu_frame という名前は他の norisan 系アドオンと共有していて、向こうが
+    -- 先に旧定義(chat_memberlist 由来 = ESC で閉じられる)で作っていることがある。
+    -- その場合はここで消えない自前の定義(notice_on_pc 由来)へ作り替える。
+    --
+    -- 「ESC で消えたら直す」方式は成立しない。ESC による非表示は IsVisible() に
+    -- 反映されないので、隠れたことを検出する手段が無いため。土台を先に置き換える。
+    if not menu_frame or not g.addons_menu_frame_owned then
         _G["norisan"]["MENU"].frame_name = frame_name
-        g.norisan_menu_create_frame()
+        addons_menu_create_frame()
     elseif menu_frame:IsVisible() == 0 then
+        AUTO_CAST(menu_frame)
         menu_frame:ShowWindow(1)
     end
     g.setup_hook(_nexus_addons_p_APPS_TRY_MOVE_BARRACK, "APPS_TRY_MOVE_BARRACK")
@@ -478,20 +525,36 @@ function _nexus_addons_p_fast_func(_nexus_addons_p)
     end
 end
 
-function _nexus_addons_p_update_frames(_nexus_addons_p)
-    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-    if _nexus_addons_p and _nexus_addons_p:IsVisible() == 0 then
-        _nexus_addons_p:ShowWindow(1)
+-- _nexus_addons_p_update_frames は FPS_UPDATE = 毎フレーム呼ばれる。以前は毎フレーム
+-- この 15 要素のテーブルを作り直し、そのつど addon_name_lower との連結でフレーム名を
+-- 組み立てていたので、読み込み時に一度だけ組み立てて使い回す。
+-- (要素の追加・削除はここだけ触ればよい。city_hidden は街/インスタンスで出さない印)
+local update_check_frames = {}
+do
+    local frame_keys = {"always_status", "pick_item_tracker", "monster_kill_count", "debuff_notice",
+                        "guild_event_warp", "lets_go_home", "relic_change", "vakarine_equip", "sub_map",
+                        "save_quest", "indun_panel", "Battle_ritual", "muteki", "au_map", "tos_btn"}
+    for i, frame_key in ipairs(frame_keys) do
+        update_check_frames[i] = {
+            name = addon_name_lower .. frame_key,
+            city_hidden = (frame_key == "pick_item_tracker")
+        }
     end
-    local frames_to_check = {"always_status", "pick_item_tracker", "monster_kill_count", "debuff_notice",
-                             "guild_event_warp", "lets_go_home", "relic_change", "vakarine_equip", "sub_map",
-                             "save_quest", "indun_panel", "Battle_ritual", "muteki", "au_map", "tos_btn"}
-    for _, frame_key in ipairs(frames_to_check) do
-        local frame_name = addon_name_lower .. frame_key
-        local frame = ui.GetFrame(frame_name)
+end
+
+function _nexus_addons_p_update_frames()
+    local root_frame = ui.GetFrame("_nexus_addons_p")
+    if root_frame and root_frame:IsVisible() == 0 then
+        root_frame:ShowWindow(1)
+    end
+    -- マップ種別の取得は g.get_map_type() 側でマップ単位にメモ化済みなので、
+    -- ここで重ねてキャッシュしない(以前は同じ行で 2 回呼んでいた分だけが無駄だった)。
+    for _, entry in ipairs(update_check_frames) do
+        local frame = ui.GetFrame(entry.name)
         if frame and frame:IsVisible() == 0 then
-            if frame_key == "pick_item_tracker" then
-                if g.get_map_type() ~= "City" and g.get_map_type() ~= "Instance" then
+            if entry.city_hidden then
+                local map_type = g.get_map_type()
+                if map_type ~= "City" and map_type ~= "Instance" then
                     AUTO_CAST(frame)
                     frame:ShowWindow(1)
                 end

@@ -54,7 +54,7 @@
       "addons/auto_map_change.lua",
       "addons/bulk_sales.lua",
       "guard_close.lua",
-      "core/90_norisan_menu.lua"
+      "core/90_addons_menu.lua"
     ],
     "_nexus_addons_p_conclude.lua": [
       "conclude_header.lua",
@@ -64,7 +64,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "6ef20c890261b96e8909b12604d70b72987b38bddb6bb54b2b83dd1c2ed4c21d",
-    "_nexus_addons_p_conclude.lua": "e12b389a45ba25f464a9230ddd9405436d87ff9ab0ad1c304b43d862e48714e0"
+    "_nexus_addons_p.lua": "c8a87da350a60092e00c20d3846cf442549912b30e74e06a1d1399c3380720d7",
+    "_nexus_addons_p_conclude.lua": "2cc24d7267b89e33b68deaccfc43cbcbdc4e6f7705b6b580db73bfe9dbeb2386"
   }
 }

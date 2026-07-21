@@ -53,7 +53,8 @@ function pick_item_tracker_on_init()
 end
 
 function Pick_item_tracker_frame_init(msg)
-    local pick_item_tracker = ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "pick_item_tracker", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local pick_item_tracker = g.create_persistent_frame(addon_name_lower .. "pick_item_tracker")
     AUTO_CAST(pick_item_tracker)
     pick_item_tracker:EnableHitTest(1)
     pick_item_tracker:EnableHittestFrame(1)
