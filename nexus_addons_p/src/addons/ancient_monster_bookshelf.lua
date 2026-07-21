@@ -1,4 +1,25 @@
 -- ancient_monster_bookshelf ここから
+--
+-- ===== このアドオンは意図的に無効化されている（未完成のため） =====
+-- core/10_registry.lua の登録エントリと説明文が両方ともコメントアウトされているので、
+-- 初期化は g._nexus_addons_p を回す _nexus_addons_p_init_addons から呼ばれず、
+-- 下の ancient_monster_bookshelf_on_init は実行されない。ただし build_manifest.json の
+-- _nexus_addons_p_conclude.lua 側には入っているため、配布 .ipf には同梱される
+-- （conclude bundle の中身は実質このファイル 1 本）。
+--
+-- 本家 Nexus Addons 由来の状態で、履歴を遡れる最古の版(v1.1.5 / 2026-01)の時点で
+-- 既にコメントアウト済み。P 側で止めたものではないので、upstream を取り込むときも
+-- この状態のままにしておくこと。
+--
+-- 機能自体は「アシスターカード一覧に AMB ボタンを足し、同レアリティ 3 枚を選んで
+-- まとめて合成する」もの(ebisuke さん作成)。有効化するなら最低限これらが必要:
+--   * ts() のデバッグ出力が 28 箇所そのまま残っている(ts("1") のような書き捨て含む)。
+--     有効化するとチャット欄が合成のたびに埋まる。
+--   * 下の Ancient_monster_bookshelf_btn_init が ui.GetFrame("ancient_card_list") を
+--     nil ガードなしで参照している。このフレームはアシスターカード UI を開くまで
+--     存在しないので、on_init のタイミング次第で必ずエラーになる
+--     (pcall に包まれているのでログに出るだけだが、ボタンは付かない)。
+--   * 合成はカードを消費する破壊的操作なので、実機での動作確認は必須。
 function ancient_monster_bookshelf_on_init()
     Ancient_monster_bookshelf_btn_init()
     g.addon:RegisterMsg('ANCIENT_CARD_COMBINE', 'Ancient_monster_bookshelf_on_ancient_card_update')
