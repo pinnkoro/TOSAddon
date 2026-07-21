@@ -4,6 +4,8 @@ name: Release Nexus Addons P
 # 運用: 新規ブランチ -> main に直接マージ。公開したいタイミングで main -> release にマージする。
 # アドオンマネージャーは addons.json の releaseTag(= nexus_addons_p)の Release から
 # .ipf アセットを取得するため、この移動タグを毎回作り直してアセットを差し替える。
+# 作り直す = 前回のリリースノートとアセットが消えるので、記録用に版番号タグ(v1.0.1 等)の
+# Release も別に作り、過去版を後から辿れるようにする。
 # リリースノートは release へのマージ元 PR(main -> release)の本文をそのまま流用する。
 # (PR を介さずローカルマージで push した場合は本文が無いので既定ノートにフォールバック)
 
@@ -80,8 +82,40 @@ jobs:
           # (published リリースの --target は既存タグを動かさないため、作り直すのが確実)
           gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
 
+          # Latest は移動タグ側に固定する。保存用リリースが増えても、素で開いたときに
+          # 配布中の版が出るようにするため(既定は日付/版番号からの自動判定)。
+          # タイトルに「配布用(最新)」を付けるのは、同じ版の保存用リリースと Releases 一覧で
+          # 並んだときに、どちらがアドオンマネージャーの取得先か一目で分かるようにするため。
           gh release create "$tag" \
-            --title "Nexus Addons P ${VERSION}" \
+            --title "Nexus Addons P ${VERSION} — 配布用（最新）" \
             --notes-file "$NOTES_PATH" \
             --target "$GITHUB_SHA" \
+            --latest \
             "$ASSET_PATH"
+
+      - name: 版番号タグのリリースを保存用に残す
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ASSET_PATH: ${{ steps.meta.outputs.asset_path }}
+          NOTES_PATH: ${{ steps.meta.outputs.notes_path }}
+        run: |
+          set -euo pipefail
+
+          # 移動タグの Release は毎回消えるため、リリースノートと配布した .ipf を
+          # 版番号タグ(addons.json の fileVersion = v1.0.1 形式)の Release として残す。
+          # こちらはアドオンマネージャーからは参照されない(releaseTag は移動タグ固定)ので、
+          # 純粋に記録用。Latest を奪わないよう --latest=false で作る。
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            # 同じ版のまま再実行した場合(手動リラン / ノートの修正)は中身を今回のものに揃える。
+            # タグ自体は既存の位置に残る(公開済みタグは動かさない)。
+            gh release edit "$VERSION" --notes-file "$NOTES_PATH" --latest=false
+            gh release upload "$VERSION" "$ASSET_PATH" --clobber
+          else
+            gh release create "$VERSION" \
+              --title "Nexus Addons P ${VERSION}" \
+              --notes-file "$NOTES_PATH" \
+              --target "$GITHUB_SHA" \
+              --latest=false \
+              "$ASSET_PATH"
+          fi

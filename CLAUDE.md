@@ -128,6 +128,15 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
     * `gh pr create --template <file>` でも同じテンプレートを使える。
 * アドオンマネージャーは `addons.json` の `releaseTag`（= `nexus_addons_p`）の Release から `.ipf` を取得する。
   タグはバージョンごとに変えず、**同じ `nexus_addons_p` タグのアセットを毎回差し替える**（移動タグ運用）。
+* **保存用に、版番号タグ（`v1.0.1` 形式 = `addons.json` の `fileVersion` そのまま）の Release も併せて作る**。
+  移動タグの Release は毎回タグごと削除して作り直すため、前回のリリースノートと配布した `.ipf` が消える。
+  それを残すのが目的で、アドオンマネージャーからは参照されない（`releaseTag` は移動タグ固定）。
+  * Latest は移動タグ側に固定してある（保存用は `--latest=false`）。素で Releases を開いたときに
+    配布中の版が出るようにするため。
+  * **同じ版が Releases 一覧に 2 本並ぶのは正常**（配布中の版は移動タグと保存用の両方に載る）。
+    見分けが付くよう、移動タグ側のタイトルだけ `Nexus Addons P vX.Y.Z — 配布用（最新）` にしてある。
+    保存用は版番号のみ。**採番タイミングによらず最新版の固定リンクが常に存在する**のが、この方式の利点。
+  * 同じ版のまま再実行すると、保存用 Release はノートとアセットが上書きされる（タグの位置は動かない）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
 ### ブランチルール（GitHub ruleset で機械的に強制している）
@@ -150,8 +159,9 @@ GitHub 画面だけで直して写しを置き去りにしないこと。
   毎回コンフリクトする。また merge 元 PR が辿れなくなると、リリースノートの流用（上記）も壊れる。
 * **`ipf` を必須にするのは `release` だけ**。`main` では `ipf` ジョブがそもそも起動しないので、
   必須にすると永久に待ち状態になる（`ci.yml` 冒頭のコメントと同じ理由）。
-* 移動タグ `nexus_addons_p` は tag ruleset を作っていないので、release ワークフローの
-  「タグごと削除して作り直す」処理はそのまま通る。ここに tag ルールを足すと公開が壊れる。
+* **タグの ruleset は作っていない**。移動タグ `nexus_addons_p` の「タグごと削除して作り直す」処理と、
+  保存用の版番号タグ（`v*`）の作成が、どちらも GITHUB_TOKEN のまま通る必要があるため。
+  ここに tag ルールを足すと公開が壊れる。
 
 ## アドオンマネージャーへの登録（登録済み）
 
