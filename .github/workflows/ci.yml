@@ -43,19 +43,19 @@ jobs:
 
       # ToS クライアントは LuaJIT(5.1) 系。loadfile はロードのみで実行はしないので、
       # ゲーム API が無い環境でも構文エラーだけを確実に検出できる。
+      # 手元でも同じものを流せるようスクリプトに出してある。
       - name: bundle の Lua 構文チェック
-        run: |
-          set -euo pipefail
-          for f in nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua \
-                   nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua; do
-            luajit -e "local c, e = loadfile('$f'); if not c then io.stderr:write(e, '\n'); os.exit(1) end"
-            echo "  syntax OK: $f"
-          done
+        run: sh docs/tests/syntax_check.sh
 
       # ゲーム API をスタブに差し替えて動かせる範囲の回帰テスト。
       # 実機でしか確認できない箇所を壊しても気付けないため、最低限だけ機械で見る。
       - name: core のロジックテスト
         run: luajit docs/tests/test_core.lua
+
+      # 利用者の記録(討伐数・滞在時間)を消す変更は実機だと手遅れになってから気付くので、
+      # 「壊さない」性質だけは機械で見る。
+      - name: monster_kill_count のロジックテスト
+        run: luajit docs/tests/test_monster_kill_count.lua
 
   # release への PR / push でのみ。main -> release の PR で base_ref が release、
   # マージ後の push で ref が refs/heads/release になる。release ブランチ上で

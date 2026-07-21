@@ -91,13 +91,17 @@ end
 
 function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
     local ctrl_name = ctrl:GetName()
-    local frame_name = _G["norisan"]["MENU"].frame_name
-    local frame = ui.GetFrame(frame_name)
+    -- frame_name は相乗り側が入れることもあり、まだ誰も入れていない状態で
+    -- 設定画面を開ける経路がある。フレーム名は固定なのでフォールバックを置き、
+    -- それでも引けなければ frame 無しで進める(下は毎回 nil ガードする)。
+    local frame = ui.GetFrame(_G["norisan"]["MENU"].frame_name or "norisan_menu_frame")
     if ctrl_name == "layer_edit" then
         local layer = tonumber(ctrl:GetText())
         if layer then
             _G["norisan"]["MENU"].layer = layer
-            frame:SetLayerLevel(layer)
+            if frame then
+                frame:SetLayerLevel(layer)
+            end
             addons_menu_save_json(_G["norisan"]["MENU"])
 
             local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}レイヤーを変更" or
@@ -130,7 +134,9 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
         else
             _G["norisan"]["MENU"].move = true
         end
-        frame:EnableMove(_G["norisan"]["MENU"].move == true and 1 or 0)
+        if frame then
+            frame:EnableMove(_G["norisan"]["MENU"].move == true and 1 or 0)
+        end
         addons_menu_save_json(_G["norisan"]["MENU"])
         return
     elseif ctrl_name == "open_toggle" then
@@ -381,12 +387,16 @@ function _G.addons_menu_create_frame()
     if ui.GetFrame("norisan_menu_frame") then
         ui.DestroyFrame("norisan_menu_frame")
     end
-    -- 元フレームに chat_memberlist を使うと ESC で閉じられ、メニューボタンごと消える。
-    -- ゲーム側の定義(addon.ipf の chat_memberlist.xml)が <option hideable="true"> で、
-    -- ESC はこの hideable なフレームを閉じるため。notice_on_pc は hideable="false"
-    -- なので消えない。ここを戻さないこと。
-    local frame = ui.CreateNewFrame("notice_on_pc", "norisan_menu_frame", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local frame = g.create_persistent_frame("norisan_menu_frame")
     AUTO_CAST(frame)
+    -- 相乗り側との待ち合わせ名を必ず立てる。ここを飛ばすと、他アドオンが先に
+    -- フレームを作っていた場合に frame_name が nil のまま設定画面が開き、
+    -- レイヤー変更や固定チェックが対象フレームを引けなくなる。
+    -- 併せて「このフレームは自前の定義で作った」印を残す。20_lifecycle.lua の
+    -- GAME_START はこの印を見て、旧定義のまま残っているフレームを作り替える。
+    _G["norisan"]["MENU"].frame_name = "norisan_menu_frame"
+    g.addons_menu_frame_owned = true
     frame:RemoveAllChild()
     frame:SetSkinName("None")
     frame:SetTitleBarSkin("None")

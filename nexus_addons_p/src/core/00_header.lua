@@ -52,26 +52,32 @@ local function print_all_child(ctrl, prefix)
     end
 end
 
-function g.mkdir_new_folder()
-    local function create_folder(folder_path, file_path)
-        local file = io.open(file_path, "r")
-        if not file then
-            os.execute('mkdir "' .. folder_path .. '"')
-            file = io.open(file_path, "w")
-            if file then
-                file:write("A new file has been created")
-                file:close()
-            end
-        else
-            file:close()
-        end
+-- フォルダを作る。作成済みを示すマーカーファイルが読めるときは何もしない。
+-- os.execute は cmd.exe を同期起動する(コンソール窓が一瞬出ることもある)ので、
+-- 起動のたびに空振りさせないためのガード。フォルダを作る箇所はすべてここを通すこと。
+--
+-- folder_path はそのまま cmd へ渡す。区切り文字の扱いは呼び出し側の既存挙動を
+-- 変えないよう、こちらでは正規化しない(monster_kill_count はバックスラッシュ、
+-- mkdir_new_folder はスラッシュのまま渡してきた)。
+function g.create_folder(folder_path, marker_path)
+    local file = io.open(marker_path, "r")
+    if file then
+        file:close()
+        return
     end
-    local folder = string.format("../addons/%s", addon_name_lower)
-    local file_path = string.format("../addons/%s/mkdir.txt", addon_name_lower)
-    create_folder(folder, file_path)
-    local user_folder = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
-    local user_file_path = string.format("../addons/%s/%s/mkdir.txt", addon_name_lower, g.active_id)
-    create_folder(user_folder, user_file_path)
+    os.execute('mkdir "' .. folder_path .. '"')
+    file = io.open(marker_path, "w")
+    if file then
+        file:write("A new file has been created")
+        file:close()
+    end
+end
+
+function g.mkdir_new_folder()
+    g.create_folder(string.format("../addons/%s", addon_name_lower),
+        string.format("../addons/%s/mkdir.txt", addon_name_lower))
+    g.create_folder(string.format("../addons/%s/%s", addon_name_lower, g.active_id),
+        string.format("../addons/%s/%s/mkdir.txt", addon_name_lower, g.active_id))
 end
 
 -- ===== 本家 Nexus Addons(_nexus_addons)との関係 =====
@@ -438,12 +444,33 @@ function g.get_map_type()
         end
         return nil
     end
+    local map_type = map_cls.MapType
+    if map_type == nil or map_type == "" then
+        -- クラスは引けたが MapType が空。これも「引けなかった」と同じ扱いにする。
+        -- ここでキャッシュすると無効化する契機が無く、そのマップに居る間ずっと
+        -- nil が返り続けてしまう(上のコメントと同じ理由)。
+        if g.map_type_failed_name ~= map_name then
+            g.map_type_failed_name = map_name
+            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name))
+        end
+        return nil
+    end
     g.map_type_failed_name = nil
     g.map_type_cache_name = map_name
-    g.map_type_cache = map_cls.MapType
+    g.map_type_cache = map_type
     -- ここを通るのは「マップが変わった」ときだけなので、移動のたびに 1 行出る。
-    g.vlog("MapType: %s = %s", tostring(map_name), tostring(g.map_type_cache))
-    return g.map_type_cache
+    g.vlog("MapType: %s = %s", tostring(map_name), tostring(map_type))
+    return map_type
+end
+
+-- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。
+--
+-- ゲーム側の chat_memberlist.xml は <option hideable="true"> で、ESC はこの hideable な
+-- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
+-- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
+-- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
+function g.create_persistent_frame(frame_name)
+    return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end
 
 function g.debug_print_table(tbl, indent)

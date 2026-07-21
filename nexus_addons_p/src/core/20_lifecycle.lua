@@ -101,7 +101,6 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.REGISTER = {}
     addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
     addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
-    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
 end
 
@@ -140,6 +139,18 @@ function _nexus_addons_p_CHAT_SYSTEM(msg, color)
     g.FUNCS["CHAT_SYSTEM"](msg, color)
 end
 
+-- 成功した init の詳細ログ。ON のアドオンだけに絞る。
+-- on_init は ON/OFF によらず全アドオン分呼ばれる(OFF 側はフレームの後始末に使う)ため、
+-- 絞らないとマップ移動のたびに 48 行流れて、肝心の行が埋もれる。
+-- 失敗(FAILED)は OFF でも知りたいので、そちらは絞らずそのまま出す。
+function _nexus_addons_p_vlog_init(name, duration)
+    local setting = g.settings and g.settings[name]
+    if not setting or setting.use ~= 1 then
+        return
+    end
+    g.vlog("init: %s (%dms)", name, duration)
+end
+
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
     g.error_count = 0
     local function safe_call(func, name)
@@ -155,7 +166,7 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
                 g.log_to_file(err_msg)
                 g.vlog("{#FF6347}init: %s FAILED{/} %s", name, tostring(err))
             else
-                g.vlog("init: %s (%dms)", name, duration)
+                _nexus_addons_p_vlog_init(name, duration)
             end
         end
     end
@@ -251,7 +262,7 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
                 g.log_to_file(err_msg)
                 g.vlog("{#FF6347}init: %s FAILED{/} %s", func_name, tostring(err))
             else
-                g.vlog("init: %s (%dms)", func_name, duration)
+                _nexus_addons_p_vlog_init(func_name, duration)
             end
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)
@@ -472,36 +483,21 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     end
     frame_name = "norisan_menu_frame"
     menu_frame = ui.GetFrame(frame_name)
-    if not menu_frame then
+    -- norisan_menu_frame という名前は他の norisan 系アドオンと共有していて、向こうが
+    -- 先に旧定義(chat_memberlist 由来 = ESC で閉じられる)で作っていることがある。
+    -- その場合はここで消えない自前の定義(notice_on_pc 由来)へ作り替える。
+    --
+    -- 「ESC で消えたら直す」方式は成立しない。ESC による非表示は IsVisible() に
+    -- 反映されないので、隠れたことを検出する手段が無いため。土台を先に置き換える。
+    if not menu_frame or not g.addons_menu_frame_owned then
         _G["norisan"]["MENU"].frame_name = frame_name
-        addons_menu_create_frame()
-    elseif menu_frame:IsVisible() == 0 then
-        menu_frame:ShowWindow(1)
-    end
-    g.setup_hook(_nexus_addons_p_APPS_TRY_MOVE_BARRACK, "APPS_TRY_MOVE_BARRACK")
-    _nexus_addons_p_fast_func()
-end
-
--- ESC は hideable なフレーム(ゲーム側定義が <option hideable="true"> のもの)を閉じる。
--- 自前のメニューボタンは notice_on_pc 由来に変えて消えないようにしたが、
--- norisan_menu_frame という名前は他の norisan 系アドオンと共有していて、向こうが先に
--- 旧定義(chat_memberlist 由来)で作っていると ESC で消えたままになる。消えていたら
--- 作り直し、以後は消えない自前の定義に置き換える。
--- ESCAPE_PRESSED はフレームが閉じられる前に届くことがあるため、次の更新まで待って調べる。
-function _nexus_addons_p_ESCAPE_PRESSED(_nexus_addons_p)
-    _nexus_addons_p:RunUpdateScript("_nexus_addons_p_restore_menu_frame", 0.1)
-end
-
-function _nexus_addons_p_restore_menu_frame()
-    local menu_frame = ui.GetFrame("norisan_menu_frame")
-    if not menu_frame then
-        _G["norisan"]["MENU"].frame_name = "norisan_menu_frame"
         addons_menu_create_frame()
     elseif menu_frame:IsVisible() == 0 then
         AUTO_CAST(menu_frame)
         menu_frame:ShowWindow(1)
     end
-    return 0 -- 1 回で止める
+    g.setup_hook(_nexus_addons_p_APPS_TRY_MOVE_BARRACK, "APPS_TRY_MOVE_BARRACK")
+    _nexus_addons_p_fast_func()
 end
 
 function _nexus_addons_p_GAME_START_3SEC(_nexus_addons_p, msg)

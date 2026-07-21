@@ -53,12 +53,8 @@ function pick_item_tracker_on_init()
 end
 
 function Pick_item_tracker_frame_init(msg)
-    -- 元フレームに chat_memberlist を使うと ESC で閉じられて消える。ゲーム側の定義
-    -- (addon.ipf の chat_memberlist.xml) が <option hideable="true"> で、ESC はこの
-    -- hideable なフレームを閉じるため。notice_on_pc は hideable="false" なので消えない。
-    -- update_frames の毎フレーム復帰は当てにできない。ESC の隠し方は IsVisible() に
-    -- 反映されず、アイテム取得などで再描画が走るまで戻らないため。ここを戻さないこと。
-    local pick_item_tracker = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "pick_item_tracker", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local pick_item_tracker = g.create_persistent_frame(addon_name_lower .. "pick_item_tracker")
     AUTO_CAST(pick_item_tracker)
     pick_item_tracker:EnableHitTest(1)
     pick_item_tracker:EnableHittestFrame(1)

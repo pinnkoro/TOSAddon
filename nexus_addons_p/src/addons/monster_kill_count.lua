@@ -12,9 +12,17 @@ function Monster_kill_count_load_settings()
     -- 作成はその手前に置くこと(ここを下げると既存利用者に修正が届かない)。
     local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
     local win_folder_path = string.gsub(folder_path, "/", "\\")
-    os.execute('mkdir "' .. win_folder_path .. '"')
+    g.create_folder(win_folder_path, folder_path .. "/mkdir.txt")
     local settings = g.load_json(g.mkc_path)
     if settings then
+        -- この経路は下のスキーマ構築を丸ごと飛ばすので、欠けたキーはここで補う。
+        -- 特に map_ids が無いと monster_kill_count_on_init の ipairs で落ち、
+        -- pcall に飲まれてアドオンが無言で止まる(frame_x/y も比較で落ちる)。
+        if type(settings.map_ids) ~= "table" then
+            settings.map_ids = {}
+        end
+        settings.frame_x = tonumber(settings.frame_x) or 1340
+        settings.frame_y = tonumber(settings.frame_y) or 20
         g.mkc_settings = settings
         return
     end
@@ -39,11 +47,10 @@ function Monster_kill_count_load_settings()
             map_ids = {}
         }
         local old_dir = string.format("../addons/%s/%s/", "klcount", g.active_id)
-        local new_folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
-        os.execute('mkdir "' .. new_folder_path .. '"')
+        -- 保存先は関数の先頭で作成済み(folder_path と同一)
         for map_id, _ in pairs(allowed_map_ids_by_level) do
             local old_file_path = old_dir .. map_id .. ".json"
-            local new_file_path = new_folder_path .. "/" .. map_id .. ".json"
+            local new_file_path = folder_path .. "/" .. map_id .. ".json"
             local old_file = io.open(old_file_path, "r")
             if old_file then
                 local content = old_file:read("*a")
@@ -239,13 +246,8 @@ function Monster_kill_count_ITEM_PICK(frame, msg, class_id, item_count)
 end
 
 function Monster_kill_count_frame_init()
-    -- 元フレームに chat_memberlist を使うと ESC で閉じられて消える。ゲーム側の定義
-    -- (addon.ipf の chat_memberlist.xml) が <option hideable="true"> で、ESC はこの
-    -- hideable なフレームを閉じるため。notice_on_pc は hideable="false" なので消えない。
-    -- update_frames の毎フレーム復帰は当てにできない。ESC の隠し方は IsVisible() に
-    -- 反映されず、討伐やアイテム取得で再描画が走るまで戻らないため。ここを戻さないこと。
-    local monster_kill_count =
-        ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "monster_kill_count", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local monster_kill_count = g.create_persistent_frame(addon_name_lower .. "monster_kill_count")
     AUTO_CAST(monster_kill_count)
     monster_kill_count:SetSkinName("shadow_box")
     monster_kill_count:SetTitleBarSkin("None")
@@ -336,12 +338,11 @@ function Monster_kill_count_information_context()
         local map_id = sorted_map_ids[i]
         local map_id_str = tostring(map_id)
         local map_file_path = Monster_kill_count_get_map_filepath(map_id_str)
+        local map_cls = GetClassByType("Map", map_id)
         local map_data = g.load_json(map_file_path)
-        -- get_items が無い形式のファイルが残っていると next(nil) で落ち、
-        -- コンテキストメニューが一切開かなくなる(= 設定ボタンが無反応に見える)ので、
-        -- 中身の有無ではなくキーの有無から確認する。
-        if not map_data or type(map_data.get_items) ~= "table" or not next(map_data.get_items) then
-            local map_cls = GetClassByType("Map", map_id)
+        if not map_data then
+            -- 記録ファイルが無い/壊れているときだけ雛形を作る。
+            -- 中身がある場合にここで作り直すと討伐数と滞在時間まで消える。
             map_data = {
                 map_name = map_cls and map_cls.ClassName,
                 stay_time = 0,
@@ -350,8 +351,22 @@ function Monster_kill_count_information_context()
             }
             g.save_json(map_file_path, map_data)
         else
-            local display_text = map_id .. " " .. GetClassByType("Map", map_id).Name
-            ui.AddContextMenuItem(context, display_text, string.format("Monster_kill_count_map_information(%d)", map_id))
+            -- get_items が無い形式のファイルが残っていると下の next(nil) で落ち、
+            -- コンテキストメニューが一切開かなくなる(= 設定ボタンが無反応に見える)。
+            -- 欠けたキーだけ補い、既存の記録は必ず残す。
+            if type(map_data.get_items) ~= "table" then
+                map_data.get_items = {}
+                g.save_json(map_file_path, map_data)
+            end
+            -- 一覧に出すかは「何か記録があるか」で決める。get_items だけを見ていた頃は、
+            -- 討伐しただけでアイテムを拾わなかったマップが一覧から漏れていた。
+            local has_record = (tonumber(map_data.kill_count) or 0) > 0 or
+                                   (tonumber(map_data.stay_time) or 0) > 0 or next(map_data.get_items) ~= nil
+            if has_record and map_cls then
+                local display_text = map_id .. " " .. map_cls.Name
+                ui.AddContextMenuItem(context, display_text,
+                    string.format("Monster_kill_count_map_information(%d)", map_id))
+            end
         end
     end
     ui.OpenContextMenu(context)

@@ -25,6 +25,8 @@ end
 -- 詳細ログのファイル出力を捕まえる。実ファイルを作らせないためでもある
 -- (パスが ../addons/... なので、素通しするとリポジトリの外へ書き出してしまう)。
 local vlog_file = {}
+-- g.create_folder のマーカーファイル。有無を差し替えて os.execute の空振りを見る。
+local marker_exists = {}
 local real_io_open = io.open
 io.open = function(path, mode, ...)
     if type(path) == "string" and path:find("verbose_log.txt", 1, true) then
@@ -36,11 +38,25 @@ io.open = function(path, mode, ...)
             close = function() end
         }
     end
+    if type(path) == "string" and path:find("mkdir.txt", 1, true) then
+        if mode == "r" and not marker_exists[path] then
+            return nil
+        end
+        marker_exists[path] = true
+        return {read = function() return "x" end, write = function() end, close = function() end}
+    end
     return real_io_open(path, mode, ...)
+end
+
+local os_execute_calls = {}
+os.execute = function(cmd)
+    os_execute_calls[#os_execute_calls + 1] = cmd
+    return 0
 end
 
 local state = {map_name = "town", getclass_calls = 0}
 local MAP_TYPES = {town = "City", field1 = "Field", raid1 = "Instance"} -- "unknown" は未登録
+local MAP_TYPE_EMPTY = {} -- クラスは引けるが MapType が空、という実機で起こりうる状態
 
 session = {
     GetMapName = function() return state.map_name end,
@@ -50,6 +66,9 @@ session = {
 
 function GetClass(_kind, name)
     state.getclass_calls = state.getclass_calls + 1
+    if MAP_TYPE_EMPTY[name] then
+        return {MapType = ""}
+    end
     local t = MAP_TYPES[name]
     if not t then
         return nil -- 未知/インスタンスマップでは実機でも nil が返りうる
@@ -73,9 +92,15 @@ local function new_frame(name, visible)
 end
 
 local sysmsgs = {}
+local created_frames = {}
 ui = {
     GetFrame = function(name) return frames[name] end,
     SysMsg = function(msg) sysmsgs[#sysmsgs + 1] = msg end,
+    CreateNewFrame = function(template, name)
+        created_frames[#created_frames + 1] = {template = template, name = name}
+        frames[name] = new_frame(name, 1)
+        return frames[name]
+    end,
 }
 function AUTO_CAST(x) return x end
 option = {GetCurrentCountry = function() return "Japanese" end}
@@ -269,6 +294,69 @@ _nexus_addons_p_load_settings()
 check("ON が保持される", g.settings.verbose_log, 1)
 check("登録外のキーは従来どおり削除", g.settings.bogus_key, nil)
 check("保存内容にも載る", stored and stored.verbose_log, 1)
+g.settings = saved_settings
+
+-- ===== 9. get_map_type: MapType が空のときも「失敗」として扱う =====
+-- クラスは引けたが MapType が空、という状態を覚えると無効化する契機が無く、
+-- そのマップに居る間ずっと nil が返り続ける(引けなかったときと同じ問題)。
+print("[9] MapType が空のときはキャッシュしない")
+g.map_type_cache_name, g.map_type_failed_name = nil, nil
+MAP_TYPE_EMPTY["empty_map"] = true
+state.map_name = "empty_map"
+check("空なら nil を返す", g.get_map_type(), nil)
+state.getclass_calls = 0
+for _ = 1, 5 do g.get_map_type() end
+check("5回引いたら5回とも引き直す", state.getclass_calls, 5)
+MAP_TYPE_EMPTY["empty_map"] = nil
+MAP_TYPES["empty_map"] = "Field" -- 埋まったら拾い直す
+check("値が入れば拾い直す", g.get_map_type(), "Field")
+MAP_TYPES["empty_map"] = nil
+
+-- ===== 10. create_folder: マーカーがあれば cmd を起動しない =====
+-- os.execute は cmd.exe の同期起動なので、毎回空振りさせない。
+print("[10] create_folder のマーカーによる空振り防止")
+marker_exists, os_execute_calls = {}, {}
+g.create_folder("..\\addons\\test_folder", "../addons/test_folder/mkdir.txt")
+check("初回は mkdir を実行", #os_execute_calls, 1)
+check("マーカーを作る", marker_exists["../addons/test_folder/mkdir.txt"], true)
+os_execute_calls = {}
+g.create_folder("..\\addons\\test_folder", "../addons/test_folder/mkdir.txt")
+check("2回目は実行しない", #os_execute_calls, 0)
+
+-- ===== 11. create_persistent_frame: ESC で消えない土台を使う =====
+-- chat_memberlist は hideable="true" で ESC に閉じられる。常時表示フレームが
+-- ここを踏むと ESC で消え、IsVisible() にも出ないので復帰もできない。
+print("[11] 常時表示フレームの土台")
+created_frames = {}
+g.create_persistent_frame("test_frame")
+check("生成に使う土台", created_frames[1] and created_frames[1].template, "notice_on_pc")
+check("フレーム名をそのまま使う", created_frames[1] and created_frames[1].name, "test_frame")
+
+-- ===== 12. init の詳細ログは ON のアドオンだけ =====
+-- on_init は ON/OFF によらず全アドオン分呼ばれる(OFF 側はフレームの後始末に使う)ので、
+-- 絞らないとマップ移動のたびに 48 行流れて肝心の行が埋もれる。
+print("[12] init ログは ON のアドオンだけに出す")
+g.settings = {
+    verbose_log = 1,
+    addon_on = {use = 1},
+    addon_off = {use = 0}
+}
+sysmsgs, vlog_file = {}, {}
+_nexus_addons_p_vlog_init("addon_on", 3)
+check("ON は出す", #sysmsgs, 1)
+check("所要時間が入る", sysmsgs[1]:find("(3ms)", 1, true) ~= nil, true)
+
+sysmsgs, vlog_file = {}, {}
+_nexus_addons_p_vlog_init("addon_off", 3)
+check("OFF は出さない", #sysmsgs, 0)
+check("OFF はファイルにも書かない", #vlog_file, 0)
+
+-- 登録リストに在るのに設定が無い、という壊れた状態でも落ちない
+sysmsgs = {}
+check("設定が無くても落ちない", (pcall(_nexus_addons_p_vlog_init, "unknown_addon", 1)), true)
+check("設定が無ければ出さない", #sysmsgs, 0)
+g.settings = nil
+check("設定未ロードでも落ちない", (pcall(_nexus_addons_p_vlog_init, "addon_on", 1)), true)
 g.settings = saved_settings
 
 if failures > 0 then
