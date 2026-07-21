@@ -124,6 +124,29 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   タグはバージョンごとに変えず、**同じ `nexus_addons_p` タグのアセットを毎回差し替える**（移動タグ運用）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
+### ブランチルール（GitHub ruleset で機械的に強制している）
+
+上の運用は口約束だと守れないので、`main` / `release` に ruleset を設定して GitHub 側で止めている。
+定義は [.github/rulesets/](.github/rulesets/) に置いてあり、これが**適用済みの内容の写し**。
+変更するときはファイルを直して `gh api repos/pinnkoro/TOSAddon/rulesets/<id> -X PUT --input <file>` で反映し、
+GitHub 画面だけで直して写しを置き去りにしないこと。
+
+| | `main` | `release` |
+| --- | --- | --- |
+| 直接 push | 不可（PR 必須・承認は 0 件でよい） | 不可（PR 必須） |
+| 必須ステータス | `bundle` | `bundle` + `ipf` |
+| マージ方法 | merge / squash | **merge のみ** |
+| force push・ブランチ削除 | 禁止 | 禁止 |
+
+* **承認レビューは 0 件必須**。ソロ開発で自分の PR を承認できないため、1 件以上にすると詰む。
+  PR を通す手順そのものを残すのが目的で、レビュアーを増やすのが目的ではない。
+* **`release` は merge のみ**。squash すると `release` が `main` と別履歴になり、以降のマージが
+  毎回コンフリクトする。また merge 元 PR が辿れなくなると、リリースノートの流用（上記）も壊れる。
+* **`ipf` を必須にするのは `release` だけ**。`main` では `ipf` ジョブがそもそも起動しないので、
+  必須にすると永久に待ち状態になる（`ci.yml` 冒頭のコメントと同じ理由）。
+* 移動タグ `nexus_addons_p` は tag ruleset を作っていないので、release ワークフローの
+  「タグごと削除して作り直す」処理はそのまま通る。ここに tag ルールを足すと公開が壊れる。
+
 ## アドオンマネージャーへの登録（PR 提出済み・マージ待ち）
 
 [MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager) は
