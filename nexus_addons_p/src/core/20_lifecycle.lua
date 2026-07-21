@@ -488,20 +488,41 @@ function _nexus_addons_p_fast_func(_nexus_addons_p)
     end
 end
 
-function _nexus_addons_p_update_frames(_nexus_addons_p)
-    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-    if _nexus_addons_p and _nexus_addons_p:IsVisible() == 0 then
-        _nexus_addons_p:ShowWindow(1)
+-- _nexus_addons_p_update_frames は FPS_UPDATE = 毎フレーム呼ばれる。以前は毎フレーム
+-- この 15 要素のテーブルを作り直し、そのつど addon_name_lower との連結でフレーム名を
+-- 組み立てていたので、読み込み時に一度だけ組み立てて使い回す。
+-- (要素の追加・削除はここだけ触ればよい。city_hidden は街/インスタンスで出さない印)
+local update_check_frames = {}
+do
+    local frame_keys = {"always_status", "pick_item_tracker", "monster_kill_count", "debuff_notice",
+                        "guild_event_warp", "lets_go_home", "relic_change", "vakarine_equip", "sub_map",
+                        "save_quest", "indun_panel", "Battle_ritual", "muteki", "au_map", "tos_btn"}
+    for i, frame_key in ipairs(frame_keys) do
+        update_check_frames[i] = {
+            name = addon_name_lower .. frame_key,
+            city_hidden = (frame_key == "pick_item_tracker")
+        }
     end
-    local frames_to_check = {"always_status", "pick_item_tracker", "monster_kill_count", "debuff_notice",
-                             "guild_event_warp", "lets_go_home", "relic_change", "vakarine_equip", "sub_map",
-                             "save_quest", "indun_panel", "Battle_ritual", "muteki", "au_map", "tos_btn"}
-    for _, frame_key in ipairs(frames_to_check) do
-        local frame_name = addon_name_lower .. frame_key
-        local frame = ui.GetFrame(frame_name)
+end
+
+function _nexus_addons_p_update_frames()
+    local root_frame = ui.GetFrame("_nexus_addons_p")
+    if root_frame and root_frame:IsVisible() == 0 then
+        root_frame:ShowWindow(1)
+    end
+    -- マップ種別は pick_item_tracker が隠れているときにしか要らないので、
+    -- 必要になった時点で 1 回だけ引く(以前は同じ行で 2 回呼んでいた)。
+    -- 引けなかった場合(nil)は false を入れて再取得を防ぐ。どちらも "City"/"Instance"
+    -- とは一致しないので、表示するという従来の挙動は変わらない。
+    local map_type
+    for _, entry in ipairs(update_check_frames) do
+        local frame = ui.GetFrame(entry.name)
         if frame and frame:IsVisible() == 0 then
-            if frame_key == "pick_item_tracker" then
-                if g.get_map_type() ~= "City" and g.get_map_type() ~= "Instance" then
+            if entry.city_hidden then
+                if map_type == nil then
+                    map_type = g.get_map_type() or false
+                end
+                if map_type ~= "City" and map_type ~= "Instance" then
                     AUTO_CAST(frame)
                     frame:ShowWindow(1)
                 end

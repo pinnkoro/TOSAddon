@@ -7,6 +7,7 @@ name: CI
 #   1. src と golden sha の食い違い    … src を触ったのに --bless し忘れた / CRLF 混入
 #   2. manifest 未登録の src ファイル  … ビルドから黙って脱落する
 #   3. 連結後の Lua 構文エラー         … 分割ソース単体では気付けない結合バグ
+#   3'. core のロジック回帰            … ゲーム API をスタブ化して動かせる範囲のみ
 #
 # ipf ジョブ（release 経路でのみ）
 #   4. .ipf の中身が現 src と食い違う  … src を直して .ipf を再ビルドし忘れた
@@ -50,6 +51,11 @@ jobs:
             luajit -e "local c, e = loadfile('$f'); if not c then io.stderr:write(e, '\n'); os.exit(1) end"
             echo "  syntax OK: $f"
           done
+
+      # ゲーム API をスタブに差し替えて動かせる範囲の回帰テスト。
+      # 実機でしか確認できない箇所を壊しても気付けないため、最低限だけ機械で見る。
+      - name: core のロジックテスト
+        run: luajit docs/tests/test_core.lua
 
   # release への PR / push でのみ。main -> release の PR で base_ref が release、
   # マージ後の push で ref が refs/heads/release になる。release ブランチ上で

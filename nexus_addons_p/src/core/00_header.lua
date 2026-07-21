@@ -353,15 +353,26 @@ function g.save_json(path, tbl)
     return true
 end
 
+-- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
+-- GetClass は IES 引きで重い一方、MapType は同じマップなら不変なので、
+-- マップ名をキーにメモ化する。マップが変われば引き直すので意味は変わらない。
+-- (キャッシュの有無は「値」ではなく「キー(map_type_cache_name)」で判定する。
+--  結果が nil のマップもあり、値だけ見ると毎回ミス扱いになってしまうため)
 function g.get_map_type()
     local map_name = session.GetMapName()
+    if g.map_type_cache_name == map_name then
+        return g.map_type_cache
+    end
     local map_cls = GetClass("Map", map_name)
     -- 未知/インスタンスマップでは GetClass が nil を返しうるので nil ガード。
     -- 呼び出し側はいずれも文字列比較(== "Dungeon" 等)なので nil で問題ない。
-    if not map_cls then
-        return nil
+    local map_type = nil
+    if map_cls then
+        map_type = map_cls.MapType
     end
-    return map_cls.MapType
+    g.map_type_cache_name = map_name
+    g.map_type_cache = map_type
+    return map_type
 end
 
 function g.debug_print_table(tbl, indent)
