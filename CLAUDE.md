@@ -120,6 +120,12 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。
   * **リリースノートは `main` → `release` のマージ元 PR の本文**がそのまま使われる。
     公開時は main→release の PR を作り、その説明にリリースノートを書くこと。
+    テンプレートは [.github/PULL_REQUEST_TEMPLATE/](.github/PULL_REQUEST_TEMPLATE/) に置いてあるが、
+    **ディレクトリ形式のテンプレートは自動適用されず、`?template=` を付けた URL からしか入らない**。
+    素で PR を作ると本文が空のまま公開まで通ってしまうので、次の URL から作ること:
+    * リリース (main→release): <https://github.com/pinnkoro/TOSAddon/compare/release...main?template=release.md&expand=1>
+    * 通常の開発 (→main): `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`
+    * `gh pr create --template <file>` でも同じテンプレートを使える。
 * アドオンマネージャーは `addons.json` の `releaseTag`（= `nexus_addons_p`）の Release から `.ipf` を取得する。
   タグはバージョンごとに変えず、**同じ `nexus_addons_p` タグのアセットを毎回差し替える**（移動タグ運用）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。

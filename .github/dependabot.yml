@@ -1,0 +1,15 @@
+# GitHub Actions のバージョン更新だけを追従する。
+# Lua はパッケージマネージャを介さず、Python 側も標準ライブラリしか使っていないため、
+# 対象となるマニフェストは他に無い（package-ecosystem を増やしても空振りする）。
+#
+# 更新は PR で来る。main は ruleset で PR 必須 + bundle 必須なので、
+# CI が通らない更新はそのまま止まる。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+    open-pull-requests-limit: 3
