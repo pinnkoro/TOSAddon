@@ -363,6 +363,34 @@ end
 --
 -- 初期化前(g.settings がまだ nil)や、本家検出で初期化を止めた場合も黙って何もしない。
 -- 書式化の失敗でデバッグ用のログが本体を巻き込んで落とすことがないよう pcall で包む。
+--
+-- チャットは流れてしまい後から読み返せないので、同じ内容をファイルにも残す。
+-- 不具合報告用に「そのまま送れる」ことを狙っており、
+--   * 出力先は debug_log.txt とは別。あちらはエラーの履歴を追記し続ける用途で、
+--     詳細ログを混ぜると際限なく育ち、必要な部分も探しにくくなる。
+--   * ログイン(GAME_START)ごとに g.vlog_reset() で作り直すので、中身は常に今回の起動分だけ。
+--   * 色やタグ({ol} 等)は読みづらいだけなので、ファイル側では外す。
+local vlog_file_path = string.format('../addons/%s/verbose_log.txt', addon_name_lower)
+
+local function vlog_write(line)
+    local file = io.open(vlog_file_path, "a")
+    if file then
+        file:write(os.date("[%H:%M:%S] ") .. line .. "\n")
+        file:close()
+    end
+end
+
+function g.vlog_reset()
+    if not g.settings or g.settings.verbose_log ~= 1 then
+        return
+    end
+    local file = io.open(vlog_file_path, "w")
+    if file then
+        file:close()
+    end
+    vlog_write("===== log start =====")
+end
+
 function g.vlog(fmt, ...)
     if not g.settings or g.settings.verbose_log ~= 1 then
         return
@@ -372,6 +400,8 @@ function g.vlog(fmt, ...)
         msg = tostring(fmt)
     end
     ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
+    local plain = msg:gsub("{[^}]*}", "")
+    vlog_write(plain)
 end
 
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。

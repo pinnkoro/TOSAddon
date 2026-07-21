@@ -22,6 +22,23 @@ package.preload["json"] = function()
     return {encode = function() return "" end, decode = function() return {} end}
 end
 
+-- 詳細ログのファイル出力を捕まえる。実ファイルを作らせないためでもある
+-- (パスが ../addons/... なので、素通しするとリポジトリの外へ書き出してしまう)。
+local vlog_file = {}
+local real_io_open = io.open
+io.open = function(path, mode, ...)
+    if type(path) == "string" and path:find("verbose_log.txt", 1, true) then
+        if mode == "w" then
+            vlog_file = {}
+        end
+        return {
+            write = function(_, s) vlog_file[#vlog_file + 1] = s end,
+            close = function() end
+        }
+    end
+    return real_io_open(path, mode, ...)
+end
+
 local state = {map_name = "town", getclass_calls = 0}
 local MAP_TYPES = {town = "City", field1 = "Field", raid1 = "Instance"} -- "unknown" は未登録
 
@@ -171,21 +188,39 @@ check("エラーなく完走", (pcall(_nexus_addons_p_update_frames)), true)
 print("[6] g.vlog は設定 ON のときだけ出す")
 local saved_settings = g.settings
 g.settings = nil
-sysmsgs = {}
+sysmsgs, vlog_file = {}, {}
 g.vlog("設定ロード前")
-check("設定未ロード時は出さない", #sysmsgs, 0)
+check("設定未ロード時はチャットに出さない", #sysmsgs, 0)
+check("設定未ロード時はファイルにも書かない", #vlog_file, 0)
 
 g.settings = {verbose_log = 0}
 g.vlog("OFF のとき")
-check("OFF のときは出さない", #sysmsgs, 0)
+check("OFF のときはチャットに出さない", #sysmsgs, 0)
+check("OFF のときはファイルにも書かない", #vlog_file, 0)
 
 g.settings = {verbose_log = 1}
 g.vlog("値=%d", 42)
-check("ON のときは出す", #sysmsgs, 1)
+check("ON のときはチャットに出す", #sysmsgs, 1)
 check("書式が展開される", sysmsgs[1]:find("値=42", 1, true) ~= nil, true)
+check("ON のときはファイルにも書く", #vlog_file, 1)
+check("ファイルにも同じ内容が入る", vlog_file[1]:find("値=42", 1, true) ~= nil, true)
+
+-- ファイル側は色やタグを外す（報告用に読めるテキストで残す）
+sysmsgs, vlog_file = {}, {}
+g.vlog("{#FF6347}init: xxx FAILED{/} 理由")
+check("チャットには色タグが残る", sysmsgs[1]:find("{#FF6347}", 1, true) ~= nil, true)
+check("ファイルからは色タグを外す", vlog_file[1]:find("{", 1, true), nil)
+check("タグを外しても本文は残る", vlog_file[1]:find("init: xxx FAILED 理由", 1, true) ~= nil, true)
+
+-- ログイン毎に作り直す（際限なく育たせない / 送るファイルを今回分だけにする）
+g.vlog("前回セッションの行")
+check("リセット前は溜まっている", #vlog_file, 2)
+g.vlog_reset()
+check("リセットで作り直される(先頭行のみ)", #vlog_file, 1)
+check("先頭行は開始マーカー", vlog_file[1]:find("log start", 1, true) ~= nil, true)
 
 -- 書式化に失敗しても、デバッグ用のログが本体を巻き込んで落としてはいけない
-sysmsgs = {}
+sysmsgs, vlog_file = {}, {}
 check("引数不足でも落ちない", (pcall(g.vlog, "%d と %d", 1)), true)
 check("落ちずに1行は出す", #sysmsgs, 1)
 
