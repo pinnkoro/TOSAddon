@@ -60,6 +60,12 @@ end
 function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.addon = addon
     g.frame = frame
+    -- 返るのは「国UI名」で、日本語は "Japanese"、韓国語は "Korean" ではなく "kr"。
+    -- 言語名と2文字コードが混在するのはゲーム側の仕様で、こちらの typo ではない。
+    -- 根拠: クライアントの systemoption.lua / barrack_charlist.lua が言語ドロップダウンを
+    -- 組む際に lanUIString ~= "kr" と lanUIString ~= "Japanese" を並べて比較している。
+    -- (norisan さんの native_lang アドオンも {Japanese="ja", kr="ko"} で対応付けている)
+    -- "kr" を "Korean" に直すと韓国語表示が全滅するので触らないこと。
     g.lang = option.GetCurrentCountry()
     g.cid = session.GetMySession():GetCID()
     g.active_id = session.loginInfo.GetAID()
