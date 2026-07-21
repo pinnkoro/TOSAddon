@@ -30,13 +30,59 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 実行条件は「自分側に `settings.json` が無い」= 実質初回起動時のみ。
 既に自分の設定があるときに走らせると本家の古い設定で上書きしてしまうので、この条件は必ず守ること。
 
+### 例外: アドオンメニューボタン（`core/90_addons_menu.lua`）
+
+このファイルは連結順で `guard_close.lua` の**後**＝読み込み時ガードの外にあり、本家が居ても定義される。
+そのため同名グローバルだと確実にぶつかるので、ここだけは関数名を `addons_menu_*` に**リネームしてある**。
+設定も `../addons/_nexus_addons_p/<AID>/addons_menu.json` に移し、旧 `../addons/norisan_menu/settings.json`
+からは初回のみ引き継ぐ（条件は上の (B) と同じ「自分側に無いときだけ」）。
+
+ただし次の 2 つは**リネームしてはいけない**。norisan さんの他アドオンが 1 つのメニューボタンに
+相乗りするための待ち合わせ名で、変えると相手の項目が出なくなる／互いにフレームを壊し合う。
+
+* `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
+* フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
+
+## 修正したら詳細ログを出して、実機のログで確認する
+
+このリポジトリのコードはゲームクライアント上でしか動かず、機械で検証できるのは
+`docs/tests/` に置いた純ロジック（ゲーム API をスタブ化できる範囲）に限られる。
+**直した箇所が実際に効いているかは、詳細ログを出して実機のログから確かめること**を推奨する。
+
+* **出し方**: `g.vlog(fmt, ...)`（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）を呼ぶ。
+  設定画面（メニューボタン右クリック）の「詳細なログをシステムに出力する」が ON のときだけ、
+  チャットのシステムメッセージと `../addons/_nexus_addons_p/verbose_log.txt` の両方に出る。
+  既定は OFF なので、普通の利用者のチャットを埋める心配はしなくてよい。
+  書式化の失敗は `pcall` で握るので、ログが本体を巻き込んで落とすこともない。
+* **確認の手順**:
+  1. 設定画面で「詳細なログをシステムに出力する」を ON にする
+  2. 直した機能を実際に動かし、その修正の経路を通す（マップ移動・倉庫の開閉など）
+  3. `../addons/_nexus_addons_p/verbose_log.txt` を読み、**期待した分岐を通っているか**と
+     **期待しない失敗ログが出ていないか**を見る。このファイルはクライアント起動ごとに
+     作り直されるので、中身は常に今回の起動分だけになる
+     （エラー履歴を追記し続ける `debug_log.txt` とは別物。混ぜないこと）
+* **何を出すか**: 「ここを通った」ではなく**判断の材料になった値**を出す。
+  例: `g.get_map_type()` は取得できたマップ種別と、取得に失敗したマップ名を出している。
+* **出しすぎない**: FPS_UPDATE 経由など毎フレーム走る経路をそのまま出すと、ログが流れて
+  肝心の行が埋もれる。既存の実装が絞っている例:
+  * `g.get_map_type()` の取得失敗ログは `g.map_type_failed_name` でマップごとに 1 回にする
+  * init の成功ログは `_nexus_addons_p_vlog_init` が有効なアドオンだけに絞る
+    （失敗は無効なアドオンでも知りたいので絞らない）
+* **調査が終わっても消さない**: その修正の経路を後から追える最低限のログは残すこと。
+  同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
+  不具合報告のときに効く。
+
 ## PR を出すときは README の更新履歴を必ず更新する
 
 アドオンのソースやリリースビルド（`.ipf`）を変更して PR を作成するときは、
-**同じ PR の中に README.md の更新履歴への追記を必ず含める**こと。
+**同じ PR の中に更新履歴への追記を必ず含める**こと。
 
-* **追記場所**: README.md の `<summary>更新履歴 (Nexus Addons P)</summary>` ブロック内、
+* **追記場所**: [nexus_addons_p/README.md](nexus_addons_p/README.md) の
+  `<summary>更新履歴 (Nexus Addons P)</summary>` ブロック内、
   既存エントリの**先頭**（最新版が一番上）。
+  ※ ルートの README.md はリポジトリ全体の説明で、アドオンの更新履歴は置かない。
+* **例外**: 挙動が変わらないコメントのみの変更は追記しなくてよい
+  （利用者向けの履歴なので、ノイズになる）。
 * **書式**:
   ```
   * **v1.0.1**
@@ -53,11 +99,22 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   `python docs/bundle_from_src.py --bless` で golden sha を更新してから bundle を再生成する。
 * Lua の構文チェックは WSL の luajit で行える:
   `luajit -e "assert(loadfile('.../_nexus_addons_p.lua'))"`
+* ビルドしたら `python docs/verify_ipf.py` で「`.ipf` の中身が現 src と一致するか」と
+  「バージョンの三者一致（`ver` / `fileVersion` / `.ipf` ファイル名）」を確認する。
+  復号は不要（`.ipf` のファイルテーブルは平文で、平文 CRC32 を持っているため）。
+  このチェックは release 経路の CI でも自動実行される。
 
 ## ブランチ運用とリリース公開フロー
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、**`main` に直接マージ**する（PR 経由）。
 * **配布リリース**: 公開したいタイミングで **`main` → `release` にマージ**する。
+  * 版番号は 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+    `.ipf` のファイル名）に散っているので、**採番するときは 3 箇所を揃え、同時に `.ipf` も再ビルドする**。
+    `main` は `.ipf` を毎回作り直さない運用なので、まとめて release 直前に行うのが既定。
+    ただし PR 側で採番してしまっても、3 箇所 + `.ipf` が揃っていれば問題ない
+    （更新履歴に「未リリース」のような仮の見出しを残さずに済む分、そちらが望ましい）。
+    main→release の PR では [ci.yml](.github/workflows/ci.yml) の `ipf` ジョブが
+    採番のタイミングによらずこれを検証して、**古い `.ipf` のまま公開するのを止める**。
   * `release` への push を GitHub Actions（[.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml)）が
     検知し、移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。

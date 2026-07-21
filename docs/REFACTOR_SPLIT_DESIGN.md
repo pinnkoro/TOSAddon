@@ -166,7 +166,7 @@ nexus_addons_p/
 2. 分割スクリプトで現行 bundle を `src/**/*.lua` へ切り出す（§5）。
 3. 連結スクリプトで再結合 → **cmp 一致を確認**（ズレたら §5 の境界を修正）。
 4. 一致確定後、`.ipf` を再ビルドして往復検証（§6-2）。バージョンは据え置き（ロジック変更なしのため）か、体制変更を示す軽微 bump かは運用判断。
-5. 以降の編集は `src/` のみ。リリース時フロー：`src 編集 → 連結 → ipf 化 → 検証 → addons.json fileVersion 更新 → README 更新履歴追記`（[CLAUDE.md](../CLAUDE.md) 規約）。
+5. 以降の編集は `src/` のみ。リリース時フロー：`src 編集 → 連結 → ipf 化 → 検証 → addons.json fileVersion 更新 → nexus_addons_p/README.md の更新履歴追記`（[CLAUDE.md](../CLAUDE.md) 規約）。
 
 ---
 

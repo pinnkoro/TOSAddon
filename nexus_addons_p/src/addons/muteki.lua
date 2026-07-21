@@ -533,7 +533,8 @@ function Muteki_buffslot_script(_nexus_addons_p)
 end
 
 function Muteki_buff_frame_init()
-    local muteki = ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "muteki", 0, 0, 0, 0)
+    -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
+    local muteki = g.create_persistent_frame(addon_name_lower .. "muteki")
     AUTO_CAST(muteki)
     muteki:SetSkinName("None")
     if g.muteki_settings.etc.mode == "fixed" then

@@ -35,11 +35,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 配布バージョンは addons.json の先頭(Nexus Addons P)の fileVersion を正とする
-          version=$(jq -r '.[0].fileVersion' addons.json)
-          [ -n "$version" ] && [ "$version" != "null" ] || { echo "::error::addons.json の fileVersion を取得できない"; exit 1; }
+          # 配布バージョンは addons.json の fileVersion が正。位置ではなく永続 ID
+          # (file == "nexus_addons_p") で引く。複数アドオンを収録しても取り違えないため。
+          version=$(jq -r '[.[] | select(.file == "nexus_addons_p")] | if length == 1 then .[0].fileVersion else "" end' addons.json)
+          [ -n "$version" ] && [ "$version" != "null" ] || { echo "::error::addons.json の file == \"nexus_addons_p\" のエントリを一意に特定できない"; exit 1; }
 
-          # トップ直下の .ipf を配布アセットに採用(旧版は etc/ に退避される慣習なので通常1個)
+          # トップ直下の .ipf を配布アセットに採用(旧版は _old/ に退避される慣習なので通常1個)
           shopt -s nullglob
           ipfs=(nexus_addons_p/*.ipf)
           [ "${#ipfs[@]}" -ge 1 ] || { echo "::error::nexus_addons_p 直下に .ipf が無い"; exit 1; }
