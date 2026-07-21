@@ -147,7 +147,7 @@ GitHub 画面だけで直して写しを置き去りにしないこと。
 * 移動タグ `nexus_addons_p` は tag ruleset を作っていないので、release ワークフローの
   「タグごと削除して作り直す」処理はそのまま通る。ここに tag ルールを足すと公開が壊れる。
 
-## アドオンマネージャーへの登録（PR 提出済み・マージ待ち）
+## アドオンマネージャーへの登録（登録済み）
 
 [MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager) は
 `JTosAddon/Addons` の `managers.json` を 2 つ読む（`Source/AddonManager/MainWindow.xaml.cs`）。
@@ -155,7 +155,7 @@ GitHub 画面だけで直して写しを置き去りにしないこと。
 * **JToS タブ** → `master` ブランチ ← **こちらが正**。本家 `ajinorisan/TOSAddon-public` も master に登録されている。
 * IToS タブ → `itos` ブランチ（国際版向け。近年マージ実績が乏しい）
 
-`{"repo": "pinnkoro/TOSAddon"}` を `sources` の**末尾に追記**する PR を master 宛に提出済み:
-[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)。マージされたら本節を「登録済み」に更新すること。
+`{"repo": "pinnkoro/TOSAddon"}` を `sources` の**末尾に追記**する PR を master 宛に提出し、
+2026-07-21 にマージされて**登録済み**: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)。
 
 `file`（= `nexus_addons_p`）は一度登録したら変更してはいけない永続 ID。
