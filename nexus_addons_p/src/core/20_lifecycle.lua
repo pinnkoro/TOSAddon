@@ -12,6 +12,9 @@ function _nexus_addons_p_load_settings()
     for _, entry in ipairs(g._nexus_addons_p) do
         valid_keys[entry.key] = true
     end
+    -- アドオン登録キー以外のトップレベル設定はここに列挙する。書き忘れると
+    -- すぐ下のプルーニングで毎回消され、設定を保存しても復元できない。
+    valid_keys.verbose_log = true
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -50,6 +53,10 @@ function _nexus_addons_p_load_settings()
                 end
             end
         end
+    end
+    if settings.verbose_log == nil then
+        settings.verbose_log = 0 -- 既定は OFF（普段のチャットを埋めない）
+        changed = true
     end
     g.settings = settings
     if changed then
@@ -145,6 +152,9 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
                 local err_msg = string.format("Error during on_init of '%s': %s", name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
+                g.vlog("{#FF6347}init: %s FAILED{/} %s", name, tostring(err))
+            else
+                g.vlog("init: %s (%dms)", name, duration)
             end
         end
     end
@@ -238,6 +248,9 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
                 local err_msg = string.format("Error during on_init of '%s': %s", func_name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
+                g.vlog("{#FF6347}init: %s FAILED{/} %s", func_name, tostring(err))
+            else
+                g.vlog("init: %s (%dms)", func_name, duration)
             end
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)
@@ -429,6 +442,9 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- if not g.settings then
     _nexus_addons_p_load_settings()
     -- end
+    -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
+    g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
+        tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
     if g.migrate_result == "copied" or g.migrate_result == "partial" then
         g.migrate_result = false
         g.pending_messages = g.pending_messages or {}
@@ -455,7 +471,7 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     menu_frame = ui.GetFrame(frame_name)
     if not menu_frame then
         _G["norisan"]["MENU"].frame_name = frame_name
-        g.norisan_menu_create_frame()
+        addons_menu_create_frame()
     elseif menu_frame:IsVisible() == 0 then
         menu_frame:ShowWindow(1)
     end

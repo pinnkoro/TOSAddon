@@ -353,6 +353,27 @@ function g.save_json(path, tbl)
     return true
 end
 
+-- 詳細ログ。アドオンメニューボタン右クリックの設定画面にある
+-- 「詳細なログをシステムに出力する」が ON のときだけ、チャットのシステムメッセージへ出す。
+-- 既定は OFF なので、通常の利用者のチャットは今までどおり静かなまま。
+--
+-- 保存先は g.settings(= ../addons/_nexus_addons_p/<AID>/settings.json)。
+-- UI を出している 90_addons_menu.lua 側の addons_menu.json はメニューの位置と
+-- 表示設定だけを持つので、アドオン全体の設定であるこれは置かない(詳細は 90 側のコメント)。
+--
+-- 初期化前(g.settings がまだ nil)や、本家検出で初期化を止めた場合も黙って何もしない。
+-- 書式化の失敗でデバッグ用のログが本体を巻き込んで落とすことがないよう pcall で包む。
+function g.vlog(fmt, ...)
+    if not g.settings or g.settings.verbose_log ~= 1 then
+        return
+    end
+    local ok, msg = pcall(string.format, fmt, ...)
+    if not ok then
+        msg = tostring(fmt)
+    end
+    ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
+end
+
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
 -- GetClass は IES 引きで重い一方、MapType は同じマップなら不変なので、
 -- マップ名をキーにメモ化する。マップが変われば引き直すので意味は変わらない。
@@ -370,10 +391,19 @@ function g.get_map_type()
     -- 未知/インスタンスマップでは GetClass が nil を返しうるので nil ガード。
     -- 呼び出し側はいずれも文字列比較(== "Dungeon" 等)なので nil で問題ない。
     if not map_cls then
+        -- 失敗はキャッシュしない = 毎フレームここへ来るので、ログはマップごとに 1 回だけ。
+        -- (絞らないと FPS_UPDATE 経由でシステムメッセージが毎フレーム流れる)
+        if g.map_type_failed_name ~= map_name then
+            g.map_type_failed_name = map_name
+            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name))
+        end
         return nil
     end
+    g.map_type_failed_name = nil
     g.map_type_cache_name = map_name
     g.map_type_cache = map_cls.MapType
+    -- ここを通るのは「マップが変わった」ときだけなので、移動のたびに 1 行出る。
+    g.vlog("MapType: %s = %s", tostring(map_name), tostring(g.map_type_cache))
     return g.map_type_cache
 end
 

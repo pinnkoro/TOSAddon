@@ -30,6 +30,19 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 実行条件は「自分側に `settings.json` が無い」= 実質初回起動時のみ。
 既に自分の設定があるときに走らせると本家の古い設定で上書きしてしまうので、この条件は必ず守ること。
 
+### 例外: アドオンメニューボタン（`core/90_addons_menu.lua`）
+
+このファイルは連結順で `guard_close.lua` の**後**＝読み込み時ガードの外にあり、本家が居ても定義される。
+そのため同名グローバルだと確実にぶつかるので、ここだけは関数名を `addons_menu_*` に**リネームしてある**。
+設定も `../addons/_nexus_addons_p/<AID>/addons_menu.json` に移し、旧 `../addons/norisan_menu/settings.json`
+からは初回のみ引き継ぐ（条件は上の (B) と同じ「自分側に無いときだけ」）。
+
+ただし次の 2 つは**リネームしてはいけない**。norisan さんの他アドオンが 1 つのメニューボタンに
+相乗りするための待ち合わせ名で、変えると相手の項目が出なくなる／互いにフレームを壊し合う。
+
+* `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
+* フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
+
 ## PR を出すときは README の更新履歴を必ず更新する
 
 アドオンのソースやリリースビルド（`.ipf`）を変更して PR を作成するときは、

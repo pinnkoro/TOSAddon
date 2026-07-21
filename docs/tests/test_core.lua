@@ -1,9 +1,9 @@
 -- core の純ロジックを luajit 上で検査する（ゲーム不要）。
 --
 -- 対象は「ゲーム API をスタブに差し替えれば単体で動かせる」部分に限る。
--- ここでは g.get_map_type() のメモ化と、FPS_UPDATE から毎フレーム呼ばれる
--- _nexus_addons_p_update_frames() の表示判定を見る。どちらも実機でしか確認できないと
--- 壊しても気付けないため、最低限の回帰テストとして置いている。
+-- ここでは g.get_map_type() のメモ化、FPS_UPDATE から毎フレーム呼ばれる
+-- _nexus_addons_p_update_frames() の表示判定、詳細ログ(g.vlog)の出力条件を見る。
+-- どれも実機でしか確認できないと壊しても気付けないため、最低限の回帰テストとして置いている。
 --
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_core.lua
@@ -13,6 +13,7 @@
 
 local CORE_PARTS = {
     "nexus_addons_p/src/core/00_header.lua",
+    "nexus_addons_p/src/core/10_registry.lua", -- 設定のプルーニング検査に登録リストが要る
     "nexus_addons_p/src/core/20_lifecycle.lua",
 }
 
@@ -54,7 +55,11 @@ local function new_frame(name, visible)
     }
 end
 
-ui = {GetFrame = function(name) return frames[name] end}
+local sysmsgs = {}
+ui = {
+    GetFrame = function(name) return frames[name] end,
+    SysMsg = function(msg) sysmsgs[#sysmsgs + 1] = msg end,
+}
 function AUTO_CAST(x) return x end
 option = {GetCurrentCountry = function() return "Japanese" end}
 imcTime = {GetAppTimeMS = function() return 0 end}
@@ -161,6 +166,66 @@ reset_frames(0)
 frames["_nexus_addons_psub_map"] = nil
 frames["_nexus_addons_p"] = nil
 check("エラーなく完走", (pcall(_nexus_addons_p_update_frames)), true)
+
+-- ===== 6. 詳細ログ(g.vlog): 出力条件 =====
+print("[6] g.vlog は設定 ON のときだけ出す")
+local saved_settings = g.settings
+g.settings = nil
+sysmsgs = {}
+g.vlog("設定ロード前")
+check("設定未ロード時は出さない", #sysmsgs, 0)
+
+g.settings = {verbose_log = 0}
+g.vlog("OFF のとき")
+check("OFF のときは出さない", #sysmsgs, 0)
+
+g.settings = {verbose_log = 1}
+g.vlog("値=%d", 42)
+check("ON のときは出す", #sysmsgs, 1)
+check("書式が展開される", sysmsgs[1]:find("値=42", 1, true) ~= nil, true)
+
+-- 書式化に失敗しても、デバッグ用のログが本体を巻き込んで落としてはいけない
+sysmsgs = {}
+check("引数不足でも落ちない", (pcall(g.vlog, "%d と %d", 1)), true)
+check("落ちずに1行は出す", #sysmsgs, 1)
+
+-- ===== 7. 詳細ログ: 取得失敗はマップごとに 1 回だけ =====
+-- 失敗はキャッシュしない = 毎フレーム来るので、絞らないと毎フレーム流れる。
+print("[7] MapType 取得失敗のログはマップごとに1回")
+g.map_type_cache_name, g.map_type_failed_name = nil, nil
+sysmsgs = {}
+state.map_name = "unknown"
+for _ = 1, 5 do g.get_map_type() end
+check("同じマップで5回引いてもログは1行", #sysmsgs, 1)
+state.map_name = "unknown2"
+g.get_map_type()
+check("別のマップなら改めて出す", #sysmsgs, 2)
+-- 引けるようになったら成功ログ側へ切り替わる
+sysmsgs = {}
+MAP_TYPES["unknown2"] = "Field"
+g.get_map_type()
+check("成功したら1行出す", #sysmsgs, 1)
+check("成功ログに種別が入る", sysmsgs[1]:find("Field", 1, true) ~= nil, true)
+MAP_TYPES["unknown2"] = nil
+
+-- ===== 8. 設定の verbose_log がプルーニングで消えない =====
+-- _nexus_addons_p_load_settings は登録アドオン以外のトップレベルキーを削除するので、
+-- 除外し忘れると「チェックしても次回起動で戻る」形で壊れる。
+print("[8] verbose_log が設定のプルーニングを生き延びる")
+local stored
+g.save_json = function(_, tbl) stored = tbl; return true end
+g.settings_path = "dummy"
+
+g.load_json = function() return nil end -- 設定ファイルがまだ無い状態
+_nexus_addons_p_load_settings()
+check("既定値は 0", g.settings.verbose_log, 0)
+
+g.load_json = function() return {verbose_log = 1, bogus_key = "x"} end
+_nexus_addons_p_load_settings()
+check("ON が保持される", g.settings.verbose_log, 1)
+check("登録外のキーは従来どおり削除", g.settings.bogus_key, nil)
+check("保存内容にも載る", stored and stored.verbose_log, 1)
+g.settings = saved_settings
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
