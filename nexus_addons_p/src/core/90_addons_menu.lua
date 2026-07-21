@@ -373,7 +373,11 @@ function _G.addons_menu_create_frame()
     _G["norisan"]["MENU"].x = final_x
     _G["norisan"]["MENU"].y = final_y
     addons_menu_save_json(_G["norisan"]["MENU"])
-    local frame = ui.CreateNewFrame("chat_memberlist", "norisan_menu_frame", 0, 0, 0, 0)
+    -- 元フレームに chat_memberlist を使うと ESC で閉じられ、メニューボタンごと消える。
+    -- ゲーム側の定義(addon.ipf の chat_memberlist.xml)が <option hideable="true"> で、
+    -- ESC はこの hideable なフレームを閉じるため。notice_on_pc は hideable="false"
+    -- なので消えない。ここを戻さないこと。
+    local frame = ui.CreateNewFrame("notice_on_pc", "norisan_menu_frame", 0, 0, 0, 0)
     AUTO_CAST(frame)
     frame:RemoveAllChild()
     frame:SetSkinName("None")

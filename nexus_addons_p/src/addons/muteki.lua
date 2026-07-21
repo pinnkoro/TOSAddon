@@ -533,7 +533,11 @@ function Muteki_buffslot_script(_nexus_addons_p)
 end
 
 function Muteki_buff_frame_init()
-    local muteki = ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "muteki", 0, 0, 0, 0)
+    -- 元フレームに chat_memberlist を使うと ESC で閉じられて消える。ゲーム側の定義
+    -- (addon.ipf の chat_memberlist.xml) が <option hideable="true"> で、ESC はこの
+    -- hideable なフレームを閉じるため。notice_on_pc は hideable="false" なので消えない。
+    -- 他のアドオンのフレームも大半が notice_on_pc 由来。ここを戻さないこと。
+    local muteki = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "muteki", 0, 0, 0, 0)
     AUTO_CAST(muteki)
     muteki:SetSkinName("None")
     if g.muteki_settings.etc.mode == "fixed" then

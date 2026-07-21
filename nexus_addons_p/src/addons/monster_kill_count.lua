@@ -218,8 +218,13 @@ function Monster_kill_count_ITEM_PICK(frame, msg, class_id, item_count)
 end
 
 function Monster_kill_count_frame_init()
+    -- 元フレームに chat_memberlist を使うと ESC で閉じられて消える。ゲーム側の定義
+    -- (addon.ipf の chat_memberlist.xml) が <option hideable="true"> で、ESC はこの
+    -- hideable なフレームを閉じるため。notice_on_pc は hideable="false" なので消えない。
+    -- update_frames の毎フレーム復帰は当てにできない。ESC の隠し方は IsVisible() に
+    -- 反映されず、討伐やアイテム取得で再描画が走るまで戻らないため。ここを戻さないこと。
     local monster_kill_count =
-        ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "monster_kill_count", 0, 0, 0, 0)
+        ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "monster_kill_count", 0, 0, 0, 0)
     AUTO_CAST(monster_kill_count)
     monster_kill_count:SetSkinName("shadow_box")
     monster_kill_count:SetTitleBarSkin("None")
@@ -311,7 +316,10 @@ function Monster_kill_count_information_context()
         local map_id_str = tostring(map_id)
         local map_file_path = Monster_kill_count_get_map_filepath(map_id_str)
         local map_data = g.load_json(map_file_path)
-        if not map_data or not next(map_data.get_items) then
+        -- get_items が無い形式のファイルが残っていると next(nil) で落ち、
+        -- コンテキストメニューが一切開かなくなる(= 設定ボタンが無反応に見える)ので、
+        -- 中身の有無ではなくキーの有無から確認する。
+        if not map_data or type(map_data.get_items) ~= "table" or not next(map_data.get_items) then
             local map_cls = GetClassByType("Map", map_id)
             map_data = {
                 map_name = map_cls and map_cls.ClassName,

@@ -101,6 +101,7 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.REGISTER = {}
     addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
     addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
+    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
 end
 
@@ -477,6 +478,28 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     end
     g.setup_hook(_nexus_addons_p_APPS_TRY_MOVE_BARRACK, "APPS_TRY_MOVE_BARRACK")
     _nexus_addons_p_fast_func()
+end
+
+-- ESC は hideable なフレーム(ゲーム側定義が <option hideable="true"> のもの)を閉じる。
+-- 自前のメニューボタンは notice_on_pc 由来に変えて消えないようにしたが、
+-- norisan_menu_frame という名前は他の norisan 系アドオンと共有していて、向こうが先に
+-- 旧定義(chat_memberlist 由来)で作っていると ESC で消えたままになる。消えていたら
+-- 作り直し、以後は消えない自前の定義に置き換える。
+-- ESCAPE_PRESSED はフレームが閉じられる前に届くことがあるため、次の更新まで待って調べる。
+function _nexus_addons_p_ESCAPE_PRESSED(_nexus_addons_p)
+    _nexus_addons_p:RunUpdateScript("_nexus_addons_p_restore_menu_frame", 0.1)
+end
+
+function _nexus_addons_p_restore_menu_frame()
+    local menu_frame = ui.GetFrame("norisan_menu_frame")
+    if not menu_frame then
+        _G["norisan"]["MENU"].frame_name = "norisan_menu_frame"
+        addons_menu_create_frame()
+    elseif menu_frame:IsVisible() == 0 then
+        AUTO_CAST(menu_frame)
+        menu_frame:ShowWindow(1)
+    end
+    return 0 -- 1 回で止める
 end
 
 function _nexus_addons_p_GAME_START_3SEC(_nexus_addons_p, msg)
