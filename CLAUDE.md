@@ -47,7 +47,7 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 
 ## リリースビルドの慣習
 
-* 最新版を `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf`（⛄ = U+26C4）に置き、旧版は `nexus_addons_p/etc/` へ移動する。
+* 最新版を `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf`（⛄ = U+26C4）に置き、旧版は `nexus_addons_p/_old/` へ移動する。
 * `addons.json` の `fileVersion` も更新する。
 * ビルド手順は [docs/BUILD_IPF.md](docs/BUILD_IPF.md) を参照。ソースを変更したら
   `python docs/bundle_from_src.py --bless` で golden sha を更新してから bundle を再生成する。
@@ -67,8 +67,15 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   タグはバージョンごとに変えず、**同じ `nexus_addons_p` タグのアセットを毎回差し替える**（移動タグ運用）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
-## アドオンマネージャーへの登録（未実施）
+## アドオンマネージャーへの登録（PR 提出済み・マージ待ち）
 
-[JToSAddon/Addons](https://github.com/JToSAddon/Addons/tree/itos) の `managers.json` に
-`{"repo": "pinnkoro/TOSAddon"}` を追加する PR がまだ出ていない。`file`（= `nexus_addons_p`）は
-一度登録したら変更してはいけない永続 ID。
+[MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager) は
+`JTosAddon/Addons` の `managers.json` を 2 つ読む（`Source/AddonManager/MainWindow.xaml.cs`）。
+
+* **JToS タブ** → `master` ブランチ ← **こちらが正**。本家 `ajinorisan/TOSAddon-public` も master に登録されている。
+* IToS タブ → `itos` ブランチ（国際版向け。近年マージ実績が乏しい）
+
+`{"repo": "pinnkoro/TOSAddon"}` を `sources` の**末尾に追記**する PR を master 宛に提出済み:
+[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)。マージされたら本節を「登録済み」に更新すること。
+
+`file`（= `nexus_addons_p`）は一度登録したら変更してはいけない永続 ID。
