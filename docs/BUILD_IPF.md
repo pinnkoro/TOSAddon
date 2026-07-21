@@ -92,7 +92,32 @@ mv ./_nexus_addons_p-plain.ipf "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf"
 
 ## 4. 検証(ビルド後に必ず実施)
 
-`.ipf` はバイナリなので `git diff` では中身が見えない。**復号 → 展開してソースと比較**する。
+`.ipf` はバイナリなので `git diff` では中身が見えない。
+
+### 4-0. 復号不要のクイック検証(推奨・CI で自動実行)
+
+```bash
+python docs/verify_ipf.py
+```
+
+`.ipf` は「平文コンテナ → PKware 暗号化」の 2 層だが、暗号化されるのは**各ファイルの
+データ本体だけ**で、末尾のファイルテーブルと footer は平文のまま残る。テーブルには
+各ファイルの**平文 CRC32 と非圧縮 byte 数**が入っているので、src から期待される中身を
+組み立てて突き合わせれば、復号鍵なしで「この .ipf は現 src から作られたか」を判定できる。
+
+併せて、バージョンの三者一致(`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+`.ipf` のファイル名)も検証する。`--content-only` / `--version-only` で片方だけも可。
+
+> CRC32 は 32bit なので暗号学的な完全性保証ではない。ここで検出したいのは
+> 「再ビルドし忘れ」であり、長さ一致と併せれば目的には十分。改竄検出には使わないこと。
+
+このチェックは [ci.yml](../.github/workflows/ci.yml) の `ipf` ジョブが **release 経路
+(`main` → `release` の PR / `release` への push)でのみ**自動実行する。`main` では
+`.ipf` を毎回作り直さない運用なので、main で回すと恒常的に赤くなるため。
+
+### 4-1. 復号して中身を突き合わせる(バイト単位で確認したいとき)
+
+**復号 → 展開してソースと比較**する。
 
 ```bash
 # 生成した .ipf を作業コピー(元ファイルは書き換えないこと。decrypt/extract は破壊的)

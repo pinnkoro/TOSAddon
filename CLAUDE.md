@@ -53,11 +53,20 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   `python docs/bundle_from_src.py --bless` で golden sha を更新してから bundle を再生成する。
 * Lua の構文チェックは WSL の luajit で行える:
   `luajit -e "assert(loadfile('.../_nexus_addons_p.lua'))"`
+* ビルドしたら `python docs/verify_ipf.py` で「`.ipf` の中身が現 src と一致するか」と
+  「バージョンの三者一致（`ver` / `fileVersion` / `.ipf` ファイル名）」を確認する。
+  復号は不要（`.ipf` のファイルテーブルは平文で、平文 CRC32 を持っているため）。
+  このチェックは release 経路の CI でも自動実行される。
 
 ## ブランチ運用とリリース公開フロー
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、**`main` に直接マージ**する（PR 経由）。
 * **配布リリース**: 公開したいタイミングで **`main` → `release` にマージ**する。
+  * `main` は `.ipf` を毎回作り直さない運用なので、**採番と `.ipf` の再ビルドはこのタイミングでまとめて行う**。
+    リリース前に版番号を 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+    `.ipf` のファイル名）へ反映し、`.ipf` を再ビルドすること。main→release の PR では
+    [ci.yml](.github/workflows/ci.yml) の `ipf` ジョブがこれを検証して、
+    **古い `.ipf` のまま公開するのを止める**。
   * `release` への push を GitHub Actions（[.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml)）が
     検知し、移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。

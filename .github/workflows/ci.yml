@@ -1,16 +1,24 @@
 name: CI
 
-# main への PR / push で、配布物を壊す種類の事故を機械的に止める。
+# 配布物を壊す種類の事故を機械的に止める。従来は手元で気付くしかなく、release まで
+# 素通りしていた。検査は 2 段構えで、走るタイミングを変えている。
+#
+# bundle ジョブ（main / release の両方で毎回）
 #   1. src と golden sha の食い違い    … src を触ったのに --bless し忘れた / CRLF 混入
 #   2. manifest 未登録の src ファイル  … ビルドから黙って脱落する
 #   3. 連結後の Lua 構文エラー         … 分割ソース単体では気付けない結合バグ
-# いずれも従来は手元で気付くしかなく、release まで素通りしていた。
+#
+# ipf ジョブ（release 経路でのみ）
+#   4. .ipf の中身が現 src と食い違う  … src を直して .ipf を再ビルドし忘れた
+#   5. バージョンの三者不一致          … ver / fileVersion / .ipf ファイル名
+#   main では .ipf を毎回作り直さない運用（採番はリリース時にまとめて行う）なので、
+#   4/5 を main で回すと恒常的に赤くなる。公開直前＝release 経路でだけ効かせる。
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release]
   push:
-    branches: [main]
+    branches: [main, release]
   workflow_dispatch: {}
 
 jobs:
@@ -42,3 +50,18 @@ jobs:
             luajit -e "local c, e = loadfile('$f'); if not c then io.stderr:write(e, '\n'); os.exit(1) end"
             echo "  syntax OK: $f"
           done
+
+  # release への PR / push でのみ。main -> release の PR で base_ref が release、
+  # マージ後の push で ref が refs/heads/release になる。release ブランチ上で
+  # workflow_dispatch した場合も ref が一致するので手動再実行できる。
+  ipf:
+    if: github.base_ref == 'release' || github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # .ipf は暗号化バイナリだが、末尾のファイルテーブルは平文で、各ファイルの
+      # 平文 CRC32 と byte 数を持つ。復号せずに「中身が現 src と同じか」を判定できる。
+      # 併せて ver / fileVersion / .ipf ファイル名の三者一致も見る。
+      - name: .ipf が現 src から作られたものかを検証
+        run: python3 docs/verify_ipf.py
