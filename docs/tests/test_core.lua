@@ -212,12 +212,21 @@ check("チャットには色タグが残る", sysmsgs[1]:find("{#FF6347}", 1, tr
 check("ファイルからは色タグを外す", vlog_file[1]:find("{", 1, true), nil)
 check("タグを外しても本文は残る", vlog_file[1]:find("init: xxx FAILED 理由", 1, true) ~= nil, true)
 
--- ログイン毎に作り直す（際限なく育たせない / 送るファイルを今回分だけにする）
-g.vlog("前回セッションの行")
-check("リセット前は溜まっている", #vlog_file, 2)
-g.vlog_reset()
-check("リセットで作り直される(先頭行のみ)", #vlog_file, 1)
-check("先頭行は開始マーカー", vlog_file[1]:find("log start", 1, true) ~= nil, true)
+-- 作り直すのはクライアント起動後の最初の1行だけ。
+-- GAME_START はマップ移動のたびに来るので、そこで作り直すと直前のマップのログが消える。
+g.vlog_started, g.vlog_lines = nil, nil
+vlog_file = {"前回起動時に残っていた行"}
+g.vlog("起動後の1行目")
+check("起動後の最初の1行で作り直す", #vlog_file, 1)
+g.vlog("===== GAME_START (マップ移動)")
+g.vlog("init: always_status (0ms)")
+check("マップ移動をまたいでも消えない", #vlog_file, 3)
+
+-- 際限なく育たせない（マップ移動のたびに 50 行前後の init が出るため）
+g.vlog_lines = 20000
+g.vlog("上限到達後の行")
+check("上限で取り直す(注記+本文の2行)", #vlog_file, 2)
+check("取り直しは注記を残す", vlog_file[1]:find("取り直し", 1, true) ~= nil, true)
 
 -- 書式化に失敗しても、デバッグ用のログが本体を巻き込んで落としてはいけない
 sysmsgs, vlog_file = {}, {}

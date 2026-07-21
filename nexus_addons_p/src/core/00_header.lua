@@ -368,27 +368,36 @@ end
 -- 不具合報告用に「そのまま送れる」ことを狙っており、
 --   * 出力先は debug_log.txt とは別。あちらはエラーの履歴を追記し続ける用途で、
 --     詳細ログを混ぜると際限なく育ち、必要な部分も探しにくくなる。
---   * ログイン(GAME_START)ごとに g.vlog_reset() で作り直すので、中身は常に今回の起動分だけ。
+--   * 作り直すのはクライアント起動後の最初の 1 行だけ(下の vlog_write)。
 --   * 色やタグ({ol} 等)は読みづらいだけなので、ファイル側では外す。
 local vlog_file_path = string.format('../addons/%s/verbose_log.txt', addon_name_lower)
+-- 行数の上限。マップ移動のたびに全アドオンの init 行(50 行前後)が出るため、
+-- 1 回のプレイでも積み上がる。到達したら取り直して際限なく育たないようにする。
+local vlog_max_lines = 20000
 
 local function vlog_write(line)
-    local file = io.open(vlog_file_path, "a")
-    if file then
-        file:write(os.date("[%H:%M:%S] ") .. line .. "\n")
-        file:close()
+    local mode, notice = "a", nil
+    if not g.vlog_started then
+        -- 作り直すのはここだけ。GAME_START はマップ移動のたびに来るので、
+        -- そこで毎回作り直すと直前のマップのログ(初期化エラーを含む)が消える。
+        -- g はクライアント起動中ずっと生きるので、1 回のプレイで 1 ファイルになる。
+        g.vlog_started, g.vlog_lines, mode = true, 0, "w"
+    elseif g.vlog_lines >= vlog_max_lines then
+        g.vlog_lines, mode = 0, "w"
+        notice = "===== 行数が上限に達したのでここから取り直し ====="
     end
-end
-
-function g.vlog_reset()
-    if not g.settings or g.settings.verbose_log ~= 1 then
+    local file = io.open(vlog_file_path, mode)
+    if not file then
         return
     end
-    local file = io.open(vlog_file_path, "w")
-    if file then
-        file:close()
+    local stamp = os.date("[%H:%M:%S] ")
+    if notice then
+        file:write(stamp .. notice .. "\n")
+        g.vlog_lines = g.vlog_lines + 1
     end
-    vlog_write("===== log start =====")
+    file:write(stamp .. line .. "\n")
+    file:close()
+    g.vlog_lines = g.vlog_lines + 1
 end
 
 function g.vlog(fmt, ...)

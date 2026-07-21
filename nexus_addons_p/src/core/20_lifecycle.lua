@@ -444,8 +444,8 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     _nexus_addons_p_load_settings()
     -- end
     -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
-    -- ファイル側はここで作り直すので、常に「今回の起動分だけ」が入る。
-    g.vlog_reset()
+    -- GAME_START はマップ移動のたびに来るので、この行はマップごとの区切りにもなる
+    -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
     g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
         tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
     if g.migrate_result == "copied" or g.migrate_result == "partial" then
