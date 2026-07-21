@@ -26,7 +26,7 @@ jobs:
     if: ${{ !github.event.created }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: バージョン / .ipf / リリースノートを解決
         id: meta
