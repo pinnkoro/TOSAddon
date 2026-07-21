@@ -33,10 +33,14 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 ## PR を出すときは README の更新履歴を必ず更新する
 
 アドオンのソースやリリースビルド（`.ipf`）を変更して PR を作成するときは、
-**同じ PR の中に README.md の更新履歴への追記を必ず含める**こと。
+**同じ PR の中に更新履歴への追記を必ず含める**こと。
 
-* **追記場所**: README.md の `<summary>更新履歴 (Nexus Addons P)</summary>` ブロック内、
+* **追記場所**: [nexus_addons_p/README.md](nexus_addons_p/README.md) の
+  `<summary>更新履歴 (Nexus Addons P)</summary>` ブロック内、
   既存エントリの**先頭**（最新版が一番上）。
+  ※ ルートの README.md はリポジトリ全体の説明で、アドオンの更新履歴は置かない。
+* **例外**: 挙動が変わらないコメントのみの変更は追記しなくてよい
+  （利用者向けの履歴なので、ノイズになる）。
 * **書式**:
   ```
   * **v1.0.1**

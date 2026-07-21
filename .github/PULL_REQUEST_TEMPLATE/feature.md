@@ -25,10 +25,10 @@
 
 - [ ] 編集は `nexus_addons_p/src/**` 側で行った（生成物の bundle `.lua` は直接編集していない）
 - [ ] `python docs/bundle_from_src.py --bless` → `python docs/bundle_from_src.py` で bundle を再生成した
-- [ ] `.ipf` を再ビルドし、復号→展開でソースとバイト一致を確認した（`docs/BUILD_IPF.md` §4）
+- [ ] `.ipf` を再ビルドし、`python docs/verify_ipf.py` で src との一致を確認した（`docs/BUILD_IPF.md` §4）
 - [ ] `addons.json` の `fileVersion` を更新した
-- [ ] **README.md の更新履歴に追記した**（該当アドオンのセクション先頭 / CLAUDE.md ルール）
-- [ ] 新バージョンなら旧 `.ipf` を `nexus_addons_p/etc/` へ移動した
+- [ ] **`nexus_addons_p/README.md` の更新履歴に追記した**（既存エントリの先頭 / CLAUDE.md ルール）
+- [ ] 新バージョンなら旧 `.ipf` を `nexus_addons_p/_old/` へ移動した
 
 <!--
   配布（GitHub Release への公開）は main へマージした後、別途 main -> release の PR

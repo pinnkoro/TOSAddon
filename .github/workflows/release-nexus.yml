@@ -39,7 +39,7 @@ jobs:
           version=$(jq -r '.[0].fileVersion' addons.json)
           [ -n "$version" ] && [ "$version" != "null" ] || { echo "::error::addons.json の fileVersion を取得できない"; exit 1; }
 
-          # トップ直下の .ipf を配布アセットに採用(旧版は etc/ に退避される慣習なので通常1個)
+          # トップ直下の .ipf を配布アセットに採用(旧版は _old/ に退避される慣習なので通常1個)
           shopt -s nullglob
           ipfs=(nexus_addons_p/*.ipf)
           [ "${#ipfs[@]}" -ge 1 ] || { echo "::error::nexus_addons_p 直下に .ipf が無い"; exit 1; }

@@ -1,9 +1,6 @@
-# Nexus Addons P
+# TOSAddon (pinnkoro)
 
-Tree of Savior 用アドオン **Nexus Addons P** の配布リポジトリ。
-
-norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) を元にした派生版です。
-本家 v1.1.6 以降に加えた不具合修正・新レイド対応をまとめ、**別アドオンとして独立配布**します。
+Tree of Savior 用アドオンの配布リポジトリ。
 
 **[重要] 利用規約・免責事項**
 
@@ -14,100 +11,27 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 
 ---
 
-## ⚠️ 本家 Nexus Addons とは同時に使えません
+## 収録アドオン
 
-Nexus Addons P は本家をリネームした派生版のため、**両方を同時にインストールすると競合します**。
-そのため次の動作が入っています。
+| アドオン | 概要 | 説明 |
+| --- | --- | --- |
+| **Nexus Addons P** | 40種類以上のアドオンの詰合せ。norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) を元にした派生版 | **[nexus_addons_p/README.md](nexus_addons_p/README.md)** |
 
-* **本家を検出したら、Nexus Addons P は全機能を停止します。**
-  チャットに赤字で「本家を削除してください」と表示されるので、`data` フォルダから
-  本家の `_nexus_addons-⛄-*.ipf` を削除して、クライアントを**再起動**してください。
-  （この間、本家側は今までどおり動作します）
-* **設定は自動で引き継がれます。**
-  Nexus Addons P 側の設定がまだ無い状態で本家の設定が残っていれば、
-  `addons/_nexus_addons/<アカウントID>/` の中身を `addons/_nexus_addons_p/<アカウントID>/` へ
-  丸ごとコピーします（各アドオンの設定・Another Warehouse・討伐カウントなどを含む）。
-  引き継ぎは**初回1回だけ**なので、本家を削除する前に一度ログインしておけば、
-  そのままの設定で移行できます。
-
-### 乗り換え手順
-
-1. アドオンマネージャーから **Nexus Addons P** をインストールする（本家はまだ消さない）
-2. ゲームを起動してログインする → 設定が引き継がれ、「本家を削除してください」と表示される
-3. `data` フォルダから本家の `_nexus_addons-⛄-*.ipf` を削除する
-4. クライアントを再起動する → 引き継いだ設定のまま Nexus Addons P が動作する
+> ⚠️ **Nexus Addons P は本家 Nexus Addons と同時に使えません。**
+> 本家がインストールされている間は Nexus Addons P 側が全機能を停止します。設定は初回起動時に自動で引き継がれます。
+> 乗り換え手順は [nexus_addons_p/README.md](nexus_addons_p/README.md) を参照してください。
 
 ---
 
-## アドオン紹介
+## インストール
 
-### Nexus Addons P
-
-40種類以上のアドオンの詰合せ。各機能の説明はゲーム内のヘルプ（`?` ボタン）を参照。
+アドオンマネージャー（[MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager)）から
+インストールできます。
 
 * **アドオンマネージャー登録申請中**（[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)）
 
 <details>
-<summary>更新履歴 (Nexus Addons P)</summary>
-
-* **未リリース**（次回配布時に採番）
-  * Characters Item Serch: 個人倉庫を閉じたときのアイテム情報保存が一度も動いていなかった不具合を修正
-    （フック名 `WAREHOUSE_CLOSE` の先頭にシングルクォートが混入していた）。
-  * Auto Pet Summon: 設定のキャッシュ判定が別名の変数を見ており、街に入るたび設定ファイルを
-    読み直していた不具合を修正。
-  * アドオン一覧: 登録リストに説明文（翻訳）が無いアドオンがあると一覧フレームごと開けなくなる問題を修正。
-    説明が無い場合はアドオン名を表示するようにした。
-  * 内部改善: 毎フレーム走るフレーム表示チェックの処理を軽くした（マップ種別の取得結果を
-    マップ単位でキャッシュし、毎フレームのテーブル生成と文字列連結をやめた）。表示の挙動は変わらない。
-
-* **v1.0.0**
-  * 本家 Nexus Addons から独立した派生版として、`nexus_addons_p` の名前で配布を開始。
-    アドオン名・保存フォルダ・グローバル関数名をすべて `_nexus_addons_p` 系にリネームし、
-    バージョンは本家と独立して v1.0.0 から採番。
-  * 本家と同時にインストールされている場合、Nexus Addons P 側の機能をすべて停止して
-    本家を優先し、チャットで本家の削除を案内するようにした（本家側の動作は壊さない）。
-  * 初回起動時、Nexus Addons P 側の設定が無く本家の設定が残っていれば自動で引き継ぐようにした。
-
-  以下は本家 v1.1.6 以降に加えた変更（本家でいう v1.1.7〜v1.1.13）をまとめたもの。
-
-  * Indun Panel / Indun List Viewer / Quickslot Operate: 新レイド「ズメイ」対応。
-  * Indun Panel: ログイン時に採掘場(傭兵団)ショップを開いて PVP_MINE 購入可能数を同期していた処理を、
-    **パネル展開時の遅延同期**に変更（セッション中1回・完了後に再描画）。これにより、機能を OFF にしていても・
-    使っていても**ログイン時に一瞬ウィンドウが開いてインベントリが閉じる不具合**を解消。
-    同期でインベントリが閉じた場合は自動復元。
-  * Indun Panel: パネルをドラッグで移動しても、閉じる/展開/再ログインで**位置が初期位置に戻る不具合**を修正
-    （位置保存ハンドラが「固定」側の分岐に付いていたのを「移動可」側に修正）。
-  * Indun List Viewer: 掃討バフお知らせにズメイを追加。新規／旧設定移行ユーザーでレイドが表示されない不具合を修正。
-  * Indun List Viewer: ハードモードを持たないレイド向けに nil ガードを追加（新ダンジョンでハードモード不在時のエラーを防止）。
-  * Indun List Viewer: ハードモードのないレイド構成で「Hard」ラベルの位置がずれる不具合を修正。
-  * Other Character Skill List: 都市入場毎にキャラが消える不具合を修正し、表示をバラック1/2/3ごとにグループ化
-    （各バラック内はバラックの並び順どおり）。従来の system_option 基準ではなくバラック名簿基準で整理
-    （yoma16版 new_nexus_addons v1.0.6 由来）。※順番の記録には各バラック(1,2,3)へ一度ずつログインが必要。
-  * Other Character Skill List: 都市外から設定フレームを開いた際に開けない不具合を修正
-    （データ遅延ロード＋描画を pcall で保護。yoma16版 v1.0.5 由来）。
-  * Character Change Helper: 装備セットプリセット（3セット）を追加し、コピー/保存をセット単位に刷新
-    （yoma16版 v1.0.3/v1.0.4 由来）。
-  * Character Change Helper: セット構造が未初期化のキャラでセット切替/セット選択メニューがエラーになる不具合を修正。
-    コピー設定の移行時にキー衝突でデータを失う不具合を修正。
-  * Guild Event Warp: 画面右上のボタン（ドラグーン／アラクネ姉妹／バウバス）からボスマップへ移動できない不具合を修正
-    （削除済みの内部関数呼び出しを、封鎖線ランキングの「移動」と同じ処理に置換）。
-  * Guild Event Warp: ボスマップへのワープに移動可否チェックを追加（PVP／レイヤー変更／ダンジョン／レイド地域では不可）。
-  * Guild Event Warp: 未知/インスタンスマップでワープ可否チェックがエラーになりワープ機能全体が止まる不具合を修正
-    （マップ種別取得の nil ガード）。
-  * Auto Repair: 修理キットのアイテム ID 修正（Lv.540→Lv.550）。キットが検出されず繰り返し購入する不具合を修正。
-  * Another Warehouse: 設定変更が保存されない不具合を修正。
-  * Aethergem Manager: `settings.set` の nil ガードを追加（yoma16版 v1.0.2 由来）。
-  * 内部処理: 設定ファイルの保存/読み込みを堅牢化。書き込みをテンポラリファイル経由（tmp + rename）にして破損耐性を向上し、
-    保存時の差し替え（rename）失敗を検知して成功と誤報しないよう修正。読み込み時は `.tmp` の内容をデコード成功後に
-    差し替えるよう順序を修正し、壊れた一時ファイルを正規ファイルへ昇格させて設定を失う不具合を防止
-    （差し替え処理を `atomic_replace` に共通化）。
-  * 内部処理: ソースを機能ごとに `nexus_addons_p/src/**` へ分割し、`docs/bundle_from_src.py` で連結ビルドする方式に移行。
-
-</details>
-
----
-
-## アドオンマネージャーへの登録
+<summary>アドオンマネージャーへの登録の仕組み</summary>
 
 [MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager#submitting-addons) の仕組みでは、
 [JTosAddon/Addons](https://github.com/JTosAddon/Addons) の `managers.json` に
@@ -120,6 +44,19 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 `file`（= `nexus_addons_p`）は一度登録したら**変更してはいけない**永続 ID。
 
+</details>
+
+---
+
+## リポジトリ構成
+
+| パス | 内容 |
+| --- | --- |
+| [nexus_addons_p/](nexus_addons_p/) | Nexus Addons P 本体（ソース・配布 `.ipf`）。説明は [README](nexus_addons_p/README.md) |
+| [addons.json](addons.json) | アドオンマネージャー向けのメタデータ（配布バージョンはここが正） |
+| [docs/](docs/) | ビルドスクリプトと開発ドキュメント |
+| [.github/workflows/](.github/workflows/) | CI とリリース公開の自動化 |
+
 ---
 
 ## 開発
@@ -129,10 +66,26 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 * source of truth は `nexus_addons_p/src/**`。配布 bundle（`_nexus_addons_p.lua` /
   `_nexus_addons_p_conclude.lua`）は生成物なので直接編集しない。
 
+### CI
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml) が次を検証する。
+
+| 検査 | 走るタイミング |
+| --- | --- |
+| bundle の再現性（golden sha 照合 / manifest 未登録 src の検出） | `main` / `release` |
+| 連結後 bundle の Lua 構文チェック | `main` / `release` |
+| core のロジック回帰テスト（[docs/tests/test_core.lua](docs/tests/test_core.lua)） | `main` / `release` |
+| `.ipf` が現 src から作られたものかの検証 + バージョンの三者一致 | `release` 経路のみ |
+
+最後の 1 つは、`main` では `.ipf` を毎回作り直さない運用（採番はリリース時にまとめて行う）のため、
+公開直前でのみ効かせている。手元では `python docs/verify_ipf.py` で同じ検査ができる。
+
 ### ブランチ運用とリリース公開フロー
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、PR 経由で `main` にマージする。
 * **配布リリース**: 公開したいタイミングで `main` → `release` にマージする。
+  * 採番（`00_header.lua` の `ver` / `addons.json` の `fileVersion` / `.ipf` のファイル名）と
+    `.ipf` の再ビルドは、このタイミングでまとめて行う。
   * `release` への push を [.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml) が検知し、
     移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。
