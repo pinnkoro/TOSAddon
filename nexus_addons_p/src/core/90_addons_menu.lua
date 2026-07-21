@@ -373,6 +373,14 @@ function _G.addons_menu_create_frame()
     _G["norisan"]["MENU"].x = final_x
     _G["norisan"]["MENU"].y = final_y
     addons_menu_save_json(_G["norisan"]["MENU"])
+    -- 既存フレームがあると CreateNewFrame では作り直せないので、先に破棄する。
+    -- 元々この関数は GAME_START の「フレームが無いとき」からしか呼ばれず破棄なしで
+    -- 済んでいたが、設定画面の再描画(レイヤー変更 / デフォルトに戻す / 上開き)は
+    -- フレームが在る状態で呼ぶため、破棄しないと見た目がまったく変わらない。
+    -- 他アドオンが古い定義で作っていた場合も、ここで自前の定義に置き換わる。
+    if ui.GetFrame("norisan_menu_frame") then
+        ui.DestroyFrame("norisan_menu_frame")
+    end
     -- 元フレームに chat_memberlist を使うと ESC で閉じられ、メニューボタンごと消える。
     -- ゲーム側の定義(addon.ipf の chat_memberlist.xml)が <option hideable="true"> で、
     -- ESC はこの hideable なフレームを閉じるため。notice_on_pc は hideable="false"

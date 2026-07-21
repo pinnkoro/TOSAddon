@@ -60,6 +60,10 @@ function Monster_kill_count_load_settings()
     end
     local folder_path = string.format("../addons/%s/%s/%s", addon_name_lower, g.active_id, "monster_kill_count")
     local win_folder_path = string.gsub(folder_path, "/", "\\")
+    -- 旧 klcount からの移行がある場合(上の分岐)しかフォルダを作っていなかったため、
+    -- 新規ユーザーではマップ別記録の保存先が存在せず、以降 g.save_json が毎回失敗し、
+    -- 討伐数が一切記録されないままだった。移行の有無によらずここで作る。
+    os.execute('mkdir "' .. win_folder_path .. '"')
     local list_file_path = folder_path .. "/filelist_temp.txt"
     os.execute('dir "' .. win_folder_path .. '\\*.json" /b > "' .. list_file_path .. '"')
     local list_file = io.open(list_file_path, "r")
@@ -163,6 +167,21 @@ function monster_kill_count_on_init()
             end
             g.mkc_map_data = map_data
             g.save_json(map_file_path, map_data)
+            -- map_ids は Monster_kill_count_load_settings でしか作られず、そこは
+            -- 設定ファイルが既に在ると即 return する。つまり初回以降は更新されず、
+            -- 新しく通ったマップが「マップ情報」の一覧に永久に出てこなかった。
+            -- 記録ファイルを作ったこの場で登録する。
+            local known = false
+            for _, id in ipairs(g.mkc_settings.map_ids) do
+                if tostring(id) == tostring(g.map_id) then
+                    known = true
+                    break
+                end
+            end
+            if not known then
+                table.insert(g.mkc_settings.map_ids, g.map_id)
+                Monster_kill_count_save_settings()
+            end
             Monster_kill_count_frame_init()
         end
     else
