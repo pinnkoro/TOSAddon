@@ -1,0 +1,80 @@
+name: Release Nexus Addons P
+
+# release ブランチへの push(= main -> release のマージ)を検知して、配布用リリースを更新する。
+# 運用: 新規ブランチ -> main に直接マージ。公開したいタイミングで main -> release にマージする。
+# アドオンマネージャーは addons.json の releaseTag(= nexus_addons_p)の Release から
+# .ipf アセットを取得するため、この移動タグを毎回作り直してアセットを差し替える。
+# リリースノートは release へのマージ元 PR(main -> release)の本文をそのまま流用する。
+# (PR を介さずローカルマージで push した場合は本文が無いので既定ノートにフォールバック)
+
+on:
+  push:
+    branches: [release] # main -> release のマージを push として検知
+  workflow_dispatch: {} # 手動でも同じ処理を再実行できるようにする
+
+permissions:
+  contents: write # Release / タグの作成・削除
+  pull-requests: read # マージ元 PR の本文取得
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: バージョン / .ipf / リリースノートを解決
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # 配布バージョンは addons.json の先頭(Nexus Addons P)の fileVersion を正とする
+          version=$(jq -r '.[0].fileVersion' addons.json)
+          [ -n "$version" ] && [ "$version" != "null" ] || { echo "::error::addons.json の fileVersion を取得できない"; exit 1; }
+
+          # トップ直下の .ipf を配布アセットに採用(旧版は etc/ に退避される慣習なので通常1個)
+          shopt -s nullglob
+          ipfs=(nexus_addons_p/*.ipf)
+          [ "${#ipfs[@]}" -ge 1 ] || { echo "::error::nexus_addons_p 直下に .ipf が無い"; exit 1; }
+          [ "${#ipfs[@]}" -eq 1 ] || echo "::warning::直下に .ipf が複数あるため先頭を使用: ${ipfs[*]}"
+          ipf="${ipfs[0]}"
+
+          # アセット名はアドオンマネージャーの慣習に合わせる: nexus_addons_p-<version>.ipf
+          asset="nexus_addons_p-${version}.ipf"
+          cp -- "$ipf" "${RUNNER_TEMP}/${asset}"
+
+          # リリースノート: このコミットに紐づく(マージ済み)PR の本文を流用
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '.[0].body // ""' > "${RUNNER_TEMP}/notes.md" || : > "${RUNNER_TEMP}/notes.md"
+          # jq は空でも改行を出すため、空白のみ(= 実質空)なら既定ノートに差し替える
+          if ! grep -q '[^[:space:]]' "${RUNNER_TEMP}/notes.md"; then
+            printf 'Nexus Addons P %s\n' "$version" > "${RUNNER_TEMP}/notes.md"
+          fi
+
+          {
+            echo "version=$version"
+            echo "asset_path=${RUNNER_TEMP}/${asset}"
+            echo "notes_path=${RUNNER_TEMP}/notes.md"
+          } >> "$GITHUB_OUTPUT"
+          echo "採用 .ipf: $ipf -> $asset (version=$version)"
+
+      - name: 移動タグ nexus_addons_p のリリースを作り直す
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ASSET_PATH: ${{ steps.meta.outputs.asset_path }}
+          NOTES_PATH: ${{ steps.meta.outputs.notes_path }}
+        run: |
+          set -euo pipefail
+          tag=nexus_addons_p
+
+          # 移動タグは「既存リリース + git タグごと削除 → 新コミットで作り直し」で更新する。
+          # (published リリースの --target は既存タグを動かさないため、作り直すのが確実)
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+
+          gh release create "$tag" \
+            --title "Nexus Addons P ${VERSION}" \
+            --notes-file "$NOTES_PATH" \
+            --target "$GITHUB_SHA" \
+            "$ASSET_PATH"

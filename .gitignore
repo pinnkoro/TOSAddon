@@ -1,0 +1,10 @@
+/junks
+/prototype
+.claude/
+.serena/
+ipf_unpack.exe
+
+# nexus_addons_p: 生成物（source of truth は nexus_addons_p/src/**。
+# docs/bundle_from_src.py で再生成する）。手書きの .xml と配布 .ipf は追跡継続。
+/nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua
+/nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua

@@ -1,0 +1,6 @@
+# nexus_addons_p の source of truth（src/**）は LF 固定。
+# これらは docs/bundle_from_src.py が raw 連結して配布 bundle を再生成する。
+# CRLF が混入すると全行のバイト・CRC32 が変わり、生成 .ipf が意図と別物になるため
+# チェックアウト環境（core.autocrlf）に依存せず必ず LF を保つ。
+*.lua text eol=lf
+nexus_addons_p/src/build_manifest.json text eol=lf
