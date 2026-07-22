@@ -25,11 +25,16 @@ end
 -- 詳細ログのファイル出力を捕まえる。実ファイルを作らせないためでもある
 -- (パスが ../addons/... なので、素通しするとリポジトリの外へ書き出してしまう)。
 local vlog_file = {}
+-- 詳細ログのファイルを開けない状態を作れるようにする（[13] で使う）。
+local vlog_open_fails = false
 -- g.create_folder のマーカーファイル。有無を差し替えて os.execute の空振りを見る。
 local marker_exists = {}
 local real_io_open = io.open
 io.open = function(path, mode, ...)
     if type(path) == "string" and path:find("verbose_log.txt", 1, true) then
+        if vlog_open_fails then
+            return nil
+        end
         if mode == "w" then
             vlog_file = {}
         end
@@ -357,6 +362,75 @@ check("設定が無くても落ちない", (pcall(_nexus_addons_p_vlog_init, "un
 check("設定が無ければ出さない", #sysmsgs, 0)
 g.settings = nil
 check("設定未ロードでも落ちない", (pcall(_nexus_addons_p_vlog_init, "addon_on", 1)), true)
+g.settings = saved_settings
+
+-- ===== 13. ログファイルを開けなかったら状態を進めない =====
+-- 起動後の最初の 1 行だけがファイルを作り直す。開けなかったのに「作り直した」ことに
+-- してしまうと、次回から追記になり前回起動分のログへ書き足す形になる。
+-- verbose_log.txt は「そのまま不具合報告に添付できる = 今回の起動分だけ」が前提なので、
+-- 2 回のプレイが混ざると読む側が判断を誤る。
+print("[13] ログファイルを開けなければ作り直し扱いにしない")
+g.settings = {verbose_log = 1}
+g.vlog_started, g.vlog_lines, vlog_file = nil, nil, {"前回起動分の残り\n"}
+vlog_open_fails = true
+g.vlog("開けないので書けない行")
+check("開けないので書けない", #vlog_file, 1)
+check("作り直し済みにしない", g.vlog_started, nil)
+vlog_open_fails = false
+g.vlog("開けたので作り直す")
+check("開けた時点で作り直す", #vlog_file, 1)
+check("前回分は残っていない", vlog_file[1]:find("前回起動分", 1, true), nil)
+check("作り直し済みになる", g.vlog_started, true)
+
+-- 上限到達も同じ。取り直せていないのに行数だけ 0 に戻すと、以後は上限が効かない。
+g.vlog_lines = 999999
+vlog_open_fails = true
+g.vlog("上限に達したが開けない")
+check("行数を戻さない", g.vlog_lines, 999999)
+vlog_open_fails = false
+g.settings = saved_settings
+
+-- ===== 14. GAME_START がメニューのフレーム名に nil を渡さない =====
+-- _G["norisan"]["MENU"].frame_name を入れるのは相乗り側のアドオンなので、
+-- 誰も入れていなければ nil。初回ログインは常にこの状態で、ここを素通しすると
+-- ui.GetFrame(nil) を踏む。以降のメニュー生成まで巻き添えで止まる。
+print("[14] GAME_START がフレーム名に nil を渡さない")
+local getframe_args = {}
+local real_ui_getframe = ui.GetFrame
+ui.GetFrame = function(name)
+    getframe_args[#getframe_args + 1] = name
+    assert(name ~= nil, "ui.GetFrame に nil が渡された")
+    return real_ui_getframe(name)
+end
+-- GAME_START の後半だけを見たいので、その手前が要求するものを揃える。
+local created_menu = 0
+_G.addons_menu_create_frame = function() created_menu = created_menu + 1 end
+g.load_json = function() return nil end
+g.save_json = function() return true end
+g.settings_path, g.migrate_result, g.origin_conflict = "dummy", false, nil
+_G["norisan"] = {MENU = {}} -- frame_name を誰も入れていない = 初回ログイン
+frames, state.map_name = {}, "town"
+
+local ok, err = pcall(_nexus_addons_p_GAME_START, new_frame("root", 1))
+check("落ちない", ok, true)
+if not ok then
+    print("      " .. tostring(err))
+end
+for _, name in ipairs(getframe_args) do
+    check("nil を渡していない", name ~= nil, true)
+end
+check("メニューを作りに行く", created_menu, 1)
+
+-- 相乗り側が別名で作っていたら、そちらは壊してから作り直す（既存の挙動）
+local destroyed = {}
+ui.DestroyFrame = function(name) destroyed[#destroyed + 1] = name end
+_G["norisan"] = {MENU = {frame_name = "other_addon_menu"}}
+frames["other_addon_menu"] = new_frame("other_addon_menu", 1)
+created_menu = 0
+check("落ちない", (pcall(_nexus_addons_p_GAME_START, new_frame("root", 1))), true)
+check("別名のフレームは壊す", destroyed[1], "other_addon_menu")
+check("こちらの名前で作り直す", created_menu, 1)
+
 g.settings = saved_settings
 
 if failures > 0 then
