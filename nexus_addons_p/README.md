@@ -23,7 +23,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | アドオン | 概要 |
 | --- | --- |
 | [Another Warehouse](src/addons/another_warehouse/README.md) | チーム倉庫を見やすい一覧に差し替え、自動搬出入・自動入出金・セット取り出しを追加 |
-| [Character Change Helper](src/addons/cc_helper/README.md) | シール・カード・髪飾り・エーテルジェムなどをボタン 1 つで倉庫と出し入れして着脱（3 セット） |
+| [Character Change Helper](src/addons/cc_helper/README.md) | ボルタエンブレム・カード・髪飾り・エーテルジェムなどをボタン 1 つで倉庫と出し入れして着脱（3 セット） |
 | [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
 | [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
 | [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
