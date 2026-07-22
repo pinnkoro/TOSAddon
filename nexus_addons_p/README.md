@@ -7,9 +7,95 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 アドオン名・保存フォルダ・グローバル関数名はすべて `_nexus_addons_p` 系にリネームしてあり、
 バージョンは本家と独立して採番します。
 
-40種類以上のアドオンの詰合せです。**各機能の説明はゲーム内のヘルプ（`?` ボタン）を参照**してください。
+40種類以上のアドオンの詰合せです。**各アドオンの詳しい使い方は、下の一覧から個別の README** を参照してください
+（ゲーム内のヘルプ（`?` ボタン）にも要約があります）。
 
 インストール方法はリポジトリ全体の [README](../README.md) を参照してください。
+
+---
+
+## アドオン一覧
+
+各行の名前をクリックすると、そのアドオンの使い方・設定項目・保存先をまとめた README が開きます。
+
+### 倉庫・アイテム管理
+
+| アドオン | 概要 |
+| --- | --- |
+| [Another Warehouse](src/addons/another_warehouse/README.md) | チーム倉庫を見やすい一覧に差し替え、自動搬出入・自動入出金・セット取り出しを追加 |
+| [Character Change Helper](src/addons/cc_helper/README.md) | ボルタエンブレム・カード・髪飾り・エーテルジェムなどをボタン 1 つで倉庫と出し入れして着脱（3 セット） |
+| [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
+| [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
+| [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
+| [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
+
+### 装備・強化
+
+| アドオン | 概要 |
+| --- | --- |
+| [Goddess Icor Manager](src/addons/goddess_icor_manager/README.md) | 刻印ページ × 8 部位のイコルを一覧表示し、セット単位で付け替え |
+| [Continue Reinforce](src/addons/continue_reinforce/README.md) | ゴッデス装備を成功するまで連続強化（回数制限・補助剤の自動選択つき） |
+| [Aethergem Manager](src/addons/aethergem_manager/README.md) | エーテルジェム 4 個の付け替えを自動化（6 セット） |
+| [Monster Card Changer](src/addons/monster_card_changer/README.md) | モンスターカードのプリセットを 10 個に拡張し、倉庫との出し入れも自動化 |
+| [Ancient Auto Set](src/addons/ancient_auto_set/README.md) | アシスターセットをキャラ毎に自動で付け替え（10 プリセット） |
+| [Relic Change](src/addons/relic_change/README.md) | レリックのシアンジェム付け替えをボタン 1 つで |
+| [Vakarine Equip](src/addons/vakarine_equip/README.md) | ヴァカリネの恩恵の判定をやり直すため、指定部位を着け直す |
+| [Cupole Manager](src/addons/cupole_manager/README.md) | クポル未登録キャラでも街に入ると自動で 3 体呼び出す |
+| [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
+| [Job Change Helper](src/addons/job_change_helper/README.md) | 転職前の装備全解除と、脱いだ装備の着け直し |
+
+### レイド・コンテンツ
+
+| アドオン | 概要 |
+| --- | --- |
+| [Indun Panel](src/addons/indun_panel/README.md) | レイド・チャレンジ等の入場を 1 枚のパネルに集約（表示セット 3 つ） |
+| [Indun List Viewer](src/addons/indun_list_viewer/README.md) | 全キャラのレイド入場回数・掃討回数を一覧表示。掃討バフの期限も警告 |
+| [Quickslot Operate](src/addons/quickslot_operate/README.md) | 女神ポーションをレイドの種族に合わせて自動で差し替え。スロット保存／読込 |
+| [Battle Ritual](src/addons/battle_ritual/README.md) | レイド入場時に自己バフを優先度順で自動使用（ソロ限定） |
+| [Archeology Helper](src/addons/archeology_helper/README.md) | アーキオロジーで調べた位置をミニマップに記録。スタミナ錠の自動使用も |
+| [Dungeon RP Charger](src/addons/dungeon_rp_charger/README.md) | 未知の聖域 3F でレリックポイントを自動補充 |
+| [Acquire Relic Reward](src/addons/acquire_relic_reward/README.md) | 主要都市でレリッククエストの報酬を自動受領 |
+| [Guild Event Warp](src/addons/guild_event_warp/README.md) | 画面右上のボタンからギルドイベントのボスマップへワープ |
+| [Silent Velnice Ranking](src/addons/silent_velnice_ranking/README.md) | ヴェルニケで勝手に開くランキングを抑止（TAB で表示） |
+
+### キャラクター・移動
+
+| アドオン | 概要 |
+| --- | --- |
+| [Instant CC](src/addons/instant_cc/README.md) | バラック画面を経由せずキャラクターチェンジ |
+| [Other Character Skill List](src/addons/other_character_skill_list/README.md) | 全キャラの錬成スキル・強化値・GearScore を一覧表示 |
+| [Lets Go Home](src/addons/lets_go_home/README.md) | 登録したホームタウンのホームチャンネルへワープ |
+| [Auto Map Change](src/addons/auto_map_change/README.md) | 高レベルマップへ入るときの確認ダイアログを自動で通す |
+| [Auto Pet Summon](src/addons/auto_pet_summon/README.md) | キャラ毎に最後に連れていたペットを街で自動召喚 |
+| [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
+
+### 画面表示・情報
+
+| アドオン | 概要 |
+| --- | --- |
+| [Always Status](src/addons/always_status/README.md) | 選んだステータスを常時表示（10 セット・色と表示名をカスタマイズ可） |
+| [Muteki](src/addons/muteki/README.md) | 切らしたくないバフだけを大きなゲージ／アイコンで表示 |
+| [My Buffs Control](src/addons/my_buffs_control/README.md) | バフ欄を移動可能にして、選んだバフを非表示にする |
+| [Separate Buff Custom](src/addons/separate_buff_custom/README.md) | セパレートバフフレームに好きなバフを追加。スタック数と追従表示 |
+| [Debuff Notice](src/addons/debuff_notice/README.md) | 自分がボスへ与えたデバフを大きく表示 |
+| [Sub Map](src/addons/sub_map/README.md) | メンバー・ボス・宝箱・未探索エリアを重ねた小さなマップを常時表示 |
+| [Boss Direction](src/addons/boss_direction/README.md) | ボスが向いている方向を足元の矢印で表示 |
+| [Boss Gauge](src/addons/boss_gauge/README.md) | ボスゲージにスタン値とシールド値を追加 |
+| [Party Marker](src/addons/party_marker/README.md) | パーティーメンバーの頭上にアイコンを表示 |
+| [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
+| [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
+| [Status Point Check](src/addons/status_point_check/README.md) | ステータスポイントがもらえるクエストの達成状況を一覧 |
+| [Skill Gem Tooltip](src/addons/skill_gem_tooltip/README.md) | スキルジェムに対象スキルのツールチップを併記 |
+| [Revival Timer](src/addons/revival_timer/README.md) | 繰り返しカウントダウンするタイマー（PT チャット通知つき） |
+| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
+
+### その他
+
+| アドオン | 概要 |
+| --- | --- |
+| [Sub Slotset](src/addons/sub_slotset/README.md) | 追加のクイックスロットを好きな大きさ・位置に何枚でも作る |
+| [Easy Buff](src/addons/easy_buff/README.md) | メシ屋・バフ屋・修理屋での操作を自動化 |
+| [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
 
 ---
 
@@ -155,6 +241,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 | パス | 内容 |
 | --- | --- |
 | `src/**` | **source of truth**。編集はここで行う（`core/` + `addons/` + ビルド定義） |
+| `src/addons/<key>/` | アドオン 1 つぶん。`<key>.lua`（実装）と `README.md`（使い方）が入る |
 | `_nexus_addons_p/` | 配布 bundle の置き場。`.lua` 2 本は生成物（`.gitignore` 済み）、`.xml` は手書き |
 | `_nexus_addons_p-⛄-vX.Y.Z.ipf` | 配布物。アドオンマネージャーが取得する実体 |
 

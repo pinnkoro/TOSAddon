@@ -20,7 +20,7 @@ local PARTS = {
     "nexus_addons_p/src/core/00_header.lua",
     "nexus_addons_p/src/core/10_registry.lua",
     "nexus_addons_p/src/core/20_lifecycle.lua",
-    "nexus_addons_p/src/addons/monster_kill_count.lua",
+    "nexus_addons_p/src/addons/monster_kill_count/monster_kill_count.lua",
 }
 
 -- ソースの読み込みは io を差し替える前に済ませる（下で io.open を潰すため）。

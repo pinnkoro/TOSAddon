@@ -173,7 +173,7 @@ nexus_addons_p/
 ## 8. リスク・留意点
 
 - **`.ipf` の byte 一致（level 6）は維持**：連結結果が現 bundle と同一 ⇒ `build_addon_ipf.py` の入力も同一 ⇒ 出力 `.ipf` も同一。
-- **新規アドオン追加時**：`src/addons/<key>.lua` を追加 + `core/10_registry.lua` に登録 + `build_manifest.json` の `targets` に追記（脱落ガードにより追記漏れは即エラー）。挙動が変わるので初回のバイト一致制約からは解放されるが、恒常ガードの sha はズレるため `python docs/bundle_from_src.py --bless` で golden を更新すること。
+- **新規アドオン追加時**：`src/addons/<key>/<key>.lua` を追加 + `core/10_registry.lua` に登録 + `build_manifest.json` の `targets` に追記（脱落ガードにより追記漏れは即エラー）。アドオンは 1 つ 1 フォルダで、同じフォルダに利用者向けの `README.md` を置く（脱落ガードが見るのは `.lua` だけなので、README はビルドに影響しない）。挙動が変わるので初回のバイト一致制約からは解放されるが、恒常ガードの sha はズレるため `python docs/bundle_from_src.py --bless` で golden を更新すること。
 - **conclude を使う理由の温存**：`ancient_monster_bookshelf` を conclude 側に残すか main に取り込むかは、現状の load 順依存があるため**現状維持**（conclude のまま）を推奨。動かす場合は別途実機検証が要る。
 - **xml は分割しない**。
 - **CI 化余地**：`分割検証 → 連結 → ipf 化 → 往復検証` をワンショット化できる。
