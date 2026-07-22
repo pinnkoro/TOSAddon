@@ -325,6 +325,15 @@ function Monster_kill_count_pos(monster_kill_count)
     Monster_kill_count_save_settings()
 end
 
+-- 一覧を開くたびの読み込みを減らすためのメモ。「記録がある」と一度確定した
+-- マップだけを覚える。討伐数・滞在時間は増える一方で、減るのは Map Reset の
+-- ときだけ(そこで id ごと落とす)なので、true を覚えたままにしても嘘にならない。
+-- 逆に「記録なし」は覚えない。今いるマップは滞在時間が伸びて記録ありに変わる。
+function Monster_kill_count_mark_has_record(map_id)
+    g.mkc_has_record = g.mkc_has_record or {}
+    g.mkc_has_record[tostring(map_id)] = true
+end
+
 function Monster_kill_count_information_context()
     local context = ui.CreateContextMenu("monster_kill_count_context", "{ol}Map Info", 0, 0, 200, 0)
     local sorted_map_ids = {}
@@ -334,40 +343,59 @@ function Monster_kill_count_information_context()
     table.sort(sorted_map_ids, function(a, b)
         return a < b
     end)
+    g.mkc_has_record = g.mkc_has_record or {}
+    -- map_ids は通ったマップぶん増える一方で、ここは 1 件ごとに記録ファイルを
+    -- 読む(open + JSON デコード)。遊ぶほど一覧を開いた瞬間が重くなるので、次の
+    -- 2 つで実際に読む件数を抑える。
+    --   * 記録があると分かっている id は読まない(上のメモ)。2 回目以降は読まない。
+    --   * 記録が空だと分かった id は map_ids から外す。一覧に出さない id を
+    --     毎回読み直しても意味が無く、そのまま置くと list だけが伸び続ける。
+    --     v1.0.0 は「中身のあるファイルを空の雛形で上書きする」不具合があり、
+    --     その頃の空ファイルが残っている利用者がいるので、ここで片付く。
+    -- 読めなかった id は外さない。ウイルス対策ソフトのロック等で一時的に読めない
+    -- だけかもしれず、それで記録を一覧から永久に落とすのは割に合わない。
+    local kept, pruned = {}, 0
     for i = 1, #sorted_map_ids do
         local map_id = sorted_map_ids[i]
         local map_id_str = tostring(map_id)
-        local map_file_path = Monster_kill_count_get_map_filepath(map_id_str)
         local map_cls = GetClassByType("Map", map_id)
-        local map_data = g.load_json(map_file_path)
-        if not map_data then
-            -- 記録ファイルが無い/壊れているときだけ雛形を作る。
-            -- 中身がある場合にここで作り直すと討伐数と滞在時間まで消える。
-            map_data = {
-                map_name = map_cls and map_cls.ClassName,
-                stay_time = 0,
-                kill_count = 0,
-                get_items = {}
-            }
-            g.save_json(map_file_path, map_data)
-        else
-            -- get_items が無い形式のファイルが残っていると下の next(nil) で落ち、
-            -- コンテキストメニューが一切開かなくなる(= 設定ボタンが無反応に見える)。
-            -- 欠けたキーだけ補い、既存の記録は必ず残す。
-            if type(map_data.get_items) ~= "table" then
-                map_data.get_items = {}
-                g.save_json(map_file_path, map_data)
+        local has_record = g.mkc_has_record[map_id_str]
+        if has_record == nil then
+            local map_data = g.load_json(Monster_kill_count_get_map_filepath(map_id_str))
+            if not map_data then
+                -- 記録ファイルが無い / 壊れている。Map Reset の直後もここへ来る。
+                g.vlog("monster_kill_count: 記録を読めないので一覧に出さない map_id=%s", map_id_str)
+                kept[#kept + 1] = map_id
+                has_record = false
+            else
+                has_record = (tonumber(map_data.kill_count) or 0) > 0 or (tonumber(map_data.stay_time) or 0) > 0 or
+                                 (type(map_data.get_items) == "table" and next(map_data.get_items) ~= nil)
+                if has_record then
+                    Monster_kill_count_mark_has_record(map_id)
+                    kept[#kept + 1] = map_id
+                else
+                    g.vlog("monster_kill_count: 記録が空なので一覧から外す map_id=%s", map_id_str)
+                    pruned = pruned + 1
+                end
             end
-            -- 一覧に出すかは「何か記録があるか」で決める。get_items だけを見ていた頃は、
-            -- 討伐しただけでアイテムを拾わなかったマップが一覧から漏れていた。
-            local has_record = (tonumber(map_data.kill_count) or 0) > 0 or
-                                   (tonumber(map_data.stay_time) or 0) > 0 or next(map_data.get_items) ~= nil
-            if has_record and map_cls then
+        else
+            kept[#kept + 1] = map_id
+        end
+        if has_record then
+            if map_cls then
                 local display_text = map_id .. " " .. map_cls.Name
                 ui.AddContextMenuItem(context, display_text,
                     string.format("Monster_kill_count_map_information(%d)", map_id))
+            else
+                -- 記録は在るのにマップクラスを引けない。黙って一覧から消えると
+                -- 「記録したはずのマップが出てこない」としか見えないので必ず残す。
+                g.vlog("monster_kill_count: マップクラスを引けないので一覧に出せない map_id=%s", map_id_str)
             end
         end
+    end
+    if pruned > 0 then
+        g.mkc_settings.map_ids = kept
+        Monster_kill_count_save_settings()
     end
     ui.OpenContextMenu(context)
 end
@@ -381,6 +409,23 @@ end
 function Monster_kill_count_map_information(map_id)
     local map_file_path = Monster_kill_count_get_map_filepath(map_id)
     local map_data = g.load_json(map_file_path)
+    if not map_data then
+        -- 一覧に出す時点でファイルが開けることは見ているが、中身が壊れていれば
+        -- ここで nil になる。下は map_data を直接参照するので、空で開いて
+        -- フレームごと落とさないようにする(記録ファイルには手を付けない)。
+        g.vlog("monster_kill_count: 記録を読めないので空表示 map_id=%s", tostring(map_id))
+        map_data = {
+            stay_time = 0,
+            kill_count = 0,
+            get_items = {}
+        }
+    elseif type(map_data.get_items) ~= "table" then
+        -- get_items を持たない古い形式のファイルが残っていることがある。
+        -- 判定していた一覧側(information_context)からは読み込みを外したので、
+        -- 実際に中身を読むここで補って書き戻す。既存の討伐数・滞在時間は必ず残す。
+        map_data.get_items = {}
+        g.save_json(map_file_path, map_data)
+    end
     local frame_name = addon_name_lower .. "mkc_map_info"
     local map_info = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
     AUTO_CAST(map_info)
@@ -480,6 +525,34 @@ end
 function Monster_kill_count_map_reset(map_id)
     local map_file_path = Monster_kill_count_get_map_filepath(map_id)
     os.remove(map_file_path)
+    if g.mkc_has_record then
+        g.mkc_has_record[tostring(map_id)] = nil
+    end
+    if g.mkc_map_id ~= nil and tostring(g.mkc_map_id) == tostring(map_id) then
+        -- 今いるマップを消した場合、メモリ上の集計をそのままにするとオートセーブが
+        -- 消したはずの記録を書き戻す(= リセットしたのに数値が戻らない)。
+        -- ファイルだけでなくカウンタごと初期化する。
+        g.mkc_count = 0
+        g.mkc_start_time = imcTime.GetAppTimeMS()
+        g.mkc_last_tick_ms = g.mkc_start_time
+        g.mkc_map_data = {
+            map_name = g.map_name,
+            stay_time = 0,
+            kill_count = 0,
+            get_items = {}
+        }
+    else
+        -- 今いるマップでなければ記録は復活しないので、一覧からも外す。
+        -- 残すと選んだ先に読むファイルが無く、map_ids も伸びる一方になる。
+        local kept = {}
+        for _, id in ipairs(g.mkc_settings.map_ids) do
+            if tostring(id) ~= tostring(map_id) then
+                kept[#kept + 1] = id
+            end
+        end
+        g.mkc_settings.map_ids = kept
+        Monster_kill_count_save_settings()
+    end
     local map_info = ui.GetFrame(addon_name_lower .. "mkc_map_info")
     Monster_kill_count_map_information_close(map_info)
 end

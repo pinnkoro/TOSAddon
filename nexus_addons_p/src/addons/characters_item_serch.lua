@@ -154,6 +154,33 @@ function Characters_item_serch_INVENTORY_CLOSE()
     Characters_item_serch_inventory_save_list()
 end
 
+-- 倉庫の保存を中止したことを利用者に伝える。
+--
+-- 中止すると .dat は前回のまま残るので、取り出したアイテムが検索結果に出続ける等、
+-- 内容が実際の倉庫とズレたままになる。詳細ログは既定 OFF なので、それだけだと
+-- 気付く手段が無く「検索がおかしい」としか見えない。倉庫を閉じたときにしか
+-- 呼ばれない = 連呼にはならないので、その都度チャットに出す。
+--
+-- 欠けたまま上書きせず前回を残すという方針自体は変えない(欠落した .dat で
+-- 上書きするより実害が小さい)。知らせるところだけを足している。
+function Characters_item_serch_notify_save_abort(is_account, iesid)
+    local ja = g.lang == "Japanese"
+    local where
+    if is_account then
+        where = ja and "チーム倉庫" or "Account Warehouse"
+    else
+        where = ja and "個人倉庫" or "Warehouse"
+    end
+    g.vlog("characters_item_serch: %s のアイテムを引けないため保存を中止 iesid=%s", where, tostring(iesid))
+    if ja then
+        ui.SysMsg("{ol}{#FF6347}[CIS]{/} " .. where ..
+                      "のアイテム情報を取得できなかったため、今回の保存を中止しました{nl}検索結果は前回のままです")
+    else
+        ui.SysMsg("{ol}{#FF6347}[CIS]{/} Could not read " .. where ..
+                      " items, so this save was aborted{nl}Search results remain from the previous scan")
+    end
+end
+
 function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
     local item_list = session.GetEtcItemList(IT_ACCOUNT_WAREHOUSE)
     local sorted_guid_list = item_list:GetSortedGuidList()
@@ -169,7 +196,7 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
             -- 置き換えるので、引けなかった分を落として保存すると検索から消える。
             local obj = GetObjectByGuid(iesid)
             if not obj then
-                g.vlog("characters_item_serch: チーム倉庫アイテムを引けないため保存を中止 iesid=%s", tostring(iesid))
+                Characters_item_serch_notify_save_abort(true, iesid)
                 return
             end
             local item_name = string.lower(dictionary.ReplaceDicIDInCompStr(obj.Name))
@@ -295,7 +322,7 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
             -- 前回の .dat を残す(欠落したまま上書きするより実害が小さい)。
             local obj = GetObjectByGuid(iesid)
             if not obj then
-                g.vlog("characters_item_serch: 倉庫アイテムを引けないため保存を中止 iesid=%s", tostring(iesid))
+                Characters_item_serch_notify_save_abort(false, iesid)
                 return
             end
             local clsid = obj.ClassID

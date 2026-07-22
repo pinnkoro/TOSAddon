@@ -59,7 +59,10 @@ ui = {
     end,
     OpenContextMenu = function() end,
     SysMsg = function() end,
+    GetFrame = function() return nil end,
+    DestroyFrame = function() end,
 }
+imcTime = {GetAppTimeMS = function() return 0 end}
 session = {
     GetMapName = function() return "map_a" end,
     GetMapID = function() return 1001 end,
@@ -129,6 +132,7 @@ check("既存の map_ids は残す", g.mkc_settings.map_ids[1], 1001)
 -- 「get_items が空 = 記録なし」と見なして雛形で上書きすると、討伐数と滞在時間が消える。
 print("[2] マップ情報は記録を上書きしない")
 g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001, 1002, 1003}}
+g.mkc_has_record = nil
 files = {}
 files[map_path(1001)] = {map_name = "map_a", kill_count = 500, stay_time = 60000, get_items = {}}
 files[map_path(1002)] = {map_name = "map_b", kill_count = 0, stay_time = 0, get_items = {["123"] = 3}}
@@ -144,39 +148,106 @@ end
 check("1001(討伐のみ) が出る", listed["1001 map_a"], true)
 check("1002(取得のみ) が出る", listed["1002 map_b"], true)
 check("1003(記録なし) は出ない", listed["1003 map_c"], nil)
-check("既存ファイルを上書きしない", #saved, 0)
 check("1001 の討伐数が残る", files[map_path(1001)].kill_count, 500)
 check("1001 の滞在時間が残る", files[map_path(1001)].stay_time, 60000)
+for _, s in ipairs(saved) do
+    check("記録ファイルには書き込まない: " .. s.path, s.path:find("monster_kill_count/") == nil, true)
+end
 
--- ===== 3. 記録ファイルが無いときだけ雛形を作る =====
-print("[3] ファイル不在なら雛形を作る")
+-- 記録が空だと分かった id は map_ids から外す。外さないと一覧に出さない id を
+-- 毎回読み直すことになり、通ったマップぶん一覧を開くのが重くなっていく。
+check("空の 1003 を map_ids から外す", #g.mkc_settings.map_ids, 2)
+check("1001 は残る", g.mkc_settings.map_ids[1], 1001)
+check("1002 は残る", g.mkc_settings.map_ids[2], 1002)
+
+-- 「記録あり」と確定した id は覚えて、次からは読み直さない。
+-- 討伐数と滞在時間は増える一方で、減るのは Map Reset のときだけ(下の [6])。
+print("[2-2] 2 回目は記録ファイルを読み直さない")
+local reads = 0
+local real_load_json = g.load_json
+g.load_json = function(path)
+    reads = reads + 1
+    return real_load_json(path)
+end
+ctx_items, saved = {}, {}
+Monster_kill_count_information_context()
+g.load_json = real_load_json
+check("読み込みは発生しない", reads, 0)
+check("一覧の内容は変わらない", #ctx_items, 2)
+
+-- ===== 3. 記録ファイルを読めない id は一覧に出さず、map_ids からも外さない =====
+-- 読めない理由は「Map Reset で消した直後」だけとは限らず、ウイルス対策ソフトの
+-- ロック等で一時的に読めないこともある。それで記録を一覧から永久に落とさない。
+print("[3] 読めない id は残したまま一覧に出さない")
 g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+g.mkc_has_record = nil
 files, ctx_items, saved = {}, {}, {}
 Monster_kill_count_information_context()
-check("雛形を1件保存する", #saved, 1)
-check("保存先が正しい", saved[1] and saved[1].path, map_path(1001))
-check("雛形の討伐数は0", saved[1] and saved[1].tbl.kill_count, 0)
-check("記録が無いので一覧には出ない", #ctx_items, 0)
+check("一覧には出ない", #ctx_items, 0)
+check("map_ids から消さない", g.mkc_settings.map_ids[1], 1001)
+check("設定を書き換えない", #saved, 0)
 
 -- ===== 4. get_items が無い旧形式でも落ちず、記録は保つ =====
 -- next(nil) で落ちるとコンテキストメニューが一切開かず、設定ボタンが無反応に見える。
+-- （欠けた get_items を補って書き戻すのは、実際に中身を読む
+--   Monster_kill_count_map_information 側の役目に移した）
 print("[4] 旧形式(get_items なし)を壊さずに扱う")
 g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+g.mkc_has_record = nil
 files, ctx_items, saved = {}, {}, {}
 files[map_path(1001)] = {map_name = "map_a", kill_count = 42, stay_time = 1000}
 check("落ちない", (pcall(Monster_kill_count_information_context)), true)
 check("討伐数は保たれる", files[map_path(1001)].kill_count, 42)
-check("get_items が補われる", type(files[map_path(1001)].get_items), "table")
 check("記録があるので一覧に出る", #ctx_items, 1)
+check("map_ids から外さない", #g.mkc_settings.map_ids, 1)
 
 -- ===== 5. クラスを引けないマップは一覧に出さない =====
 -- GetClassByType が nil を返す状態で .Name を触ると、メニュー全体が開かなくなる。
+-- ただし記録は在るので map_ids からは外さない（クラスを引けるようになれば出る）。
 print("[5] 未知のマップ ID でも落ちない")
 g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {9999}}
+g.mkc_has_record = nil
 files, ctx_items, saved = {}, {}, {}
 files[map_path(9999)] = {map_name = "?", kill_count = 5, stay_time = 10, get_items = {}}
 check("落ちない", (pcall(Monster_kill_count_information_context)), true)
 check("一覧には出さない", #ctx_items, 0)
+check("map_ids からは外さない", #g.mkc_settings.map_ids, 1)
+
+-- ===== 6. Map Reset は一覧と「記録あり」のメモから確実に落とす =====
+-- 消した id を残すと、選んだ先に読むファイルが無い。
+-- 「記録あり」を覚えたままだと、消したのに一覧へ出続ける。
+print("[6] Map Reset が一覧から落ちる")
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001, 1002}}
+g.mkc_has_record = nil
+g.mkc_map_id = 1002 -- 今いるのは 1002。消すのは別マップの 1001
+files, ctx_items, saved = {}, {}, {}
+files[map_path(1001)] = {map_name = "map_a", kill_count = 500, stay_time = 60000, get_items = {}}
+files[map_path(1002)] = {map_name = "map_b", kill_count = 1, stay_time = 1, get_items = {}}
+Monster_kill_count_information_context()
+check("消す前は 2 件", #ctx_items, 2)
+files[map_path(1001)] = nil -- os.remove 相当
+Monster_kill_count_map_reset(1001)
+check("map_ids から外れる", #g.mkc_settings.map_ids, 1)
+check("残るのは 1002", g.mkc_settings.map_ids[1], 1002)
+check("記録ありのメモも消える", g.mkc_has_record["1001"], nil)
+ctx_items = {}
+Monster_kill_count_information_context()
+check("一覧から消える", #ctx_items, 1)
+
+-- ===== 7. 今いるマップの Map Reset は集計ごと戻す =====
+-- ファイルだけ消してもメモリ上の集計が残っていると、次のオートセーブで
+-- 消したはずの記録が書き戻り、リセットが効かない。
+print("[7] 現在地の Map Reset は集計も戻す")
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1002}}
+g.mkc_map_id = 1002
+g.mkc_count = 123
+g.mkc_map_data = {map_name = "map_b", kill_count = 123, stay_time = 45000, get_items = {["1"] = 2}}
+Monster_kill_count_map_reset(1002)
+check("討伐数が戻る", g.mkc_map_data.kill_count, 0)
+check("滞在時間が戻る", g.mkc_map_data.stay_time, 0)
+check("取得アイテムが戻る", next(g.mkc_map_data.get_items), nil)
+check("カウンタが戻る", g.mkc_count, 0)
+check("現在地は map_ids に残す", #g.mkc_settings.map_ids, 1)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
