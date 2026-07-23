@@ -5,11 +5,21 @@
 -- その設定ごと退避/復旧する操作を同じ場所に置いている。
 --
 -- ===== バックアップの対象と方法 =====
--- 対象は ../addons/_nexus_addons_p/<AID>/ 配下まるごと。settings.json だけでなく
--- 各アドオンの .json/.lua/.dat や monster_kill_count/<map_id>.json のような可変名の
--- ファイルもあり、Lua 側にディレクトリ列挙が無いのでファイル名を列挙できない。
--- よってコピーは xcopy に任せ、失敗したときだけ settings.json を自前でコピーする
--- フォールバックを持つ(g.migrate_from_origin と同じ作り。あちらのコメントも参照)。
+-- 対象は ../addons/_nexus_addons_p/<AID>/ 配下。コピーは io だけで 1 ファイルずつ行い、
+-- xcopy(cmd)は使わない。os.execute は GUI プロセスから呼ぶと必ずコンソール窓を作るので、
+-- 押すたびに画面が一瞬点滅してしまうため(io.popen も同じうえ GUI アプリでは不安定)。
+--
+-- 代わりに「何をコピーするか」を自前で知る必要がある。Lua 側にディレクトリ列挙が無く、
+-- 列挙する唯一の手段が cmd だから、ここを避けるとファイル名は自分で持つしかない。
+--   * 固定名 … 下の g.backup_files。追加漏れ = 黙って取り残されるので、
+--     docs/tests/test_core.lua [17] が bundle 内のパス文字列と突き合わせて落とす。
+--     新しい設定ファイルを増やしたら、そこの検査に従ってここへ足すこと。
+--   * 可変名 … monster_kill_count/<map_id>.json だけ。こちらは monster_kill_count.json の
+--     map_ids が記録のあるマップを持っているので、そこから組み立てる。
+--
+-- フォルダ作成(cmd の mkdir)だけは代わりが無いので残る。ただし g.create_folder が
+-- マーカーで空振りを防ぐため、コンソール窓が出るのは *初回のバックアップ 1 回だけ*。
+-- 2 回目以降のバックアップと、復元では出ない。
 --
 -- 保存先は AID フォルダの *外* ../addons/_nexus_addons_p/backup/<AID>/。
 -- 中に置くとバックアップ自身をバックアップし続けることになる。
@@ -18,10 +28,32 @@
 -- 一緒に live 側へコピーされてしまう。
 --
 -- ===== 復元は「上書き」であって「巻き戻し」ではない =====
--- xcopy はコピー元に無いファイルを消さないので、バックアップ後に増えたファイルは
--- 残る(settings.json のような主要な設定は上書きされる)。消す方向の同期にすると
+-- コピー元に無いファイルは消さないので、バックアップ後に増えたファイルは残る
+-- (settings.json のような主要な設定は上書きされる)。消す方向の同期にすると
 -- 対象の取り違えでユーザーのファイルを消しかねないので、意図的に上書きだけにしている。
 -- 復元後は g.* にキャッシュ済みの各アドオン設定までは戻らないため、再起動を案内する。
+
+-- AID フォルダ直下に置かれるファイル名。ここに無いものはバックアップされない。
+-- mkdir.txt(g.create_folder のマーカー)と filelist_temp.txt(monster_kill_count が
+-- 列挙に使う一時ファイル)は設定ではないので、意図的に載せていない。
+g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json", "always_status.json",
+                  "always_status.lua", "ancient_auto_set.json", "another_warehouse.json", "another_warehouse.lua",
+                  "archeology_helper.json", "auto_pet_summon.json", "auto_repair.json", "battle_ritual.json",
+                  "boss_direction.json", "cc_helper.json", "cc_helper.lua", "characters_item_serch.json",
+                  "characters_item_serch_accountwarehouse.dat", "characters_item_serch_equips.dat",
+                  "characters_item_serch_inventory.dat", "characters_item_serch_warehouse.dat",
+                  "cupole_manager.json", "easy_buff.json", "equips.dat", "goddess_icor_manager.lua",
+                  "guild_event_warp.json", "indun_list_viewer.json", "indun_list_viewer.lua", "indun_panel.json",
+                  "instant_cc.json", "inventory.dat", "lets_go_home.json", "market_voucher.json",
+                  "market_voucher_log.txt", "monster_card_changer.json", "monster_kill_count.json", "muteki.json",
+                  "my_buffs_control.dat", "my_buffs_control.json", "other_character_skill_list.json",
+                  "other_character_skill_list.lua", "pick_item_tracker.json", "quickslot_operate.json",
+                  "relic_change.json", "revival_timer.json", "save_quest.json", "separate_buff_custom.json",
+                  "settings_250609.json", "settings_2507.json", "settings_2510.json", "sub_map.json",
+                  "sub_slotset.json", "vakarine_equip.json", "warehouse.dat"}
+
+-- 可変名のファイルを置いている唯一のサブフォルダ。復元先に無ければ作る必要がある。
+local BACKUP_SUBFOLDER = "monster_kill_count"
 
 -- バックアップ関連のパス。g.active_id は ON_INIT で入るので、ロード時ではなく
 -- 呼ばれた時点で組み立てる(90_addons_menu.lua の設定パスと同じ理由)。
@@ -37,95 +69,108 @@ function g.backup_paths()
     }
 end
 
--- src_dir を dst_dir へ丸ごとコピーする。戻り値は ok, kind。
--- 成否は「コピー先に settings.json が *出来たか*」で見る。os.execute の戻り値は
--- 環境依存で当てにならないため、xcopy の終了コードは見ない。
---
--- この見方はコピー先が空でないと成立しない。同じ作りの g.migrate_from_origin は
--- 「自分側に settings.json が無い」ときしか走らないので前提を満たすが、こちらの
--- 呼び出し元 2 つはどちらもコピー先に settings.json が在る状態で呼ばれる
--- (復元先の live は起動時に必ず作られる / 2 回目以降のバックアップ先には前回の分が残る)。
--- そのまま判定すると、xcopy が黙って失敗しても古いファイルを掴んで「コピーできた」に
--- なり、下のフォールバックにも入らない。復元では何も書き戻っていないのに成功を、
--- 再バックアップでは中身が古いまま日時だけ新しいバックアップを作ってしまう。
--- よって先に脇へ退かしてから xcopy する。
---
--- 消さずに rename で退かすのは、xcopy もフォールバックも失敗したときに元へ戻すため。
--- 復元に失敗したうえにユーザーの現設定まで消える方が悪い。
-local function copy_settings_dir(src_dir, dst_dir)
-    local src_settings = src_dir .. "/settings.json"
-    local src = io.open(src_settings, "r")
-    if not src then
-        return false, "no_source"
+-- コピー対象のファイル名(src_dir からの相対)。固定名の一覧に、可変名の
+-- monster_kill_count/<map_id>.json を足して返す。後者はフォルダを列挙できないので、
+-- *コピー元* の monster_kill_count.json が持つ map_ids から組み立てる
+-- (記録のあるマップの一覧で、アドオン側が記録の追加時に更新している)。
+-- コピー元側を読むので、復元ではバックアップした時点の一覧が使われる。
+local function settings_file_names(src_dir)
+    local names = {}
+    for _, name in ipairs(g.backup_files) do
+        names[#names + 1] = name
     end
-    src:close()
-    local dst_settings = dst_dir .. "/settings.json"
-    local kept = dst_settings .. ".old"
-    -- Windows の os.rename は移動先が存在すると失敗する(g.atomic_replace と同じ扱い)
-    os.remove(kept)
-    local had_dst = os.rename(dst_settings, kept) and true or false
-    -- os.execute は cmd 経由なので区切りをバックスラッシュに直す(migrate_from_origin と同じ扱い)
-    local src_win = string.gsub(src_dir, "/", "\\")
-    local dst_win = string.gsub(dst_dir, "/", "\\")
-    os.execute(string.format('xcopy "%s" "%s" /E /I /Y /Q >nul 2>&1', src_win, dst_win))
-    local copied = io.open(dst_settings, "r")
-    if copied then
-        copied:close()
-        os.remove(kept)
-        return true, "copied"
+    local mkc = g.load_json(src_dir .. "/monster_kill_count.json")
+    if mkc and type(mkc.map_ids) == "table" then
+        for _, map_id in ipairs(mkc.map_ids) do
+            names[#names + 1] = string.format("%s/%s.json", BACKUP_SUBFOLDER, tostring(map_id))
+        end
     end
-    -- xcopy が使えなかったとき用。最低限 settings.json(= 各アドオンの ON/OFF)だけは運ぶ。
-    if g.copy_file(src_settings, dst_settings) then
-        os.remove(kept)
-        return true, "partial"
-    end
-    if had_dst then
-        os.rename(kept, dst_settings)
-    end
-    g.vlog("{#FF6347}copy_settings_dir: xcopy もフォールバックも失敗{/} %s -> %s (退かした設定を戻した=%s)",
-        src_dir, dst_dir, tostring(had_dst))
-    return false, "failed"
+    return names
 end
 
--- 現在の設定をバックアップへ退避する。戻り値は ok, kind("copied"/"partial"/失敗理由)。
+-- src_dir の設定ファイルを dst_dir へ 1 つずつコピーする。戻り値は copied, failed。
+--
+-- 数えるのは g.copy_file の戻り値であって「コピー先にファイルが在るか」ではない。
+-- 在るかで見ると、コピー先に前回の分が残っているとき(復元先の live は起動時に必ず
+-- 作られ、2 回目以降のバックアップ先には前回の分が残る)に、失敗しても古いファイルを
+-- 掴んで成功に見える。xcopy を使っていた頃はここを取り違えていた(e250046ed)。
+-- 1 ファイルずつ自前でコピーする今は、成否がそのまま戻り値で分かるので取り違えない。
+--
+-- コピー元に無いファイルは飛ばす。全アドオンを使っている利用者はまず居ないので、
+-- 一覧のほとんどが存在しないのが普通の状態。
+local function copy_settings_files(src_dir, dst_dir, names)
+    local copied, failed = 0, 0
+    for _, name in ipairs(names) do
+        local src_path = src_dir .. "/" .. name
+        local src = io.open(src_path, "rb")
+        if src then
+            src:close()
+            if g.copy_file(src_path, dst_dir .. "/" .. name) then
+                copied = copied + 1
+            else
+                failed = failed + 1
+                g.vlog("{#FF6347}copy 失敗{/} %s", name)
+            end
+        end
+    end
+    return copied, failed
+end
+
+-- 現在の設定をバックアップへ退避する。戻り値は ok, copied, failed。
 function g.backup_settings()
     local paths = g.backup_paths()
     if not paths then
-        return false, "no_id"
+        return false, 0, 0
     end
-    -- xcopy /I が作ってくれるが、フォールバック(g.copy_file)は自分ではフォルダを作れない。
-    -- cmd の mkdir は途中のフォルダもまとめて作るので 1 回でよい。
-    g.create_folder(paths.backup, paths.backup .. "/mkdir.txt")
-    local ok, kind = copy_settings_dir(paths.live, paths.backup)
-    if not ok then
-        g.vlog("{#FF6347}backup: 失敗{/} %s -> %s (%s)", paths.live, paths.backup, tostring(kind))
-        return false, kind
+    -- cmd の mkdir は途中のフォルダもまとめて作るので、深い方だけ作れば backup/<AID> も
+    -- 出来る = 起動する cmd は 1 回。g.create_folder がマーカーで空振りを防ぐため、
+    -- コンソール窓が一瞬出るのは初回のバックアップだけになる。
+    g.create_folder(paths.backup .. "/" .. BACKUP_SUBFOLDER,
+        paths.backup .. "/" .. BACKUP_SUBFOLDER .. "/mkdir.txt")
+    local copied, failed = copy_settings_files(paths.live, paths.backup, settings_file_names(paths.live))
+    if copied == 0 then
+        g.vlog("{#FF6347}backup: 1 件もコピーできなかった{/} %s -> %s (失敗 %d 件)", paths.live,
+            paths.backup, failed)
+        return false, 0, failed
     end
-    -- time は復元前に「いつの設定か」を見せるため。partial はそのとき
-    -- 「settings.json だけの退避だった」と断れるようにするため。ver は使わないが、
-    -- 不具合報告でこのファイルを見たときに、どの版で取ったかが分かるように残す。
+    -- time は復元前に「いつの設定か」を見せるため。partial はそのとき「取りこぼしがある
+    -- 退避だった」と断れるようにするため。ver と files は使わないが、不具合報告でこの
+    -- ファイルを見たときに、どの版で何件退避したのかが分かるように残す。
     g.save_json(paths.info, {
         time = os.date("%Y-%m-%d %H:%M:%S"),
         ver = ver,
-        partial = (kind == "partial") and 1 or 0
+        partial = (failed > 0) and 1 or 0,
+        files = copied
     })
-    g.vlog("backup: %s -> %s (%s)", paths.live, paths.backup, tostring(kind))
-    return true, kind
+    g.vlog("backup: %s -> %s (%d 件, 失敗 %d 件)", paths.live, paths.backup, copied, failed)
+    return true, copied, failed
 end
 
--- バックアップから設定を書き戻す。戻り値は ok, kind。
+-- バックアップから設定を書き戻す。戻り値は ok, copied, failed。
 function g.restore_settings()
     local paths = g.backup_paths()
     if not paths then
-        return false, "no_id"
+        return false, 0, 0
     end
-    local ok, kind = copy_settings_dir(paths.backup, paths.live)
-    if not ok then
-        g.vlog("{#FF6347}restore: 失敗{/} %s -> %s (%s)", paths.backup, paths.live, tostring(kind))
-        return false, kind
+    local names = settings_file_names(paths.backup)
+    -- 書き戻し先のサブフォルダは普段アドオン側が作っているが、monster_kill_count を
+    -- 一度も使っていないと無い。戻すマップ記録があるときだけ作りに行く
+    -- (マーカーがあれば g.create_folder は cmd を起動しない)。
+    for _, name in ipairs(names) do
+        if string.find(name, "/", 1, true) then
+            g.create_folder(paths.live .. "/" .. BACKUP_SUBFOLDER,
+                paths.live .. "/" .. BACKUP_SUBFOLDER .. "/mkdir.txt")
+            break
+        end
     end
-    g.vlog("restore: %s -> %s (%s)", paths.backup, paths.live, tostring(kind))
-    return true, kind
+    local copied, failed = copy_settings_files(paths.backup, paths.live, names)
+    if copied == 0 then
+        g.vlog("{#FF6347}restore: 1 件もコピーできなかった{/} %s -> %s (失敗 %d 件)", paths.backup,
+            paths.live, failed)
+        return false, 0, failed
+    end
+    g.vlog("restore: %s -> %s (%d 件, 失敗 %d 件)", paths.backup, paths.live, copied, failed)
+    return true, copied, failed
 end
 
 -- バックアップの有無と取得日時。無ければ nil。
@@ -223,7 +268,7 @@ function _nexus_addons_p_backup_settings()
 end
 
 function _nexus_addons_p_backup_settings_exec()
-    local ok, kind = g.backup_settings()
+    local ok, copied, failed = g.backup_settings()
     if not ok then
         maintenance_notice(g.lang == "Japanese" and "[Nexus Addons P] バックアップに失敗しました" or
                                "[Nexus Addons P] Backup failed", false)
@@ -231,15 +276,17 @@ function _nexus_addons_p_backup_settings_exec()
     end
     local msg
     if g.lang == "Japanese" then
-        msg = kind == "partial" and
-                  "[Nexus Addons P] settings.json だけバックアップしました(他のファイルはコピーできませんでした)" or
-                  "[Nexus Addons P] 設定をバックアップしました"
+        msg = string.format("[Nexus Addons P] 設定を %d 件バックアップしました", copied)
+        if failed > 0 then
+            msg = msg .. string.format("({#FF6347}%d 件はコピーできませんでした{/})", failed)
+        end
     else
-        msg = kind == "partial" and
-                  "[Nexus Addons P] Backed up settings.json only (other files could not be copied)" or
-                  "[Nexus Addons P] Settings backed up"
+        msg = string.format("[Nexus Addons P] Backed up %d file(s)", copied)
+        if failed > 0 then
+            msg = msg .. string.format(" ({#FF6347}%d could not be copied{/})", failed)
+        end
     end
-    maintenance_notice(msg, true)
+    maintenance_notice(msg, failed == 0)
     _nexus_addons_p_frame_init() -- ツールチップの日時を取り直す
 end
 
@@ -266,7 +313,7 @@ function _nexus_addons_p_restore_settings()
 end
 
 function _nexus_addons_p_restore_settings_exec()
-    local ok = g.restore_settings()
+    local ok, copied, failed = g.restore_settings()
     if not ok then
         maintenance_notice(g.lang == "Japanese" and "[Nexus Addons P] 復元に失敗しました" or
                                "[Nexus Addons P] Restore failed", false)
@@ -277,9 +324,20 @@ function _nexus_addons_p_restore_settings_exec()
     if g.loaded then
         _nexus_addons_p_init_addons(false, nil)
     end
-    maintenance_notice(g.lang == "Japanese" and
-                           "[Nexus Addons P] 設定を復元しました。すべて反映するにはゲームを再起動してください" or
-                           "[Nexus Addons P] Settings restored. Restart the game to apply everything", true)
+    local msg
+    if g.lang == "Japanese" then
+        msg = string.format(
+            "[Nexus Addons P] 設定を %d 件復元しました。すべて反映するにはゲームを再起動してください", copied)
+        if failed > 0 then
+            msg = msg .. string.format("({#FF6347}%d 件は書き戻せませんでした{/})", failed)
+        end
+    else
+        msg = string.format("[Nexus Addons P] Restored %d file(s). Restart the game to apply everything", copied)
+        if failed > 0 then
+            msg = msg .. string.format(" ({#FF6347}%d could not be written back{/})", failed)
+        end
+    end
+    maintenance_notice(msg, failed == 0)
     _nexus_addons_p_frame_init()
 end
 
@@ -298,10 +356,12 @@ local function maintenance_button_defs()
     else
         backup_when = string.format(ja and "{nl}最終バックアップ: %s" or "{nl}Last backup: %s",
             info.time or (ja and "不明" or "unknown"))
-        -- xcopy が使えず settings.json だけ退避できた場合。復元しても各アドオンの
-        -- 細かい設定は戻らないので、押す前に分かるようにしておく。
+        -- 一部のファイルをコピーできないまま取った退避。復元しても戻らない設定が
+        -- あるということなので、押す前に分かるようにしておく。
         if info.partial == 1 then
-            backup_when = backup_when .. (ja and "{nl}(settings.json のみ)" or "{nl}(settings.json only)")
+            backup_when = backup_when ..
+                              (ja and "{nl}(一部のファイルは退避できていません)" or
+                                  "{nl}(some files could not be backed up)")
         end
     end
     return {{

@@ -482,12 +482,11 @@ check("すでに全 OFF なら保存しない", stored, nil)
 check("すでに全 OFF なら作り直さない", frame_inits, 0)
 
 -- ===== 16. 設定のバックアップと復元 =====
--- ../addons/_nexus_addons_p/<AID>/ 配下を xcopy で丸ごと運ぶ。ファイル名を列挙できない
--- （Lua にディレクトリ列挙が無い）ので、settings.json 以外も確実に運べているかを見る。
+-- コピーは io だけで 1 ファイルずつ行う（xcopy を使うと押すたびにコンソール窓が
+-- 一瞬出るため）。代わりに「何をコピーするか」を g.backup_files と
+-- monster_kill_count.json の map_ids から自前で組み立てるので、そこを見る。
 print("[16] 設定のバックアップと復元")
 local vfs = {} -- path -> 中身（文字列）
-local vfs_json = {} -- g.save_json/g.load_json 側の実体
-local xcopy_works = true
 local prev_io_open = io.open
 io.open = function(path, mode, ...)
     if type(path) ~= "string" or not path:find("^%.%./addons/") or path:find("mkdir.txt", 1, true) or
@@ -507,28 +506,7 @@ io.open = function(path, mode, ...)
         close = function() vfs[path] = table.concat(buf) end
     }
 end
-local prev_os_execute = os.execute
-os.execute = function(cmd)
-    local src, dst = cmd:match('^xcopy "([^"]+)" "([^"]+)"')
-    if not src then
-        return prev_os_execute(cmd)
-    end
-    if not xcopy_works then
-        return 1
-    end
-    src, dst = src:gsub("\\", "/"), dst:gsub("\\", "/")
-    local copied = {}
-    for path, content in pairs(vfs) do -- 走査中に書き込まない（新しいキーの追加は未定義動作）
-        if path:sub(1, #src + 1) == src .. "/" then
-            copied[dst .. path:sub(#src + 1)] = content
-        end
-    end
-    for path, content in pairs(copied) do
-        vfs[path] = content
-    end
-    return 0
-end
--- コピー先の settings.json を脇へ退かす／戻す経路で使う
+-- 実ファイルを消しに行かせない（パスが ../addons/... なのでリポジトリの外を指す）
 local prev_os_remove, prev_os_rename = os.remove, os.rename
 os.remove = function(path)
     if type(path) ~= "string" or not path:find("^%.%./addons/") then
@@ -537,7 +515,7 @@ os.remove = function(path)
     if vfs[path] == nil then
         return nil, path .. ": No such file or directory"
     end
-    vfs[path], vfs_json[path] = nil, nil
+    vfs[path] = nil
     return true
 end
 os.rename = function(from, to)
@@ -550,8 +528,34 @@ os.rename = function(from, to)
     vfs[to], vfs[from] = vfs[from], nil
     return true
 end
-g.save_json = function(path, tbl) vfs_json[path] = tbl; vfs[path] = "{json}"; return true end
-g.load_json = function(path) return vfs_json[path] end
+-- JSON は Lua のテーブル表記で vfs に置く。文字列としてコピーされても中身が保てるので、
+-- 「バックアップした monster_kill_count.json を読んで復元対象を組み立てる」経路まで見られる。
+local function ser(o)
+    if type(o) == "table" then
+        local parts = {"{"}
+        for k, v in pairs(o) do
+            parts[#parts + 1] = "[" .. ser(k) .. "]=" .. ser(v) .. ","
+        end
+        parts[#parts + 1] = "}"
+        return table.concat(parts)
+    elseif type(o) == "string" then
+        return string.format("%q", o)
+    end
+    return tostring(o)
+end
+g.save_json = function(path, tbl) vfs[path] = "return " .. ser(tbl); return true end
+g.load_json = function(path)
+    local content = vfs[path]
+    if not content or content:sub(1, 7) ~= "return " then
+        return nil
+    end
+    local chunk = load(content)
+    if not chunk then
+        return nil
+    end
+    local ok_load, result = pcall(chunk)
+    return ok_load and result or nil
+end
 
 g.active_id = "1234567"
 local paths = g.backup_paths()
@@ -559,67 +563,97 @@ local paths = g.backup_paths()
 check("退避先は AID フォルダの外", paths.backup:find(paths.live .. "/", 1, true), nil)
 
 local function reset_live()
-    vfs, vfs_json = {}, {}
+    vfs = {}
     vfs[paths.live .. "/settings.json"] = "LIVE-SETTINGS"
-    vfs[paths.live .. "/always_status/settings.json"] = "LIVE-ALWAYS-STATUS"
-    vfs[paths.live .. "/monster_kill_count/1001.json"] = "LIVE-KILL-COUNT"
+    vfs[paths.live .. "/always_status.json"] = "LIVE-ALWAYS-STATUS"
+    vfs[paths.live .. "/warehouse.dat"] = "LIVE-DAT"
+    -- 可変名のファイル。どのマップの記録があるかは monster_kill_count.json が持っている
+    g.save_json(paths.live .. "/monster_kill_count.json", {map_ids = {1001, 1002}})
+    vfs[paths.live .. "/monster_kill_count/1001.json"] = "LIVE-KILL-1001"
+    vfs[paths.live .. "/monster_kill_count/1002.json"] = "LIVE-KILL-1002"
+    vfs[paths.live .. "/not_listed.json"] = "LIVE-UNKNOWN" -- 一覧に無いファイル
 end
 
 reset_live()
 check("バックアップが無ければ nil", g.backup_info(), nil)
-check("バックアップが無ければ復元しない", (select(2, g.restore_settings())), "no_source")
+check("バックアップが無ければ復元しない", g.restore_settings(), false)
 
-check("バックアップできる", g.backup_settings(), true)
+marker_exists, os_execute_calls = {}, {}
+local ok_backup, copied, failed = g.backup_settings()
+check("バックアップできる", ok_backup, true)
+check("コピーした件数を返す", copied, 6) -- settings/always_status/warehouse/mkc + マップ 2 件
+check("失敗は 0 件", failed, 0)
 check("settings.json が入る", vfs[paths.backup .. "/settings.json"], "LIVE-SETTINGS")
-check("各アドオンの設定も入る", vfs[paths.backup .. "/always_status/settings.json"], "LIVE-ALWAYS-STATUS")
-check("可変名のファイルも入る", vfs[paths.backup .. "/monster_kill_count/1001.json"], "LIVE-KILL-COUNT")
+check("各アドオンの設定も入る", vfs[paths.backup .. "/always_status.json"], "LIVE-ALWAYS-STATUS")
+check(".dat も入る", vfs[paths.backup .. "/warehouse.dat"], "LIVE-DAT")
+check("可変名のファイルも入る", vfs[paths.backup .. "/monster_kill_count/1001.json"], "LIVE-KILL-1001")
+check("可変名のファイルは全部入る", vfs[paths.backup .. "/monster_kill_count/1002.json"], "LIVE-KILL-1002")
+-- 一覧に無いものは運べない。これが本方式の代償で、[17] が一覧の追加漏れを検出する。
+check("一覧に無いファイルは入らない", vfs[paths.backup .. "/not_listed.json"], nil)
 local info = g.backup_info()
 check("取得日時を記録する", type(info and info.time), "string")
+check("取りこぼしなしと記録する", info.partial, 0)
 -- 日時のファイルは退避先の *外*。中に置くと復元時に live 側へ紛れ込む
 check("日時は退避先の外に置く", paths.info:find(paths.backup .. "/", 1, true), nil)
 
+-- コンソール窓を出さないのが本方式の目的。フォルダ作成だけは cmd に頼るが、
+-- g.create_folder のマーカーが効くので初回だけ。ここが崩れると点滅が戻る。
+check("初回はフォルダ作成で 1 回だけ cmd を起動", #os_execute_calls, 1)
+os_execute_calls = {}
+check("2 回目のバックアップ", (g.backup_settings()), true)
+check("2 回目は cmd を起動しない", #os_execute_calls, 0)
+
 -- 復元は上書き。バックアップ後に増えたファイルは消さない（消す方向の同期はしない）
+-- 書き戻し先の monster_kill_count/ は実機では monster_kill_count 側が起動時に作っている
+-- （＝マーカーが在る）ので、その状態を作ってから見る。無い場合は下の分岐で別途見る。
+marker_exists[paths.live .. "/monster_kill_count/mkdir.txt"] = true
+os_execute_calls = {}
 vfs[paths.live .. "/settings.json"] = "BROKEN"
 vfs[paths.live .. "/after_backup.json"] = "NEW"
-check("復元できる", g.restore_settings(), true)
+local ok_restore, restored = g.restore_settings()
+check("復元できる", ok_restore, true)
+check("復元も件数を返す", restored, 6)
+check("復元では cmd を起動しない", #os_execute_calls, 0)
 check("設定が戻る", vfs[paths.live .. "/settings.json"], "LIVE-SETTINGS")
+check("マップ記録も戻る", vfs[paths.live .. "/monster_kill_count/1002.json"], "LIVE-KILL-1002")
 check("バックアップ後のファイルは消さない", vfs[paths.live .. "/after_backup.json"], "NEW")
 check("日時のファイルは live へ入らない", vfs[paths.live .. "/" .. g.active_id .. "_info.json"], nil)
 
--- xcopy が使えない環境では、最低限 settings.json（= 各アドオンの ON/OFF）だけ運ぶ
-reset_live()
-xcopy_works = false
-local ok_partial, kind = g.backup_settings()
-check("xcopy が失敗しても運ぶ", ok_partial, true)
-check("部分的だと分かる", kind, "partial")
-check("settings.json は入る", vfs[paths.backup .. "/settings.json"], "LIVE-SETTINGS")
-check("他のファイルは入らない", vfs[paths.backup .. "/monster_kill_count/1001.json"], nil)
-xcopy_works = true
-
--- コピー先に前回の settings.json が残っていても xcopy の失敗を見落とさない。
--- 成否は「コピー先に settings.json が *出来たか*」で見るので、古いファイルを残したまま
--- 判定すると、それを掴んで成功に見えてしまう（フォールバックにも入らない）。
-reset_live()
-check("1 回目のバックアップ", g.backup_settings(), true)
-vfs[paths.live .. "/settings.json"] = "NEWER-SETTINGS"
-xcopy_works = false
-local ok_again, kind_again = g.backup_settings()
-check("前回の退避が残っていても成否を誤らない", kind_again, "partial")
-check("再バックアップも運べる", ok_again, true)
-check("中身は新しい方に入れ替わる", vfs[paths.backup .. "/settings.json"], "NEWER-SETTINGS")
-check("退かしたファイルは残さない", vfs[paths.backup .. "/settings.json.old"], nil)
-
--- xcopy もフォールバックも失敗したときは、退かした設定を元へ戻す。
--- 復元に失敗したうえにユーザーの現設定まで消える方が悪い。
+-- コピー先に前回の分が残っていても、失敗を成功と取り違えない。
+-- 「コピー先にファイルが在るか」で見ると古いファイルを掴んでしまうので、
+-- 数えるのは g.copy_file の戻り値の方（xcopy を使っていた頃の取り違え e250046ed）。
 local prev_copy_file = g.copy_file
 g.copy_file = function() return false end
-local ok_failed, kind_failed = g.restore_settings()
-check("どちらも失敗すれば失敗を返す", ok_failed, false)
-check("失敗の理由が分かる", kind_failed, "failed")
-check("復元先の設定は消さない", vfs[paths.live .. "/settings.json"], "NEWER-SETTINGS")
-check("退かしたファイルは残さない(失敗時)", vfs[paths.live .. "/settings.json.old"], nil)
+local ok_failed, copied_failed, failed_count = g.backup_settings()
+check("1 件も運べなければ失敗", ok_failed, false)
+check("成功件数は 0", copied_failed, 0)
+check("失敗件数を返す", failed_count, 6)
+check("前回の退避は残っている", vfs[paths.backup .. "/settings.json"], "LIVE-SETTINGS")
+check("失敗したら日時を更新しない", g.backup_info().time, info.time)
 g.copy_file = prev_copy_file
-xcopy_works = true
+
+-- 一部だけ失敗した場合は、取りこぼしがあると記録する（復元前に分かるように）
+local fail_once = true
+g.copy_file = function(src, dst)
+    if fail_once then
+        fail_once = false
+        return false
+    end
+    return prev_copy_file(src, dst)
+end
+local ok_partial, copied_partial, failed_partial = g.backup_settings()
+check("一部失敗でも運べた分は残す", ok_partial, true)
+check("成功件数", copied_partial, 5)
+check("失敗件数", failed_partial, 1)
+check("取りこぼしを記録する", g.backup_info().partial, 1)
+g.copy_file = prev_copy_file
+
+-- 復元先の monster_kill_count/ が無い場合だけフォルダを作る（マーカーが無い＝未作成）
+reset_live()
+check("退避", (g.backup_settings()), true)
+marker_exists, os_execute_calls = {}, {}
+check("復元", (g.restore_settings()), true)
+check("戻すマップ記録があればフォルダを作る", #os_execute_calls, 1)
 
 -- AID が未取得（ON_INIT 前）でも落ちない
 g.active_id = nil
@@ -628,9 +662,71 @@ check("AID 前のバックアップは失敗", g.backup_settings(), false)
 check("AID 前の復元は失敗", g.restore_settings(), false)
 check("AID 前の情報取得は nil", g.backup_info(), nil)
 
-io.open, os.execute = prev_io_open, prev_os_execute
+io.open = prev_io_open
 os.remove, os.rename = prev_os_remove, prev_os_rename
 g.settings = saved_settings
+
+-- ===== 17. バックアップ対象の一覧が src の実態と食い違っていないか =====
+-- ディレクトリ列挙が無いので、g.backup_files に無いファイルは黙って取り残される
+-- （バックアップしたつもりで設定が失われる）。bundle 内の
+-- "../addons/%s/%s/<名前>" 文字列を全部拾って突き合わせ、追加漏れをここで落とす。
+-- 新しい設定ファイルを増やしたら core/30_maintenance.lua の一覧に足すこと。
+print("[17] バックアップ対象の一覧が src と一致する")
+local BUNDLES = {"nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua",
+                 "nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua"}
+-- 可変名。ここに載せたものは g.backup_files では扱えないので、扱いを個別に決めてある。
+local KNOWN_DYNAMIC = {
+    ["%s"] = "monster_kill_count フォルダ自体（g.create_folder で作る）",
+    ["%s/%s.json"] = "monster_kill_count/<map_id>.json（map_ids から組み立てて運ぶ）",
+    ["%s_copy.json"] = "旧 cc_helper 単体アドオンのフォルダ側。こちらの AID フォルダではない"
+}
+-- 設定ではないので運ばないもの
+local NOT_SETTINGS = {["mkdir.txt"] = true}
+
+local listed = {}
+for _, name in ipairs(g.backup_files) do
+    listed[name] = true
+end
+local found, missing, unknown_dynamic = {}, {}, {}
+for _, rel in ipairs(BUNDLES) do
+    local bundle = assert(io.open(rel, "rb"),
+        "bundle が無い（先に python docs/bundle_from_src.py を実行すること）: " .. rel)
+    local content = bundle:read("*a")
+    bundle:close()
+    for rest in content:gmatch('%.%./addons/%%s/%%s/([^"]*)"') do
+        if rest ~= "" then
+            if rest:find("%%s") then
+                if not KNOWN_DYNAMIC[rest] then
+                    unknown_dynamic[rest] = true
+                end
+            elseif not NOT_SETTINGS[rest] then
+                found[rest] = true
+                if not listed[rest] then
+                    missing[rest] = true
+                end
+            end
+        end
+    end
+end
+local missing_names, unknown_names, stale_names = {}, {}, {}
+for name in pairs(missing) do
+    missing_names[#missing_names + 1] = name
+end
+for name in pairs(unknown_dynamic) do
+    unknown_names[#unknown_names + 1] = name
+end
+for _, name in ipairs(g.backup_files) do
+    if not found[name] then
+        stale_names[#stale_names + 1] = name
+    end
+end
+table.sort(missing_names)
+table.sort(unknown_names)
+table.sort(stale_names)
+check("src にあって一覧に無いファイル", table.concat(missing_names, ", "), "")
+check("扱いを決めていない可変名のパス", table.concat(unknown_names, ", "), "")
+check("src から消えたのに一覧に残っているファイル", table.concat(stale_names, ", "), "")
+check("一覧が空でない", #g.backup_files > 0, true)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
