@@ -110,7 +110,12 @@ ui = {
 }
 function AUTO_CAST(x) return x end
 option = {GetCurrentCountry = function() return "Japanese" end}
-imcTime = {GetAppTimeMS = function() return 0 end}
+-- ESC の二重処理よけ（同じ押下で 2 経路から来る）を試すため、時計は進められるようにする。
+local app_ms = 0
+imcTime = {GetAppTimeMS = function() return app_ms end}
+-- ESC の割り込み先。ゲーム側は設定しかできない（取得 API が無い）ので、記録だけ取る。
+local escape_scp = nil
+ui.SetEscapeScp = function(scp) escape_scp = scp end
 
 -- ===== 対象を 1 チャンクとして読み込む =====
 local chunks = {}
@@ -727,6 +732,117 @@ check("src にあって一覧に無いファイル", table.concat(missing_names,
 check("扱いを決めていない可変名のパス", table.concat(unknown_names, ", "), "")
 check("src から消えたのに一覧に残っているファイル", table.concat(stale_names, ", "), "")
 check("一覧が空でない", #g.backup_files > 0, true)
+
+-- ===== 18. ESC で閉じるのは一番手前の 1 枚だけ =====
+-- ESCAPE_PRESSED は登録済みハンドラ全部へ一斉に配られるので、各アドオンが素直に自分の
+-- フレームを閉じると自作ウィンドウが全部まとめて消える。core 側の 1 ハンドラに集約して
+-- スタックの一番上だけ閉じる、という前提が崩れていないかを見る。
+print("[18] ESC は一番手前の 1 枚だけ閉じる")
+local esc_closed = {}
+local function esc_closer(key)
+    return function()
+        esc_closed[#esc_closed + 1] = key
+        frames["f" .. key] = nil -- 実機と同じく、閉じたらフレームは消える
+    end
+end
+_G["esc_test_close_a"] = esc_closer("a")
+_G["esc_test_close_b"] = esc_closer("b")
+_G["esc_test_close_boom"] = function()
+    error("close で転んだ")
+end
+local function esc_setup(open_list)
+    esc_closed = {}
+    frames = {}
+    g.esc_stack = {}
+    g.esc_scp_set = nil
+    g.esc_last_ms = nil
+    g.esc_closed_ms = nil
+    escape_scp = nil
+    for _, key in ipairs(open_list) do
+        frames["f" .. key] = new_frame("f" .. key, 1)
+        g.esc_register("f" .. key, "esc_test_close_" .. key)
+    end
+end
+-- 別の押下として扱わせる（同じ押下の二重配信よけは下で別途見る）
+local function esc_press()
+    app_ms = app_ms + 1000
+    _nexus_addons_p_ESCAPE_PRESSED()
+end
+
+esc_setup({"a", "b"})
+esc_press()
+check("後から開いた方だけ閉じる", table.concat(esc_closed, ","), "b")
+esc_press()
+check("次の ESC でその下が閉じる", table.concat(esc_closed, ","), "b,a")
+esc_press()
+check("閉じるものが無ければ何もしない", table.concat(esc_closed, ","), "b,a")
+
+-- × ボタンで閉じた分は登録が残るので、死んだ登録を飛ばして次を閉じる
+esc_setup({"a", "b"})
+frames["fb"] = nil
+esc_press()
+check("消えている登録は飛ばす", table.concat(esc_closed, ","), "a")
+
+-- 開き直したものは最前面扱い
+esc_setup({"a", "b"})
+g.esc_register("fa", "esc_test_close_a")
+esc_press()
+check("開き直した方が先に閉じる", table.concat(esc_closed, ","), "a")
+check("登録は重複しない", #g.esc_stack, 1)
+
+-- 閉じる処理が転んでもゲーム側の ESC 処理を巻き込まない
+esc_setup({"a"})
+g.esc_register("fboom", "esc_test_close_boom")
+frames["fboom"] = new_frame("fboom", 1)
+check("エラーなく完走", (pcall(esc_press)), true)
+esc_press()
+check("転んだ分は積み残さず次へ進む", table.concat(esc_closed, ","), "a")
+
+-- 同じ押下が 2 経路(SetEscapeScp / ESCAPE_PRESSED 一斉配信)から来ても 1 枚だけ
+esc_setup({"a", "b"})
+esc_press()
+_nexus_addons_p_ESCAPE_PRESSED() -- 時間を進めない = 同じ押下
+check("同じ押下では 1 枚だけ閉じる", table.concat(esc_closed, ","), "b")
+
+-- ===== 18-2. ESC の割り込み先(ui.SetEscapeScp)の付け外し =====
+-- 付けっぱなしにするとシステムメニューが開けなくなるので、閉じたら必ず戻す。
+print("[18-2] ESC の割り込み先を開いている間だけ差し込む")
+esc_setup({})
+check("何も開いていなければ差し込まない", escape_scp, nil)
+esc_setup({"a"})
+check("開いたら差し込む", escape_scp, "_nexus_addons_p_ESCAPE_PRESSED()")
+frames["fb"] = new_frame("fb", 1) -- 登録はフレームを出した後（順序が逆だと死んだ登録として捨てられる）
+g.esc_register("fb", "esc_test_close_b")
+esc_press()
+check("まだ残っていれば差し込んだまま", escape_scp, "_nexus_addons_p_ESCAPE_PRESSED()")
+esc_press()
+check("最後の 1 枚を閉じたら戻す", escape_scp, "")
+
+-- × ボタンで閉じた場合は誰も知らせてくれないので、毎フレームの同期で戻す
+esc_setup({"a"})
+check("開いている間は差し込み", escape_scp, "_nexus_addons_p_ESCAPE_PRESSED()")
+frames["fa"] = nil -- × で閉じた
+_nexus_addons_p_update_frames()
+check("× で閉じても戻す", escape_scp, "")
+
+-- ===== 18-3. ESCAPE_PRESSED を購読している側(indun_panel)への合図 =====
+-- 常時表示のパネルはスタックに積めない(積むと ESC を常に横取りしてしまう)ので、
+-- 「今回の押下は手前のウィンドウが使った」を g.esc_taken() で判断する。
+-- ハンドラの呼ばれる順番はゲーム任せなので、前後どちらでも true になること。
+print("[18-3] 手前にウィンドウがあるかの問い合わせ")
+esc_setup({})
+check("何も開いていなければ false", g.esc_taken(), false)
+esc_setup({"a"})
+check("開いていれば true（自分より後に閉じられる）", g.esc_taken(), true)
+esc_press()
+check("閉じた直後も true（自分より先に閉じられていた）", g.esc_taken(), true)
+app_ms = app_ms + 1000
+check("次の押下では false", g.esc_taken(), false)
+
+-- 閉じるものが無かった押下は、ゲーム側／購読側へそのまま渡す
+esc_setup({})
+esc_press()
+check("空振りの押下は使ったことにしない", g.esc_taken(), false)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

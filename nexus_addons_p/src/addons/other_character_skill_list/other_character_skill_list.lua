@@ -140,7 +140,7 @@ function other_character_skill_list_on_init()
     end
     g.setup_hook_and_event(g.addon, "INVENTORY_OPEN", "Other_character_skill_list_save_enchant", true)
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Other_character_skill_list_save_enchant", true)
-    g.addon:RegisterMsg("ESCAPE_PRESSED", "Other_character_skill_list_ESCAPE_PRESSED")
+    -- ESC は core 側でまとめて受ける(ここで購読すると他のウィンドウも一緒に閉じる)
 end
 
 function Other_character_skill_list_save_enchant()
@@ -439,6 +439,7 @@ function Other_character_skill_list_render_frame()
     local map_width = map_frame:GetWidth()
     ocsl:SetPos((map_width - current_frame_w) / 2, 0)
     ocsl:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "ocsl", "Other_character_skill_list_ESCAPE_PRESSED")
 end
 
 function Other_character_skill_create_title_bar(ocsl)
@@ -449,7 +450,7 @@ function Other_character_skill_create_title_bar(ocsl)
     local close_btn = title_box:CreateOrGetControl("button", "close", 0, 0, 20, 20)
     AUTO_CAST(close_btn)
     close_btn:SetImage("testclose_button")
-    close_btn:SetGravity(ui.LEFT, ui.TOP)
+    close_btn:SetGravity(ui.RIGHT, ui.TOP)
     close_btn:SetEventScript(ui.LBUTTONUP, "Other_character_skill_list_frame_close")
     local help_btn = title_box:CreateOrGetControl('button', "help", 40, 0, 35, 35)
     AUTO_CAST(help_btn)
@@ -747,6 +748,8 @@ function Other_character_skill_list_char_report(ocsl, ctrl, char_name_str, num)
     local map_width = map_frame:GetWidth()
     report:SetPos((map_width) / 2 - 410 * 1.5, 40)
     report:ShowWindow(1)
+    -- OCSL 本体より後に積むので、ESC は詳細フレーム → 本体の順で 1 枚ずつ閉じる
+    g.esc_register(addon_name_lower .. "ocsl_report", "Other_character_skill_list_char_report_close")
 end
 
 function Other_character_skill_list_ESCAPE_PRESSED()
@@ -761,7 +764,13 @@ function Other_character_skill_list_frame_close(parent)
 end
 
 function Other_character_skill_list_char_report_close(parent, ctrl, str, num)
-    local report = parent:GetTopParentFrame()
+    -- 閉じるボタンからは parent が来るが、OCSL 本体を閉じたときと ESC からは引数無しで
+    -- 呼ばれる。その場合はフレーム名から引く(以前はここで parent が nil のまま
+    -- GetTopParentFrame を呼んでいて、詳細フレームが閉じずにエラーになっていた)。
+    local report = parent and parent:GetTopParentFrame() or ui.GetFrame(addon_name_lower .. "ocsl_report")
+    if not report then
+        return
+    end
     ui.DestroyFrame(report:GetName())
 end
 
