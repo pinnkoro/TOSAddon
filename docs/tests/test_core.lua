@@ -528,6 +528,28 @@ os.execute = function(cmd)
     end
     return 0
 end
+-- コピー先の settings.json を脇へ退かす／戻す経路で使う
+local prev_os_remove, prev_os_rename = os.remove, os.rename
+os.remove = function(path)
+    if type(path) ~= "string" or not path:find("^%.%./addons/") then
+        return prev_os_remove(path)
+    end
+    if vfs[path] == nil then
+        return nil, path .. ": No such file or directory"
+    end
+    vfs[path], vfs_json[path] = nil, nil
+    return true
+end
+os.rename = function(from, to)
+    if type(from) ~= "string" or not from:find("^%.%./addons/") then
+        return prev_os_rename(from, to)
+    end
+    if vfs[from] == nil then
+        return nil, from .. ": No such file or directory"
+    end
+    vfs[to], vfs[from] = vfs[from], nil
+    return true
+end
 g.save_json = function(path, tbl) vfs_json[path] = tbl; vfs[path] = "{json}"; return true end
 g.load_json = function(path) return vfs_json[path] end
 
@@ -574,6 +596,31 @@ check("settings.json は入る", vfs[paths.backup .. "/settings.json"], "LIVE-SE
 check("他のファイルは入らない", vfs[paths.backup .. "/monster_kill_count/1001.json"], nil)
 xcopy_works = true
 
+-- コピー先に前回の settings.json が残っていても xcopy の失敗を見落とさない。
+-- 成否は「コピー先に settings.json が *出来たか*」で見るので、古いファイルを残したまま
+-- 判定すると、それを掴んで成功に見えてしまう（フォールバックにも入らない）。
+reset_live()
+check("1 回目のバックアップ", g.backup_settings(), true)
+vfs[paths.live .. "/settings.json"] = "NEWER-SETTINGS"
+xcopy_works = false
+local ok_again, kind_again = g.backup_settings()
+check("前回の退避が残っていても成否を誤らない", kind_again, "partial")
+check("再バックアップも運べる", ok_again, true)
+check("中身は新しい方に入れ替わる", vfs[paths.backup .. "/settings.json"], "NEWER-SETTINGS")
+check("退かしたファイルは残さない", vfs[paths.backup .. "/settings.json.old"], nil)
+
+-- xcopy もフォールバックも失敗したときは、退かした設定を元へ戻す。
+-- 復元に失敗したうえにユーザーの現設定まで消える方が悪い。
+local prev_copy_file = g.copy_file
+g.copy_file = function() return false end
+local ok_failed, kind_failed = g.restore_settings()
+check("どちらも失敗すれば失敗を返す", ok_failed, false)
+check("失敗の理由が分かる", kind_failed, "failed")
+check("復元先の設定は消さない", vfs[paths.live .. "/settings.json"], "NEWER-SETTINGS")
+check("退かしたファイルは残さない(失敗時)", vfs[paths.live .. "/settings.json.old"], nil)
+g.copy_file = prev_copy_file
+xcopy_works = true
+
 -- AID が未取得（ON_INIT 前）でも落ちない
 g.active_id = nil
 check("AID 前でもパスは nil", g.backup_paths(), nil)
@@ -582,6 +629,7 @@ check("AID 前の復元は失敗", g.restore_settings(), false)
 check("AID 前の情報取得は nil", g.backup_info(), nil)
 
 io.open, os.execute = prev_io_open, prev_os_execute
+os.remove, os.rename = prev_os_remove, prev_os_rename
 g.settings = saved_settings
 
 if failures > 0 then

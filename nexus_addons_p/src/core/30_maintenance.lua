@@ -38,27 +38,52 @@ function g.backup_paths()
 end
 
 -- src_dir を dst_dir へ丸ごとコピーする。戻り値は ok, kind。
--- 成否は「コピー先に settings.json があるか」で見る。os.execute の戻り値は
+-- 成否は「コピー先に settings.json が *出来たか*」で見る。os.execute の戻り値は
 -- 環境依存で当てにならないため、xcopy の終了コードは見ない。
+--
+-- この見方はコピー先が空でないと成立しない。同じ作りの g.migrate_from_origin は
+-- 「自分側に settings.json が無い」ときしか走らないので前提を満たすが、こちらの
+-- 呼び出し元 2 つはどちらもコピー先に settings.json が在る状態で呼ばれる
+-- (復元先の live は起動時に必ず作られる / 2 回目以降のバックアップ先には前回の分が残る)。
+-- そのまま判定すると、xcopy が黙って失敗しても古いファイルを掴んで「コピーできた」に
+-- なり、下のフォールバックにも入らない。復元では何も書き戻っていないのに成功を、
+-- 再バックアップでは中身が古いまま日時だけ新しいバックアップを作ってしまう。
+-- よって先に脇へ退かしてから xcopy する。
+--
+-- 消さずに rename で退かすのは、xcopy もフォールバックも失敗したときに元へ戻すため。
+-- 復元に失敗したうえにユーザーの現設定まで消える方が悪い。
 local function copy_settings_dir(src_dir, dst_dir)
-    local src = io.open(src_dir .. "/settings.json", "r")
+    local src_settings = src_dir .. "/settings.json"
+    local src = io.open(src_settings, "r")
     if not src then
         return false, "no_source"
     end
     src:close()
+    local dst_settings = dst_dir .. "/settings.json"
+    local kept = dst_settings .. ".old"
+    -- Windows の os.rename は移動先が存在すると失敗する(g.atomic_replace と同じ扱い)
+    os.remove(kept)
+    local had_dst = os.rename(dst_settings, kept) and true or false
     -- os.execute は cmd 経由なので区切りをバックスラッシュに直す(migrate_from_origin と同じ扱い)
     local src_win = string.gsub(src_dir, "/", "\\")
     local dst_win = string.gsub(dst_dir, "/", "\\")
     os.execute(string.format('xcopy "%s" "%s" /E /I /Y /Q >nul 2>&1', src_win, dst_win))
-    local copied = io.open(dst_dir .. "/settings.json", "r")
+    local copied = io.open(dst_settings, "r")
     if copied then
         copied:close()
+        os.remove(kept)
         return true, "copied"
     end
     -- xcopy が使えなかったとき用。最低限 settings.json(= 各アドオンの ON/OFF)だけは運ぶ。
-    if g.copy_file(src_dir .. "/settings.json", dst_dir .. "/settings.json") then
+    if g.copy_file(src_settings, dst_settings) then
+        os.remove(kept)
         return true, "partial"
     end
+    if had_dst then
+        os.rename(kept, dst_settings)
+    end
+    g.vlog("{#FF6347}copy_settings_dir: xcopy もフォールバックも失敗{/} %s -> %s (退かした設定を戻した=%s)",
+        src_dir, dst_dir, tostring(had_dst))
     return false, "failed"
 end
 
