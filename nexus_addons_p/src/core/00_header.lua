@@ -103,7 +103,9 @@ function g.detect_origin_addon()
     return false
 end
 
-local function copy_file(src_path, dst_path)
+-- 1 ファイルをバイナリコピーする。xcopy が使えなかったときの最後の手段として、
+-- 本家からの引き継ぎ(下)と設定のバックアップ/復元(core/30_maintenance.lua)から使う。
+function g.copy_file(src_path, dst_path)
     local src_file = io.open(src_path, "rb")
     if not src_file then
         return false
@@ -153,7 +155,7 @@ function g.migrate_from_origin()
         copied:close()
         return "copied"
     end
-    if copy_file(src_settings, dst_settings) then
+    if g.copy_file(src_settings, dst_settings) then
         return "partial"
     end
     return "failed"
