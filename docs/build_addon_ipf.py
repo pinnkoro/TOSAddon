@@ -6,8 +6,9 @@ Tree of Savior アドオン .ipf の「平文(decrypted)コンテナ」を生成
     1. 平文コンテナ  … 各ファイルを raw deflate 圧縮して 1 つにまとめたもの
     2. PKware 暗号化 … 上を暗号化したもの(= 配布形式)
 
-本スクリプトは 1 の平文コンテナのみを生成する。2 の暗号化は実績のある
-`ipf_unpack.exe <file> encrypt`(TOSAddon_Tools/workspace)で行うこと。
+既定では 1 の平文コンテナのみを生成する。`--encrypt` を付けると 2 まで行い、
+配布形式の .ipf をこのスクリプトだけで作れる(docs/ipf_crypt.py を使用。
+出力は `ipf_unpack.exe <file> encrypt` とバイト一致することを確認済み)。
 
 コンテナ書式(_nexus_addons_p-⛄-v1.1.6.ipf を解析して確定):
     各ファイル : raw deflate(zlib level 6 = IPFSuite と同一バイト)
@@ -19,7 +20,7 @@ Tree of Savior アドオン .ipf の「平文(decrypted)コンテナ」を生成
 
 使い方:
     python build_addon_ipf.py <addon_source_dir> <addon_name> <out.ipf>
-                              [--require <内部パス[,内部パス...]>]
+                              [--require <内部パス[,内部パス...]>] [--encrypt]
 例:
     python build_addon_ipf.py ./nexus_addons_p _nexus_addons_p ./_nexus_addons_p.ipf
     ( ./nexus_addons_p/_nexus_addons_p/ 配下の全ファイルを詰める )
@@ -36,6 +37,10 @@ import sys
 import zlib
 import struct
 import binascii
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import ipf_crypt  # noqa: E402  (同ディレクトリ。暗号化はここに一本化する)
 
 PACKNAME = b"addon_d.ipf"
 
@@ -66,8 +71,8 @@ def collect_files(src_dir: str, addon: str):
     return items
 
 
-def build_ipf(files, out_path: str) -> str:
-    """files: [(内部パス, 平文bytes), ...] を平文コンテナにして書き出す。"""
+def build_container(files) -> bytes:
+    """files: [(内部パス, 平文bytes), ...] を平文コンテナのバイト列にする。"""
     body = bytearray()
     entries = []
     for path, plain in files:
@@ -100,14 +105,22 @@ def build_ipf(files, out_path: str) -> str:
     footer += struct.pack("<I", 0)
     footer += struct.pack("<I", 0)
 
+    return bytes(body) + bytes(table) + footer
+
+
+def build_ipf(files, out_path: str, encrypt: bool = False) -> str:
+    """平文コンテナを組み立てて書き出す。encrypt=True なら配布形式まで変換する。"""
+    data = build_container(files)
+    if encrypt:
+        data = ipf_crypt.encrypt(data)
     with open(out_path, "wb") as f:
-        f.write(bytes(body) + bytes(table) + footer)
+        f.write(data)
     return out_path
 
 
 def parse_args(argv):
-    """(positional, required_paths) を返す。--require は複数/カンマ区切り可。"""
-    positional, required = [], []
+    """(positional, required_paths, encrypt) を返す。--require は複数/カンマ区切り可。"""
+    positional, required, encrypt = [], [], False
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -118,14 +131,16 @@ def parse_args(argv):
             required += [p for p in argv[i].split(",") if p]
         elif a.startswith("--require="):
             required += [p for p in a[len("--require="):].split(",") if p]
+        elif a == "--encrypt":
+            encrypt = True
         else:
             positional.append(a)
         i += 1
-    return positional, required
+    return positional, required, encrypt
 
 
 def main():
-    positional, required = parse_args(sys.argv[1:])
+    positional, required, encrypt = parse_args(sys.argv[1:])
     if len(positional) != 3:
         print(__doc__)
         raise SystemExit(2)
@@ -141,11 +156,13 @@ def main():
             "[ipf] 必須ファイルがコンテナに含まれない（bundle 未生成の可能性）:\n  "
             + "\n  ".join(missing)
             + "\n  → 先に `python docs/bundle_from_src.py` を実行すること。")
-    build_ipf(files, out)
-    print(f"built(plain): {out}  ({len(files)} files)")
+    build_ipf(files, out, encrypt=encrypt)
+    print(f"built({'配布形式' if encrypt else 'plain'}): {out}  ({len(files)} files)")
     for p, b in files:
         print(f"  - {p}  ({len(b)} bytes)")
-    print("次に暗号化: ipf_unpack.exe", out, "encrypt")
+    if not encrypt:
+        print("次に暗号化: python docs/ipf_crypt.py encrypt", out, "<out.ipf>")
+        print("  （--encrypt を付ければこのスクリプトだけで配布形式まで作れる）")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ name: CI
 #   2. manifest 未登録の src ファイル  … ビルドから黙って脱落する
 #   3. 連結後の Lua 構文エラー         … 分割ソース単体では気付けない結合バグ
 #   3'. core のロジック回帰            … ゲーム API をスタブ化して動かせる範囲のみ
+#   3''. .ipf 暗号化の往復             … 自前実装(docs/ipf_crypt.py)が壊れると
+#        クライアントが読めない .ipf を配ることになる
 #
 # version-freeze ジョブ（main への PR で毎回）
 #   6. リリース前の先行採番            … main だけ版数が上がると、アドオンマネージャーが
@@ -62,6 +64,12 @@ jobs:
       # 「壊さない」性質だけは機械で見る。
       - name: monster_kill_count のロジックテスト
         run: luajit docs/tests/test_monster_kill_count.lua
+
+      # .ipf の暗号化は Python 実装（docs/ipf_crypt.py）に置き換えてある。実際に配布した
+      # .ipf を復号 → 再暗号化して元に戻ることを見る。ここが壊れると「ビルドは通るのに
+      # クライアントが読めない .ipf」を配ることになり、実機に入れるまで気付けない。
+      - name: .ipf 暗号化の往復検証
+        run: python3 docs/ipf_crypt.py --self-test
 
   # main への PR で「バージョン情報を先に上げていないか」だけを見る。
   #
