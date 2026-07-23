@@ -88,11 +88,17 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   * **v1.0.1**
     * ＜アドオン名＞: ＜変更内容の要約＞。
   ```
-* **バージョン番号**は `nexus_addons_p/src/core/00_header.lua` の `ver` および
-  `addons.json` の `fileVersion` と一致させる。
+* **見出しの版番号は、まだ採番しない**。`main` へ入れる PR では版数を上げてはいけない
+  （後述の「バージョン情報はリリース時にだけ上げる」）ので、追記先の見出しは
+  `* **（次回リリース）**` とし、そこに項目を足していく。
+  この見出しを実際の `vX.Y.Z` に確定させるのは、公開直前の `release-prep/vX.Y.Z` ブランチ。
+  ※ 見出しが既に `（次回リリース）` で存在するなら、新しい見出しを作らずそこへ追記する。
 
 ## リリースビルドの慣習
 
+* **`.ipf` の再ビルドと採番は公開直前（`release-prep/vX.Y.Z`）にまとめて行う。**
+  通常の `main` 向け PR では `src` の変更と bundle の再生成までにとどめ、
+  `.ipf` もバージョンも触らない（後述の「バージョン情報はリリース時にだけ上げる」）。
 * 最新版を `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf`（⛄ = U+26C4）に置き、旧版は `nexus_addons_p/_old/` へ移動する。
 * `addons.json` の `fileVersion` も更新する。
 * ビルド手順は [docs/BUILD_IPF.md](docs/BUILD_IPF.md) を参照。ソースを変更したら
@@ -104,17 +110,44 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   復号は不要（`.ipf` のファイルテーブルは平文で、平文 CRC32 を持っているため）。
   このチェックは release 経路の CI でも自動実行される。
 
+## バージョン情報はリリース時にだけ上げる（先行採番の禁止）
+
+**機能追加や不具合修正の PR で版数を上げてはいけない。** 採番は公開の直前だけ。
+
+アドオンマネージャーは **`main` の `addons.json`** を読み、その `fileVersion` から
+アセット名 `nexus_addons_p-<fileVersion>.ipf` を組み立てて Release から取得する。
+一方 Release のアセットが差し替わるのは `main` → `release` をマージした後。
+よって `main` だけ先に採番すると、公開までの間ずっと
+
+```
+main の addons.json : v1.0.3  →  取りに行く  nexus_addons_p-v1.0.3.ipf
+配布中の Release    : v1.0.2  →  そんなアセットは無い（取得失敗）
+```
+
+となり、**その間は利用者が新規インストールも更新もできなくなる**（実際に発生した）。
+「3 箇所が揃っていれば先に採番してもよい」は、この経路を見落としていたので撤回。
+
+* 機械的な担保として、`main` への PR では [ci.yml](.github/workflows/ci.yml) の
+  `version-freeze` ジョブ（[docs/check_version_freeze.py](docs/check_version_freeze.py)）が
+  版数 3 箇所と `.ipf` のファイル名の変更を検出して落とす。手元でも
+  `python docs/check_version_freeze.py` で同じ判定ができる。
+* 比較の基準は base の先端ではなく **merge-base**。採番後の `main` を取り込んだだけの
+  ブランチを誤検出しないため。
+* **例外は `release-prep/**` ブランチだけ**。ここでのみ採番を許し、3 箇所が揃っているか、
+  `.ipf` が現 `src` から作られているかまで併せて検査する（`ipf` ジョブも走る）。
+
 ## ブランチ運用とリリース公開フロー
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、**`main` に直接マージ**する（PR 経由）。
-* **配布リリース**: 公開したいタイミングで **`main` → `release` にマージ**する。
-  * 版番号は 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
-    `.ipf` のファイル名）に散っているので、**採番するときは 3 箇所を揃え、同時に `.ipf` も再ビルドする**。
-    `main` は `.ipf` を毎回作り直さない運用なので、まとめて release 直前に行うのが既定。
-    ただし PR 側で採番してしまっても、3 箇所 + `.ipf` が揃っていれば問題ない
-    （更新履歴に「未リリース」のような仮の見出しを残さずに済む分、そちらが望ましい）。
-    main→release の PR では [ci.yml](.github/workflows/ci.yml) の `ipf` ジョブが
-    採番のタイミングによらずこれを検証して、**古い `.ipf` のまま公開するのを止める**。
+  バージョンと `.ipf` は触らない。更新履歴は `（次回リリース）` 見出しに足す。
+* **配布リリース**: 次の 2 本の PR を**続けて**出す。間が空くほど、上に書いた不整合の窓が広がる。
+  1. **採番 PR**: `release-prep/vX.Y.Z` → **`main`**。ここで
+     版番号 3 箇所（`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+     `.ipf` のファイル名）を揃え、`.ipf` を再ビルドし、旧版を `_old/` へ移し、
+     README の `（次回リリース）` 見出しを `vX.Y.Z` に確定させる。
+     このブランチでは `ipf` ジョブも走るので、**古い `.ipf` のまま採番するのを止められる**。
+  2. **公開 PR**: `main` → **`release`**（下記テンプレート必須）。マージで公開される。
+  * main→release の PR でも `ipf` ジョブが再度検証して、**古い `.ipf` のまま公開するのを止める**。
   * `release` への push を GitHub Actions（[.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml)）が
     検知し、移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。
@@ -149,7 +182,7 @@ GitHub 画面だけで直して写しを置き去りにしないこと。
 | | `main` | `release` |
 | --- | --- | --- |
 | 直接 push | 不可（PR 必須・承認は 0 件でよい） | 不可（PR 必須） |
-| 必須ステータス | `bundle` | `bundle` + `ipf` |
+| 必須ステータス | `bundle` + `version-freeze` | `bundle` + `ipf` |
 | マージ方法 | merge / squash | **merge のみ** |
 | force push・ブランチ削除 | 禁止 | 禁止 |
 
@@ -157,8 +190,13 @@ GitHub 画面だけで直して写しを置き去りにしないこと。
   PR を通す手順そのものを残すのが目的で、レビュアーを増やすのが目的ではない。
 * **`release` は merge のみ**。squash すると `release` が `main` と別履歴になり、以降のマージが
   毎回コンフリクトする。また merge 元 PR が辿れなくなると、リリースノートの流用（上記）も壊れる。
-* **`ipf` を必須にするのは `release` だけ**。`main` では `ipf` ジョブがそもそも起動しないので、
-  必須にすると永久に待ち状態になる（`ci.yml` 冒頭のコメントと同じ理由）。
+* **`ipf` を必須にするのは `release` だけ**。通常の `main` の PR では `ipf` ジョブが
+  そもそも起動しないので、必須にすると永久に待ち状態になる（`ci.yml` 冒頭のコメントと同じ理由）。
+  `release-prep/**` の PR では起動するが、必須にできるのは「そのブランチだけ」ではなく
+  `main` 全体なので、ここは ruleset ではなく運用（採番 PR は赤ければマージしない）で担保する。
+* **`version-freeze` は job 単位の `if` を持たせない**。上と同じ理由で、条件付きで起動しない
+  ジョブを必須にすると待ち続けてしまう。PR 以外で素通りさせる判定はステップ側の `if` で行い、
+  ジョブは常に走って必ず報告する。
 * **タグの ruleset は作っていない**。移動タグ `nexus_addons_p` の「タグごと削除して作り直す」処理と、
   保存用の版番号タグ（`v*`）の作成が、どちらも GITHUB_TOKEN のまま通る必要があるため。
   ここに tag ルールを足すと公開が壊れる。

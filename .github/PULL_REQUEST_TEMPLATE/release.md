@@ -84,6 +84,9 @@ Install **Nexus Addons P** from the addon manager.
 
 <!--
   公開前チェック:
+  - [ ] 採番 PR(release-prep/vX.Y.Z -> main)をマージ済みで、この PR はその直後に出している
+        (main だけ先に採番された状態が長引くほど、アドオンマネージャーからの取得が
+         失敗し続ける時間が延びる)
   - [ ] addons.json の fileVersion が今回のバージョンと一致している
   - [ ] nexus_addons_p/ 直下に最新版 .ipf が1つだけある（旧版は _old/ へ移動済み）
   - [ ] main に必要な変更が全て入っている（この PR は main -> release）
