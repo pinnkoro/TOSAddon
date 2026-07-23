@@ -4,6 +4,7 @@
       "core/00_header.lua",
       "core/10_registry.lua",
       "core/20_lifecycle.lua",
+      "core/30_maintenance.lua",
       "guard_open.lua",
       "addons/always_status/always_status.lua",
       "addons/indun_panel/indun_panel.lua",
@@ -64,7 +65,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "1735fad8d6dc5e06a8c368def078efb3332a2194b3d3e0a9494ac97c694e91b4",
+    "_nexus_addons_p.lua": "eeba7e842d2ed5899e09d611eadd1e187b24abe3710babdcd993d045cc785730",
     "_nexus_addons_p_conclude.lua": "2cc24d7267b89e33b68deaccfc43cbcbdc4e6f7705b6b580db73bfe9dbeb2386"
   }
 }

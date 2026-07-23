@@ -101,7 +101,49 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.REGISTER = {}
     addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
     addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
+    -- ESC はここ 1 箇所だけで受ける(アドオン側で個別に購読しないこと。理由は g.esc_register)
+    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
+end
+
+-- ESC で閉じるのは、開いている自作ウィンドウのうち一番手前の 1 枚だけ。
+-- 登録は各アドオンがフレームを開いたところで g.esc_register する(詳細は core/00_header.lua)。
+function _nexus_addons_p_ESCAPE_PRESSED()
+    -- ESC は 2 経路で届きうる: g.esc_sync_scp が仕込む ui.SetEscapeScp と、
+    -- ゲームからアドオンへ一斉配信される ESCAPE_PRESSED。どちらが来る(あるいは両方来る)かは
+    -- クライアント任せなので、同じ押下で二重に閉じないよう直後の再入は捨てる。
+    if g.esc_is_reentry() then
+        return
+    end
+    g.esc_last_ms = imcTime.GetAppTimeMS()
+    local entry = g.esc_pop_top()
+    if not entry then
+        -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
+        -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
+        g.esc_sync_scp()
+        return
+    end
+    local close_func = _G[entry.close]
+    if type(close_func) ~= "function" then
+        g.vlog("ESCAPE_PRESSED: close func not found frame=%s func=%s", tostring(entry.frame), tostring(entry.close))
+        g.esc_sync_scp()
+        return
+    end
+    g.vlog("ESCAPE_PRESSED: close %s (残り %d)", tostring(entry.frame), #g.esc_stack)
+    -- 閉じる処理が転んでもゲーム側の ESC 処理を巻き込まないよう握る
+    local ok, err = pcall(close_func)
+    if ok then
+        -- ESCAPE_PRESSED を購読している側(indun_panel)が「この押下は使われた」と
+        -- 判断できるよう、実際に閉じられたときだけ印を置く。転んだ押下(まだ表示が
+        -- 残っているかもしれない)や閉じるものが無かった押下は「使っていない」扱いにし、
+        -- 購読側/ゲーム側へそのまま渡す。ここで無条件に印を置くと、閉じ損ねているのに
+        -- indun_panel のトグルを無効化してしまう。
+        g.esc_closed_ms = imcTime.GetAppTimeMS()
+    else
+        g.vlog("ESCAPE_PRESSED: close failed frame=%s err=%s", tostring(entry.frame), tostring(err))
+    end
+    -- 最後の 1 枚を閉じたら ESC をゲームへ返す
+    g.esc_sync_scp()
 end
 
 -- A: 本家が同居している間は機能を止め、削除を促すメッセージだけ出す。
@@ -376,9 +418,14 @@ function _nexus_addons_p_frame_init()
         help_btn:SetSkinName("test_pvp_btn")
     end
     local total_width = col2_x + max_width2 + 200
+    -- タイトル行の右側に一括操作ボタン(全て OFF / バックアップ / 復元)を並べるので、
+    -- タイトルと重ならない幅を確保する。幅はアドオン名の長さで決まり、翻訳やフォントで
+    -- 変わりうるため、固定値ではなく実際のタイトル幅から計算する。
+    total_width = math.max(total_width, title:GetWidth() + 40 + g.maintenance_buttons_width())
     local total_height = base_num * row_height + 70
     list_frame:Resize(total_width, total_height)
     list_gb:Resize(list_frame:GetWidth() - 20, list_frame:GetHeight() - 50)
+    g.create_maintenance_buttons(list_frame, total_width)
     list_frame:SetPos(310, 100)
     return list_frame
 end
@@ -454,6 +501,9 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- if not g.settings then
     _nexus_addons_p_load_settings()
     -- end
+    -- マップ移動でゲーム側が ESC の割り込み先を戻している可能性があるので、
+    -- 「設定済み」の記憶を捨てて次の同期で入れ直させる(g.esc_sync_scp 参照)。
+    g.esc_scp_set = nil
     -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
     -- GAME_START はマップ移動のたびに来るので、この行はマップごとの区切りにもなる
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
@@ -566,6 +616,14 @@ function _nexus_addons_p_update_frames()
                 frame:ShowWindow(1)
             end
         end
+    end
+    -- × ボタンで閉じた場合はどこからも通知が来ないので、ここで実際の表示状態に合わせる。
+    -- ただしスタックが空(= ESC 対象を 1 枚も開いていない)なら見るものが無いので、
+    -- 毎フレーム esc_top() でスタックを walk する無駄を省いて呼ばない。× ボタンで
+    -- 閉じても登録は解除されずスタックに残る(esc_top が死んだ登録として掃除する)ため、
+    -- 「閉じ忘れの検出」はスタックが空でない限り従来どおり効く。
+    if #g.esc_stack > 0 then
+        g.esc_sync_scp()
     end
 end
 

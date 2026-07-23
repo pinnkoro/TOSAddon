@@ -285,7 +285,7 @@ function indun_list_viewer_on_init()
             end
         end
     end
-    g.addon:RegisterMsg("ESCAPE_PRESSED", "Indun_list_viewer_ESCAPE_PRESSED")
+    -- ESC は core 側でまとめて受ける(ここで購読すると他のウィンドウも一緒に閉じる)
     g.setup_hook_and_event(g.addon, "STATUS_SELET_REPRESENTATION_CLASS",
         "Indun_list_viewer_STATUS_SELET_REPRESENTATION_CLASS", true)
     g.setup_hook(Indun_list_viewer_EXPIREDITEM_ALERT_OK_BTN, "EXPIREDITEM_ALERT_OK_BTN")
@@ -688,10 +688,13 @@ function Indun_list_viewer_config(parent)
     local close_button = title_gb:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
     AUTO_CAST(close_button)
     close_button:SetImage("testclose_button")
-    close_button:SetGravity(ui.LEFT, ui.TOP)
+    close_button:SetGravity(ui.RIGHT, ui.TOP)
     close_button:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_close")
     close_button:SetEventScriptArgNumber(ui.LBUTTONUP, 1)
-    title_gb:Resize(x + 50, 55)
+    -- 右上の閉じるボタン(title_gb の右端 20px)が、右端の「Memo」見出しに被らない幅を確保する。
+    -- 見出しの幅は言語とフォントで変わるので実測から出す(本体側の frame_width と同じ考え方)。
+    -- 下限の +50 は変更前と同じ幅。
+    title_gb:Resize(math.max(x + 50, x + memo_text:GetWidth() + 30), 55)
     indun_list_viewer:Resize(title_gb:GetWidth() + 20, 85)
     config_gb:Resize(indun_list_viewer:GetWidth() - 20, indun_list_viewer:GetHeight() - 45)
 end
@@ -772,7 +775,7 @@ function Indun_list_viewer_title_frame_open()
     local close_button = title_gb:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
     AUTO_CAST(close_button)
     close_button:SetImage("testclose_button")
-    close_button:SetGravity(ui.LEFT, ui.TOP)
+    close_button:SetGravity(ui.RIGHT, ui.TOP)
     close_button:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_close")
     local cc_button = title_gb:CreateOrGetControl("button", "cc_button", 40, 5, 30, 30)
     AUTO_CAST(cc_button)
@@ -805,6 +808,7 @@ function Indun_list_viewer_title_frame_open()
     display_text:SetText("{ol}" .. texts.display)
     display_text:SetTextTooltip("{ol}" .. texts.display_text)
     indun_list_viewer:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "indun_list_viewer", "Indun_list_viewer_ESCAPE_PRESSED")
     Indun_list_viewer_frame_open(indun_list_viewer)
 end
 
@@ -941,7 +945,18 @@ function Indun_list_viewer_frame_open(indun_list_viewer)
         display_check:SetCheck(data.hide and 1 or 0)
         y = y + 25
     end
+    -- 閉じるボタンは title_gb(= フレーム幅 - 20)の右上に付き、右端 20px を占める。
+    -- その手前に来るのが display_x に置く「表示」見出しなので、
+    --   フレーム幅 - 20(title_gb) - 20(ボタン) - 10(余白) >= display_x + 見出しの幅
+    -- を満たす幅を確保する。見出しの幅は言語とフォントで変わる(日本語「表示」/英語「Disp」)ため、
+    -- 固定値ではなく実測から出す(アドオン一覧のタイトル幅と同じ考え方。20_lifecycle.lua 参照)。
+    -- 下限の +60 は見出しが無い場合用で、変更前と同じ幅。
     local frame_width = display_x + 60
+    local display_text = GET_CHILD_RECURSIVELY(indun_list_viewer, "display_text")
+    if display_text then
+        AUTO_CAST(display_text)
+        frame_width = math.max(frame_width, display_x + display_text:GetWidth() + 50)
+    end
     local frame_height = y + 50
     if g.ilv_settings.options.display_mode == "slide" and frame_height > 545 then
         frame_height = 545
@@ -950,9 +965,7 @@ function Indun_list_viewer_frame_open(indun_list_viewer)
     indun_list_viewer:Resize(frame_width, frame_height)
     gb:Resize(indun_list_viewer:GetWidth() - 20, indun_list_viewer:GetHeight() - 45)
     title_gb:Resize(indun_list_viewer:GetWidth() - 20, 55)
-    local display_text = GET_CHILD_RECURSIVELY(indun_list_viewer, "display_text")
     if display_text then
-        AUTO_CAST(display_text)
         display_text:SetPos(display_x, 10)
     end
     local map_frame = ui.GetFrame("map")

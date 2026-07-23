@@ -64,11 +64,11 @@ IPF_GLOB = os.path.join(REPO, "nexus_addons_p", "*.ipf")
 REBUILD_HINT = (
     "  → src を変更したら .ipf を作り直すこと（docs/BUILD_IPF.md 方式B）:\n"
     "       python docs/bundle_from_src.py\n"
-    "       python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p "
-    "./_nexus_addons_p-plain.ipf \\\n"
+    "       python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \\\n"
+    '           "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" \\\n'
     "           --require _nexus_addons_p/_nexus_addons_p.lua,"
-    "_nexus_addons_p/_nexus_addons_p_conclude.lua\n"
-    '       "$TOOLS_DIR/ipf_unpack.exe" ./_nexus_addons_p-plain.ipf encrypt')
+    "_nexus_addons_p/_nexus_addons_p_conclude.lua \\\n"
+    "           --encrypt")
 
 
 def find_ipf():
