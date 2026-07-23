@@ -75,17 +75,24 @@ Tree of Savior 用アドオンの配布リポジトリ。
 | bundle の再現性（golden sha 照合 / manifest 未登録 src の検出） | `main` / `release` |
 | 連結後 bundle の Lua 構文チェック | `main` / `release` |
 | core のロジック回帰テスト（[docs/tests/test_core.lua](docs/tests/test_core.lua)） | `main` / `release` |
-| `.ipf` が現 src から作られたものかの検証 + バージョンの三者一致 | `release` 経路のみ |
+| リリース前の先行採番の検出（[docs/check_version_freeze.py](docs/check_version_freeze.py)） | `main` への PR |
+| `.ipf` が現 src から作られたものかの検証 + バージョンの三者一致 | `release` 経路 / `release-prep/**` |
 
-最後の 1 つは、`main` では `.ipf` を毎回作り直さない運用（採番はリリース時にまとめて行う）のため、
-公開直前でのみ効かせている。手元では `python docs/verify_ipf.py` で同じ検査ができる。
+最後の 1 つは、通常の `main` の PR では `.ipf` を作り直さない運用（採番はリリース時に
+まとめて行う）のため、採番を行う経路でのみ効かせている。
+手元では `python docs/verify_ipf.py` / `python docs/check_version_freeze.py` で同じ検査ができる。
 
 ### ブランチ運用とリリース公開フロー
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、PR 経由で `main` にマージする。
-* **配布リリース**: 公開したいタイミングで `main` → `release` にマージする。
+  **バージョンと `.ipf` はここでは触らない**（CI が変更を検出して落とす）。
+* **配布リリース**: 採番 PR（`release-prep/vX.Y.Z` → `main`）と公開 PR（`main` → `release`）を
+  続けて出す。
   * 採番（`00_header.lua` の `ver` / `addons.json` の `fileVersion` / `.ipf` のファイル名）と
-    `.ipf` の再ビルドは、このタイミングでまとめて行う。
+    `.ipf` の再ビルドは、採番 PR でまとめて行う。
+  * 先に `main` だけ採番すると、アドオンマネージャーが `main` の `fileVersion` から組み立てる
+    アセット名（`nexus_addons_p-<fileVersion>.ipf`）が Release 側にまだ無く、公開までの間
+    **利用者がインストールも更新もできなくなる**。そのため採番は公開直前に限っている。
   * `release` への push を [.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml) が検知し、
     移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。

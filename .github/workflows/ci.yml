@@ -1,7 +1,7 @@
 name: CI
 
 # 配布物を壊す種類の事故を機械的に止める。従来は手元で気付くしかなく、release まで
-# 素通りしていた。検査は 2 段構えで、走るタイミングを変えている。
+# 素通りしていた。検査は 3 段構えで、走るタイミングを変えている。
 #
 # bundle ジョブ（main / release の両方で毎回）
 #   1. src と golden sha の食い違い    … src を触ったのに --bless し忘れた / CRLF 混入
@@ -9,11 +9,17 @@ name: CI
 #   3. 連結後の Lua 構文エラー         … 分割ソース単体では気付けない結合バグ
 #   3'. core のロジック回帰            … ゲーム API をスタブ化して動かせる範囲のみ
 #
-# ipf ジョブ（release 経路でのみ）
+# version-freeze ジョブ（main への PR で毎回）
+#   6. リリース前の先行採番            … main だけ版数が上がると、アドオンマネージャーが
+#      main の addons.json から組み立てたアセット名（nexus_addons_p-<fileVersion>.ipf）が
+#      Release 側に存在せず、公開までの間だれもインストール／更新できなくなる（実害あり）。
+#      採番は release-prep/** ブランチでのみ許し、直後に main -> release を出す運用にする。
+#
+# ipf ジョブ（release 経路と release-prep/** の PR）
 #   4. .ipf の中身が現 src と食い違う  … src を直して .ipf を再ビルドし忘れた
 #   5. バージョンの三者不一致          … ver / fileVersion / .ipf ファイル名
-#   main では .ipf を毎回作り直さない運用（採番はリリース時にまとめて行う）なので、
-#   4/5 を main で回すと恒常的に赤くなる。公開直前＝release 経路でだけ効かせる。
+#   通常の main の PR では .ipf を作り直さない運用なので、4/5 を毎回回すと恒常的に
+#   赤くなる。採番を行う経路（release-prep/** と release）でだけ効かせる。
 
 on:
   pull_request:
@@ -57,11 +63,51 @@ jobs:
       - name: monster_kill_count のロジックテスト
         run: luajit docs/tests/test_monster_kill_count.lua
 
-  # release への PR / push でのみ。main -> release の PR で base_ref が release、
+  # main への PR で「バージョン情報を先に上げていないか」だけを見る。
+  #
+  # main の required status check にするため、条件付きスキップ（job 単位の if）は使わず
+  # 常に走らせて必ず報告させる。PR 以外（push / workflow_dispatch）は比較相手が無いので
+  # ステップ側で素通りする（ジョブとしては成功で報告される）。
+  version-freeze:
+    runs-on: ubuntu-latest
+    steps:
+      # merge-base を取るので浅いチェックアウトでは足りない。
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      # base ブランチの先端ではなく merge-base と比較する（理由はスクリプトの docstring）。
+      # checkout は PR のマージコミットを見ているだけなので、base の枝は明示的に取る。
+      # ブランチ名は ${{ }} で直に埋めず env 経由で渡す（run への式展開はコマンド注入面）。
+      - name: base ブランチを取得
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin \
+            "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
+
+      - name: リリース前の先行採番を検出
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 docs/check_version_freeze.py \
+            --base "origin/${BASE_BRANCH}" \
+            --head "$HEAD_SHA" \
+            --base-branch "$BASE_BRANCH" \
+            --head-branch "$HEAD_BRANCH"
+
+  # 採番が行われる経路でのみ。main -> release の PR で base_ref が release、
   # マージ後の push で ref が refs/heads/release になる。release ブランチ上で
   # workflow_dispatch した場合も ref が一致するので手動再実行できる。
+  # 採番は release-prep/** の PR（-> main）で行うので、そこでも同じ検査を通す。
+  # main に入る前に落とせれば、release への PR で初めて気付くより手戻りが小さい。
   ipf:
-    if: github.base_ref == 'release' || github.ref == 'refs/heads/release'
+    if: github.base_ref == 'release' || github.ref == 'refs/heads/release' || startsWith(github.head_ref, 'release-prep/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
