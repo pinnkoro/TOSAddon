@@ -15,9 +15,10 @@ end
 
 -- 実体(IES)を引けなかったアイテムを、クラス定義の名前だけで記録するための代替。
 --
--- チーム倉庫のアイテムは iesid が 0 で返り、GetObjectByGuid では引けない
--- (実機ログ: 「チーム倉庫 のアイテムを引けないため保存を中止 iesid=0」)。
--- 1 件だけ引けないのではなく全件引けないので、以前は中身が空のまま記録されていた。
+-- 倉庫には iesid が 0 で返るアイテムが混じることがあり、それは GetObjectByGuid では
+-- 引けない(実機ログ: チーム倉庫 298 件のうち 1 件)。v1.0.2 は 1 件でも引けなければ
+-- 保存ごと中止するので、**その 1 件の巻き添えで倉庫まるごと記録されなくなっていた**。
+-- それ以前は黙って捨てていたので、その 1 件だけが検索に出ていなかった。
 --
 -- .dat の検索は行の文字列一致で、表示に使うのはクラス ID と個数だけなので、
 -- 個体名(強化値や付与)が落ちてもアイテム名さえ入っていれば検索としては成立する。
@@ -226,6 +227,7 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
     local count = sorted_guid_list:Count()
     local items_to_save = {}
     local by_class = 0
+    local by_class_clsid
     for i = 0, count - 1 do
         local guid = sorted_guid_list:Get(i)
         local aw_item = item_list:GetItemByGuid(guid)
@@ -233,7 +235,7 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
             local clsid = aw_item.type
             local iesid = aw_item:GetIESID()
             -- 実体を引けたら個体名を使い、駄目ならクラス定義の名前で代用する
-            -- (チーム倉庫は iesid が 0 で返るため、実際にはほぼ代替側を通る)。
+            -- (大半は実体を引ける。iesid が 0 で返る個体がまれに混じる)。
             local obj = GetObjectByGuid(iesid)
             local item_name
             if obj then
@@ -241,6 +243,7 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
             else
                 item_name = characters_item_serch_class_name(clsid)
                 by_class = by_class + 1
+                by_class_clsid = by_class_clsid or clsid
             end
             -- 名前がどうしても取れないもの(クラス定義すら引けない)は検索に出しようがない。
             -- ここは is_overwrite=true で .dat を丸ごと置き換えるので、落として保存すると
@@ -263,8 +266,10 @@ function Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE()
     -- 倉庫を閉じたときにしか通らないので、1 回の開閉につき 1 行。件数を出すのは
     -- 「代替の名前で記録できた」のか「そもそも 0 件しか拾えていない」のかを
     -- ログだけで見分けるため(この経路が壊れると検索結果が黙って空になる)。
-    g.vlog("characters_item_serch: チーム倉庫 %d/%d 件を保存(うち %d 件はクラス定義の名前)", #items_to_save,
-        count, by_class)
+    -- 代替に落ちた個体は clsid も出す。実体を引けないのが特定のアイテムに
+    -- 偏るのかどうかを、利用者から送られたログだけで確かめられるようにする。
+    g.vlog("characters_item_serch: チーム倉庫 %d/%d 件を保存(うち %d 件はクラス定義の名前 clsid=%s)",
+        #items_to_save, count, by_class, tostring(by_class_clsid))
     local dat_file_path = g.characters_item_serch_dat_tbl[4]
     Characters_item_serch_save_item_list_to_dat(dat_file_path, items_to_save, true)
 end
@@ -371,6 +376,7 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
     AUTO_CAST(slotset)
     local items = {}
     local by_class = 0
+    local by_class_clsid
     for i = 0, slotset:GetSlotCount() - 1 do
         local slot = slotset:GetSlotByIndex(i)
         local icon = slot:GetIcon()
@@ -379,7 +385,7 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
             local iesid = icon_info:GetIESID()
             -- guid からオブジェクトを引けないことがあるので nil ガード。
             -- 引けたときは従来どおり実体を使い、駄目ならスロットが持つクラス ID から
-            -- 代替の名前を作る(チーム倉庫側と同じ扱い。あちらは全件が代替になる)。
+            -- 代替の名前を作る(チーム倉庫側と同じ扱い)。
             local obj = GetObjectByGuid(iesid)
             local clsid, item_name
             if obj then
@@ -389,6 +395,7 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
                 clsid = icon_info.type
                 item_name = characters_item_serch_class_name(clsid)
                 by_class = by_class + 1
+                by_class_clsid = by_class_clsid or clsid
             end
             -- 名前もクラス ID も取れないものは検索に出しようがない。保存はこのキャラの
             -- 倉庫行を全部書き換えるので、黙って落とすと検索結果から消える。
@@ -405,7 +412,8 @@ function Characters_item_serch_WAREHOUSE_CLOSE()
             table.insert(items, {g.login_name, iesid, clsid, icon_info.count, item_name, "warehouse", category})
         end
     end
-    g.vlog("characters_item_serch: 個人倉庫 %d 件を保存(うち %d 件はクラス定義の名前)", #items, by_class)
+    g.vlog("characters_item_serch: 個人倉庫 %d 件を保存(うち %d 件はクラス定義の名前 clsid=%s)", #items, by_class,
+        tostring(by_class_clsid))
     local warehouse_dat = g.characters_item_serch_dat_tbl[1]
     Characters_item_serch_save_item_list_to_dat(warehouse_dat, items)
 end
