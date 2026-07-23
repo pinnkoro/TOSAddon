@@ -130,12 +130,16 @@ function _nexus_addons_p_ESCAPE_PRESSED()
         return
     end
     g.vlog("ESCAPE_PRESSED: close %s (残り %d)", tostring(entry.frame), #g.esc_stack)
-    -- ESCAPE_PRESSED を購読している側(indun_panel)が「この押下は使われた」と判断できるよう、
-    -- 実際に閉じたときだけ印を置く。閉じるものが無かった押下はゲーム側へ渡す。
-    g.esc_closed_ms = imcTime.GetAppTimeMS()
     -- 閉じる処理が転んでもゲーム側の ESC 処理を巻き込まないよう握る
     local ok, err = pcall(close_func)
-    if not ok then
+    if ok then
+        -- ESCAPE_PRESSED を購読している側(indun_panel)が「この押下は使われた」と
+        -- 判断できるよう、実際に閉じられたときだけ印を置く。転んだ押下(まだ表示が
+        -- 残っているかもしれない)や閉じるものが無かった押下は「使っていない」扱いにし、
+        -- 購読側/ゲーム側へそのまま渡す。ここで無条件に印を置くと、閉じ損ねているのに
+        -- indun_panel のトグルを無効化してしまう。
+        g.esc_closed_ms = imcTime.GetAppTimeMS()
+    else
         g.vlog("ESCAPE_PRESSED: close failed frame=%s err=%s", tostring(entry.frame), tostring(err))
     end
     -- 最後の 1 枚を閉じたら ESC をゲームへ返す
@@ -614,8 +618,13 @@ function _nexus_addons_p_update_frames()
         end
     end
     -- × ボタンで閉じた場合はどこからも通知が来ないので、ここで実際の表示状態に合わせる。
-    -- 状態が変わったときだけ ui.SetEscapeScp を呼ぶので、毎フレームでも実害は無い。
-    g.esc_sync_scp()
+    -- ただしスタックが空(= ESC 対象を 1 枚も開いていない)なら見るものが無いので、
+    -- 毎フレーム esc_top() でスタックを walk する無駄を省いて呼ばない。× ボタンで
+    -- 閉じても登録は解除されずスタックに残る(esc_top が死んだ登録として掃除する)ため、
+    -- 「閉じ忘れの検出」はスタックが空でない限り従来どおり効く。
+    if #g.esc_stack > 0 then
+        g.esc_sync_scp()
+    end
 end
 
 function _nexus_addons_p_APPS_TRY_MOVE_BARRACK()

@@ -412,17 +412,33 @@ function Goddess_icor_manager_equip_gbox_init(gim)
 end
 
 function Goddess_icor_manager_list_close(frame)
-    local status = ui.GetFrame("status")
-    status:ShowWindow(0)
-    local goddess_equip_manager = ui.GetFrame("goddess_equip_manager")
-    goddess_equip_manager:SetLayerLevel(92) -- 92
-    goddess_equip_manager:ShowWindow(0)
-    local inventory = ui.GetFrame("inventory")
-    inventory:SetLayerLevel(95) -- 95
-    local inputstring = ui.GetFrame("inputstring")
-    AUTO_CAST(inputstring)
-    inputstring:SetLayerLevel(98) -- 98
+    -- 先に自分のウィンドウ(gim)を確実に破棄する。この後に続く付随処理(status /
+    -- goddess_equip_manager / inventory / inputstring の表示・レイヤー調整)のどれかが
+    -- 転んでも、gim 自体は必ず閉じて ESC スタックから外れる。順序を逆にすると、
+    -- 途中で転んだとき gim が開いたまま残り、ESC でも閉じられなくなる
+    -- (20_lifecycle の _nexus_addons_p_ESCAPE_PRESSED は close を pcall で握るため、
+    --  途中で転んだ分は握り潰されて gim が置き去りになる)。
     ui.DestroyFrame(addon_name_lower .. "gim")
+    -- 以下はゲーム側フレームを元の状態へ戻す処理。ESC の close_func として引数無しで
+    -- 呼ばれた経路や、対象フレームが未生成の状況でも落ちないよう、それぞれ nil ガードする。
+    local status = ui.GetFrame("status")
+    if status then
+        status:ShowWindow(0)
+    end
+    local goddess_equip_manager = ui.GetFrame("goddess_equip_manager")
+    if goddess_equip_manager then
+        goddess_equip_manager:SetLayerLevel(92) -- 92
+        goddess_equip_manager:ShowWindow(0)
+    end
+    local inventory = ui.GetFrame("inventory")
+    if inventory then
+        inventory:SetLayerLevel(95) -- 95
+    end
+    local inputstring = ui.GetFrame("inputstring")
+    if inputstring then
+        AUTO_CAST(inputstring)
+        inputstring:SetLayerLevel(98) -- 98
+    end
 end
 
 function Goddess_icor_manager_setting_delay(parent, ctrl)
