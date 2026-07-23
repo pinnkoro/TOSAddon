@@ -82,8 +82,13 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
 ```bash
 python docs/ipf_crypt.py encrypt <plain.ipf> <out.ipf>
 python docs/ipf_crypt.py decrypt <dist.ipf> <plain.ipf>
-python docs/ipf_crypt.py --self-test      # リポジトリ内の全 .ipf を往復検証(CI でも実行)
+python docs/ipf_crypt.py --self-test      # リポジトリ内の全 .ipf を検証(CI でも実行)
 ```
+
+`--self-test` は各 `.ipf` を復号 → raw deflate 展開 → **テーブル記載の平文 CRC32 と照合**する。
+テーブルは暗号化されないので、`ipf_crypt.py` を経由しない独立オラクルになる
+(「復号 → 再暗号化で元に戻る」だけでは暗号側を何を壊しても素通りする。理由は
+[ipf_crypt.py](ipf_crypt.py) の `_check_bodies` を参照)。
 
 `build_addon_ipf.py` は zlib **level 6**(= IPFSuite と同一バイト)で圧縮し、
 テーブル・footer を実物と同じ書式で生成する。IPFSuite で作ったものと
@@ -95,7 +100,11 @@ python docs/ipf_crypt.py --self-test      # リポジトリ内の全 .ipf を往
 2. アドオンフォルダ(`_nexus_addons_p/`)を、内部パス `_nexus_addons_p/...` を保った状態で追加
    - 内部の pack 名フィールドは `addon_d.ipf`(全アドオン共通の固定値)
 3. `_nexus_addons_p-⛄-vX.Y.Z.ipf` の名前で保存(この時点では平文)
-4. `encrypt.bat _nexus_addons_p-⛄-vX.Y.Z.ipf`(= `ipf_unpack.exe ... encrypt`)で暗号化
+4. 暗号化は方式 B と同じ `ipf_crypt.py` で行う(外部ツールは要らない):
+
+   ```bash
+   python docs/ipf_crypt.py encrypt <plain.ipf> "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf"
+   ```
 
 ---
 

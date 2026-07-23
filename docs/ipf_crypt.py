@@ -27,7 +27,13 @@
     配布中の `_nexus_addons_p-⛄-v1.0.2.ipf` を、現 src から組み立てた平文コンテナに
     この実装を適用して再生成すると **バイト単位で完全一致**する（259,788 バイト）。
     つまり `ipf_unpack.exe encrypt` の出力と区別が付かない。
-    `--self-test` はこの性質を「復号 → 再暗号化で元に戻る」形で常時検査する。
+
+    `--self-test` はこれを常時検査するが、**往復（復号 → 再暗号化）だけでは足りない**。
+    暗号化と復号は同じ鍵ストリームを生成するので、`encrypt(decrypt(x)) == x` は
+    PW もマスクも偶数位置の判定も何を壊しても成立する恒等式でしかない。
+    実際に効かせている検査は「復号したデータ本体を raw deflate 展開して、
+    テーブル記載の平文 CRC32 と一致するか」の方（テーブルは暗号化されないので、
+    この実装を経由しない独立オラクルになる）。
 
 使い方:
     python docs/ipf_crypt.py encrypt <in.ipf> <out.ipf>
@@ -40,6 +46,7 @@ import glob
 import os
 import struct
 import sys
+import zlib
 
 # 固定パスワード。ToS クライアント側の IPF リーダーが持っている値で、
 # 既存の読み取りツール（TosSukillSimulator の tools/tos_extract.py など）と同じ。
@@ -82,9 +89,10 @@ def _transform(data: bytes, decrypt: bool) -> bytes:
 
 
 def parse_entries(data: bytes):
-    """ファイルテーブルを読んで [(内部パス, data_off, comp_len), ...] を返す。
+    """ファイルテーブルを読んで [(内部パス, data_off, comp_len, 平文 CRC32, 元サイズ), ...] を返す。
 
     テーブルと footer は暗号化されないので、暗号化済み .ipf でもそのまま読める。
+    CRC32 と元サイズは復号結果の照合（_check_bodies）に使う。
     """
     if len(data) < FOOTER_LEN:
         raise ValueError(f".ipf が小さすぎる（{len(data)} バイト）")
@@ -100,7 +108,7 @@ def parse_entries(data: bytes):
     for _ in range(count):
         (path_len,) = struct.unpack_from("<H", data, off)
         off += 2
-        _crc, comp, _uncomp, data_off = struct.unpack_from("<IIII", data, off)
+        crc, comp, uncomp, data_off = struct.unpack_from("<IIII", data, off)
         off += 16
         (pack_len,) = struct.unpack_from("<H", data, off)
         off += 2 + pack_len
@@ -108,7 +116,7 @@ def parse_entries(data: bytes):
         off += path_len
         if data_off + comp > table_off:
             raise ValueError(f"{path}: データ範囲がテーブルへ食い込んでいる")
-        entries.append((path, data_off, comp))
+        entries.append((path, data_off, comp, crc, uncomp))
     if len(entries) != count:
         raise ValueError(f"テーブルの項目数が footer と合わない: {len(entries)} != {count}")
     return entries
@@ -116,7 +124,7 @@ def parse_entries(data: bytes):
 
 def _apply(container: bytes, decrypt: bool) -> bytes:
     out = bytearray(container)
-    for _path, data_off, comp in parse_entries(container):
+    for _path, data_off, comp, _crc, _uncomp in parse_entries(container):
         out[data_off:data_off + comp] = _transform(container[data_off:data_off + comp], decrypt)
     return bytes(out)
 
@@ -131,12 +139,58 @@ def decrypt(container: bytes) -> bytes:
     return _apply(container, decrypt=True)
 
 
-def self_test(paths):
-    """各 .ipf を復号 → 再暗号化して元に戻ることを確かめる。
+def _check_bodies(container: bytes):
+    """平文コンテナの各データ本体を raw deflate 展開し、テーブルの値と突き合わせる。
 
-    往復が一致する = テーブル解析・偶数位置の判定・ファイルごとの鍵初期化が
-    実物の .ipf に対して正しく効いている、ということ。実際に配布したファイルを
-    材料にするので、外部ツールが無い CI でも意味のある検査になる。
+    テーブル（平文 CRC32 / 元サイズ）は暗号化されない = この実装を一切経由しないので、
+    復号結果に対する **独立オラクル**になる。復号が 1 バイトでも狂えば deflate が
+    壊れるか CRC32 が合わなくなる。
+
+    往復（encrypt(decrypt(x)) == x）はこれの代わりにならない。暗号化も復号も
+    「平文で鍵を回す」同じ実装を共有していて、鍵ストリームは常に一致するため、
+    PW・生成多項式・`| 2` マスク・偶数位置の判定・鍵の初期値のどれを壊しても
+    往復は成立してしまう（実際に各所を改変して素通りすることを確認済み）。
+    """
+    for path, data_off, comp, crc, uncomp in parse_entries(container):
+        try:
+            plain = zlib.decompress(container[data_off:data_off + comp], -15)  # raw deflate
+        except zlib.error as exc:
+            raise ValueError(f"{path}: raw deflate として展開できない（{exc}）")
+        if len(plain) != uncomp:
+            raise ValueError(f"{path}: 展開後のサイズがテーブルと違う（{len(plain)} != {uncomp}）")
+        actual = zlib.crc32(plain) & 0xFFFFFFFF
+        if actual != crc:
+            raise ValueError(f"{path}: 平文 CRC32 がテーブルと違う（{actual:08x} != {crc:08x}）")
+
+
+def _check_container(container: bytes) -> str:
+    """コンテナの中身を検査し、"暗号化済み" / "平文" のどちらだったかを返す。
+
+    リポジトリに置くのは配布形式（暗号化済み）だが、手元で `decrypt` した平文コンテナを
+    渡されても検査できるようにしておく。暗号化が壊れていれば「復号しても駄目・
+    そのままでも駄目」となって、どちらの経路でも NG になる。
+    """
+    try:
+        _check_bodies(decrypt(container))
+        return "暗号化済み"
+    except ValueError as exc:
+        try:
+            _check_bodies(container)
+        except ValueError:
+            raise exc  # 平文としても読めない = 復号側の失敗を報告する
+        return "平文"
+
+
+def self_test(paths):
+    """各 .ipf の中身が正しく復号できるか（+ 往復で元に戻るか）を確かめる。
+
+    実際に配布したファイルを材料にするので、外部ツールが無い CI でも意味のある
+    検査になる。検査は 2 本立て:
+
+      1. 復号 → raw deflate 展開 → テーブルの平文 CRC32 と照合（_check_bodies）
+         … 暗号アルゴリズム（PW / 鍵更新 / 偶数位置）の回帰を検出する本体
+      2. 復号 → 再暗号化で元に戻る … 恒等式なので単体では暗号の検査にならないが、
+         テーブル解析の範囲指定が壊れて「触っていない領域がある」状態は拾える
     """
     if not paths:
         print("[ipf_crypt] 検査対象の .ipf が無い")
@@ -147,19 +201,19 @@ def self_test(paths):
             data = f.read()
         try:
             entries = parse_entries(data)
-            if decrypt(encrypt(decrypt(data))) != decrypt(data):
-                raise ValueError("復号 → 暗号化 → 復号 が一致しない")
+            kind = _check_container(data)
             if encrypt(decrypt(data)) != data:
                 raise ValueError("復号 → 再暗号化で元に戻らない")
         except (ValueError, struct.error) as exc:
             print(f"  NG  {os.path.basename(path)}: {exc}")
             failed += 1
             continue
-        print(f"  OK  {os.path.basename(path)}  ({len(data)} バイト / {len(entries)} ファイル)")
+        print(f"  OK  {os.path.basename(path)}  "
+              f"({len(data)} バイト / {len(entries)} ファイル / {kind})")
     if failed:
         print(f"[ipf_crypt] {failed} 件失敗")
         return 1
-    print(f"[ipf_crypt] 往復検証 OK（{len(paths)} 件）")
+    print(f"[ipf_crypt] 検証 OK（{len(paths)} 件）")
     return 0
 
 
