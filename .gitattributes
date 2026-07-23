@@ -4,3 +4,12 @@
 # チェックアウト環境（core.autocrlf）に依存せず必ず LF を保つ。
 *.lua text eol=lf
 nexus_addons_p/src/build_manifest.json text eol=lf
+
+# CI が ubuntu 上で `sh docs/tests/syntax_check.sh` を実行する。CRLF が混入すると
+# 行末の \r ごと解釈されて落ちるので、こちらも LF 固定にする。
+# (現状は core.autocrlf=false に救われているだけで、設定の違う環境からクローンすると壊れる)
+*.sh text eol=lf
+
+# 配布物。平文 CRC32 で「現 src から作られたか」を検証する(docs/verify_ipf.py)ため、
+# 改行変換が入ると別物になる。バイナリと明示して text 判定に一切かけない。
+*.ipf binary

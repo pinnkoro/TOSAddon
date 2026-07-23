@@ -120,11 +120,50 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
     `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。
   * **リリースノートは `main` → `release` のマージ元 PR の本文**がそのまま使われる。
     公開時は main→release の PR を作り、その説明にリリースノートを書くこと。
+    テンプレートは [.github/PULL_REQUEST_TEMPLATE/](.github/PULL_REQUEST_TEMPLATE/) に置いてあるが、
+    **ディレクトリ形式のテンプレートは自動適用されず、`?template=` を付けた URL からしか入らない**。
+    素で PR を作ると本文が空のまま公開まで通ってしまうので、次の URL から作ること:
+    * リリース (main→release): <https://github.com/pinnkoro/TOSAddon/compare/release...main?template=release.md&expand=1>
+    * 通常の開発 (→main): `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`
+    * `gh pr create --template <file>` でも同じテンプレートを使える。
 * アドオンマネージャーは `addons.json` の `releaseTag`（= `nexus_addons_p`）の Release から `.ipf` を取得する。
   タグはバージョンごとに変えず、**同じ `nexus_addons_p` タグのアセットを毎回差し替える**（移動タグ運用）。
+* **保存用に、版番号タグ（`v1.0.1` 形式 = `addons.json` の `fileVersion` そのまま）の Release も併せて作る**。
+  移動タグの Release は毎回タグごと削除して作り直すため、前回のリリースノートと配布した `.ipf` が消える。
+  それを残すのが目的で、アドオンマネージャーからは参照されない（`releaseTag` は移動タグ固定）。
+  * Latest は移動タグ側に固定してある（保存用は `--latest=false`）。素で Releases を開いたときに
+    配布中の版が出るようにするため。
+  * **同じ版が Releases 一覧に 2 本並ぶのは正常**（配布中の版は移動タグと保存用の両方に載る）。
+    見分けが付くよう、移動タグ側のタイトルだけ `Nexus Addons P vX.Y.Z — 配布用（最新）` にしてある。
+    保存用は版番号のみ。**採番タイミングによらず最新版の固定リンクが常に存在する**のが、この方式の利点。
+  * 同じ版のまま再実行すると、保存用 Release はノートとアセットが上書きされる（タグの位置は動かない）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
-## アドオンマネージャーへの登録（PR 提出済み・マージ待ち）
+### ブランチルール（GitHub ruleset で機械的に強制している）
+
+上の運用は口約束だと守れないので、`main` / `release` に ruleset を設定して GitHub 側で止めている。
+定義は [.github/rulesets/](.github/rulesets/) に置いてあり、これが**適用済みの内容の写し**。
+変更するときはファイルを直して `gh api repos/pinnkoro/TOSAddon/rulesets/<id> -X PUT --input <file>` で反映し、
+GitHub 画面だけで直して写しを置き去りにしないこと。
+
+| | `main` | `release` |
+| --- | --- | --- |
+| 直接 push | 不可（PR 必須・承認は 0 件でよい） | 不可（PR 必須） |
+| 必須ステータス | `bundle` | `bundle` + `ipf` |
+| マージ方法 | merge / squash | **merge のみ** |
+| force push・ブランチ削除 | 禁止 | 禁止 |
+
+* **承認レビューは 0 件必須**。ソロ開発で自分の PR を承認できないため、1 件以上にすると詰む。
+  PR を通す手順そのものを残すのが目的で、レビュアーを増やすのが目的ではない。
+* **`release` は merge のみ**。squash すると `release` が `main` と別履歴になり、以降のマージが
+  毎回コンフリクトする。また merge 元 PR が辿れなくなると、リリースノートの流用（上記）も壊れる。
+* **`ipf` を必須にするのは `release` だけ**。`main` では `ipf` ジョブがそもそも起動しないので、
+  必須にすると永久に待ち状態になる（`ci.yml` 冒頭のコメントと同じ理由）。
+* **タグの ruleset は作っていない**。移動タグ `nexus_addons_p` の「タグごと削除して作り直す」処理と、
+  保存用の版番号タグ（`v*`）の作成が、どちらも GITHUB_TOKEN のまま通る必要があるため。
+  ここに tag ルールを足すと公開が壊れる。
+
+## アドオンマネージャーへの登録（登録済み）
 
 [MizukiBelhi/Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager) は
 `JTosAddon/Addons` の `managers.json` を 2 つ読む（`Source/AddonManager/MainWindow.xaml.cs`）。
@@ -132,7 +171,7 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **JToS タブ** → `master` ブランチ ← **こちらが正**。本家 `ajinorisan/TOSAddon-public` も master に登録されている。
 * IToS タブ → `itos` ブランチ（国際版向け。近年マージ実績が乏しい）
 
-`{"repo": "pinnkoro/TOSAddon"}` を `sources` の**末尾に追記**する PR を master 宛に提出済み:
-[JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)。マージされたら本節を「登録済み」に更新すること。
+`{"repo": "pinnkoro/TOSAddon"}` を `sources` の**末尾に追記**する PR を master 宛に提出し、
+2026-07-21 にマージされて**登録済み**: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)。
 
 `file`（= `nexus_addons_p`）は一度登録したら変更してはいけない永続 ID。

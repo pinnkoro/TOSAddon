@@ -476,13 +476,16 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
         image = ""
     }
     _G["norisan"]["MENU"][addon_name] = menu_data
+    -- 相乗り側が別名でメニューを作っていたら壊してから、こちらの名前で作り直す。
+    -- frame_name を入れるのは相乗り側なので、まだ誰も入れていなければ nil。
+    -- 初回ログインは常にこの状態なので、nil を ui.GetFrame へ渡さないよう
+    -- 名前がある場合だけ引く(順序を入れ替えただけで、壊す条件は変えていない)。
     local frame_name = _G["norisan"]["MENU"].frame_name
-    local menu_frame = ui.GetFrame(frame_name)
-    if menu_frame and frame_name ~= "norisan_menu_frame" then
+    if frame_name and frame_name ~= "norisan_menu_frame" and ui.GetFrame(frame_name) then
         ui.DestroyFrame(frame_name)
     end
     frame_name = "norisan_menu_frame"
-    menu_frame = ui.GetFrame(frame_name)
+    local menu_frame = ui.GetFrame(frame_name)
     -- norisan_menu_frame という名前は他の norisan 系アドオンと共有していて、向こうが
     -- 先に旧定義(chat_memberlist 由来 = ESC で閉じられる)で作っていることがある。
     -- その場合はここで消えない自前の定義(notice_on_pc 由来)へ作り替える。

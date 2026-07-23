@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "1.0.1"
+local ver = "1.0.2"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -387,14 +387,22 @@ local function vlog_write(line)
         -- 作り直すのはここだけ。GAME_START はマップ移動のたびに来るので、
         -- そこで毎回作り直すと直前のマップのログ(初期化エラーを含む)が消える。
         -- g はクライアント起動中ずっと生きるので、1 回のプレイで 1 ファイルになる。
-        g.vlog_started, g.vlog_lines, mode = true, 0, "w"
+        mode = "w"
     elseif g.vlog_lines >= vlog_max_lines then
-        g.vlog_lines, mode = 0, "w"
+        mode = "w"
         notice = "===== 行数が上限に達したのでここから取り直し ====="
     end
     local file = io.open(vlog_file_path, mode)
     if not file then
+        -- 開けなかったときは状態を進めない。ここで vlog_started を立ててしまうと、
+        -- 作り直しに失敗したまま次回から追記モードになり、前回起動分のログに
+        -- 書き足す形になる(「中身は常に今回の起動分だけ」が崩れ、報告用に使えない)。
+        -- 上限到達時も同じで、取り直せていないのに行数だけ 0 に戻すと以後伸び続ける。
         return
+    end
+    g.vlog_started = true
+    if mode == "w" then
+        g.vlog_lines = 0
     end
     local stamp = os.date("[%H:%M:%S] ")
     if notice then

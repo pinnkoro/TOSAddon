@@ -3,7 +3,7 @@
     "name": "Nexus Addons P",
     "file": "nexus_addons_p",
     "extension": "ipf",
-    "fileVersion": "v1.0.1",
+    "fileVersion": "v1.0.2",
     "releaseTag": "nexus_addons_p",
     "unicode": "⛄",
     "description": "norisanさんのNexus Addonsの派生版 40種類以上のアドオンの詰合せ<br>※本家のNexus Addonsとは同時に使えません。dataフォルダから本家の_nexus_addons-⛄-*.ipfを削除してください。本家の設定は初回起動時に自動で引き継がれます<br>A fork of norisan's Nexus Addons: a collection of over 40 types of addons<br>※Cannot be used together with the original Nexus Addons. Please remove _nexus_addons-⛄-*.ipf from your data folder. Your settings are carried over automatically on first launch<br>norisan님의 Nexus Addons 파생판: 40종류 이상의 애드온 모음<br>※원본 Nexus Addons와 동시에 사용할 수 없습니다. data 폴더에서 _nexus_addons-⛄-*.ipf를 삭제해 주세요. 원본 설정은 첫 실행 시 자동으로 인계됩니다<br>https://github.com/pinnkoro/TOSAddon",
