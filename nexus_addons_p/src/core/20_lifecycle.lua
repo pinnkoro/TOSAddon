@@ -376,9 +376,14 @@ function _nexus_addons_p_frame_init()
         help_btn:SetSkinName("test_pvp_btn")
     end
     local total_width = col2_x + max_width2 + 200
+    -- タイトル行の右側に一括操作ボタン(全て OFF / バックアップ / 復元)を並べるので、
+    -- タイトルと重ならない幅を確保する。幅はアドオン名の長さで決まり、翻訳やフォントで
+    -- 変わりうるため、固定値ではなく実際のタイトル幅から計算する。
+    total_width = math.max(total_width, title:GetWidth() + 40 + g.maintenance_buttons_width())
     local total_height = base_num * row_height + 70
     list_frame:Resize(total_width, total_height)
     list_gb:Resize(list_frame:GetWidth() - 20, list_frame:GetHeight() - 50)
+    g.create_maintenance_buttons(list_frame, total_width)
     list_frame:SetPos(310, 100)
     return list_frame
 end

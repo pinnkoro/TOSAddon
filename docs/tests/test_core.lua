@@ -15,6 +15,7 @@ local CORE_PARTS = {
     "nexus_addons_p/src/core/00_header.lua",
     "nexus_addons_p/src/core/10_registry.lua", -- 設定のプルーニング検査に登録リストが要る
     "nexus_addons_p/src/core/20_lifecycle.lua",
+    "nexus_addons_p/src/core/30_maintenance.lua", -- 全 OFF / 設定のバックアップ・復元
 }
 
 -- ===== ゲーム API のスタブ =====
@@ -431,6 +432,204 @@ check("落ちない", (pcall(_nexus_addons_p_GAME_START, new_frame("root", 1))),
 check("別名のフレームは壊す", destroyed[1], "other_addon_menu")
 check("こちらの名前で作り直す", created_menu, 1)
 
+g.settings = saved_settings
+
+-- ===== 15. 全アドオン OFF =====
+-- 押し間違いで全部消えると元の ON/OFF が分からなくなるので、UI 側は確認を挟む。
+-- ここで見るのは確認の後に走る本体（設定の書き換えと保存・再 init の呼び方）。
+print("[15] 全アドオンを OFF にする")
+local broad_msgs = {}
+imcAddOn = {BroadMsg = function(_, msg) broad_msgs[#broad_msgs + 1] = msg end}
+local frame_inits = 0
+_G._nexus_addons_p_frame_init = function() frame_inits = frame_inits + 1 end
+g.save_json = function(_, tbl) stored = tbl; return true end
+g.settings_path = "dummy"
+
+g.settings = {verbose_log = 0}
+for i, entry in ipairs(g._nexus_addons_p) do
+    g.settings[entry.key] = {use = (i % 2 == 0) and 1 or 0} -- ON/OFF が混ざった状態から
+end
+local half_on = 0
+for _, entry in ipairs(g._nexus_addons_p) do
+    half_on = half_on + g.settings[entry.key].use
+end
+check("ON になっている件数を数える", g.set_all_addons_use(0), half_on)
+local left_on = 0
+for _, entry in ipairs(g._nexus_addons_p) do
+    left_on = left_on + g.settings[entry.key].use
+end
+check("ON が残らない", left_on, 0)
+check("すでに全 OFF なら 0 件", g.set_all_addons_use(0), 0)
+-- 設定未ロード(本家検出で初期化を止めた等)でも落ちない
+g.settings = nil
+check("設定未ロードでも落ちない", (pcall(g.set_all_addons_use, 0)), true)
+
+g.settings = {verbose_log = 0}
+for _, entry in ipairs(g._nexus_addons_p) do
+    g.settings[entry.key] = {use = 1}
+end
+stored, broad_msgs, frame_inits = nil, {}, 0
+g.loaded = false -- ロード完了前は init_addons が非同期ロードを開始する経路に入る
+check("ロード前でも落ちない", (pcall(_nexus_addons_p_disable_all_addons_exec)), true)
+check("設定は保存する", stored and stored[g._nexus_addons_p[1].key].use, 0)
+check("一覧を作り直す", frame_inits, 1)
+check("件数を知らせる", broad_msgs[1] and broad_msgs[1]:find("OFF", 1, true) ~= nil, true)
+
+-- 変更が無いときは保存も再 init もしない（無用な cmd 起動やフレーム再生成を避ける）
+stored, broad_msgs, frame_inits = nil, {}, 0
+_nexus_addons_p_disable_all_addons_exec()
+check("すでに全 OFF なら保存しない", stored, nil)
+check("すでに全 OFF なら作り直さない", frame_inits, 0)
+
+-- ===== 16. 設定のバックアップと復元 =====
+-- ../addons/_nexus_addons_p/<AID>/ 配下を xcopy で丸ごと運ぶ。ファイル名を列挙できない
+-- （Lua にディレクトリ列挙が無い）ので、settings.json 以外も確実に運べているかを見る。
+print("[16] 設定のバックアップと復元")
+local vfs = {} -- path -> 中身（文字列）
+local vfs_json = {} -- g.save_json/g.load_json 側の実体
+local xcopy_works = true
+local prev_io_open = io.open
+io.open = function(path, mode, ...)
+    if type(path) ~= "string" or not path:find("^%.%./addons/") or path:find("mkdir.txt", 1, true) or
+        path:find("verbose_log.txt", 1, true) then
+        return prev_io_open(path, mode, ...)
+    end
+    if mode == nil or mode:find("r", 1, true) then
+        local content = vfs[path]
+        if not content then
+            return nil
+        end
+        return {read = function() return content end, close = function() end}
+    end
+    local buf = {}
+    return {
+        write = function(_, s) buf[#buf + 1] = s; return true end,
+        close = function() vfs[path] = table.concat(buf) end
+    }
+end
+local prev_os_execute = os.execute
+os.execute = function(cmd)
+    local src, dst = cmd:match('^xcopy "([^"]+)" "([^"]+)"')
+    if not src then
+        return prev_os_execute(cmd)
+    end
+    if not xcopy_works then
+        return 1
+    end
+    src, dst = src:gsub("\\", "/"), dst:gsub("\\", "/")
+    local copied = {}
+    for path, content in pairs(vfs) do -- 走査中に書き込まない（新しいキーの追加は未定義動作）
+        if path:sub(1, #src + 1) == src .. "/" then
+            copied[dst .. path:sub(#src + 1)] = content
+        end
+    end
+    for path, content in pairs(copied) do
+        vfs[path] = content
+    end
+    return 0
+end
+-- コピー先の settings.json を脇へ退かす／戻す経路で使う
+local prev_os_remove, prev_os_rename = os.remove, os.rename
+os.remove = function(path)
+    if type(path) ~= "string" or not path:find("^%.%./addons/") then
+        return prev_os_remove(path)
+    end
+    if vfs[path] == nil then
+        return nil, path .. ": No such file or directory"
+    end
+    vfs[path], vfs_json[path] = nil, nil
+    return true
+end
+os.rename = function(from, to)
+    if type(from) ~= "string" or not from:find("^%.%./addons/") then
+        return prev_os_rename(from, to)
+    end
+    if vfs[from] == nil then
+        return nil, from .. ": No such file or directory"
+    end
+    vfs[to], vfs[from] = vfs[from], nil
+    return true
+end
+g.save_json = function(path, tbl) vfs_json[path] = tbl; vfs[path] = "{json}"; return true end
+g.load_json = function(path) return vfs_json[path] end
+
+g.active_id = "1234567"
+local paths = g.backup_paths()
+-- バックアップ先が AID フォルダの中だと、自分自身をバックアップし続けることになる
+check("退避先は AID フォルダの外", paths.backup:find(paths.live .. "/", 1, true), nil)
+
+local function reset_live()
+    vfs, vfs_json = {}, {}
+    vfs[paths.live .. "/settings.json"] = "LIVE-SETTINGS"
+    vfs[paths.live .. "/always_status/settings.json"] = "LIVE-ALWAYS-STATUS"
+    vfs[paths.live .. "/monster_kill_count/1001.json"] = "LIVE-KILL-COUNT"
+end
+
+reset_live()
+check("バックアップが無ければ nil", g.backup_info(), nil)
+check("バックアップが無ければ復元しない", (select(2, g.restore_settings())), "no_source")
+
+check("バックアップできる", g.backup_settings(), true)
+check("settings.json が入る", vfs[paths.backup .. "/settings.json"], "LIVE-SETTINGS")
+check("各アドオンの設定も入る", vfs[paths.backup .. "/always_status/settings.json"], "LIVE-ALWAYS-STATUS")
+check("可変名のファイルも入る", vfs[paths.backup .. "/monster_kill_count/1001.json"], "LIVE-KILL-COUNT")
+local info = g.backup_info()
+check("取得日時を記録する", type(info and info.time), "string")
+-- 日時のファイルは退避先の *外*。中に置くと復元時に live 側へ紛れ込む
+check("日時は退避先の外に置く", paths.info:find(paths.backup .. "/", 1, true), nil)
+
+-- 復元は上書き。バックアップ後に増えたファイルは消さない（消す方向の同期はしない）
+vfs[paths.live .. "/settings.json"] = "BROKEN"
+vfs[paths.live .. "/after_backup.json"] = "NEW"
+check("復元できる", g.restore_settings(), true)
+check("設定が戻る", vfs[paths.live .. "/settings.json"], "LIVE-SETTINGS")
+check("バックアップ後のファイルは消さない", vfs[paths.live .. "/after_backup.json"], "NEW")
+check("日時のファイルは live へ入らない", vfs[paths.live .. "/" .. g.active_id .. "_info.json"], nil)
+
+-- xcopy が使えない環境では、最低限 settings.json（= 各アドオンの ON/OFF）だけ運ぶ
+reset_live()
+xcopy_works = false
+local ok_partial, kind = g.backup_settings()
+check("xcopy が失敗しても運ぶ", ok_partial, true)
+check("部分的だと分かる", kind, "partial")
+check("settings.json は入る", vfs[paths.backup .. "/settings.json"], "LIVE-SETTINGS")
+check("他のファイルは入らない", vfs[paths.backup .. "/monster_kill_count/1001.json"], nil)
+xcopy_works = true
+
+-- コピー先に前回の settings.json が残っていても xcopy の失敗を見落とさない。
+-- 成否は「コピー先に settings.json が *出来たか*」で見るので、古いファイルを残したまま
+-- 判定すると、それを掴んで成功に見えてしまう（フォールバックにも入らない）。
+reset_live()
+check("1 回目のバックアップ", g.backup_settings(), true)
+vfs[paths.live .. "/settings.json"] = "NEWER-SETTINGS"
+xcopy_works = false
+local ok_again, kind_again = g.backup_settings()
+check("前回の退避が残っていても成否を誤らない", kind_again, "partial")
+check("再バックアップも運べる", ok_again, true)
+check("中身は新しい方に入れ替わる", vfs[paths.backup .. "/settings.json"], "NEWER-SETTINGS")
+check("退かしたファイルは残さない", vfs[paths.backup .. "/settings.json.old"], nil)
+
+-- xcopy もフォールバックも失敗したときは、退かした設定を元へ戻す。
+-- 復元に失敗したうえにユーザーの現設定まで消える方が悪い。
+local prev_copy_file = g.copy_file
+g.copy_file = function() return false end
+local ok_failed, kind_failed = g.restore_settings()
+check("どちらも失敗すれば失敗を返す", ok_failed, false)
+check("失敗の理由が分かる", kind_failed, "failed")
+check("復元先の設定は消さない", vfs[paths.live .. "/settings.json"], "NEWER-SETTINGS")
+check("退かしたファイルは残さない(失敗時)", vfs[paths.live .. "/settings.json.old"], nil)
+g.copy_file = prev_copy_file
+xcopy_works = true
+
+-- AID が未取得（ON_INIT 前）でも落ちない
+g.active_id = nil
+check("AID 前でもパスは nil", g.backup_paths(), nil)
+check("AID 前のバックアップは失敗", g.backup_settings(), false)
+check("AID 前の復元は失敗", g.restore_settings(), false)
+check("AID 前の情報取得は nil", g.backup_info(), nil)
+
+io.open, os.execute = prev_io_open, prev_os_execute
+os.remove, os.rename = prev_os_remove, prev_os_rename
 g.settings = saved_settings
 
 if failures > 0 then
