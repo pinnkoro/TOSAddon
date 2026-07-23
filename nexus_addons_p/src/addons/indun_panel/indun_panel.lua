@@ -597,6 +597,15 @@ function Indun_panel_frame_init(is_toggle, msg)
         if g.indun_panel_settings.etc.always_open == 1 then
             return
         end
+        -- ILV や OCSL が手前に開いているときは、その 1 枚だけが閉じればよい。
+        -- ここでパネルを作り直すと、一緒に畳まれて「まとめて消えた」ように見える
+        -- (挑戦マップのフレームも下で破棄している)。
+        -- このパネルは常時表示なので g.esc_register でスタックに積むわけにはいかない
+        -- (積むと ESC を常に横取りしてシステムメニューが開けなくなる)。詳細は core/00_header.lua。
+        if g.esc_taken() then
+            g.vlog("indun_panel: ESC は手前のウィンドウが使ったので何もしない")
+            return
+        end
     end
     if g.get_map_type() ~= "City" then
         if g.get_map_type() == "Instance" or g.map_id == 8022 then

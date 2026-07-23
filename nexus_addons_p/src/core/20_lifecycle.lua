@@ -101,7 +101,45 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.REGISTER = {}
     addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
     addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
+    -- ESC はここ 1 箇所だけで受ける(アドオン側で個別に購読しないこと。理由は g.esc_register)
+    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
+end
+
+-- ESC で閉じるのは、開いている自作ウィンドウのうち一番手前の 1 枚だけ。
+-- 登録は各アドオンがフレームを開いたところで g.esc_register する(詳細は core/00_header.lua)。
+function _nexus_addons_p_ESCAPE_PRESSED()
+    -- ESC は 2 経路で届きうる: g.esc_sync_scp が仕込む ui.SetEscapeScp と、
+    -- ゲームからアドオンへ一斉配信される ESCAPE_PRESSED。どちらが来る(あるいは両方来る)かは
+    -- クライアント任せなので、同じ押下で二重に閉じないよう直後の再入は捨てる。
+    if g.esc_is_reentry() then
+        return
+    end
+    g.esc_last_ms = imcTime.GetAppTimeMS()
+    local entry = g.esc_pop_top()
+    if not entry then
+        -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
+        -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
+        g.esc_sync_scp()
+        return
+    end
+    local close_func = _G[entry.close]
+    if type(close_func) ~= "function" then
+        g.vlog("ESCAPE_PRESSED: close func not found frame=%s func=%s", tostring(entry.frame), tostring(entry.close))
+        g.esc_sync_scp()
+        return
+    end
+    g.vlog("ESCAPE_PRESSED: close %s (残り %d)", tostring(entry.frame), #g.esc_stack)
+    -- ESCAPE_PRESSED を購読している側(indun_panel)が「この押下は使われた」と判断できるよう、
+    -- 実際に閉じたときだけ印を置く。閉じるものが無かった押下はゲーム側へ渡す。
+    g.esc_closed_ms = imcTime.GetAppTimeMS()
+    -- 閉じる処理が転んでもゲーム側の ESC 処理を巻き込まないよう握る
+    local ok, err = pcall(close_func)
+    if not ok then
+        g.vlog("ESCAPE_PRESSED: close failed frame=%s err=%s", tostring(entry.frame), tostring(err))
+    end
+    -- 最後の 1 枚を閉じたら ESC をゲームへ返す
+    g.esc_sync_scp()
 end
 
 -- A: 本家が同居している間は機能を止め、削除を促すメッセージだけ出す。
@@ -459,6 +497,9 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- if not g.settings then
     _nexus_addons_p_load_settings()
     -- end
+    -- マップ移動でゲーム側が ESC の割り込み先を戻している可能性があるので、
+    -- 「設定済み」の記憶を捨てて次の同期で入れ直させる(g.esc_sync_scp 参照)。
+    g.esc_scp_set = nil
     -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
     -- GAME_START はマップ移動のたびに来るので、この行はマップごとの区切りにもなる
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
@@ -572,6 +613,9 @@ function _nexus_addons_p_update_frames()
             end
         end
     end
+    -- × ボタンで閉じた場合はどこからも通知が来ないので、ここで実際の表示状態に合わせる。
+    -- 状態が変わったときだけ ui.SetEscapeScp を呼ぶので、毎フレームでも実害は無い。
+    g.esc_sync_scp()
 end
 
 function _nexus_addons_p_APPS_TRY_MOVE_BARRACK()

@@ -130,6 +130,16 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * Indun List Viewer / Other Character Skill List / Bulk Sales: ウィンドウを閉じる ✕ ボタンを
+    左上から**右上**へ移動（他のウィンドウと同じ位置に揃えた）。
+  * **ESC で開いているウィンドウが一度に全部消えていたのを、一番手前の 1 枚だけ閉じるように変更。**
+    対象は Indun List Viewer / Other Character Skill List / Goddess Icor Manager。
+    これらを開いている間は ESC をアドオン側で受け取るので、**ウィンドウを閉じるときに
+    チャットが消えたりシステムメニューが開いたりしなくなる**（全部閉じれば ESC はゲームへ戻る）。
+    Other Character Skill List のキャラ詳細は本体より手前扱いで、ESC では先に詳細だけが閉じる
+    （本体を ✕ で閉じたときは今までどおり一緒に閉じる。このとき詳細が閉じずエラーになっていたのも修正）。
+    ※ Indun Panel は常時表示のため対象外（ESC で畳む従来の挙動のまま）だが、
+    手前に上記のウィンドウが開いているときは畳まれなくなった。
   * アドオン一覧に「全て OFF」「バックアップ」「復元」のボタンを追加。
     「全て OFF」は登録アドオンをまとめて無効にする（確認あり）。
     「バックアップ」は現在の設定（`../addons/_nexus_addons_p/<AID>/` 配下すべて）を

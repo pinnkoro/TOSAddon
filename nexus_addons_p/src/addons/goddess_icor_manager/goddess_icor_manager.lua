@@ -99,7 +99,7 @@ function goddess_icor_manager_on_init()
         Goddess_icor_manager_char_load_settings()
         Goddess_icor_manager_frame_init()
     end
-    g.addon:RegisterMsg("ESCAPE_PRESSED", "Goddess_icor_manager_list_close")
+    -- ESC は core 側でまとめて受ける(ここで購読すると他のウィンドウも一緒に閉じる)
     g.setup_hook(Goddess_icor_manager__GODDESS_MGR_RANDOMOPTION_ENGRAVE_ICOR_EXEC,
         "_GODDESS_MGR_RANDOMOPTION_ENGRAVE_ICOR_EXEC")
     g.setup_hook_and_event(g.addon, "GODDESS_EQUIP_MANAGER_OPEN", "Goddess_icor_manager_GODDESS_EQUIP_MANAGER_OPEN",
@@ -137,6 +137,7 @@ function Goddess_icor_manager_list_init(frame, ctrl, str, page)
     end
     Goddess_icor_manager_equip_gbox_init(gim)
     Goddess_icor_manager_list_gb_init(gim, page)
+    g.esc_register(addon_name_lower .. "gim", "Goddess_icor_manager_list_close")
 end
 
 function Goddess_icor_manager_list_gb_init(gim, page)

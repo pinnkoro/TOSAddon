@@ -483,6 +483,111 @@ function g.create_persistent_frame(frame_name)
     return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end
 
+-- ESC で閉じる自作フレームの重なり(開いた順)スタック。
+--
+-- 土台が notice_on_pc のフレームはゲーム側の ESC では消えない(上のコメント参照)ので、
+-- ESC で閉じているのは各アドオンが購読した ESCAPE_PRESSED のハンドラ。これはゲームから
+-- 登録済みハンドラ全部へ一斉に配られるため、各自が素直に自分のフレームを閉じると
+-- 「開いている自作ウィンドウが 1 回の ESC で全部消える」。
+-- そこで開いたフレームをここへ積んでおき、閉じるのは一番手前(= 最後に開いた)1 枚だけにする。
+--
+-- 判定と close 呼び出しは core/20_lifecycle.lua の _nexus_addons_p_ESCAPE_PRESSED に集約する。
+-- アドオンごとに ESCAPE_PRESSED を購読したままだと、先に閉じた側でスタックの中身が変わり、
+-- 後から呼ばれたハンドラが「今度は自分が一番手前」と判断して結局まとめて消えてしまう。
+g.esc_stack = g.esc_stack or {}
+
+-- ESC で閉じたいフレームを開いたときに呼ぶ。
+--   frame_name: ui.GetFrame に渡すフレーム名
+--   close_func: 閉じるグローバル関数の名前(引数無しで呼べること)
+-- 開き直しは積み直し = 最前面扱いにする。
+-- **フレームを作って ShowWindow(1) した後で呼ぶこと**。まだ出ていない状態で呼ぶと、
+-- 直後の同期で「閉じ終わった登録」と見なされてその場で捨てられる。
+function g.esc_register(frame_name, close_func)
+    for i = #g.esc_stack, 1, -1 do
+        if g.esc_stack[i].frame == frame_name then
+            table.remove(g.esc_stack, i)
+        end
+    end
+    table.insert(g.esc_stack, {
+        frame = frame_name,
+        close = close_func
+    })
+    g.esc_sync_scp()
+end
+
+-- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。
+-- × ボタンで閉じた分は登録解除されないまま残るので、ここで一緒に捨てる。
+-- 戻り値の 2 つ目はスタック上の位置(esc_pop_top が外すのに使う)。
+function g.esc_top()
+    for i = #g.esc_stack, 1, -1 do
+        local entry = g.esc_stack[i]
+        local frame = ui.GetFrame(entry.frame)
+        if frame ~= nil and frame:IsVisible() == 1 then
+            return entry, i
+        end
+        table.remove(g.esc_stack, i)
+    end
+    return nil
+end
+
+-- 一番手前の登録を 1 つ取り出す(閉じた後に開き直せば esc_register で積み直される)。
+function g.esc_pop_top()
+    local entry, index = g.esc_top()
+    if entry then
+        table.remove(g.esc_stack, index)
+    end
+    return entry
+end
+
+-- 1 回の押下を 2 度処理しないための間隔(ms)。ESC の届く経路は 2 つあり(g.esc_sync_scp 参照)、
+-- その間隔は 1 フレーム未満なので十分に短くてよい。長くすると連打が効かなくなる。
+local ESC_DEDUP_MS = 200
+
+-- 「今回の ESC はスタック側(= 手前の自作ウィンドウ)が使ったか」の問い合わせ。
+--
+-- ESCAPE_PRESSED はスタックに積めないものからも購読されている(indun_panel は常時表示の
+-- パネルで、積むと ESC を常に横取りしてシステムメニューが開けなくなる)。そちら側が
+-- 「手前にウィンドウがあるときは何もしない」を判断するのに使う。
+-- ハンドラの呼ばれる順番はゲーム任せなので、次のどちらかなら true にする:
+--   * まだ手前に生きているウィンドウがある      … 自分より後にそれが閉じられる
+--   * この押下で 1 枚閉じた直後                  … 自分より先に閉じられていた
+function g.esc_taken()
+    if g.esc_top() then
+        return true
+    end
+    return g.esc_closed_ms ~= nil and imcTime.GetAppTimeMS() - g.esc_closed_ms < ESC_DEDUP_MS
+end
+
+-- 同じ押下での再入(2 経路)を捨てるための判定。閉じた側は g.esc_closed_ms を更新する。
+function g.esc_is_reentry()
+    return g.esc_last_ms ~= nil and imcTime.GetAppTimeMS() - g.esc_last_ms < ESC_DEDUP_MS
+end
+
+-- 自作ウィンドウが開いている間だけ、ESC をこちらへ回してもらう。
+--
+-- ui.SetEscapeScp はゲーム側の「この ESC はこれを実行する」を差し替える口で、素の ESC
+-- (チャットなど hideable なフレームを閉じる / システムメニューを開く)の代わりに走る。
+-- これを設定しないと、自作ウィンドウを閉じるついでにチャットが消えたりシステムメニューが
+-- 開いたりする。クライアントの uiscp/enchantchip.lua・uiscp/moru.lua・
+-- fixframe/deletewarningbox/deletewarningbox.lua が「開いている間だけ設定し、
+-- 閉じたら "" に戻す」使い方をしているので、それに倣う。
+--
+-- 現在値を読む API はクライアントに無い(SetEscapeScp だけ)ので、自分が設定したかどうかを
+-- 覚えて、状態が変わったときだけ呼ぶ。毎フレーム呼ぶとゲーム側が設定した分を潰してしまう。
+-- 閉じ忘れると ESC でシステムメニューが二度と開かなくなるため、× で閉じた場合も拾えるよう
+-- _nexus_addons_p_update_frames(FPS_UPDATE)からも呼んで実際の表示状態に合わせ続ける。
+function g.esc_sync_scp()
+    local want = g.esc_top() ~= nil
+    if want == (g.esc_scp_set or false) then
+        return
+    end
+    g.esc_scp_set = want
+    g.vlog("esc_scp: %s (stack=%d)", want and "set" or "clear", #g.esc_stack)
+    -- 古いクライアントに SetEscapeScp が無くても、ここで巻き込んで落とさない
+    -- (その場合は ESCAPE_PRESSED の一斉配信だけで従来どおり動く)。
+    pcall(ui.SetEscapeScp, want and "_nexus_addons_p_ESCAPE_PRESSED()" or "")
+end
+
 function g.debug_print_table(tbl, indent)
     indent = indent or ""
     for key, value in pairs(tbl) do
