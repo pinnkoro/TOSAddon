@@ -129,7 +129,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v1.0.3**
   * **Characters Item Serch: OFF にしてあるのに、倉庫やチーム倉庫を閉じるたびに
     `[CIS] ...保存を中止しました` のメッセージが出ていたのを修正。**
     OFF のときは倉庫・インベントリの記録自体を行わないようにした
