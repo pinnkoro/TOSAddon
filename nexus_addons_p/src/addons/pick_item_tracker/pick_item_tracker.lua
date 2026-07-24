@@ -41,7 +41,7 @@ function pick_item_tracker_on_init()
             g.pick_item_tracker_y = 45
             g.pick_item_tracker_x = 120
         end
-        g.addon:RegisterMsg('ITEM_PICK', 'Pick_item_tracker_ITEMMSG_ITEM_COUNT')
+        g.register_msg('ITEM_PICK', 'Pick_item_tracker_ITEMMSG_ITEM_COUNT')
         Pick_item_tracker_frame_init()
     else
         g.pick_item_tracker_map_id = nil

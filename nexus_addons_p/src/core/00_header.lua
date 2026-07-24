@@ -161,6 +161,143 @@ function g.migrate_from_origin()
     return "failed"
 end
 
+-- 個別配布版アドオンの設定を、同梱版の保存先へ引き継ぐ。
+--
+-- 同梱にあたって addon_name に _P を付けた結果、保存先が個別版と別フォルダに分かれる
+-- （例: ../addons/mini_addons/ → ../addons/mini_addons_p/）。放っておくと、個別版から
+-- 乗り換えた利用者の設定が全部消えたように見えるので、初回だけ中身を引き継ぐ。
+--
+-- **実行条件は「自分側にまだ無いとき」だけ**。これは g.migrate_from_origin と同じ思想で、
+-- 既に自分の設定があるときに走らせると個別版の古い設定で上書きしてしまう。必ず守ること。
+--
+-- 個別版と同梱版はコードが同一なので設定のスキーマも同一。よってフォルダを丸ごと
+-- コピーすれば済む（キーの詰め替えは要らない）。ここが、スキーマの器が異なる
+-- 既存 39 アドオンの引き継ぎ（docs/INDIVIDUAL_ADDON_COEXIST_DESIGN.md §2-3）と違う点。
+--
+-- files には {src = ..., dst = ...} を並べる。
+--   src … 個別版のフォルダ(../addons/<individual_lower>/)からの相対パス
+--   dst … まとめ版の AID フォルダ(../addons/_nexus_addons_p/<AID>/)からの相対パス
+-- **1 つ目は主たる設定ファイルにすること**。引き継ぎ済みかの判定にこれを使う。
+-- src と dst で名前が変わるのは、個別版の置き方がばらばら（mini_addons は "<AID>_1.json"、
+-- market_favorite_rebuild は "<AID>/settings.json"）なのに対し、同梱版では他の 48 アドオンと
+-- 同じ "<アドオン名>.json" に揃えているため。
+--
+-- コピーは xcopy ではなく io で 1 ファイルずつ行う。os.execute は GUI プロセスから
+-- 呼ぶと必ずコンソール窓を作り、ゲーム画面が一瞬点滅するため（CLAUDE.md「CMD をなるべく
+-- 出さない」/ core/30_maintenance.lua のバックアップと同じ方針）。
+-- その代償として「何をコピーするか」を呼び出し側が知っている必要がある。Lua には
+-- ディレクトリ列挙が無く、列挙する唯一の手段が cmd だからここは避けられない。
+--
+-- コピー先のフォルダは、個別版由来のコード自身が読み込み時に作っている前提。
+-- 無ければ io.open が失敗するだけで、設定は次回に持ち越される（実害は無い）。
+-- 戻り値: nil=何もしなかった / "copied" / "partial" / "failed"
+function g.migrate_individual_addon_settings(individual_lower, files)
+    local src_dir = string.format("../addons/%s", individual_lower)
+    local dst_dir = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
+    local dst_main = string.format("%s/%s", dst_dir, files[1].dst)
+    local dst_file = io.open(dst_main, "r")
+    if dst_file then
+        dst_file:close()
+        return nil
+    end
+    local src_file = io.open(string.format("%s/%s", src_dir, files[1].src), "r")
+    if not src_file then
+        return nil
+    end
+    src_file:close()
+
+    local copied, found = 0, 0
+    for _, entry in ipairs(files) do
+        local src_path = string.format("%s/%s", src_dir, entry.src)
+        local probe = io.open(src_path, "r")
+        if probe then
+            probe:close()
+            found = found + 1
+            if g.copy_file(src_path, string.format("%s/%s", dst_dir, entry.dst)) then
+                copied = copied + 1
+            end
+        end
+    end
+
+    if copied == 0 then
+        g.vlog("{#FF6347}migrate: %s FAILED{/}", individual_lower)
+        return "failed"
+    end
+    -- 主たる設定が入ったかどうかで copied / partial を分ける。副次ファイル
+    -- (mini_addons の buffs.json など)が元から無いのは正常なので partial にしない。
+    local main_ok = io.open(dst_main, "r")
+    if not main_ok then
+        g.vlog("migrate: %s (partial, %d files)", individual_lower, copied)
+        return "partial"
+    end
+    main_ok:close()
+    g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", individual_lower, addon_name_lower, copied, found)
+    return "copied"
+end
+
+-- ===== メッセージの多重配信(ここから) =====
+--
+-- addon:RegisterMsg は **1 メッセージにつき 1 ハンドラしか持てない**。まとめ版は 1 つの
+-- addon オブジェクトを全アドオンで共有しているので、同じメッセージを 2 か所から登録すると
+-- 後勝ちで潰し合い、負けた側の機能が黙って死ぬ。エラーも出ないので気付けない。
+--
+-- 実際 mini_addons を同梱したときに GAME_START / GAME_START_3SEC / FPS_UPDATE /
+-- BUFF_ADD / BUFF_UPDATE / DIALOG_CHANGE_SELECT / REQ_PLAYER_CONTENTS_RECORD の
+-- 7 種が衝突し、mini_addons の初期化(登録とフック 72 個)がまるごと走っていなかった。
+--
+-- そこで購読はメッセージごとに 1 本だけにして、配信役から登録済みの各ハンドラへ配る。
+--
+-- **アドオン側で addon:RegisterMsg を直接呼ばないこと。必ず g.register_msg を通すこと。**
+-- 直接呼ぶと配信役の購読ごと潰してしまい、そのメッセージに登録した全アドオンが停止する。
+-- (自己完結型として同梱している mini_addons / market_favorite_rebuild は自分の g を
+--  持っているので、そちらからは core_g.register_msg を呼ぶ)
+g.msg_handlers = g.msg_handlers or {}
+
+function g.register_msg(msg, func_name)
+    if type(msg) ~= "string" or type(func_name) ~= "string" then
+        return
+    end
+    local list = g.msg_handlers[msg]
+    if not list then
+        list = {}
+        g.msg_handlers[msg] = list
+        -- 配信役はメッセージごとに 1 つだけ作る。RegisterMsg はグローバル関数の「名前」を
+        -- 取る仕様なので、名前を持つ実体をここで作ってから登録する。
+        local dispatch_name = "_nexus_addons_p_msg_" .. msg
+        _G[dispatch_name] = function(frame, recv_msg, str, num)
+            -- 実行中に register_msg が呼ばれても壊れないよう、その都度引き直す。
+            for _, name in ipairs(g.msg_handlers[msg] or {}) do
+                local func = _G[name]
+                if type(func) == "function" then
+                    -- 1 つが転んでも後続へ配り続ける。潰し合いを直すのが目的なので、
+                    -- ここで巻き添えにしては元も子もない。
+                    local ok, err = pcall(func, frame, recv_msg, str, num)
+                    if not ok then
+                        g.vlog("{#FF6347}msg %s: %s FAILED{/} %s", msg, name, tostring(err))
+                    end
+                end
+            end
+        end
+        if g.addon then
+            g.addon:RegisterMsg(msg, dispatch_name)
+        else
+            -- g.addon は ON_INIT の 1 行目で入るので、通常ここには来ない。
+            g.vlog("{#FF6347}register_msg: g.addon がまだ無い (%s){/}", msg)
+        end
+    end
+    -- on_init は ON/OFF 切り替えや再初期化で何度も呼ばれるので、二重登録を弾く。
+    for _, name in ipairs(list) do
+        if name == func_name then
+            return
+        end
+    end
+    table.insert(list, func_name)
+    -- 潰し合いが直ったかを実機で確かめるための材料。どのメッセージに何本ぶら下がったかを出す。
+    -- 起動時に 1 回ずつしか通らない経路なので、毎フレーム流れる心配はない。
+    g.vlog("register_msg: %s <- %s (%d本目)", msg, func_name, #list)
+end
+-- ===== メッセージの多重配信(ここまで) =====
+
 function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
     g.FUNCS = g.FUNCS or {}
     if not g.FUNCS[origin_func_name] then
@@ -184,7 +321,7 @@ function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
     _G[origin_func_name] = hooked_function
     if not g.REGISTER[origin_func_name .. my_func_name] then -- g.REGISTERはON_INIT内で都度初期化
         g.REGISTER[origin_func_name .. my_func_name] = true
-        my_addon:RegisterMsg(origin_func_name, my_func_name)
+        g.register_msg(origin_func_name, my_func_name)
     end
 end
 

@@ -72,6 +72,33 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
 
+## CMD(コンソール窓)をなるべく出さない
+
+`os.execute` は **GUI プロセスから呼ぶと必ず cmd.exe のコンソール窓を作る**。ゲーム画面が
+一瞬点滅するので、利用者から見ると「アドオンが何か変なことをしている」ように見える。
+`io.popen` も同じうえ、GUI アプリでは動作が不安定。
+
+**新しくコードを書くときは、まず `os.execute` を使わずに済ませられないか検討すること。**
+
+* **ファイルのコピーは `io` で 1 ファイルずつ行う**(`g.copy_file`)。`xcopy` は使わない。
+  実例は [core/30_maintenance.lua](nexus_addons_p/src/core/30_maintenance.lua) のバックアップ/復元。
+* 代わりに「何をコピーするか」を自前で持つ必要がある。**Lua にディレクトリ列挙が無く、
+  列挙する唯一の手段が cmd だから**、ここを避けるとファイル名は自分で列挙するしかない。
+  固定名は `g.backup_files` のように定数で持ち、追加漏れは
+  [docs/tests/test_core.lua](docs/tests/test_core.lua) の検査で落とす。
+* **フォルダ作成(`mkdir`)だけは代わりが無い**ので残る。ただし `g.create_folder` が
+  マーカーファイルで空振りを防ぐので、窓が出るのは初回の 1 回だけ。
+  フォルダを作る箇所は必ずここを通すこと。
+
+現在 `os.execute` が残っているのは次の箇所。**減らせないか継続して検討する**。
+
+| 箇所 | 用途 | 備考 |
+| --- | --- | --- |
+| `core/00_header.lua` `g.create_folder` | `mkdir` | 代替なし。マーカーで初回のみ |
+| `core/00_header.lua` `g.migrate_from_origin` | `xcopy` | 本家からの引き継ぎ。初回起動時のみ |
+| `addons/monster_kill_count` | `dir` でファイル列挙 | 可変名のファイルを列挙する唯一の手段 |
+| `addons/mini_addons` / `addons/market_favorite_rebuild` | `mkdir` | 個別版由来。読み込み時に実行される |
+
 ## PR を出すときは README の更新履歴を必ず更新する
 
 アドオンのソースやリリースビルド（`.ipf`）を変更して PR を作成するときは、

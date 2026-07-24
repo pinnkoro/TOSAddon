@@ -143,9 +143,9 @@ function monster_kill_count_on_init()
                     return
                 end
             end
-            g.addon:RegisterMsg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
-            g.addon:RegisterMsg("ITEM_PICK", "Monster_kill_count_ITEM_PICK")
-            g.addon:RegisterMsg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT",
+            g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
+            g.register_msg("ITEM_PICK", "Monster_kill_count_ITEM_PICK")
+            g.register_msg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT",
                 "Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
             g.mkc_autosave_counter = 0
             if not g.mkc_map_id then

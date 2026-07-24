@@ -61,11 +61,13 @@
       "conclude_header.lua",
       "guard_open.lua",
       "addons/ancient_monster_bookshelf/ancient_monster_bookshelf.lua",
+      "addons/mini_addons/mini_addons.lua",
+      "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
       "guard_close.lua"
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "eeba7e842d2ed5899e09d611eadd1e187b24abe3710babdcd993d045cc785730",
-    "_nexus_addons_p_conclude.lua": "2cc24d7267b89e33b68deaccfc43cbcbdc4e6f7705b6b580db73bfe9dbeb2386"
+    "_nexus_addons_p.lua": "2e05caf972d943e075cc7101b4c54f19a2e577e2214d1b24363a2ccf3793080e",
+    "_nexus_addons_p_conclude.lua": "122cf6072bee3b41e56d29d668f3dcd814ba7b996eb74e18db28d14b96d22bda"
   }
 }

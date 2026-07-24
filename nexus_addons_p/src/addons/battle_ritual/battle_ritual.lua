@@ -31,7 +31,7 @@ function battle_ritual_on_init()
     end
     Battle_ritual_frame_init()
     if g.get_map_type() == "Instance" or g.map_id == 11244 or g.map_id == 8022 then -- 11244 聖域3F 11227 分裂 8022 ヴェルニケ
-        g.addon:RegisterMsg('REQ_PLAYER_CONTENTS_RECORD', 'Battle_ritual_REQ_PLAYER_CONTENTS_RECORD')
+        g.register_msg('REQ_PLAYER_CONTENTS_RECORD', 'Battle_ritual_REQ_PLAYER_CONTENTS_RECORD')
         Battle_ritual_auto_buff_skill_start()
     end
 end

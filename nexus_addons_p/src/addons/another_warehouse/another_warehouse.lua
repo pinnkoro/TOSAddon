@@ -128,7 +128,7 @@ function another_warehouse_on_init()
     g.setup_hook_and_event(g.addon, 'ACCOUNT_WAREHOUSE_UPDATE_VIS_LOG',
         "Another_warehouse_ACCOUNT_WAREHOUSE_UPDATE_VIS_LOG", true)
     g.setup_hook_and_event(g.addon, 'ACCOUNTWAREHOUSE_CLOSE', "Another_warehouse_ACCOUNTWAREHOUSE_CLOSE", true)
-    g.addon:RegisterMsg("OPEN_DLG_ACCOUNTWAREHOUSE", "Another_warehouse_OPEN_DLG_ACCOUNTWAREHOUSE")
+    g.register_msg("OPEN_DLG_ACCOUNTWAREHOUSE", "Another_warehouse_OPEN_DLG_ACCOUNTWAREHOUSE")
     if g.settings.another_warehouse.use == 0 then
         Another_warehouse_frame_close()
         return
@@ -144,11 +144,11 @@ function Another_warehouse_accountwarehouse_init()
         Another_warehouse_frame_close()
         return
     end
-    g.addon:RegisterMsg("ACCOUNT_WAREHOUSE_ITEM_LIST", "Another_warehouse_on_msg")
-    g.addon:RegisterMsg("ACCOUNT_WAREHOUSE_ITEM_ADD", "Another_warehouse_on_msg")
-    g.addon:RegisterMsg("ACCOUNT_WAREHOUSE_ITEM_REMOVE", "Another_warehouse_on_msg")
-    g.addon:RegisterMsg("ACCOUNT_WAREHOUSE_ITEM_CHANGE_COUNT", "Another_warehouse_on_msg")
-    g.addon:RegisterMsg("ACCOUNT_WAREHOUSE_ITEM_IN", "Another_warehouse_on_msg")
+    g.register_msg("ACCOUNT_WAREHOUSE_ITEM_LIST", "Another_warehouse_on_msg")
+    g.register_msg("ACCOUNT_WAREHOUSE_ITEM_ADD", "Another_warehouse_on_msg")
+    g.register_msg("ACCOUNT_WAREHOUSE_ITEM_REMOVE", "Another_warehouse_on_msg")
+    g.register_msg("ACCOUNT_WAREHOUSE_ITEM_CHANGE_COUNT", "Another_warehouse_on_msg")
+    g.register_msg("ACCOUNT_WAREHOUSE_ITEM_IN", "Another_warehouse_on_msg")
     if type(_G["YAACCOUNTINVENTORY_ON_INIT"]) == "function" then
         _G["YAACCOUNTINVENTORY_ON_INIT"] = nil
     end

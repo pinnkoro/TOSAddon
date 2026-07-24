@@ -90,7 +90,7 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     -- 告知だけは出したいので GAME_START(全アドオンのロード完了後)にだけ入る。
     if g.detect_origin_addon() then
         g.origin_conflict = true
-        addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
+        g.register_msg('GAME_START', '_nexus_addons_p_GAME_START')
         return
     end
     g.login_name = session.GetMySession():GetPCApc():GetName()
@@ -99,10 +99,10 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.current_channel = session.loginInfo.GetChannel() -- 0が1ch
     g.pc = GetMyPCObject()
     g.REGISTER = {}
-    addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
-    addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
+    g.register_msg('GAME_START', '_nexus_addons_p_GAME_START')
+    g.register_msg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
     -- ESC はここ 1 箇所だけで受ける(アドオン側で個別に購読しないこと。理由は g.esc_register)
-    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
+    g.register_msg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
 end
 
@@ -559,7 +559,7 @@ function _nexus_addons_p_GAME_START_3SEC(_nexus_addons_p, msg)
         return
     end
     _nexus_addons_p_init_addons(false, nil, _nexus_addons_p)
-    g.addon:RegisterMsg('FPS_UPDATE', '_nexus_addons_p_update_frames')
+    g.register_msg('FPS_UPDATE', '_nexus_addons_p_update_frames')
 end
 
 function _nexus_addons_p_fast_func(_nexus_addons_p)

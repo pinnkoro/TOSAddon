@@ -309,7 +309,7 @@ function cc_helper_on_init()
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Cc_helper_INVENTORY_CLOSE", true)
     if g.get_map_type() == "City" then
         Cc_helper_frame_init()
-        g.addon:RegisterMsg("OPEN_DLG_ACCOUNTWAREHOUSE", "Cc_helper_frame_init")
+        g.register_msg("OPEN_DLG_ACCOUNTWAREHOUSE", "Cc_helper_frame_init")
     end
     if g.settings.cc_helper.use == 0 then
         Cc_helper_ACCOUNTWAREHOUSE_CLOSE(nil, nil)

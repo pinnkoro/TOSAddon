@@ -53,7 +53,7 @@ function Archeology_helper_start()
             end
         end
     end
-    g.addon:RegisterMsg("MAP_CHARACTER_UPDATE", "Archeology_helper_MAP_CHARACTER_UPDATE")
+    g.register_msg("MAP_CHARACTER_UPDATE", "Archeology_helper_MAP_CHARACTER_UPDATE")
     local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
     _nexus_addons_p:RunUpdateScript("Archeology_helper_run_update", 1.0)
     _nexus_addons_p:RunUpdateScript("Archeology_helper_stamina_update", 2.0)

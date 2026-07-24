@@ -4,7 +4,7 @@ function silent_velnice_ranking_on_init()
         return
     end
     if g.map_id == 8022 then
-        g.addon:RegisterMsg("DO_SOLODUNGEON_SCOREBOARD_OPEN", "Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
+        g.register_msg("DO_SOLODUNGEON_SCOREBOARD_OPEN", "Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
     end
 end
 

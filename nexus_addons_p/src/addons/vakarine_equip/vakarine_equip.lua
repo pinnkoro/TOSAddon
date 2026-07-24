@@ -34,11 +34,11 @@ function vakarine_equip_on_init()
         ui.DestroyFrame(addon_name_lower .. "vakarine_equip")
         return
     end
-    g.addon:RegisterMsg('STAT_UPDATE', 'Vakarine_equip_stat_update')
-    g.addon:RegisterMsg('TAKE_DAMAGE', 'Vakarine_equip_stat_update')
-    g.addon:RegisterMsg('TAKE_HEAL', 'Vakarine_equip_stat_update')
-    g.addon:RegisterMsg('BUFF_ADD', 'Vakarine_equip_BUFF_ON_MSG')
-    g.addon:RegisterMsg('BUFF_UPDATE', 'Vakarine_equip_BUFF_ON_MSG')
+    g.register_msg('STAT_UPDATE', 'Vakarine_equip_stat_update')
+    g.register_msg('TAKE_DAMAGE', 'Vakarine_equip_stat_update')
+    g.register_msg('TAKE_HEAL', 'Vakarine_equip_stat_update')
+    g.register_msg('BUFF_ADD', 'Vakarine_equip_BUFF_ON_MSG')
+    g.register_msg('BUFF_UPDATE', 'Vakarine_equip_BUFF_ON_MSG')
     Vakarine_equip_frame_init()
     if g.get_map_type() ~= "City" then
         Vakarine_equip_start_operation()
