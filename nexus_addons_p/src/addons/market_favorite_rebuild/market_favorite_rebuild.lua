@@ -111,40 +111,30 @@ end
 -- (CLAUDE.md「CMD をなるべく出さない」)。
 -- この場所へ置くと core/30_maintenance.lua のバックアップ/復元の対象にもなる
 -- (対象は固定名の一覧 g.backup_files なので、そちらへの追加が必須)。
-function g.mkdir_new_folder()
-    g.active_id = session.loginInfo.GetAID()
+-- AID の取得と組み立ては on_init まで遅らせる(個別版は g.mkdir_new_folder という名前で
+-- フォルダ作成と一緒にチャンク読み込み時へ置いていた)。同梱版では 1 本の .lua に他アドオンが
+-- 連結されているため、ここで AID が取れないと string.format(..., nil) が投げるエラーで
+-- この後ろの定義がまるごと失われる。まとめ版も AID は ON_INIT で取っている。
+function g.update_paths()
+    g.active_id = core_g.active_id or session.loginInfo.GetAID()
     g.settings_path = string.format("../addons/%s/%s/market_favorite_rebuild.json", core_addon_name_lower,
         g.active_id)
-end
-g.mkdir_new_folder()
-
-function g.save_settings()
-    local function save_json(path, tbl)
-        local file = io.open(path, "w")
-        if file then
-            local str = json.encode(tbl)
-            file:write(str)
-            file:close()
-        end
+    -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
+    -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
+    if g.logged_settings_path ~= g.settings_path then
+        g.logged_settings_path = g.settings_path
+        core_g.vlog("market_favorite_rebuild: 保存先 %s", tostring(g.settings_path))
     end
-    save_json(g.settings_path, g.settings)
+end
+
+-- JSON の読み書きはまとめ版のものを使う(戻り値は個別版と同じ)。まとめ版側は .tmp 経由の
+-- アトミック保存で、書き込み途中に落ちても設定を失わない。
+function g.save_settings()
+    core_g.save_json(g.settings_path, g.settings)
 end
 
 function g.load_json(path)
-    local file = io.open(path, "r")
-    if not file then
-        return nil, "Error opening file: " .. path
-    end
-    local content = file:read("*all")
-    file:close()
-    if not content or content == "" then
-        return nil, "File content is empty or could not be read: " .. path
-    end
-    local decoded_table, decode_err = json.decode(content)
-    if not decoded_table then
-        return nil, decode_err
-    end
-    return decoded_table, nil
+    return core_g.load_json(path)
 end
 
 function Market_favorite_rebuild_SAVE_SETTINGS()
@@ -196,51 +186,35 @@ function string.starts(String, Start)
     return string.sub(String, 1, string.len(Start)) == Start
 end
 
+-- イベント方式のフックはまとめ版へ丸投げする(登録簿 g.FUNCS / g.ARGS / g.REGISTER も
+-- まとめ版のものを使う)。個別版と同じ実装をここに持つと、まとめ版が既にラップした
+-- グローバルをもう一段ラップすることになり、1 回の呼び出しで imcAddOn.BroadMsg が
+-- 2 回飛ぶ = そのメッセージの購読者が全員 2 回走る。今のところ MARKET_* を掛けているのは
+-- このアドオンだけだが、他が同じグローバルを掛けた時点で二重になる。
 function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
+    core_g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
+    -- 個別版のコードは元の関数を g.FUNCS[...] から直接呼ぶので、まとめ版が退避した実体を写す。
     g.FUNCS = g.FUNCS or {}
-    if not g.FUNCS[origin_func_name] then
-        g.FUNCS[origin_func_name] = _G[origin_func_name]
-    end
-    local origin_func = g.FUNCS[origin_func_name]
-    local function hooked_function(...)
-        local original_results
-        if bool == true then
-            original_results = {origin_func(...)}
-        end
-        g.ARGS = g.ARGS or {}
-        g.ARGS[origin_func_name] = {...}
-        imcAddOn.BroadMsg(origin_func_name)
-        if original_results then
-            return table.unpack(original_results)
-        else
-            return
-        end
-    end
-    _G[origin_func_name] = hooked_function
-    if not g.REGISTER[origin_func_name .. my_func_name] then -- g.REGISTERはON_INIT内で都度初期化
-        g.REGISTER[origin_func_name .. my_func_name] = true
-        core_g.register_msg(origin_func_name, my_func_name)
+    if g.FUNCS[origin_func_name] == nil then
+        g.FUNCS[origin_func_name] = core_g.FUNCS[origin_func_name]
     end
 end
 
 function g.get_event_args(origin_func_name)
-    local args = g.ARGS[origin_func_name]
-    if args then
-        return table.unpack(args)
-    end
-    return nil
+    return core_g.get_event_args(origin_func_name)
 end
 
 function Market_favorite_rebuild_ON_INIT(addon, frame)
     g.addon = addon
     g.frame = frame
+    -- 設定を読む前に保存先を確定させる(AID はここで初めて確実に取れる)
+    g.update_paths()
     g.lang = option.GetCurrentCountry()
     g.login_name = session.GetMySession():GetPCApc():GetName()
     if not g.settings then
         Market_favorite_rebuild_LOAD_SETTINGS()
     end
     core_g.register_msg("OPEN_DLG_MARKET", "Market_favorite_rebuild_ON_OPEN_MARKET")
-    g.REGISTER = {}
     g.setup_hook_and_event(addon, "MARKET_SELL_FILTER_RESET", "Market_favorite_rebuild_MARKET_SELL_FILTER_RESET", false)
     g.setup_hook_and_event(addon, "MARKET_CLOSE", "Market_favorite_rebuild_MARKET_CLOSE", true)
     g.setup_hook_and_event(addon, "_MARKET_SAVE_CATEGORY_OPTION",
@@ -2922,21 +2896,40 @@ end
 -- 登録リストから呼ばれる入口。core/20_lifecycle.lua の safe_call は pcall(func) で
 -- 引数なしで呼ぶため、ここで addon / frame を用意して個別版の入口へ渡す。
 -- on_init は ON/OFF によらず全アドオン分呼ばれるので、use の判定は自分で行う。
+-- 機能 OFF にされたときの後始末。
+-- イベント方式のフックはまとめ版のラッパなので外さない(他アドオンが同じグローバルに
+-- 乗っていることがある)。配信先から自分のハンドラを外せば、ラッパは元の関数を呼ぶだけになる。
+function Market_favorite_rebuild_teardown()
+    local removed = core_g.unregister_msg_by_prefix("Market_favorite_rebuild_")
+    ui.DestroyFrame(addon_name_lower)
+    core_g.vlog("market_favorite_rebuild: OFF のため後始末(購読 %d 本)", removed)
+end
+
 function market_favorite_rebuild_on_init()
     if not core_g.settings or not core_g.settings.market_favorite_rebuild or
         core_g.settings.market_favorite_rebuild.use ~= 1 then
-        core_g.vlog("market_favorite_rebuild: use=0 のため初期化しない")
+        -- on_init は ON/OFF によらず全アドオン分呼ばれ、OFF 側は後始末に使う契約
+        -- (core/20_lifecycle.lua)。動いていたものを畳むのはここだけ。
+        if g.initialized then
+            g.initialized = false
+            Market_favorite_rebuild_teardown()
+        else
+            core_g.vlog("market_favorite_rebuild: use=0 のため初期化しない")
+        end
         return
     end
     -- 設定の引き継ぎは必ず ON_INIT より前に行う。ON_INIT の中で
     -- Market_favorite_rebuild_LOAD_SETTINGS() が走るため、後に回すと空の設定を
     -- 読んでから上書きすることになる。
     -- 個別版の保存先は ../addons/market_favorite_rebuild/<AID>/settings.json の 1 ファイルだけ。
+    -- 引き継ぎ元のパスにも AID が要るので、ここで先に確定させる。
+    g.update_paths()
     core_g.migrate_individual_addon_settings("market_favorite_rebuild",
         {{src = tostring(g.active_id) .. "/settings.json", dst = "market_favorite_rebuild.json"}})
     local frame = Market_favorite_rebuild_create_frame()
     core_g.vlog("market_favorite_rebuild: init frame=%s", tostring(frame ~= nil))
     Market_favorite_rebuild_ON_INIT(core_g.addon, frame)
+    g.initialized = true
 end
 -- ===== Nexus Addons P 用のフレーム生成とアダプタ(ここまで) =====
 end

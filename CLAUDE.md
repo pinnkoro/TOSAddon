@@ -82,6 +82,8 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 
 * **ファイルのコピーは `io` で 1 ファイルずつ行う**(`g.copy_file`)。`xcopy` は使わない。
   実例は [core/30_maintenance.lua](nexus_addons_p/src/core/30_maintenance.lua) のバックアップ/復元。
+  本家からの引き継ぎ(`g.migrate_from_origin`)も、同じ `g.settings_file_names` /
+  `g.copy_settings_files` を使う。
 * 代わりに「何をコピーするか」を自前で持つ必要がある。**Lua にディレクトリ列挙が無く、
   列挙する唯一の手段が cmd だから**、ここを避けるとファイル名は自分で列挙するしかない。
   固定名は `g.backup_files` のように定数で持ち、追加漏れは
@@ -89,15 +91,18 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **フォルダ作成(`mkdir`)だけは代わりが無い**ので残る。ただし `g.create_folder` が
   マーカーファイルで空振りを防ぐので、窓が出るのは初回の 1 回だけ。
   フォルダを作る箇所は必ずここを通すこと。
+  * `io.open` はフォルダを作らない（親が無ければ `No such file or directory` で失敗するだけ）。
+  * **LuaFileSystem(`lfs`)はクライアントに入っていない**。実機で確認済み:
+    `require('lfs')` は失敗し、`_G` にそれらしい名前は `CreateSlotFolderIcon` /
+    `OpenUploadEmblemFolder`（どちらもギルドエンブレムの UI 関数）しか無い。
+    **同じ調査を繰り返さないこと。**
 
 現在 `os.execute` が残っているのは次の箇所。**減らせないか継続して検討する**。
 
 | 箇所 | 用途 | 備考 |
 | --- | --- | --- |
 | `core/00_header.lua` `g.create_folder` | `mkdir` | 代替なし。マーカーで初回のみ |
-| `core/00_header.lua` `g.migrate_from_origin` | `xcopy` | 本家からの引き継ぎ。初回起動時のみ |
 | `addons/monster_kill_count` | `dir` でファイル列挙 | 可変名のファイルを列挙する唯一の手段 |
-| `addons/mini_addons` / `addons/market_favorite_rebuild` | `mkdir` | 個別版由来。読み込み時に実行される |
 
 ## PR を出すときは README の更新履歴を必ず更新する
 

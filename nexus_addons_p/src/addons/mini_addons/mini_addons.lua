@@ -141,13 +141,50 @@ local function ts(...)
     print(table.concat(string_parts, "   |   "))
 end
 
-local active_id = session.loginInfo.GetAID()
 -- 保存先はまとめ版に揃える(../addons/_nexus_addons_p/<AID>/<アドオン名>.json)。
 -- 個別版は ../addons/mini_addons/<AID>_1.json に置いていたが、同梱版では他の 48 アドオンと
 -- 同じ場所・同じ命名にする。この場所へ置くことで core/30_maintenance.lua のバックアップ/
 -- 復元の対象にもなる(対象は固定名の一覧 g.backup_files なので、そちらへの追加が必須)。
-g.settings_path = string.format("../addons/%s/%s/mini_addons.json", core_addon_name_lower, active_id)
-g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
+--
+-- AID の取得と組み立ては ON_INIT まで遅らせる。個別版はチャンク読み込み時に取っていたが、
+-- 同梱版では 1 本の .lua に他アドオンが後ろへ連結されているため、ここで AID が取れないと
+-- string.format(..., nil) が投げるエラーで**この後ろの定義がまるごと失われる**
+-- (直後に連結される market_favorite_rebuild が丸ごと消える)。まとめ版も AID は ON_INIT で
+-- 取っている(core/00_header.lua の g.active_id)ので、それに揃える。
+function g.update_paths()
+    local active_id = core_g.active_id or session.loginInfo.GetAID()
+    g.active_id = active_id
+    g.settings_path = string.format("../addons/%s/%s/mini_addons.json", core_addon_name_lower, active_id)
+    g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
+    -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
+    -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
+    if g.logged_settings_path ~= g.settings_path then
+        g.logged_settings_path = g.settings_path
+        core_g.vlog("mini_addons: 保存先 %s", tostring(g.settings_path))
+    end
+end
+
+-- 自分のフレームを取る。無ければ作る。
+-- マップ移動でクライアントがフレームを破棄する一方、作り直すのはまとめ版の init_addons
+-- (実測で GAME_START の約 2 秒後)。GAME_START やゲームイベントの購読はそれより先に
+-- 呼ばれるので、素の ui.GetFrame をそのまま使うと nil を触って落ちる。
+-- (実機ログで確認: マップ移動のたびに Mini_addons_GAME_START が
+--  "attempt to index a nil value (local 'mini_addons')" で落ちていた)
+function g.get_frame()
+    local frame = ui.GetFrame(addon_name_lower)
+    if frame then
+        return frame
+    end
+    core_g.vlog("mini_addons: フレームが無いので作り直す")
+    return Mini_addons_create_frame()
+end
+
+-- 置換方式のフック。まとめ版の g.setup_hook と同じ規則で入れる(控えの名前だけが
+-- MINI_ADDONS_P_REPLACE_* で別。ここを共有すると、どちらが先に掛けたかで相手の
+-- フックを落としてしまうため、控えはアドオンごとに分けたままにする)。
+-- 1 グローバルにつき 1 回だけ入れるのは、後から上に掛かったフックを落とさないため。
+-- 入れた実体は g.hook_installed に残す(機能 OFF のときに戻すのに使う)。
+g.hook_installed = g.hook_installed or {}
 
 function g.setup_hook(my_func, origin_func_name)
     local addon_upper = string.upper(addon_name)
@@ -156,8 +193,21 @@ function g.setup_hook(my_func, origin_func_name)
     if not _G[replace_name] then
         _G[replace_name] = _G[origin_func_name]
     end
-    _G[origin_func_name] = my_func
     g.FUNCS[origin_func_name] = _G[replace_name]
+    if _G[origin_func_name] == my_func then
+        core_g.hook_owner[origin_func_name] = my_func
+        return
+    end
+    if g.hook_installed[origin_func_name] == my_func then
+        core_g.vlog("mini_addons: %s は手前に別のフックが居るので張り直さない", origin_func_name)
+        return
+    end
+    _G[origin_func_name] = my_func
+    g.hook_installed[origin_func_name] = my_func
+    -- まとめ版へも「今 _G に居るのは味方」と伝える。これが無いと、まとめ版の
+    -- setup_hook_and_event が「知らない誰かに差し替えられた」と判断して掛け直し、
+    -- ここで入れたフックを落としてしまう(詳細は core/00_header.lua の g.hook_owner)。
+    core_g.hook_owner[origin_func_name] = my_func
 end
 
 -- 個別版はここで自分のフォルダを os.execute('mkdir') で作っていたが、同梱版は保存先を
@@ -165,72 +215,46 @@ end
 -- そのフォルダは core 側が作る。os.execute は GUI プロセスから呼ぶと必ずコンソール窓を
 -- 出すので、消せるものは消す(CLAUDE.md「CMD をなるべく出さない」)。
 
+-- JSON の読み書きとマップ種別の取得はまとめ版のものを使う(戻り値は個別版と同じ)。
+-- 個別版と同じ実装をここに置いても増えるのは差異だけで、まとめ版側は .tmp 経由の
+-- アトミック保存(=途中で落ちても設定を失わない)と MapType の nil ガードを持っている。
 function g.save_json(path, tbl)
-    local file = io.open(path, "w")
-    if file then
-        local str = json.encode(tbl)
-        file:write(str)
-        file:close()
-    end
+    return core_g.save_json(path, tbl)
 end
 
 function g.load_json(path)
-    local file = io.open(path, "r")
-    if not file then
-        return nil, "Error opening file: " .. path
-    end
-    local content = file:read("*all")
-    file:close()
-    if not content or content == "" then
-        return nil, "File content is empty or could not be read: " .. path
-    end
-    local decoded_table, decode_err = json.decode(content)
-    if not decoded_table then
-        return nil, decode_err
-    end
-    return decoded_table, nil
+    return core_g.load_json(path)
 end
 
 function g.get_map_type()
-    local map_name = session.GetMapName()
-    local map_cls = GetClass("Map", map_name)
-    local map_type = map_cls.MapType
-    return map_type
+    return core_g.get_map_type()
 end
 
+-- イベント方式のフックはまとめ版へ丸投げする(登録簿 g.FUNCS / g.ARGS / g.REGISTER も
+-- まとめ版のものを使う)。個別版と同じ実装をここに持つと、まとめ版が既にラップした
+-- グローバルをもう一段ラップすることになり、1 回の呼び出しで imcAddOn.BroadMsg が
+-- 2 回飛ぶ = そのメッセージの購読者が全員 2 回走る。
+-- 例: INVENTORY_OPEN は cc_helper と other_character_skill_list も、DRAW_CHAT_MSG は
+-- archeology_helper も、SHOW_INDUNENTER_DIALOG は quickslot_operate も購読している。
+-- まとめ版の実装は同じグローバルに何度掛けても控えを取り直さないので、二重にはならない。
 function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
+    core_g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
+    -- 個別版のコードは元の関数を g.FUNCS[...] から直接呼ぶので、まとめ版が退避した実体を写す。
+    -- 既に値があるときは触らない: g.setup_hook(置換方式)で控えた実体を上書きすると、
+    -- 自分自身を呼んで無限再帰になる(NOTICE_ON_MSG は置換とイベントの両方を掛けている)。
     g.FUNCS = g.FUNCS or {}
-    if not g.FUNCS[origin_func_name] then
-        g.FUNCS[origin_func_name] = _G[origin_func_name]
-    end
-    local origin_func = g.FUNCS[origin_func_name]
-    local function hooked_function(...)
-        local original_results
-        if bool == true then
-            original_results = {origin_func(...)}
-        end
-        g.ARGS = g.ARGS or {}
-        g.ARGS[origin_func_name] = {...}
-        imcAddOn.BroadMsg(origin_func_name)
-        if original_results then
-            return table.unpack(original_results)
-        else
-            return
-        end
-    end
-    _G[origin_func_name] = hooked_function
-    if not g.REGISTER[origin_func_name .. my_func_name] then
-        g.REGISTER[origin_func_name .. my_func_name] = true
-        core_g.register_msg(origin_func_name, my_func_name)
+    if g.FUNCS[origin_func_name] == nil then
+        g.FUNCS[origin_func_name] = core_g.FUNCS[origin_func_name]
+    elseif g.hook_installed[origin_func_name] then
+        -- 両方式が同じグローバルに掛かった数少ない箇所(NOTICE_ON_MSG)。無限再帰と
+        -- 紙一重なので必ず残す。同じグローバルへ 2 回イベント方式を掛けただけのとき
+        -- (WEEKLY_BOSS_RANK_UPDATE)はここに来ないよう、置換済みかどうかで絞る。
+        core_g.vlog("mini_addons: %s は置換方式の控えを維持する", origin_func_name)
     end
 end
 
 function g.get_event_args(origin_func_name)
-    local args = g.ARGS[origin_func_name]
-    if args then
-        return table.unpack(args)
-    end
-    return nil
+    return core_g.get_event_args(origin_func_name)
 end
 
 function g.split(input_str, separator)
@@ -1076,7 +1100,8 @@ end
 function Mini_addons_ON_INIT(addon, frame)
     g.addon = addon
     g.frame = frame
-    g.REGISTER = {}
+    -- 設定を読む前に保存先を確定させる(AID はここで初めて確実に取れる)
+    g.update_paths()
     g.cid = info.GetCID(session.GetMyHandle())
     g.lang = option.GetCurrentCountry()
     g.load_time = os.clock()
@@ -1095,7 +1120,8 @@ function Mini_addons_ON_INIT(addon, frame)
 end
 
 function Mini_addons_GAME_START(frame, msg, str, num)
-    local mini_addons = ui.GetFrame(addon_name_lower)
+    -- マップ移動直後はフレームがまだ無いので g.get_frame を通す(理由はそちらのコメント)
+    local mini_addons = g.get_frame()
     mini_addons:RunUpdateScript("Mini_addons_runupdate_5", 0.5)
     -- AUTOMAPCHANGEに付けていたオートズーム機能を殺す
     if _G["AUTOMAPCHANGE_CAMERA_ZOOM"] and type(_G["AUTOMAPCHANGE_CAMERA_ZOOM"]) == "function" then
@@ -1120,9 +1146,15 @@ function Mini_addons_GAME_START(frame, msg, str, num)
     core_g.register_msg("QUEST_UPDATE_", "Mini_addons_quest_update")
     core_g.register_msg("GET_NEW_QUEST", "Mini_addons_quest_update")
     Mini_addons_quest_update()
-    -- クポルポーションフレームの移動と非表示
+    -- クポルポーションフレームの移動と非表示。
+    -- cupole 系は別配布のアドオンなので、入れていない利用者では nil になる。
+    -- ここで落ちると呼び出し元(補完実行)の残りが走らないため、必ず nil を見る。
     local cupole_external_addon = ui.GetFrame("cupole_external_addon")
-    cupole_external_addon:SetEventScript(ui.LBUTTONUP, "Mini_addons_cupole_portion_frame_save")
+    if cupole_external_addon then
+        cupole_external_addon:SetEventScript(ui.LBUTTONUP, "Mini_addons_cupole_portion_frame_save")
+    else
+        core_g.vlog("mini_addons: cupole_external_addon が無いので飛ばす")
+    end
 end
 
 function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
@@ -1559,7 +1591,10 @@ function Mini_addons_CHAT_SYSTEM(msg, color)
             return
         end
     end
-    g.FUNCS["CHAT_SYSTEM"](msg, "FFFF00")
+    -- 色は呼び出し元の指定をそのまま渡す。個別版はここで "FFFF00" 固定にしていたが、
+    -- まとめ版では同じ CHAT_SYSTEM に他アドオンも乗るため、赤いエラー文も本家検出の
+    -- {#FF6347} の告知も、他アドオンの色付きメッセージも全部黄色になってしまう。
+    g.FUNCS["CHAT_SYSTEM"](msg, color)
 end
 -- オートズーム
 function Mini_addons_autozoom_edit(frame, ctrl)
@@ -3601,7 +3636,10 @@ function Mini_addons_baubas_call_switch(frame, ctrl, str)
 end
 -- ブラックマーケットのお知らせ
 function Mini_addons_NOTICE_ON_MSG(frame, msg, str, num)
-    if g.settings.chat_system == 1 then
+    -- str の nil ガード。個別版ではこの関数は 3SEC の NOTICE_ON_MSG フックに上書きされて
+    -- 実際には呼ばれていなかったが、登録簿をまとめ版へ寄せたことで連鎖の中に入り、
+    -- 毎回のお知らせで通るようになった。ここで落とすとお知らせ表示ごと巻き込む。
+    if g.settings.chat_system == 1 and str then
         if string.find(str, "StartBlackMarketBetween") then
             return
         end
@@ -5888,7 +5926,7 @@ function Mini_addons_ragana_remove_timer()
     if g.settings.goodbye_ragana == 0 then
         return
     end
-    local mini_addons = ui.GetFrame(addon_name_lower)
+    local mini_addons = g.get_frame()
     mini_addons:RunUpdateScript("Mini_addons_ragana_remove", 1.0)
 end
 
@@ -6088,7 +6126,7 @@ function Mini_addons_GP_DO_OPEN()
         g.first = true
         GODPROTECTION_DO_OPEN()
         if g.settings.auto_gacha_start == 1 then
-            local mini_addons = ui.GetFrame(addon_name_lower)
+            local mini_addons = g.get_frame()
             mini_addons:RunUpdateScript("Mini_addons_GP_FULL_BET_START", 2.0)
         end
     end
@@ -6946,18 +6984,65 @@ function Mini_addons_create_frame()
     return frame
 end
 
+-- 機能 OFF のときに片付けるフレーム(addon_name_lower に続く接尾辞)。
+-- Lua にはフレームの列挙手段が無いので固定名で並べる。フレームを増やしたらここへも足すこと。
+g.frame_suffixes = {"", "setting", "sub_frame", "rank_frame", "buff_list", "event_frame", "reroll_option",
+                    "_q7quest", "_channel"}
+
+-- 機能 OFF にされたときの後始末。
+-- ゲーム側の UI へ加えた変更(チャット枠の改造やエフェクト設定など)は元に戻せないので、
+-- 「反応しなくなり、自分のウィンドウが消える」ところまで。完全に戻すには再起動が要る。
+function Mini_addons_teardown()
+    -- 置換したグローバルを戻す。自分が今 _G に入っている分だけ戻す
+    -- (手前に別のフックが居るときに戻すと、そのフックごと落としてしまう)。
+    local restored, kept = 0, 0
+    for name, my_func in pairs(g.hook_installed) do
+        if _G[name] == my_func then
+            _G[name] = g.FUNCS[name]
+            g.hook_installed[name] = nil
+            if core_g.hook_owner[name] == my_func then
+                core_g.hook_owner[name] = nil
+            end
+            restored = restored + 1
+        else
+            kept = kept + 1
+        end
+    end
+    -- 配信役から自分のハンドラを外す。自分の関数はすべて Mini_addons_ 始まりで揃っている。
+    local removed = core_g.unregister_msg_by_prefix("Mini_addons_")
+    for _, suffix in ipairs(g.frame_suffixes) do
+        ui.DestroyFrame(addon_name_lower .. suffix)
+    end
+    -- メニューボタンの相乗り項目も下ろす(登録先は norisan さんとの待ち合わせ名なので消さない)
+    if _G["norisan"] and _G["norisan"]["MENU"] then
+        _G["norisan"]["MENU"][addon_name] = nil
+    end
+    -- 再び ON にされたら GAME_START の補完からやり直す。ここを戻さないと、フック 72 個を
+    -- 掛ける GAME_START_3SEC が次のマップ移動まで走らない。
+    g.game_start_catch_up = false
+    core_g.vlog("mini_addons: OFF のため後始末(フック戻し %d / 手前に別フック %d / 購読 %d 本)", restored, kept,
+        removed)
+end
+
 -- 登録リストから呼ばれる入口。詳細は market_favorite_rebuild 側のコメントと同じ。
 function mini_addons_on_init()
     if not core_g.settings or not core_g.settings.mini_addons or
         core_g.settings.mini_addons.use ~= 1 then
-        core_g.vlog("mini_addons: use=0 のため初期化しない")
+        -- on_init は ON/OFF によらず全アドオン分呼ばれ、OFF 側は後始末に使う契約
+        -- (core/20_lifecycle.lua)。動いていたものを畳むのはここだけ。
+        if g.initialized then
+            g.initialized = false
+            Mini_addons_teardown()
+        else
+            core_g.vlog("mini_addons: use=0 のため初期化しない")
+        end
         return
     end
     -- 設定の引き継ぎは必ず ON_INIT より前に行う（理由は market_favorite_rebuild 側と同じ）。
     -- 個別版が持つのは設定とパーティーバフの 2 ファイル。列挙できないので直接並べる
     -- （buffs.json はパーティーバフ未設定なら存在しないが、その場合は黙って飛ばされる）。
     core_g.migrate_individual_addon_settings("mini_addons", {
-        {src = active_id .. "_1.json", dst = "mini_addons.json"},
+        {src = tostring(core_g.active_id) .. "_1.json", dst = "mini_addons.json"},
         {src = "buffs.json", dst = "mini_addons_buffs.json"}
     })
     local frame = Mini_addons_create_frame()
@@ -6973,12 +7058,24 @@ function mini_addons_on_init()
     --
     -- 購読自体は残してあるので、次のマップ移動以降は通常どおりイベントで呼ばれる。
     -- ここは取り逃がした初回ぶんの穴埋めなので、セッション中 1 回だけでよい。
+    --
+    -- 「済んだ」印は**両方が成功してから**置く。先に置くと、GAME_START の途中で転んだとき
+    -- (別配布アドオンのフレームが無い等)に GAME_START_3SEC = 初期化本体が走らないまま
+    -- 二度と再試行されない。呼び出し元 safe_call の pcall が握るので気付けもしない。
     if not g.game_start_catch_up then
-        g.game_start_catch_up = true
         core_g.vlog("mini_addons: 取り逃がした GAME_START を補完する")
-        Mini_addons_GAME_START(frame)
-        Mini_addons_GAME_START_3SEC(frame)
+        local ok_start, err_start = pcall(Mini_addons_GAME_START, frame)
+        if not ok_start then
+            core_g.vlog("{#FF6347}mini_addons: GAME_START の補完 FAILED{/} %s", tostring(err_start))
+        end
+        local ok_3sec, err_3sec = pcall(Mini_addons_GAME_START_3SEC, frame)
+        if not ok_3sec then
+            core_g.vlog("{#FF6347}mini_addons: GAME_START_3SEC の補完 FAILED{/} %s", tostring(err_3sec))
+        end
+        -- 転んだときは印を置かない = 次の on_init(マップ移動や ON/OFF)でもう一度試す。
+        g.game_start_catch_up = ok_start and ok_3sec
     end
+    g.initialized = true
 end
 -- ===== Nexus Addons P 用のフレーム生成とアダプタ(ここまで) =====
 end

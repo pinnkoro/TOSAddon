@@ -352,7 +352,13 @@ function No_check_frame_close(frame, ctrl)
     end
     INVENTORY_SET_CUSTOM_RBTNDOWN('None')
     INVENTORY_CLEAR_SELECT(nil)
-    if ctrl:GetName() == "delete_slotset" then
+    -- この関数は 2 通りの呼ばれ方をする。
+    --   * ボタン       … (frame, コントロール)
+    --   * INVENTORY_CLOSE の購読 … (frame, メッセージ名の文字列, str, num)
+    -- 後者で ctrl:GetName() を呼ぶと "attempt to call a nil value (method 'GetName')" で
+    -- 落ちる(実機の verbose_log で確認。インベントリを閉じるたびに出ていた)。
+    -- ボタン経由のときだけ名前を見る。
+    if type(ctrl) == "userdata" and ctrl:GetName() == "delete_slotset" then
         ui.SysMsg("{ol}[No Check]End of Operation")
     end
 end

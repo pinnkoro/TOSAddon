@@ -53,8 +53,23 @@ g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json",
                   "settings_250609.json", "settings_2507.json", "settings_2510.json", "sub_map.json",
                   "sub_slotset.json", "vakarine_equip.json", "warehouse.dat"}
 
--- 可変名のファイルを置いている唯一のサブフォルダ。復元先に無ければ作る必要がある。
+-- 可変名のファイルを置いている唯一のサブフォルダ。コピー先に無ければ作る必要がある。
 local BACKUP_SUBFOLDER = "monster_kill_count"
+
+-- names に可変名のファイル(サブフォルダ付き)が含まれるときだけ、コピー先へその
+-- サブフォルダを作る。普段はアドオン側が作っているが、monster_kill_count を一度も
+-- 使っていない環境や、引き継ぎ直後の空フォルダには無い。
+-- cmd の mkdir はここでしか呼ばないので、g.create_folder のマーカーが効いて
+-- コンソール窓が出るのは最初の 1 回だけ。戻り値は作りに行ったかどうか。
+function g.ensure_settings_subfolder(dst_dir, names)
+    for _, name in ipairs(names) do
+        if string.find(name, "/", 1, true) then
+            g.create_folder(dst_dir .. "/" .. BACKUP_SUBFOLDER, dst_dir .. "/" .. BACKUP_SUBFOLDER .. "/mkdir.txt")
+            return true
+        end
+    end
+    return false
+end
 
 -- バックアップ関連のパス。g.active_id は ON_INIT で入るので、ロード時ではなく
 -- 呼ばれた時点で組み立てる(90_addons_menu.lua の設定パスと同じ理由)。
@@ -75,7 +90,8 @@ end
 -- *コピー元* の monster_kill_count.json が持つ map_ids から組み立てる
 -- (記録のあるマップの一覧で、アドオン側が記録の追加時に更新している)。
 -- コピー元側を読むので、復元ではバックアップした時点の一覧が使われる。
-local function settings_file_names(src_dir)
+-- (本家からの引き継ぎ g.migrate_from_origin も同じ一覧でコピーするので g. で公開する)
+function g.settings_file_names(src_dir)
     local names = {}
     for _, name in ipairs(g.backup_files) do
         names[#names + 1] = name
@@ -99,7 +115,7 @@ end
 --
 -- コピー元に無いファイルは飛ばす。全アドオンを使っている利用者はまず居ないので、
 -- 一覧のほとんどが存在しないのが普通の状態。
-local function copy_settings_files(src_dir, dst_dir, names)
+function g.copy_settings_files(src_dir, dst_dir, names)
     local copied, failed = 0, 0
     for _, name in ipairs(names) do
         local src_path = src_dir .. "/" .. name
@@ -128,7 +144,7 @@ function g.backup_settings()
     -- コンソール窓が一瞬出るのは初回のバックアップだけになる。
     g.create_folder(paths.backup .. "/" .. BACKUP_SUBFOLDER,
         paths.backup .. "/" .. BACKUP_SUBFOLDER .. "/mkdir.txt")
-    local copied, failed = copy_settings_files(paths.live, paths.backup, settings_file_names(paths.live))
+    local copied, failed = g.copy_settings_files(paths.live, paths.backup, g.settings_file_names(paths.live))
     if copied == 0 then
         g.vlog("{#FF6347}backup: 1 件もコピーできなかった{/} %s -> %s (失敗 %d 件)", paths.live,
             paths.backup, failed)
@@ -153,18 +169,10 @@ function g.restore_settings()
     if not paths then
         return false, 0, 0
     end
-    local names = settings_file_names(paths.backup)
-    -- 書き戻し先のサブフォルダは普段アドオン側が作っているが、monster_kill_count を
-    -- 一度も使っていないと無い。戻すマップ記録があるときだけ作りに行く
-    -- (マーカーがあれば g.create_folder は cmd を起動しない)。
-    for _, name in ipairs(names) do
-        if string.find(name, "/", 1, true) then
-            g.create_folder(paths.live .. "/" .. BACKUP_SUBFOLDER,
-                paths.live .. "/" .. BACKUP_SUBFOLDER .. "/mkdir.txt")
-            break
-        end
-    end
-    local copied, failed = copy_settings_files(paths.backup, paths.live, names)
+    local names = g.settings_file_names(paths.backup)
+    -- 戻すマップ記録があるときだけサブフォルダを作りに行く
+    g.ensure_settings_subfolder(paths.live, names)
+    local copied, failed = g.copy_settings_files(paths.backup, paths.live, names)
     if copied == 0 then
         g.vlog("{#FF6347}restore: 1 件もコピーできなかった{/} %s -> %s (失敗 %d 件)", paths.backup,
             paths.live, failed)

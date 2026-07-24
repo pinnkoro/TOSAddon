@@ -125,10 +125,16 @@ function g.copy_file(src_path, dst_path)
 end
 
 -- B: 本家(_nexus_addons)の設定を引き継ぐ。戻り値は "copied" / "partial" / "failed" / nil(何もしない)。
--- 引き継ぎ単位は AID フォルダ丸ごと。各アドオンの .json/.lua/.dat のほかに
--- monster_kill_count/<map_id>.json のような可変名のファイルがあり、Lua 側に
--- ディレクトリ列挙が無いのでファイル名を列挙できない。よってコピー自体は xcopy に任せ、
--- それが失敗したときだけ settings.json を自前でコピーするフォールバックを持つ。
+-- 引き継ぎ単位は AID フォルダ丸ごと。
+--
+-- コピーは xcopy ではなく io で 1 ファイルずつ行う(core/30_maintenance.lua のバックアップと
+-- 同じ方針。os.execute は GUI プロセスから呼ぶと必ずコンソール窓を作るため)。
+-- 何をコピーするかはバックアップと同じ g.settings_file_names() から取る。本家は
+-- このアドオンのフォーク元なので設定ファイルの名前は同じで、可変名の
+-- monster_kill_count/<map_id>.json も同じ手(コピー元の monster_kill_count.json が持つ
+-- map_ids から組み立てる)で拾える。一覧に無いファイルは引き継がれないが、その一覧は
+-- docs/tests/test_core.lua [17] が bundle 内のパス文字列と突き合わせて守っている。
+--
 -- 実行条件は「自分側に settings.json が無い」= 実質初回起動時のみ。既に自分の設定が
 -- あるときに走らせると本家の古い設定で上書きしてしまうため、この条件は必ず守ること。
 function g.migrate_from_origin()
@@ -146,19 +152,28 @@ function g.migrate_from_origin()
         return nil
     end
     src_file:close()
-    -- os.execute は cmd 経由なので区切りをバックスラッシュに直す(monster_kill_count と同じ扱い)
-    local src_win = string.gsub(src_dir, "/", "\\")
-    local dst_win = string.gsub(dst_dir, "/", "\\")
-    os.execute(string.format('xcopy "%s" "%s" /E /I /Y /Q >nul 2>&1', src_win, dst_win))
-    local copied = io.open(dst_settings, "r")
-    if copied then
-        copied:close()
-        return "copied"
+    local names = g.settings_file_names(src_dir)
+    -- 引き継ぐマップ記録があるときだけサブフォルダを作りに行く(cmd が出るのはここだけ)
+    g.ensure_settings_subfolder(dst_dir, names)
+    local copied, failed = g.copy_settings_files(src_dir, dst_dir, names)
+    -- 結果は文字列にして持ち越し、GAME_START で vlog へ出す。ここは ON_INIT の中で、
+    -- 設定を読む前なので g.vlog がまだ黙る(g.settings が無い)。
+    g.migrate_summary = string.format("migrate_from_origin: %s -> %s (%d 件, 失敗 %d 件)", src_dir, dst_dir,
+        copied, failed)
+    if copied == 0 then
+        g.migrate_summary = "{#FF6347}" .. g.migrate_summary .. " 1 件もコピーできなかった{/}"
+        return "failed"
     end
-    if g.copy_file(src_settings, dst_settings) then
+    -- 主たる設定が入ったかどうかで copied / partial を分ける
+    -- (g.migrate_individual_addon_settings と同じ考え方)。
+    local main_ok = io.open(dst_settings, "r")
+    if main_ok then
+        main_ok:close()
+    end
+    if not main_ok or failed > 0 then
         return "partial"
     end
-    return "failed"
+    return "copied"
 end
 
 -- 個別配布版アドオンの設定を、同梱版の保存先へ引き継ぐ。
@@ -252,18 +267,24 @@ end
 -- (自己完結型として同梱している mini_addons / market_favorite_rebuild は自分の g を
 --  持っているので、そちらからは core_g.register_msg を呼ぶ)
 g.msg_handlers = g.msg_handlers or {}
+-- 今回の ON_INIT でもう購読を張ったメッセージ。ON_INIT ごとに 20_lifecycle.lua が空にする。
+g.msg_registered_cycle = g.msg_registered_cycle or {}
+-- 直近に購読を張ったときの addon オブジェクト(差し替わったときにログを出すためだけ)
+g.msg_registered_addon = g.msg_registered_addon or {}
+-- 配信で転んだ (メッセージ, ハンドラ) の組。同じ組を何度も報告しないための印。
+g.msg_failed = g.msg_failed or {}
 
 function g.register_msg(msg, func_name)
     if type(msg) ~= "string" or type(func_name) ~= "string" then
         return
     end
+    -- 配信役はメッセージごとに 1 つだけ作る。RegisterMsg はグローバル関数の「名前」を
+    -- 取る仕様なので、名前を持つ実体をここで作ってから登録する。
+    local dispatch_name = "_nexus_addons_p_msg_" .. msg
     local list = g.msg_handlers[msg]
     if not list then
         list = {}
         g.msg_handlers[msg] = list
-        -- 配信役はメッセージごとに 1 つだけ作る。RegisterMsg はグローバル関数の「名前」を
-        -- 取る仕様なので、名前を持つ実体をここで作ってから登録する。
-        local dispatch_name = "_nexus_addons_p_msg_" .. msg
         _G[dispatch_name] = function(frame, recv_msg, str, num)
             -- 実行中に register_msg が呼ばれても壊れないよう、その都度引き直す。
             for _, name in ipairs(g.msg_handlers[msg] or {}) do
@@ -273,17 +294,47 @@ function g.register_msg(msg, func_name)
                     -- ここで巻き添えにしては元も子もない。
                     local ok, err = pcall(func, frame, recv_msg, str, num)
                     if not ok then
-                        g.vlog("{#FF6347}msg %s: %s FAILED{/} %s", msg, name, tostring(err))
+                        -- 報告は on_init の safe_call と同じ 3 経路。vlog だけだと既定 OFF の
+                        -- 利用者には無音で、不具合報告用の debug_log.txt にも残らない。
+                        -- ただし FPS_UPDATE のように毎フレーム来る経路があるので、同じ
+                        -- (メッセージ, ハンドラ)の組では 1 回だけにする(CLAUDE.md「出しすぎない」)。
+                        local failed_key = msg .. "/" .. name
+                        if not g.msg_failed[failed_key] then
+                            g.msg_failed[failed_key] = true
+                            local err_msg = string.format("Error during msg '%s' of '%s': %s", msg, name,
+                                tostring(err))
+                            ts(err_msg)
+                            g.log_to_file(err_msg)
+                            g.vlog("{#FF6347}msg %s: %s FAILED{/} %s (以降このハンドラの失敗は出さない)", msg,
+                                name, tostring(err))
+                        end
                     end
                 end
             end
         end
-        if g.addon then
+    end
+    -- 購読はハンドラ登録とは別に、ON_INIT ごとに 1 メッセージ 1 回ずつ張り直す。
+    -- 置き換える前は各呼び出し元が ON_INIT のたびに addon:RegisterMsg を打ち直していて、
+    -- g.REGISTER を ON_INIT ごとに空にしているのもそのためだった。ここで「初回だけ」に
+    -- してしまうと、g.addon が別物に差し替わったときに購読が死んだオブジェクトへ
+    -- 残り続け、そのメッセージが以降一切届かなくなる。
+    if g.addon then
+        if not g.msg_registered_cycle[msg] then
+            g.msg_registered_cycle[msg] = true
             g.addon:RegisterMsg(msg, dispatch_name)
-        else
-            -- g.addon は ON_INIT の 1 行目で入るので、通常ここには来ない。
-            g.vlog("{#FF6347}register_msg: g.addon がまだ無い (%s){/}", msg)
+            -- 張り直しは毎回のことなので黙って行う。**前に張った addon と別物だったとき**
+            -- だけは「前回の購読が死んでいた」ことになるので、判断材料として残す。
+            -- 初回(前回値が無い)は死んだ購読が存在しないので出さない。出すと起動のたびに
+            -- メッセージの数だけ(実測 129 行)流れて、肝心の行が埋もれる。
+            local prev_addon = g.msg_registered_addon[msg]
+            g.msg_registered_addon[msg] = g.addon
+            if prev_addon ~= nil and prev_addon ~= g.addon then
+                g.vlog("register_msg: %s を新しい addon で購読し直した", msg)
+            end
         end
+    else
+        -- g.addon は ON_INIT の 1 行目で入るので、通常ここには来ない。
+        g.vlog("{#FF6347}register_msg: g.addon がまだ無い (%s){/}", msg)
     end
     -- on_init は ON/OFF 切り替えや再初期化で何度も呼ばれるので、二重登録を弾く。
     for _, name in ipairs(list) do
@@ -296,29 +347,102 @@ function g.register_msg(msg, func_name)
     -- 起動時に 1 回ずつしか通らない経路なので、毎フレーム流れる心配はない。
     g.vlog("register_msg: %s <- %s (%d本目)", msg, func_name, #list)
 end
+
+-- 名前の頭が一致するハンドラを配信先からすべて外す。機能 OFF にされたアドオンが
+-- 自分の購読を畳むために使う(ハンドラ名をアドオンごとの接頭辞で揃えてあるので、
+-- 一覧を持たなくても自分の分だけを外せる)。
+-- 購読(addon:RegisterMsg)自体は残す。他のアドオンが同じメッセージに乗っているし、
+-- 配信先が空でも配信役が何もせず返るだけで害がないため。
+function g.unregister_msg_by_prefix(prefix)
+    local removed = 0
+    for _, list in pairs(g.msg_handlers) do
+        for i = #list, 1, -1 do
+            if string.sub(list[i], 1, string.len(prefix)) == prefix then
+                table.remove(list, i)
+                removed = removed + 1
+            end
+        end
+    end
+    -- setup_hook_and_event の「登録済み」印も落とす。ここを残すと、同じ ON_INIT の中で
+    -- もう一度 ON にされたとき(設定画面のトグル)に register_msg が呼ばれず、外した購読が
+    -- 次のマップ移動まで戻らない。印のキーは グローバル名 .. ハンドラ名 なので接頭辞で引く。
+    for key in pairs(g.REGISTER or {}) do
+        if string.find(key, prefix, 1, true) then
+            g.REGISTER[key] = nil
+        end
+    end
+    g.vlog("unregister_msg: %s* を %d 本外した", prefix, removed)
+    return removed
+end
 -- ===== メッセージの多重配信(ここまで) =====
 
+-- ===== フックの管理表 =====
+-- g.hook_owner[グローバル名]  … 自分たち(まとめ版と同梱アドオン)が最後に _G へ入れた
+--                               置換方式のフック。「今 _G に居るのは味方か」の判定に使う。
+--                               味方なら、そいつは自分のラッパを呼ぶ形で連鎖している。
+-- g.core_hooks[グローバル名]  … まとめ版自身が入れた置換方式のフック(入れ済みかの判定用)
+-- g.EVENT_HOOKS[グローバル名] … 掛け済みのイベント用ラッパ
+g.hook_owner = g.hook_owner or {}
+g.core_hooks = g.core_hooks or {}
+g.EVENT_HOOKS = g.EVENT_HOOKS or {}
+g.EVENT_HOOK_BOOL = g.EVENT_HOOK_BOOL or {}
+
+-- グローバル関数をラップして、呼ばれたら同名メッセージを配信する。
+--
+-- ラッパを掛け直すかどうかは、今 _G に入っているものを見て決める。
+--   * 自分のラッパのまま         → 何もしない(掛け直す意味がない)
+--   * 自分たちの置換方式フックが手前 → 触らない。掛け直すと相手を落としてしまう。
+--     相手は自分のラッパを呼ぶ形で連鎖しているので、これで両方生きている。
+--     (設定画面でどれか 1 つを ON にしただけで、無関係なアドオンのフックが次の
+--      マップ移動まで外れる、という形で出ていた)
+--   * それ以外(知らない誰かが差し替えた) → 連鎖が切れているので掛け直す
+-- 連鎖の相手(元の関数)は「掛けた時点で _G に入っていた実体」。置換方式のフックが先に
+-- 掛かっていればそれを呼ぶので、両方式が同じグローバルに乗っても潰し合わない。
 function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
     g.FUNCS = g.FUNCS or {}
-    if not g.FUNCS[origin_func_name] then
-        g.FUNCS[origin_func_name] = _G[origin_func_name]
-    end
-    local origin_func = g.FUNCS[origin_func_name]
-    local function hooked_function(...)
-        local original_results
-        if bool == true then
-            original_results = {origin_func(...)}
+    local installed = g.EVENT_HOOKS[origin_func_name]
+    local current = _G[origin_func_name]
+    -- 自分のラッパのまま、または自分たちの置換方式フックが手前に居るなら触らない。
+    -- 知らない誰か(クライアント側の再定義など)に差し替えられていたら連鎖が切れているので、
+    -- 従来どおり掛け直す。
+    local keep = installed ~= nil and (current == installed or g.hook_owner[origin_func_name] == current)
+    if not keep then
+        if installed then
+            g.vlog("{#FF6347}setup_hook_and_event: %s のラッパが外れていたので掛け直す{/}", origin_func_name)
         end
-        g.ARGS = g.ARGS or {}
-        g.ARGS[origin_func_name] = {...}
-        imcAddOn.BroadMsg(origin_func_name)
-        if original_results then
-            return table.unpack(original_results)
-        else
-            return
+        local origin_func = current
+        if not g.FUNCS[origin_func_name] then
+            g.FUNCS[origin_func_name] = origin_func
+        end
+        local function hooked_function(...)
+            local original_results
+            if bool == true then
+                original_results = {origin_func(...)}
+            end
+            g.ARGS = g.ARGS or {}
+            g.ARGS[origin_func_name] = {...}
+            imcAddOn.BroadMsg(origin_func_name)
+            if original_results then
+                return table.unpack(original_results)
+            else
+                return
+            end
+        end
+        g.EVENT_HOOKS[origin_func_name] = hooked_function
+        g.EVENT_HOOK_BOOL[origin_func_name] = bool
+        _G[origin_func_name] = hooked_function
+    else
+        if g.EVENT_HOOK_BOOL[origin_func_name] ~= bool then
+            -- 元の関数を呼ぶ/呼ばないが呼び出し元で食い違っている。今の実装では
+            -- 先に掛けた側の指定が残る。現状そんな組み合わせは無いが、増えたら気付けるように。
+            g.vlog("{#FF6347}setup_hook_and_event: %s の bool が食い違う(先の %s を維持){/}", origin_func_name,
+                tostring(g.EVENT_HOOK_BOOL[origin_func_name]))
+        end
+        if current ~= installed then
+            -- 自分たちの置換方式フックが手前に居る。張り直すとそれを落とすので触らない。
+            g.vlog("setup_hook_and_event: %s は手前に別のフックが居るので張り直さない", origin_func_name)
         end
     end
-    _G[origin_func_name] = hooked_function
     if not g.REGISTER[origin_func_name .. my_func_name] then -- g.REGISTERはON_INIT内で都度初期化
         g.REGISTER[origin_func_name .. my_func_name] = true
         g.register_msg(origin_func_name, my_func_name)
@@ -333,6 +457,10 @@ function g.get_event_args(origin_func_name)
     return nil
 end
 
+-- 置換方式のフック。my_func を _G へ直接入れ、元の実体は g.FUNCS から呼べるようにする。
+-- 1 グローバルにつき 1 回だけ入れる。ON_INIT のたびに入れ直すと、その後で別の
+-- アドオンが上から掛けたフック(setup_hook_and_event のラッパなど)を落としてしまう。
+-- 自分より手前に誰かが居ても、その相手は自分を呼ぶ形で連鎖しているので機能は生きている。
 function g.setup_hook(my_func, origin_func_name)
     local addon_upper = string.upper(addon_name)
     local replace_name = addon_upper .. "_REPLACE_" .. origin_func_name
@@ -340,8 +468,18 @@ function g.setup_hook(my_func, origin_func_name)
     if not _G[replace_name] then
         _G[replace_name] = _G[origin_func_name]
     end
-    _G[origin_func_name] = my_func
     g.FUNCS[origin_func_name] = _G[replace_name]
+    if _G[origin_func_name] == my_func then
+        g.hook_owner[origin_func_name] = my_func
+        return
+    end
+    if g.core_hooks[origin_func_name] == my_func then
+        g.vlog("setup_hook: %s は手前に別のフックが居るので張り直さない", origin_func_name)
+        return
+    end
+    _G[origin_func_name] = my_func
+    g.core_hooks[origin_func_name] = my_func
+    g.hook_owner[origin_func_name] = my_func
 end
 
 -- tmp を path へ差し替える(remove→rename)。成功可否を返す。
