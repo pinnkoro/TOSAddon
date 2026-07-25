@@ -182,6 +182,26 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
     end
 end
 
+-- 出品履歴(キャラ名ごと)の器を必ず返す。
+--
+-- g.settings は _G['ADDONS'] に載っていてクライアントが動いている限り残るが、
+-- Market_favorite_rebuild_LOAD_SETTINGS は「g.settings が無いとき」しか走らない。
+-- 一方 g.login_name は ON_INIT のたびに引き直すので、**キャラチェンジすると
+-- g.settings.sell_items[g.login_name] だけが存在しない**状態になる。
+-- この器を素で index していた箇所が、CC 後の初出品や販売一覧の表示で落ちていた。
+function g.get_sell_items()
+    if not g.settings then
+        return {}
+    end
+    if not g.settings.sell_items then
+        g.settings.sell_items = {}
+    end
+    if not g.settings.sell_items[g.login_name] then
+        g.settings.sell_items[g.login_name] = {}
+    end
+    return g.settings.sell_items[g.login_name]
+end
+
 function string.starts(String, Start)
     return string.sub(String, 1, string.len(Start)) == Start
 end
@@ -214,6 +234,9 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     if not g.settings then
         Market_favorite_rebuild_LOAD_SETTINGS()
     end
+    -- LOAD_SETTINGS は初回しか走らないが g.login_name は毎回引き直すので、
+    -- キャラチェンジ後の器はここで用意する(詳細は g.get_sell_items)。
+    g.get_sell_items()
     core_g.register_msg("OPEN_DLG_MARKET", "Market_favorite_rebuild_ON_OPEN_MARKET")
     g.setup_hook_and_event(addon, "MARKET_SELL_FILTER_RESET", "Market_favorite_rebuild_MARKET_SELL_FILTER_RESET", false)
     g.setup_hook_and_event(addon, "MARKET_CLOSE", "Market_favorite_rebuild_MARKET_CLOSE", true)
@@ -1324,8 +1347,9 @@ function Market_favorite_rebuild_req_register_item(itemGuid, floorprice, count, 
         register_time = formatted_time,
         status = "selling"
     }
-    table.insert(g.settings.sell_items[g.login_name], data)
-    g.item_index = #g.settings.sell_items[g.login_name]
+    local sell_items = g.get_sell_items()
+    table.insert(sell_items, data)
+    g.item_index = #sell_items
     market.ReqRegisterItem(itemGuid, tonumber(floorprice), tonumber(count), 1, tonumber(needTime))
 end
 
@@ -1343,14 +1367,12 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
         cab_items[item_id] = cabinetItem:GetWhereFrom()
     end
     local clean_items = {}
-    if g.settings.sell_items and g.settings.sell_items[g.login_name] then
-        for _, saved_item in ipairs(g.settings.sell_items[g.login_name]) do
-            if cab_items[saved_item.iesid] then
-                saved_item.status = cab_items[saved_item.iesid]
-                table.insert(clean_items, saved_item)
-            elseif saved_item.status == 'selling' then
-                table.insert(clean_items, saved_item)
-            end
+    for _, saved_item in ipairs(g.get_sell_items()) do
+        if cab_items[saved_item.iesid] then
+            saved_item.status = cab_items[saved_item.iesid]
+            table.insert(clean_items, saved_item)
+        elseif saved_item.status == 'selling' then
+            table.insert(clean_items, saved_item)
         end
     end
     g.settings.sell_items[g.login_name] = clean_items
@@ -1460,7 +1482,7 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             btn:SetEnable(0);
         end
         if whereFrom == 'market_cancel' or whereFrom == 'market_expire' then -- 판매 취소, 판매 기한 완료
-            for index, data in ipairs(g.settings.sell_items[g.login_name]) do
+            for index, data in ipairs(g.get_sell_items()) do
                 local iesid = data.iesid
                 if tostring(itemID) == iesid then
                     local register_time = data.register_time
@@ -1555,14 +1577,9 @@ function Market_favorite_rebuild_ON_MARKET_SELL_LIST(my_frame, my_msg)
         if msg == "MARKET_SELL_LIST" then
             live_guids[tostring(marketItem:GetMarketGuid())] = true
             if not g.temp_tbl[tostring(marketItem:GetMarketGuid())] then
-                if not g.settings.sell_items then
-                    g.settings.sell_items = {}
-                end
-                if not g.settings.sell_items[g.login_name] then
-                    g.settings.sell_items[g.login_name] = {}
-                end
-                if g.settings.sell_items[g.login_name][g.item_index] then
-                    g.settings.sell_items[g.login_name][g.item_index].market_guid = tostring(marketItem:GetMarketGuid())
+                local sell_items = g.get_sell_items()
+                if sell_items[g.item_index] then
+                    sell_items[g.item_index].market_guid = tostring(marketItem:GetMarketGuid())
                     g.item_index = nil
                 end
             end
@@ -1576,7 +1593,7 @@ function Market_favorite_rebuild_ON_MARKET_SELL_LIST(my_frame, my_msg)
         btn:SetEventScriptArgString(ui.LBUTTONUP, marketItem:GetMarketGuid());
     end
     if msg == "MARKET_SELL_LIST" then
-        for _, saved_item in ipairs(g.settings.sell_items[g.login_name]) do
+        for _, saved_item in ipairs(g.get_sell_items()) do
             if saved_item.market_guid and saved_item.status == 'selling' then
                 local market_guid = saved_item.market_guid
                 if not live_guids[market_guid] then
@@ -2924,8 +2941,10 @@ function market_favorite_rebuild_on_init()
     -- 個別版の保存先は ../addons/market_favorite_rebuild/<AID>/settings.json の 1 ファイルだけ。
     -- 引き継ぎ元のパスにも AID が要るので、ここで先に確定させる。
     g.update_paths()
+    -- 結果(copied / partial / failed)は migrate 側がチャットへ出すので、ここでは受けない。
     core_g.migrate_individual_addon_settings("market_favorite_rebuild",
-        {{src = tostring(g.active_id) .. "/settings.json", dst = "market_favorite_rebuild.json"}})
+        {{src = tostring(g.active_id) .. "/settings.json", dst = "market_favorite_rebuild.json"}},
+        "Market Favorite Rebuild")
     local frame = Market_favorite_rebuild_create_frame()
     core_g.vlog("market_favorite_rebuild: init frame=%s", tostring(frame ~= nil))
     Market_favorite_rebuild_ON_INIT(core_g.addon, frame)

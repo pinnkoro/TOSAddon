@@ -124,6 +124,20 @@ function g.copy_file(src_path, dst_path)
     return ok and true or false
 end
 
+-- 利用者へ 1 行チャットで知らせる。**vlog だけで済ませてよいのは調査用の情報だけ。**
+-- 詳細ログは既定 OFF なので、設定の引き継ぎ失敗のように「黙って既定値に戻ったように
+-- 見える」ことは、これで必ず表に出すこと。
+-- 表示役は 1 通ずつ取り出して流す更新スクリプト(20_lifecycle.lua の
+-- _nexus_addons_p_chat_system)。空になると 0 を返して自分で外れるので、掛け直しても増えない。
+function g.queue_message(text)
+    g.pending_messages = g.pending_messages or {}
+    table.insert(g.pending_messages, text)
+    local frame = g.frame or ui.GetFrame(addon_name_lower)
+    if frame then
+        frame:RunUpdateScript("_nexus_addons_p_chat_system", 0.5)
+    end
+end
+
 -- B: 本家(_nexus_addons)の設定を引き継ぐ。戻り値は "copied" / "partial" / "failed" / nil(何もしない)。
 -- 引き継ぎ単位は AID フォルダ丸ごと。
 --
@@ -206,7 +220,10 @@ end
 -- コピー先のフォルダは、個別版由来のコード自身が読み込み時に作っている前提。
 -- 無ければ io.open が失敗するだけで、設定は次回に持ち越される（実害は無い）。
 -- 戻り値: nil=何もしなかった / "copied" / "partial" / "failed"
-function g.migrate_individual_addon_settings(individual_lower, files)
+-- 結果は**呼び出し側が戻り値を捨てても伝わるよう、この中でチャットへも出す**。
+-- display_name は案内に出す表示名(省略時は individual_lower)。
+function g.migrate_individual_addon_settings(individual_lower, files, display_name)
+    display_name = display_name or individual_lower
     local src_dir = string.format("../addons/%s", individual_lower)
     local dst_dir = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
     local dst_main = string.format("%s/%s", dst_dir, files[1].dst)
@@ -236,6 +253,11 @@ function g.migrate_individual_addon_settings(individual_lower, files)
 
     if copied == 0 then
         g.vlog("{#FF6347}migrate: %s FAILED{/}", individual_lower)
+        g.queue_message(g.lang == "Japanese" and
+            string.format("{ol}{#FF6347}[Nexus Addons P] %s: 個別版の設定を引き継げませんでした（既定の設定で始めます）",
+                display_name) or
+            string.format("{ol}{#FF6347}[Nexus Addons P] %s: Could not carry over the standalone settings (starting from defaults)",
+                display_name))
         return "failed"
     end
     -- 主たる設定が入ったかどうかで copied / partial を分ける。副次ファイル
@@ -243,10 +265,18 @@ function g.migrate_individual_addon_settings(individual_lower, files)
     local main_ok = io.open(dst_main, "r")
     if not main_ok then
         g.vlog("migrate: %s (partial, %d files)", individual_lower, copied)
+        g.queue_message(g.lang == "Japanese" and
+            string.format("{ol}{#FF6347}[Nexus Addons P] %s: 個別版の設定を一部しか引き継げませんでした", display_name) or
+            string.format("{ol}{#FF6347}[Nexus Addons P] %s: Only part of the standalone settings could be carried over",
+                display_name))
         return "partial"
     end
     main_ok:close()
     g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", individual_lower, addon_name_lower, copied, found)
+    g.queue_message(g.lang == "Japanese" and
+        string.format("{ol}{#00BFFF}[Nexus Addons P] %s: 個別版の設定を引き継ぎました", display_name) or
+        string.format("{ol}{#00BFFF}[Nexus Addons P] %s: Settings were carried over from the standalone version",
+            display_name))
     return "copied"
 end
 
@@ -377,15 +407,79 @@ end
 -- ===== メッセージの多重配信(ここまで) =====
 
 -- ===== フックの管理表 =====
--- g.hook_owner[グローバル名]  … 自分たち(まとめ版と同梱アドオン)が最後に _G へ入れた
---                               置換方式のフック。「今 _G に居るのは味方か」の判定に使う。
---                               味方なら、そいつは自分のラッパを呼ぶ形で連鎖している。
+-- g.hook_owner[グローバル名]  … そのグローバルへ自分たち(まとめ版と同梱アドオン)が
+--                               入れた置換方式フックを、掛けた順の並びで持つ。
+--                               「今 _G に居るのは味方か」の判定に使う。味方なら、
+--                               そいつは自分のラッパを呼ぶ形で連鎖している。
+--   **単一スロットにしてはいけない。** 同じグローバルに味方が 2 つ乗る場合がある
+--   (CHAT_SYSTEM = まとめ版 + mini_addons)。単一スロットだと後から掛けた側しか覚えられず、
+--   知らない誰かの割り込みからまとめ版が復帰したときスロットがまとめ版で埋まり、手前に
+--   居た mini_addons が「味方が手前に居る」と誤判定して張り直しを飛ばす。結果 mini 側の
+--   フックがチェーンから外れたまま黙って死ぬ(CHAT_SYSTEM のフィルタが効かなくなる)。
+--   並びで持てば「current は自分より後に掛けた=手前の味方か」を正しく判定できる。
+--   掛けた順が連鎖の順でもある(控えは一度きりなので、後から掛けた方が必ず手前)。
 -- g.core_hooks[グローバル名]  … まとめ版自身が入れた置換方式のフック(入れ済みかの判定用)
 -- g.EVENT_HOOKS[グローバル名] … 掛け済みのイベント用ラッパ
 g.hook_owner = g.hook_owner or {}
 g.core_hooks = g.core_hooks or {}
 g.EVENT_HOOKS = g.EVENT_HOOKS or {}
 g.EVENT_HOOK_BOOL = g.EVENT_HOOK_BOOL or {}
+
+-- func をそのグローバルの味方一覧の末尾へ足す(既に居れば触らない=掛けた順を保つ)。
+function g.hook_owner_add(origin_func_name, func)
+    local list = g.hook_owner[origin_func_name]
+    if not list then
+        list = {}
+        g.hook_owner[origin_func_name] = list
+    end
+    for i = 1, #list do
+        if list[i] == func then
+            return
+        end
+    end
+    list[#list + 1] = func
+end
+
+-- func が味方一覧の何番目か(掛けた順)。居なければ nil。
+function g.hook_owner_index(origin_func_name, func)
+    local list = g.hook_owner[origin_func_name]
+    if not list then
+        return nil
+    end
+    for i = 1, #list do
+        if list[i] == func then
+            return i
+        end
+    end
+    return nil
+end
+
+-- current が my_func の「手前の味方」か。手前 = 掛けた順が後(index が大きい)。
+-- current が味方でない/自分より先に掛けた側なら false(連鎖が切れているので張り直す)。
+function g.hook_owner_in_front(origin_func_name, current, my_func)
+    local ci = g.hook_owner_index(origin_func_name, current)
+    if not ci then
+        return false
+    end
+    local mi = g.hook_owner_index(origin_func_name, my_func)
+    if not mi then
+        return false
+    end
+    return ci > mi
+end
+
+-- func を味方一覧から外す(機能 OFF の後始末で使う)。
+function g.hook_owner_remove(origin_func_name, func)
+    local list = g.hook_owner[origin_func_name]
+    if not list then
+        return
+    end
+    for i = #list, 1, -1 do
+        if list[i] == func then
+            table.remove(list, i)
+        end
+    end
+end
 
 -- グローバル関数をラップして、呼ばれたら同名メッセージを配信する。
 --
@@ -405,7 +499,8 @@ function g.setup_hook_and_event(my_addon, origin_func_name, my_func_name, bool)
     -- 自分のラッパのまま、または自分たちの置換方式フックが手前に居るなら触らない。
     -- 知らない誰か(クライアント側の再定義など)に差し替えられていたら連鎖が切れているので、
     -- 従来どおり掛け直す。
-    local keep = installed ~= nil and (current == installed or g.hook_owner[origin_func_name] == current)
+    local keep = installed ~= nil and
+        (current == installed or g.hook_owner_index(origin_func_name, current) ~= nil)
     if not keep then
         if installed then
             g.vlog("{#FF6347}setup_hook_and_event: %s のラッパが外れていたので掛け直す{/}", origin_func_name)
@@ -457,29 +552,67 @@ function g.get_event_args(origin_func_name)
     return nil
 end
 
+-- 控えを取り終えたグローバル名(replace_name)の印。
+-- **「_G[replace_name] が nil かどうか」で判定してはいけない。** 掛けようとしたグローバルが
+-- 走っているクライアントに存在しないと(IMC の改名など)控えは nil のままになり、次の
+-- ON_INIT で「まだ控えていない」と見えてしまう。そのとき _G[origin] に入っているのは
+-- **自分のラッパ**なので、それを元の関数として控えることになり、g.FUNCS[origin] 経由の
+-- 呼び出しが自分自身へ戻って無限再帰する。控えたかどうかは値と別に持つこと。
+g.hook_captured = g.hook_captured or {}
+
 -- 置換方式のフック。my_func を _G へ直接入れ、元の実体は g.FUNCS から呼べるようにする。
--- 1 グローバルにつき 1 回だけ入れる。ON_INIT のたびに入れ直すと、その後で別の
--- アドオンが上から掛けたフック(setup_hook_and_event のラッパなど)を落としてしまう。
--- 自分より手前に誰かが居ても、その相手は自分を呼ぶ形で連鎖しているので機能は生きている。
-function g.setup_hook(my_func, origin_func_name)
-    local addon_upper = string.upper(addon_name)
-    local replace_name = addon_upper .. "_REPLACE_" .. origin_func_name
+-- 戻り値は控えた元の実体(呼び出し元が自分の g.FUNCS へ写すのに使う)。
+--
+-- 掛け直すかどうかは、今 _G に入っているものを見て決める(setup_hook_and_event と同じ規則)。
+--   * 自分のラッパのまま           → 何もしない
+--   * 自分たちのフックが手前に居る  → 触らない。相手は自分を呼ぶ形で連鎖しているので両方生きている。
+--   * それ以外(知らない誰かが連鎖しない形で差し替えた) → 連鎖が切れているので掛け直す
+-- 3 つ目を「掛け済みなら何もしない」で済ませていたため、他アドオンに上書きされると
+-- セッション中ずっと外れたままになっていた(CHAT_SYSTEM のフィルタが黙って死ぬ等)。
+--
+-- owner は呼び出し元ごとの管理表。同梱アドオン(mini_addons)が同じ規則を自前で書き写すと
+-- 直しを 2 箇所へ入れることになるので、実装はここ 1 本にして表だけ差し替える。
+--   owner.installed … 掛けた実体の控え(まとめ版は g.core_hooks)
+--   owner.funcs     … 元の実体を書き戻す先(呼び出し元の g.FUNCS)。**まとめ版のものを
+--                     共有してはいけない**。まとめ版が先に掛けていると、まとめ版の
+--                     g.FUNCS[origin] がまとめ版自身のラッパになり無限再帰する。
+--   owner.prefix    … 控えのグローバル名の接頭辞。ここを共有すると、どちらが先に掛けたかで
+--                     相手のフックを落としてしまうので必ず分けること。
+--   owner.label     … ログの頭
+function g.setup_hook(my_func, origin_func_name, owner)
     g.FUNCS = g.FUNCS or {}
-    if not _G[replace_name] then
+    local installed_map = (owner and owner.installed) or g.core_hooks
+    local funcs_map = (owner and owner.funcs) or g.FUNCS
+    local prefix = (owner and owner.prefix) or string.upper(addon_name)
+    local label = (owner and owner.label) or "setup_hook"
+    local replace_name = prefix .. "_REPLACE_" .. origin_func_name
+    if not g.hook_captured[replace_name] then
+        g.hook_captured[replace_name] = true
         _G[replace_name] = _G[origin_func_name]
     end
-    g.FUNCS[origin_func_name] = _G[replace_name]
-    if _G[origin_func_name] == my_func then
-        g.hook_owner[origin_func_name] = my_func
-        return
+    local origin_func = _G[replace_name]
+    funcs_map[origin_func_name] = origin_func
+    local current = _G[origin_func_name]
+    if current == my_func then
+        g.hook_owner_add(origin_func_name, my_func)
+        return origin_func
     end
-    if g.core_hooks[origin_func_name] == my_func then
-        g.vlog("setup_hook: %s は手前に別のフックが居るので張り直さない", origin_func_name)
-        return
+    if installed_map[origin_func_name] == my_func then
+        -- 掛け済み。今 _G に居るのが「自分より後に掛けた味方(=手前で自分を呼ぶ)」か、
+        -- イベント用ラッパなら、相手が自分を呼ぶ形で連鎖しているので触らない。
+        -- **単一スロット比較にしてはいけない**(理由は g.hook_owner の宣言コメント)。
+        -- 自分より先に掛けた味方が手前に居るのは連鎖が壊れた印なので、張り直しへ回す。
+        if g.hook_owner_in_front(origin_func_name, current, my_func) or
+            current == g.EVENT_HOOKS[origin_func_name] then
+            g.vlog("%s: %s は手前に別のフックが居るので張り直さない", label, origin_func_name)
+            return origin_func
+        end
+        g.vlog("{#FF6347}%s: %s が知らない誰かに差し替えられていたので掛け直す{/}", label, origin_func_name)
     end
     _G[origin_func_name] = my_func
-    g.core_hooks[origin_func_name] = my_func
-    g.hook_owner[origin_func_name] = my_func
+    installed_map[origin_func_name] = my_func
+    g.hook_owner_add(origin_func_name, my_func)
+    return origin_func
 end
 
 -- tmp を path へ差し替える(remove→rename)。成功可否を返す。

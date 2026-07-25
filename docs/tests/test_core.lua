@@ -999,6 +999,90 @@ do
     check("同じ ON_INIT のまま ON に戻しても購読が戻る", #g.msg_handlers["TEST_GLOBAL"], 1)
 end
 
+print("[21] 置換方式フック(g.setup_hook)の掛け直しと控えの取り方")
+do
+    g.FUNCS, g.hook_owner, g.core_hooks, g.EVENT_HOOKS, g.hook_captured = {}, {}, {}, {}, {}
+    local vanilla = function() end
+    local mine = function() end
+    _G["TEST_HOOK_A"] = vanilla
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("掛かる", _G["TEST_HOOK_A"] == mine, true)
+    check("元の実体を控える", g.FUNCS["TEST_HOOK_A"] == vanilla, true)
+
+    -- 知らない誰かが連鎖しない形で差し替えたら、こちらの機能が死んでいるので掛け直す。
+    -- 「掛け済みなら何もしない」で済ませると、セッション中ずっと外れたままになる。
+    local stranger = function() end
+    _G["TEST_HOOK_A"] = stranger
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("差し替えられていたら掛け直す", _G["TEST_HOOK_A"] == mine, true)
+    check("控えは最初の実体のまま", g.FUNCS["TEST_HOOK_A"] == vanilla, true)
+
+    -- 味方(同梱アドオンの置換フック)が自分より後に掛かって手前に居るときは触らない。
+    -- 相手はこちらを呼ぶ形で連鎖しているので、掛け直すと相手を落としてしまう。
+    local friend = function() end
+    _G["TEST_HOOK_A"] = friend
+    g.hook_owner_add("TEST_HOOK_A", friend) -- mine(先) の後に friend(後) が掛かった並び
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("後から掛けた味方が手前なら張り直さない", _G["TEST_HOOK_A"] == friend, true)
+
+    -- 掛けようとしたグローバルが走っているクライアントに無い場合。控えは nil のままだが、
+    -- 2 回目に**自分自身**を「元の関数」として控えてはいけない(呼ぶと無限再帰する)。
+    _G["TEST_HOOK_MISSING"] = nil
+    g.setup_hook(mine, "TEST_HOOK_MISSING")
+    check("無いグローバルでも掛かる", _G["TEST_HOOK_MISSING"] == mine, true)
+    check("控えは nil のまま", g.FUNCS["TEST_HOOK_MISSING"], nil)
+    g.setup_hook(mine, "TEST_HOOK_MISSING")
+    check("2 回目も自分を控えない", g.FUNCS["TEST_HOOK_MISSING"], nil)
+
+    -- 同梱アドオン(mini_addons)は同じ実装へ自分の表と控えの名前だけ渡す。
+    -- ここを共有すると、控えが相手のラッパを指して無限再帰する。
+    local sub_funcs, sub_installed = {}, {}
+    local sub_func = function() end
+    _G["TEST_HOOK_B"] = vanilla
+    g.setup_hook(sub_func, "TEST_HOOK_B",
+        {installed = sub_installed, funcs = sub_funcs, prefix = "SUB", label = "sub"})
+    check("同梱側の表に入る", sub_installed["TEST_HOOK_B"] == sub_func, true)
+    check("まとめ版の表には入らない", g.core_hooks["TEST_HOOK_B"], nil)
+    check("控えは呼び出し元の g.FUNCS へ", sub_funcs["TEST_HOOK_B"] == vanilla, true)
+    check("まとめ版の g.FUNCS は汚さない", g.FUNCS["TEST_HOOK_B"], nil)
+    check("控えのグローバル名が分かれる", _G["SUB_REPLACE_TEST_HOOK_B"] == vanilla, true)
+    check("まとめ版へ味方だと伝える", g.hook_owner_index("TEST_HOOK_B", sub_func), 1)
+end
+
+-- 同じグローバルに味方が 2 つ乗り(まとめ版 + 同梱アドオン)、そのうえで知らない誰かが
+-- 割り込んだあとの復帰。まとめ版が先・同梱が後(=手前)に掛けた状態で _G を第三者に
+-- 差し替えられると、次の ON_INIT でまとめ版が先に復帰する。ここで hook_owner が単一
+-- スロットだと、まとめ版で埋まって手前の同梱側が「味方が手前」と誤判定し張り直しを飛ばす
+-- → 同梱側のフックがチェーンから外れて黙って死ぬ。並びで持てば防げることを固定する。
+print("[21-2] 味方 2 つ + 第三者割り込みからの復帰で手前の味方を落とさない")
+do
+    g.FUNCS, g.hook_owner, g.core_hooks, g.EVENT_HOOKS, g.hook_captured = {}, {}, {}, {}, {}
+    local vanilla = function() end
+    local core_func = function() end -- まとめ版(先に掛ける=後ろ)
+    local mini_func = function() end -- 同梱(後に掛ける=手前)
+    local mini_funcs, mini_installed = {}, {}
+    _G["CO_HOOK"] = vanilla
+    -- 通常の連鎖: まとめ版 → 同梱 の順で掛かり、_G には手前の mini_func が入る
+    g.setup_hook(core_func, "CO_HOOK")
+    g.setup_hook(mini_func, "CO_HOOK",
+        {installed = mini_installed, funcs = mini_funcs, prefix = "MINI", label = "mini"})
+    check("手前は同梱側", _G["CO_HOOK"] == mini_func, true)
+
+    -- 第三者が _G を差し替える(このアドオンが耐えたいまさにその状況)
+    local stranger = function() end
+    _G["CO_HOOK"] = stranger
+
+    -- 次の ON_INIT。順序どおり、まず まとめ版が復帰(第三者を検出して掛け直す)
+    g.setup_hook(core_func, "CO_HOOK")
+    check("まとめ版が第三者を退けて復帰", _G["CO_HOOK"] == core_func, true)
+    -- 続いて 同梱側。まとめ版で手前が埋まっていても、掛けた順(同梱が後)で見るので
+    -- 「先に掛けた まとめ版が手前に居る=連鎖が壊れた」と分かり、正しく張り直す。
+    g.setup_hook(mini_func, "CO_HOOK",
+        {installed = mini_installed, funcs = mini_funcs, prefix = "MINI", label = "mini"})
+    check("同梱側が手前へ復帰する(黙って死なない)", _G["CO_HOOK"] == mini_func, true)
+    check("同梱の控えは まとめ版フックを指し連鎖が保たれる", mini_funcs["CO_HOOK"] == core_func, true)
+end
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

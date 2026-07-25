@@ -179,35 +179,27 @@ function g.get_frame()
     return Mini_addons_create_frame()
 end
 
--- 置換方式のフック。まとめ版の g.setup_hook と同じ規則で入れる(控えの名前だけが
--- MINI_ADDONS_P_REPLACE_* で別。ここを共有すると、どちらが先に掛けたかで相手の
--- フックを落としてしまうため、控えはアドオンごとに分けたままにする)。
--- 1 グローバルにつき 1 回だけ入れるのは、後から上に掛かったフックを落とさないため。
--- 入れた実体は g.hook_installed に残す(機能 OFF のときに戻すのに使う)。
+-- 置換方式のフック。**実装はまとめ版の core_g.setup_hook 1 本**に寄せてある。
+-- 以前はここに同じ 15 行を書き写していたが、掛け直しの規則を直すたびに 2 箇所へ
+-- 反映する必要があり、実際に食い違いが出た(片方だけが「差し替えられていたら掛け直す」に
+-- なっていた)。渡すのは自分側の表と控えの接頭辞だけ。
+--   * 控えの名前(MINI_ADDONS_P_REPLACE_*)を分ける … 共有すると、どちらが先に掛けたかで
+--     相手のフックを落としてしまう。
+--   * g.FUNCS を分ける … まとめ版のものを共有すると、まとめ版が先に掛けている
+--     グローバル(CHAT_SYSTEM など)で、まとめ版の g.FUNCS が自分自身を指して無限再帰する。
+--   * g.hook_installed … 入れた実体の控え(機能 OFF のときに戻すのに使う)。
+-- 「今 _G に居るのは味方」をまとめ版へ伝えるのは core_g.setup_hook がやる
+-- (無いと、まとめ版の setup_hook_and_event がここで入れたフックを落とす)。
 g.hook_installed = g.hook_installed or {}
 
 function g.setup_hook(my_func, origin_func_name)
-    local addon_upper = string.upper(addon_name)
-    local replace_name = addon_upper .. "_REPLACE_" .. origin_func_name
     g.FUNCS = g.FUNCS or {}
-    if not _G[replace_name] then
-        _G[replace_name] = _G[origin_func_name]
-    end
-    g.FUNCS[origin_func_name] = _G[replace_name]
-    if _G[origin_func_name] == my_func then
-        core_g.hook_owner[origin_func_name] = my_func
-        return
-    end
-    if g.hook_installed[origin_func_name] == my_func then
-        core_g.vlog("mini_addons: %s は手前に別のフックが居るので張り直さない", origin_func_name)
-        return
-    end
-    _G[origin_func_name] = my_func
-    g.hook_installed[origin_func_name] = my_func
-    -- まとめ版へも「今 _G に居るのは味方」と伝える。これが無いと、まとめ版の
-    -- setup_hook_and_event が「知らない誰かに差し替えられた」と判断して掛け直し、
-    -- ここで入れたフックを落としてしまう(詳細は core/00_header.lua の g.hook_owner)。
-    core_g.hook_owner[origin_func_name] = my_func
+    core_g.setup_hook(my_func, origin_func_name, {
+        installed = g.hook_installed,
+        funcs = g.FUNCS,
+        prefix = string.upper(addon_name),
+        label = "mini_addons"
+    })
 end
 
 -- 個別版はここで自分のフォルダを os.execute('mkdir') で作っていたが、同梱版は保存先を
@@ -868,6 +860,19 @@ function Mini_addons_subframe_open(frame, ctrl, str)
 end
 
 function Mini_addons_SETTING_FRAME_INIT(frame_arg, ctrl_arg, str_arg, num_arg)
+    -- 機能 OFF のときは Mini_addons_ON_INIT が走らず g.settings がまだ無い。一覧の歯車は
+    -- ON/OFF によらず押せる(core/20_lifecycle.lua が frame_use だけを見て付ける)ので、
+    -- ここで受け止めないと下の g.settings.velnice.use で落ち、空のフレームだけが残る。
+    -- 既定が use=0 なので、新規導入直後に歯車を押すと必ず踏んでいた。
+    -- g.lang も ON_INIT で入るため、案内はまとめ版の言語設定で出す。
+    if not g.settings then
+        local msg = core_g.lang == "Japanese" and
+                        "{ol}[Mini Addons] まだ有効になっていません。一覧の ON/OFF を ON にしてから開いてください" or
+                        "{ol}[Mini Addons] Not enabled yet. Turn it ON in the list first"
+        ui.SysMsg(msg)
+        core_g.vlog("mini_addons: 設定画面を開こうとしたが未初期化(use=0)")
+        return
+    end
     local setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "setting", 0, 0, 10, 10)
     AUTO_CAST(setting)
     if setting:GetWidth() > 100 and str_arg == "false" then
@@ -1586,8 +1591,13 @@ function Mini_addons_CHAT_SYSTEM(msg, color)
             "&lt완벽함&gt 효과가 발동되었습니다." or msg == "@dicID_^*$ETC_20220830_069434$*^" or msg ==
             "@dicID_^*$ETC_20220830_069435$*^" or msg == "[__m2util] is loaded" or msg == "[adjustlayer] is loaded" or
             msg == "[extendcharinfo] is loaded" or msg == "[ICC]Attempt to CC." or
-            string.find(msg, "StartBlackMarketBetween") or string.find(msg, "[__m2util] is loaded") or
-            string.find(msg, "[adjustlayer] is loaded") or string.find(msg, "MapMate") then
+            -- string.find は既定でパターン照合なので、必ず plain(第 4 引数 true)で呼ぶこと。
+            -- "[__m2util] is loaded" をそのまま渡すと "[...]" が文字クラスと解釈され、
+            -- 「_ m 2 u t i l のどれか 1 文字 + ' is loaded'」に化けて、無関係な
+            -- システムメッセージ("t is loaded" 等)まで握り潰していた。
+            string.find(msg, "StartBlackMarketBetween", 1, true) or
+            string.find(msg, "[__m2util] is loaded", 1, true) or
+            string.find(msg, "[adjustlayer] is loaded", 1, true) or string.find(msg, "MapMate", 1, true) then
             return
         end
     end
@@ -5567,6 +5577,18 @@ end
 function Mini_addons_POPUP_CHANNEL_LIST()
     local zone_insts = session.serverState.GetMap()
     local frame_name = (addon_name_lower .. "_channel")
+    -- この関数は sysmenu/system(自分のフレームではない)へ 2 秒周期の更新スクリプトとして
+    -- 掛かっており、1 を返す限り走り続ける。Mini_addons_teardown は自分のフレームしか
+    -- 畳めないので、機能 OFF にしてもここが生き残り、2 秒後にフレームを作り直していた。
+    -- 0 を返すと更新スクリプトが外れるので、OFF はここで止める。再び ON にすれば
+    -- Mini_addons_GAME_START_CHANNEL_LIST が HaveUpdateScript を見て掛け直す。
+    -- チャンネル表示だけ OFF にした場合も同じ経路で片付く。
+    if not core_g.settings or not core_g.settings.mini_addons or core_g.settings.mini_addons.use ~= 1 or
+        not g.settings or g.settings.channel_info == 0 then
+        ui.DestroyFrame(frame_name)
+        core_g.vlog("mini_addons: チャンネル窓の更新を止めた(機能 OFF)")
+        return 0
+    end
     if not zone_insts then
         local frame = ui.GetFrame(frame_name)
         if frame then
@@ -7000,9 +7022,7 @@ function Mini_addons_teardown()
         if _G[name] == my_func then
             _G[name] = g.FUNCS[name]
             g.hook_installed[name] = nil
-            if core_g.hook_owner[name] == my_func then
-                core_g.hook_owner[name] = nil
-            end
+            core_g.hook_owner_remove(name, my_func)
             restored = restored + 1
         else
             kept = kept + 1
@@ -7041,10 +7061,11 @@ function mini_addons_on_init()
     -- 設定の引き継ぎは必ず ON_INIT より前に行う（理由は market_favorite_rebuild 側と同じ）。
     -- 個別版が持つのは設定とパーティーバフの 2 ファイル。列挙できないので直接並べる
     -- （buffs.json はパーティーバフ未設定なら存在しないが、その場合は黙って飛ばされる）。
+    -- 結果(copied / partial / failed)は migrate 側がチャットへ出すので、ここでは受けない。
     core_g.migrate_individual_addon_settings("mini_addons", {
         {src = tostring(core_g.active_id) .. "_1.json", dst = "mini_addons.json"},
         {src = "buffs.json", dst = "mini_addons_buffs.json"}
-    })
+    }, "Mini Addons")
     local frame = Mini_addons_create_frame()
     core_g.vlog("mini_addons: init frame=%s", tostring(frame ~= nil))
     Mini_addons_ON_INIT(core_g.addon, frame)
