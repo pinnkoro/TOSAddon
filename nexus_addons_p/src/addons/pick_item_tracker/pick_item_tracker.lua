@@ -41,9 +41,13 @@ function pick_item_tracker_on_init()
             g.pick_item_tracker_y = 45
             g.pick_item_tracker_x = 120
         end
-        g.addon:RegisterMsg('ITEM_PICK', 'Pick_item_tracker_ITEMMSG_ITEM_COUNT')
+        g.register_msg('ITEM_PICK', 'Pick_item_tracker_ITEMMSG_ITEM_COUNT')
         Pick_item_tracker_frame_init()
     else
+        -- 数えない場所へ来たら購読も外す。配信役(g.msg_handlers)は登録しっぱなしだと
+        -- ON_INIT では畳まれないので、外さないと町でも拾得が届いて集計へ混ざる
+        -- (次にフィールドへ入れば g.register_msg が張り直す)。
+        g.unregister_msg_by_prefix('Pick_item_tracker_ITEMMSG_ITEM_COUNT')
         g.pick_item_tracker_map_id = nil
         g.pick_item_tracker_items = {}
         g.pick_item_tracker_y = 45

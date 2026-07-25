@@ -1,8 +1,8 @@
 -- Boss Gauge ここから
 function boss_gauge_on_init()
-    g.addon:RegisterMsg('TARGET_BUFF_UPDATE', 'Boss_gauge_TARGETINFOTOBOSS_ON_MSG')
-    g.addon:RegisterMsg('TARGET_UPDATE', 'Boss_gauge_TARGETINFOTOBOSS_ON_MSG')
-    g.addon:RegisterMsg("TARGET_SET_BOSS", "Boss_gauge_TARGETINFOTOBOSS_ON_MSG")
+    g.register_msg('TARGET_BUFF_UPDATE', 'Boss_gauge_TARGETINFOTOBOSS_ON_MSG')
+    g.register_msg('TARGET_UPDATE', 'Boss_gauge_TARGETINFOTOBOSS_ON_MSG')
+    g.register_msg("TARGET_SET_BOSS", "Boss_gauge_TARGETINFOTOBOSS_ON_MSG")
     g.setup_hook_and_event(g.addon, "TARGETINFOTOBOSS_UPDATE_SHIELD", "Boss_gauge_TARGETINFOTOBOSS_UPDATE_SHIELD", true)
 end
 

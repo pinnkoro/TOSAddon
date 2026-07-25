@@ -307,9 +307,12 @@ function cc_helper_on_init()
     g.setup_hook_and_event(g.addon, "INVENTORY_OPEN", "Cc_helper_INVENTORY_OPEN", true)
     g.setup_hook_and_event(g.addon, "ACCOUNTWAREHOUSE_CLOSE", "Cc_helper_ACCOUNTWAREHOUSE_CLOSE", true)
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Cc_helper_INVENTORY_CLOSE", true)
+    -- 購読は毎回張り直す。配信役(g.msg_handlers)は登録しっぱなしだと ON_INIT では
+    -- 畳まれないので、外さないと町を出た後もチーム倉庫を開くたびにボタンを作りに行く。
+    g.unregister_msg_by_prefix("Cc_helper_frame_init")
     if g.get_map_type() == "City" then
         Cc_helper_frame_init()
-        g.addon:RegisterMsg("OPEN_DLG_ACCOUNTWAREHOUSE", "Cc_helper_frame_init")
+        g.register_msg("OPEN_DLG_ACCOUNTWAREHOUSE", "Cc_helper_frame_init")
     end
     if g.settings.cc_helper.use == 0 then
         Cc_helper_ACCOUNTWAREHOUSE_CLOSE(nil, nil)

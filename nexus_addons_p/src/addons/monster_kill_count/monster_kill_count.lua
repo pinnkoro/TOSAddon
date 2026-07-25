@@ -121,90 +121,138 @@ function monster_kill_count_on_init()
         return
     end
     g.setup_hook_and_event(g.addon, "APPLY_SCREEN", "Monster_kill_count_APPLY_SCREEN", true)
+
+    -- ここが「討伐数を数える場所」かを先に判定する。数えない経路は 1 つではなく、
+    -- 町・フィールド外に加えて、フィールドでも次の 3 つがある:
+    --   * 自分とマップのレベル差が 50 超(高レベルで低レベル帯を数えない)
+    --   * ギルドコロニー
+    --   * チャンネル 10 超のパーティが居る
+    -- **これら全部で購読と集計状態を必ず畳むこと。**畳み忘れると、直前に数えていた
+    -- マップの購読と g.mkc_map_data が残り、次のマップのキルが前のマップの記録へ混ざる。
+    -- 以前は町だけで畳み、レベル差 過大 / コロニー / 高チャンネルは素の return で
+    -- 素通りしていたため、数えるマップ A → 数えないフィールド B と移ると B のキルが
+    -- A の記録へ書き込まれた(EXP_UPDATE のガードは map_data が「在るが古い」と通す)。
+    local should_count = false
     if g.get_map_type() == "Field" or g.get_map_type() == "Dungeon" then
+        -- Map クラスを引けないマップ(インスタンス化・改名・g.map_name が一時的に空 など)がある。
+        -- 引けないまま .QuestLevel を触ると on_init が teardown に到達する前に落ち、直前の
+        -- マップの購読と mkc_map_data が残って記録が混ざる(このアドオンが避けたいまさにその結果)。
+        -- 引けないときは数えない扱いにして下の teardown へ落とす。
         local map_cls = GetClass("Map", g.map_name)
-        local map_level = map_cls.QuestLevel
-        local my_level = info.GetLevel(session.GetMyHandle())
-        if my_level - map_level <= 50 or g.map_id == 11244 then
-            local colony_list, cnt = GetClassList("guild_colony")
-            for i = 0, cnt - 1 do
-                local check_word = "GuildColony_"
-                if string.find(g.map_name, check_word) then
-                    return
+        if map_cls then
+            local map_level = map_cls.QuestLevel
+            local my_level = info.GetLevel(session.GetMyHandle())
+            if my_level - map_level <= 50 or g.map_id == 11244 then
+                should_count = true
+                local colony_list, cnt = GetClassList("guild_colony")
+                for i = 0, cnt - 1 do
+                    local check_word = "GuildColony_"
+                    if string.find(g.map_name, check_word) then
+                        should_count = false
+                        break
+                    end
+                end
+                if should_count then
+                    local list = session.party.GetPartyMemberList(PARTY_NORMAL)
+                    local count = list:Count()
+                    for i = 0, count - 1 do
+                        local party_member_info = list:Element(i)
+                        local name = party_member_info:GetName()
+                        local channel = party_member_info:GetChannel() + 1
+                        if channel > 10 then
+                            should_count = false
+                            break
+                        end
+                    end
                 end
             end
-            local list = session.party.GetPartyMemberList(PARTY_NORMAL)
-            local count = list:Count()
-            for i = 0, count - 1 do
-                local party_member_info = list:Element(i)
-                local name = party_member_info:GetName()
-                local channel = party_member_info:GetChannel() + 1
-                if channel > 10 then
-                    return
-                end
-            end
-            g.addon:RegisterMsg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
-            g.addon:RegisterMsg("ITEM_PICK", "Monster_kill_count_ITEM_PICK")
-            g.addon:RegisterMsg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT",
-                "Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
-            g.mkc_autosave_counter = 0
-            if not g.mkc_map_id then
-                g.mkc_map_id = g.map_id
-                g.mkc_count = 0
-                g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
-                g.mkc_last_tick_ms = g.mkc_start_time
-            elseif g.mkc_map_id ~= g.map_id then
-                local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
-                local map_data = g.load_json(map_file_path)
-                if map_data then
-                    g.save_json(map_file_path, map_data)
-                end
-                g.mkc_count = 0
-                g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
-                g.mkc_last_tick_ms = g.mkc_start_time
-                g.mkc_map_id = g.map_id
-            end
-            local map_file_path = Monster_kill_count_get_map_filepath(g.map_id)
-            local map_data = g.load_json(map_file_path)
-            if not map_data then
-                map_data = {
-                    map_name = g.map_name,
-                    stay_time = 3000,
-                    kill_count = 0,
-                    get_items = {}
-                }
-            end
-            g.mkc_map_data = map_data
-            g.save_json(map_file_path, map_data)
-            -- map_ids は Monster_kill_count_load_settings でしか作られず、そこは
-            -- 設定ファイルが既に在ると即 return する。つまり初回以降は更新されず、
-            -- 新しく通ったマップが「マップ情報」の一覧に永久に出てこなかった。
-            -- 記録ファイルを作ったこの場で登録する。
-            local known = false
-            for _, id in ipairs(g.mkc_settings.map_ids) do
-                if tostring(id) == tostring(g.map_id) then
-                    known = true
-                    break
-                end
-            end
-            if not known then
-                table.insert(g.mkc_settings.map_ids, g.map_id)
-                Monster_kill_count_save_settings()
-            end
-            Monster_kill_count_frame_init()
+        else
+            g.vlog("{#FF6347}monster_kill_count: Map クラスを引けないので数えない (%s){/}", tostring(g.map_name))
         end
-    else
-        if g.mkc_map_id then
-            local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
-            local map_data = g.load_json(map_file_path)
-            if map_data then
-                g.save_json(map_file_path, map_data)
-            end
-            g.mkc_map_id = nil
-            g.mkc_count = nil
-            g.mkc_start_time = nil
-            ui.DestroyFrame(addon_name_lower .. "monster_kill_count")
-            local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    end
+
+    if not should_count then
+        Monster_kill_count_teardown()
+        return
+    end
+
+    g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
+    g.register_msg("ITEM_PICK", "Monster_kill_count_ITEM_PICK")
+    g.register_msg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT",
+        "Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
+    g.mkc_autosave_counter = 0
+    if not g.mkc_map_id then
+        g.mkc_map_id = g.map_id
+        g.mkc_count = 0
+        g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
+        g.mkc_last_tick_ms = g.mkc_start_time
+    elseif g.mkc_map_id ~= g.map_id then
+        local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
+        local map_data = g.load_json(map_file_path)
+        if map_data then
+            g.save_json(map_file_path, map_data)
+        end
+        g.mkc_count = 0
+        g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
+        g.mkc_last_tick_ms = g.mkc_start_time
+        g.mkc_map_id = g.map_id
+    end
+    local map_file_path = Monster_kill_count_get_map_filepath(g.map_id)
+    local map_data = g.load_json(map_file_path)
+    if not map_data then
+        map_data = {
+            map_name = g.map_name,
+            stay_time = 3000,
+            kill_count = 0,
+            get_items = {}
+        }
+    end
+    g.mkc_map_data = map_data
+    g.save_json(map_file_path, map_data)
+    -- map_ids は Monster_kill_count_load_settings でしか作られず、そこは
+    -- 設定ファイルが既に在ると即 return する。つまり初回以降は更新されず、
+    -- 新しく通ったマップが「マップ情報」の一覧に永久に出てこなかった。
+    -- 記録ファイルを作ったこの場で登録する。
+    local known = false
+    for _, id in ipairs(g.mkc_settings.map_ids) do
+        if tostring(id) == tostring(g.map_id) then
+            known = true
+            break
+        end
+    end
+    if not known then
+        table.insert(g.mkc_settings.map_ids, g.map_id)
+        Monster_kill_count_save_settings()
+    end
+    Monster_kill_count_frame_init()
+end
+
+-- 討伐数を数えない場所へ来たときの後始末。**数えない全経路から必ず呼ぶこと。**
+-- 配信役(g.msg_handlers)は登録しっぱなしだと ON_INIT では畳まれない。
+-- 置き換える前は addon:RegisterMsg の後勝ちで勝手に外れていたが、今は登録した全員へ
+-- 配るので、外さないと数えない場所でも EXP_UPDATE / ITEM_PICK が届き、消したフレームを
+-- 触って落ちる / 直前のフィールドの記録へ書き込む。印(g.REGISTER)も一緒に落ちるので、
+-- 次に数えるフィールドへ入れば張り直される。
+function Monster_kill_count_teardown()
+    g.unregister_msg_by_prefix("Monster_kill_count_EXP_UPDATE")
+    g.unregister_msg_by_prefix("Monster_kill_count_ITEM_PICK")
+    g.unregister_msg_by_prefix("Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
+    if g.mkc_map_id then
+        local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
+        local map_data = g.load_json(map_file_path)
+        if map_data then
+            g.save_json(map_file_path, map_data)
+        end
+        g.mkc_map_id = nil
+        g.mkc_count = nil
+        g.mkc_start_time = nil
+        g.mkc_map_data = nil
+        ui.DestroyFrame(addon_name_lower .. "monster_kill_count")
+        -- 共有フレームがまだ無い/破棄済みのことがある(早期の後始末やフレームリセット後)。
+        -- nil のまま RemoveChild を呼ぶと teardown が途中で落ち、記録は保存済みなのに購読と
+        -- 状態のクリアが中途半端になる。あるときだけ子を外す。
+        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+        if _nexus_addons_p then
             _nexus_addons_p:RemoveChild("monster_kill_count_timer")
         end
     end
@@ -224,6 +272,11 @@ end
 
 function Monster_kill_count_EXP_UPDATE(frame, msg)
     local monster_kill_count = ui.GetFrame(addon_name_lower .. "monster_kill_count")
+    -- 数える下地(フレームと集計先)が揃っていなければ黙って返る。購読を外す前に 1 通
+    -- 届いた場合や、機能 OFF でフレームだけ消えている場合に GET_CHILD(nil, ...) で落ちる。
+    if not monster_kill_count or not g.mkc_count or not g.mkc_map_data then
+        return
+    end
     local count_text = GET_CHILD(monster_kill_count, "count_text")
     AUTO_CAST(count_text)
     g.mkc_count = g.mkc_count + 1
@@ -232,6 +285,10 @@ function Monster_kill_count_EXP_UPDATE(frame, msg)
 end
 
 function Monster_kill_count_ITEM_PICK(frame, msg, class_id, item_count)
+    -- 集計先が無いときに書くと、直前に居たマップの記録へ混ざる(EXP_UPDATE と同じ理由)。
+    if not g.mkc_map_data then
+        return
+    end
     local cls_id = tonumber(class_id)
     if cls_id then
         cls_id = math.floor(cls_id)

@@ -316,7 +316,7 @@ function indun_panel_on_init()
         ui.DestroyFrame(addon_name_lower .. "indun_panel_map")
         return
     end
-    g.addon:RegisterMsg("ESCAPE_PRESSED", "Indun_panel_frame_init")
+    g.register_msg("ESCAPE_PRESSED", "Indun_panel_frame_init")
     local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
     if not indun_panel then
         Indun_panel_frame_init()

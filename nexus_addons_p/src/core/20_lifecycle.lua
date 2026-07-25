@@ -67,6 +67,10 @@ end
 function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.addon = addon
     g.frame = frame
+    -- 購読(addon:RegisterMsg)は ON_INIT ごとに張り直す。ここで空にすることで、この後の
+    -- register_msg がメッセージごとに 1 回ずつ打ち直す(詳細は g.register_msg)。
+    -- 本家検出で下の early return に入る経路も購読を張るので、判定より前に置く。
+    g.msg_registered_cycle = {}
     -- 返るのは「国UI名」で、日本語は "Japanese"、韓国語は "Korean" ではなく "kr"。
     -- 言語名と2文字コードが混在するのはゲーム側の仕様で、こちらの typo ではない。
     -- 根拠: クライアントの systemoption.lua / barrack_charlist.lua が言語ドロップダウンを
@@ -90,7 +94,7 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     -- 告知だけは出したいので GAME_START(全アドオンのロード完了後)にだけ入る。
     if g.detect_origin_addon() then
         g.origin_conflict = true
-        addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
+        g.register_msg('GAME_START', '_nexus_addons_p_GAME_START')
         return
     end
     g.login_name = session.GetMySession():GetPCApc():GetName()
@@ -99,10 +103,10 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.current_channel = session.loginInfo.GetChannel() -- 0が1ch
     g.pc = GetMyPCObject()
     g.REGISTER = {}
-    addon:RegisterMsg('GAME_START', '_nexus_addons_p_GAME_START')
-    addon:RegisterMsg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
+    g.register_msg('GAME_START', '_nexus_addons_p_GAME_START')
+    g.register_msg('GAME_START_3SEC', '_nexus_addons_p_GAME_START_3SEC')
     -- ESC はここ 1 箇所だけで受ける(アドオン側で個別に購読しないこと。理由は g.esc_register)
-    addon:RegisterMsg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
+    g.register_msg('ESCAPE_PRESSED', '_nexus_addons_p_ESCAPE_PRESSED')
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
 end
 
@@ -509,6 +513,12 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
     g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
         tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
+    -- 本家からの引き継ぎは ON_INIT(設定を読む前)で走るので、そのときは vlog が黙る。
+    -- 何件コピーできたかはここまで持ち越して出す(g.migrate_from_origin)。
+    if g.migrate_summary then
+        g.vlog("%s", g.migrate_summary)
+        g.migrate_summary = nil
+    end
     if g.migrate_result == "copied" or g.migrate_result == "partial" then
         g.migrate_result = false
         g.pending_messages = g.pending_messages or {}
@@ -559,7 +569,7 @@ function _nexus_addons_p_GAME_START_3SEC(_nexus_addons_p, msg)
         return
     end
     _nexus_addons_p_init_addons(false, nil, _nexus_addons_p)
-    g.addon:RegisterMsg('FPS_UPDATE', '_nexus_addons_p_update_frames')
+    g.register_msg('FPS_UPDATE', '_nexus_addons_p_update_frames')
 end
 
 function _nexus_addons_p_fast_func(_nexus_addons_p)

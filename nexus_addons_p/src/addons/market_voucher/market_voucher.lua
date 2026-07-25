@@ -80,7 +80,7 @@ function market_voucher_on_init()
     g.setup_hook_and_event(g.addon, "CABINET_GET_ALL_LIST", "Market_voucher_CABINET_GET_ALL_LIST", false)
     g.setup_hook_and_event(g.addon, "_BUY_MARKET_ITEM", "Market_voucher__BUY_MARKET_ITEM", false)
     g.setup_hook_and_event(g.addon, "_CABINET_ITEM_BUY", "Market_voucher__CABINET_ITEM_BUY", false)
-    g.addon:RegisterMsg("CABINET_ITEM_LIST", "Market_voucher_init_frame")
+    g.register_msg("CABINET_ITEM_LIST", "Market_voucher_init_frame")
 end
 
 function Market_voucher_lang_trans(key)

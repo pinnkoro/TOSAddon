@@ -45,13 +45,13 @@ function sub_map_on_init()
         return
     end
     g.sub_map_handles = {}
-    g.addon:RegisterMsg("MAP_CHARACTER_UPDATE", "Sub_map_MAP_CHARACTER_UPDATE")
-    g.addon:RegisterMsg("MON_MINIMAP", "Sub_map_MAP_MON_MINIMAP")
-    g.addon:RegisterMsg("MON_MINIMAP_END", "Sub_map_ON_MON_MINIMAP_END")
-    g.addon:RegisterMsg("PARTY_INST_UPDATE", "Sub_map_MAP_UPDATE_PARTY_INST")
-    g.addon:RegisterMsg("PARTY_UPDATE", "Sub_map_update_party_or_guild")
-    g.addon:RegisterMsg("GUILD_INFO_UPDATE", "Sub_map_update_party_or_guild")
-    g.addon:RegisterMsg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT", "Sub_map_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
+    g.register_msg("MAP_CHARACTER_UPDATE", "Sub_map_MAP_CHARACTER_UPDATE")
+    g.register_msg("MON_MINIMAP", "Sub_map_MAP_MON_MINIMAP")
+    g.register_msg("MON_MINIMAP_END", "Sub_map_ON_MON_MINIMAP_END")
+    g.register_msg("PARTY_INST_UPDATE", "Sub_map_MAP_UPDATE_PARTY_INST")
+    g.register_msg("PARTY_UPDATE", "Sub_map_update_party_or_guild")
+    g.register_msg("GUILD_INFO_UPDATE", "Sub_map_update_party_or_guild")
+    g.register_msg("UI_CHALLENGE_MODE_TOTAL_KILL_COUNT", "Sub_map_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
     g.sub_map_challenge_first = true
     g.sub_map_challenge = 0
     if g.get_map_type() == "City" then

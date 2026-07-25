@@ -1,6 +1,6 @@
 -- Auto Map Change ここから
 function auto_map_change_on_init()
-    g.addon:RegisterMsg("DIALOG_CHANGE_SELECT", "Auto_map_change_DIALOG_ON_MSG")
+    g.register_msg("DIALOG_CHANGE_SELECT", "Auto_map_change_DIALOG_ON_MSG")
 end
 
 function Auto_map_change_DIALOG_ON_MSG(frame, msg, str, num)
