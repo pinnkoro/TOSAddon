@@ -129,7 +129,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v1.1.0**
   * **Mini Addons を追加。** ちょっとした便利機能の詰合せ（norisan さん作）を同梱した。
   * **Market Favorite Rebuild を追加。** マーケットのお気に入り登録と検索の強化
     （ebisuke さん作 / norisan さん改造）を同梱した。
