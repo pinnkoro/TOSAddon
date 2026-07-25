@@ -267,7 +267,7 @@ function indun_list_viewer_on_init()
     if _G[old_func] then
         return
     end
-    g.addon:RegisterMsg("EXPIREDITEM_ALERT_OPEN", "Indun_list_viewer_EXPIREDITEM_ALERT_ON_MSG")
+    g.register_msg("EXPIREDITEM_ALERT_OPEN", "Indun_list_viewer_EXPIREDITEM_ALERT_ON_MSG")
     if g.get_map_type() == "City" then
         Indun_list_viewer_char_load_settings()
         Indun_list_viewer_sort_characters()

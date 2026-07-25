@@ -236,9 +236,9 @@ function muteki_on_init()
     if _G[old_func] then
         return
     end
-    g.addon:RegisterMsg("BUFF_ADD", "Muteki_BUFF_ON_MSG")
-    g.addon:RegisterMsg("BUFF_UPDATE", "Muteki_BUFF_ON_MSG")
-    g.addon:RegisterMsg("BUFF_REMOVE", "Muteki_BUFF_ON_MSG")
+    g.register_msg("BUFF_ADD", "Muteki_BUFF_ON_MSG")
+    g.register_msg("BUFF_UPDATE", "Muteki_BUFF_ON_MSG")
+    g.register_msg("BUFF_REMOVE", "Muteki_BUFF_ON_MSG")
     g.setup_hook_and_event(g.addon, "ICON_USE", "Muteki_ICON_USE", true)
     if g.settings.muteki.use == 0 then
         ui.DestroyFrame(addon_name_lower .. "muteki")

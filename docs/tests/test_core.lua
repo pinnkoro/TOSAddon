@@ -109,6 +109,9 @@ ui = {
     end,
 }
 function AUTO_CAST(x) return x end
+-- ゲームクライアントの Lua には table.unpack がある(5.2 互換)。素の LuaJIT には無いので補う。
+-- フックのラッパ(g.setup_hook_and_event)が戻り値を返すときに通る。
+table.unpack = table.unpack or unpack
 option = {GetCurrentCountry = function() return "Japanese" end}
 -- ESC の二重処理よけ（同じ押下で 2 経路から来る）を試すため、時計は進められるようにする。
 local app_ms = 0
@@ -667,6 +670,44 @@ check("AID 前のバックアップは失敗", g.backup_settings(), false)
 check("AID 前の復元は失敗", g.restore_settings(), false)
 check("AID 前の情報取得は nil", g.backup_info(), nil)
 
+-- ===== 16-2. 本家からの引き継ぎ =====
+-- 以前は xcopy(cmd)でフォルダごとコピーしていたが、バックアップと同じ一覧
+-- (g.settings_file_names)を使って io で 1 ファイルずつ写す形にした。cmd が出るのは
+-- 可変名ファイルを置くサブフォルダを作る mkdir だけ。vfs のスタブをそのまま使うので
+-- [16] の中に置いている。
+print("[16-2] 本家の設定を引き継ぐ")
+do
+    g.active_id = "7654321"
+    local src = "../addons/_nexus_addons/" .. g.active_id
+    local dst = "../addons/_nexus_addons_p/" .. g.active_id
+    vfs[src .. "/settings.json"] = "ORIGIN-SETTINGS"
+    vfs[src .. "/muteki.json"] = "ORIGIN-MUTEKI"
+    vfs[src .. "/not_listed.json"] = "ORIGIN-UNKNOWN" -- 一覧に無いファイル
+    g.save_json(src .. "/monster_kill_count.json", {map_ids = {1001}})
+    vfs[src .. "/monster_kill_count/1001.json"] = "ORIGIN-KILL-1001"
+    marker_exists, os_execute_calls = {}, {}
+    check("引き継いだ", g.migrate_from_origin(), "copied")
+    check("settings.json が入る", vfs[dst .. "/settings.json"], "ORIGIN-SETTINGS")
+    check("各アドオンの設定も入る", vfs[dst .. "/muteki.json"], "ORIGIN-MUTEKI")
+    check("可変名のファイルも入る", vfs[dst .. "/monster_kill_count/1001.json"], "ORIGIN-KILL-1001")
+    check("一覧に無いファイルは入らない", vfs[dst .. "/not_listed.json"], nil)
+    check("件数は GAME_START まで持ち越す", g.migrate_summary ~= nil, true)
+    local used_xcopy = false
+    for _, cmd in ipairs(os_execute_calls) do
+        if string.find(cmd, "xcopy", 1, true) then
+            used_xcopy = true
+        end
+    end
+    check("xcopy は使わない", used_xcopy, false)
+    check("cmd はサブフォルダの mkdir だけ", #os_execute_calls, 1)
+
+    -- 自分側に設定があるときは絶対に走らせない(本家の古い設定で上書きしてしまう)
+    vfs[dst .. "/settings.json"] = "MINE"
+    check("既に自分の設定があれば何もしない", g.migrate_from_origin(), nil)
+    check("自分の設定は書き換わらない", vfs[dst .. "/settings.json"], "MINE")
+    g.active_id = nil
+end
+
 io.open = prev_io_open
 os.remove, os.rename = prev_os_remove, prev_os_rename
 g.settings = saved_settings
@@ -843,6 +884,204 @@ check("次の押下では false", g.esc_taken(), false)
 esc_setup({})
 esc_press()
 check("空振りの押下は使ったことにしない", g.esc_taken(), false)
+
+-- ===== 19. メッセージの多重配信 =====
+-- addon:RegisterMsg は 1 メッセージ 1 ハンドラしか持てないので、購読を 1 本にまとめて
+-- 配信役から配る。ここが壊れると「後から登録した側だけ動く」形で黙って機能が死ぬ。
+-- （新しい local を増やしすぎないよう do ブロックに閉じる）
+print("[19] 1 メッセージに複数のハンドラを配る")
+do
+    local registered = {}
+    local function new_addon(tag)
+        return {
+            _tag = tag,
+            RegisterMsg = function(self, msg, func_name)
+                registered[#registered + 1] = {tag = self._tag, msg = msg, func = func_name}
+            end
+        }
+    end
+    -- 前の検査の登録を持ち越さない
+    g.msg_handlers, g.msg_registered_cycle, g.msg_registered_addon, g.msg_failed = {}, {}, {}, {}
+    g.addon = new_addon("A")
+    local called = {}
+    _G["Test_handler_1"] = function() called[#called + 1] = "1" end
+    _G["Test_handler_2"] = function() called[#called + 1] = "2" end
+    g.register_msg("TEST_MSG", "Test_handler_1")
+    g.register_msg("TEST_MSG", "Test_handler_2")
+    check("購読は 1 本だけ", #registered, 1)
+    check("配信役の名前で登録する", registered[1].func, "_nexus_addons_p_msg_TEST_MSG")
+    _G["_nexus_addons_p_msg_TEST_MSG"](nil, "TEST_MSG", "", 0)
+    check("2 本とも呼ばれる", table.concat(called, ","), "1,2")
+    g.register_msg("TEST_MSG", "Test_handler_1")
+    check("同じハンドラは二重に足さない", #g.msg_handlers["TEST_MSG"], 2)
+
+    -- 1 本が転んでも後続へ配る。報告は debug_log.txt にも出すが、毎フレーム来る経路
+    -- (FPS_UPDATE)があるので同じ組では 1 回だけ。
+    local logged = {}
+    local real_log_to_file = g.log_to_file
+    g.log_to_file = function(msg) logged[#logged + 1] = msg end
+    called = {}
+    _G["Test_handler_1"] = function() error("わざと落とす") end
+    _G["_nexus_addons_p_msg_TEST_MSG"](nil, "TEST_MSG", "", 0)
+    check("転んでも後続へ配る", table.concat(called, ","), "2")
+    check("debug_log にも残す", #logged, 1)
+    _G["_nexus_addons_p_msg_TEST_MSG"](nil, "TEST_MSG", "", 0)
+    check("同じ失敗は繰り返し報告しない", #logged, 1)
+    g.log_to_file = real_log_to_file
+
+    -- ON_INIT のたびに購読を張り直す。addon が別物に差し替わっても届かせるため。
+    registered = {}
+    g.msg_registered_cycle = {} -- ON_INIT が空にする
+    g.addon = new_addon("B")
+    g.register_msg("TEST_MSG", "Test_handler_2")
+    check("ON_INIT ごとに張り直す", #registered, 1)
+    check("新しい addon で張る", registered[1].tag, "B")
+    g.register_msg("TEST_MSG", "Test_handler_1")
+    check("同じ ON_INIT の 2 回目は張らない", #registered, 1)
+
+    -- 機能 OFF になったアドオンは自分のハンドラだけ外す
+    check("外した本数", g.unregister_msg_by_prefix("Test_handler_"), 2)
+    called = {}
+    _G["_nexus_addons_p_msg_TEST_MSG"](nil, "TEST_MSG", "", 0)
+    check("外した後は呼ばれない", #called, 0)
+end
+
+-- ===== 20. フックの張り直し =====
+-- 同じグローバルに置換方式(g.setup_hook)とイベント方式(g.setup_hook_and_event)が
+-- 乗ることがある。ON_INIT のたびに掛け直すと相手を落とすので、掛け直しは
+-- 「知らない誰かに差し替えられていたとき」だけにしている。
+print("[20] 置換方式とイベント方式が同じグローバルに乗っても潰し合わない")
+do
+    g.msg_handlers, g.msg_registered_cycle, g.msg_failed = {}, {}, {}
+    g.REGISTER, g.FUNCS, g.ARGS = {}, {}, {}
+    g.EVENT_HOOKS, g.EVENT_HOOK_BOOL, g.hook_owner, g.core_hooks = {}, {}, {}, {}
+    -- 配信の回数だけ見たいので、ここでは数える版に差し替える
+    -- (共用のスタブは imcAddOn:BroadMsg 形式で受けており、ここの呼び方とは引数がずれる)
+    local real_broad_msg = imcAddOn.BroadMsg
+    local broads = 0
+    imcAddOn.BroadMsg = function() broads = broads + 1 end
+    local vanilla_calls = 0
+    _G["TEST_GLOBAL"] = function() vanilla_calls = vanilla_calls + 1 end
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_2", true)
+    local wrapper = _G["TEST_GLOBAL"]
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_1", true)
+    check("ラッパは作り直さない", _G["TEST_GLOBAL"] == wrapper, true)
+    _G["TEST_GLOBAL"]()
+    check("元の関数は 1 回だけ", vanilla_calls, 1)
+    check("配信も 1 回だけ", broads, 1)
+    imcAddOn.BroadMsg = real_broad_msg
+
+    -- 置換方式を上から掛けたあと、イベント方式を掛け直しても落とさない
+    local my_func = function() end
+    g.setup_hook(my_func, "TEST_GLOBAL")
+    check("置換方式が手前に入る", _G["TEST_GLOBAL"] == my_func, true)
+    check("元の実体は控えから呼べる", g.FUNCS["TEST_GLOBAL"] == wrapper, true)
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_2", true)
+    check("イベント方式の掛け直しで落とさない", _G["TEST_GLOBAL"] == my_func, true)
+    g.setup_hook(my_func, "TEST_GLOBAL")
+    check("置換方式も入れ直さない", _G["TEST_GLOBAL"] == my_func, true)
+
+    -- 知らない誰かに差し替えられていたら、連鎖が切れているので掛け直す
+    local stranger = function() end
+    _G["TEST_GLOBAL"] = stranger
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_2", true)
+    check("外れていたら掛け直す", _G["TEST_GLOBAL"] ~= stranger, true)
+
+    -- 設定画面で OFF → ON とその場で戻したとき、購読が戻ること。
+    -- setup_hook_and_event は「登録済み」印(g.REGISTER)で二重登録を弾くので、OFF で
+    -- 外すときに印も落としておかないと、次のマップ移動まで購読が空のままになる。
+    g.msg_handlers, g.REGISTER = {}, {}
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_2", true)
+    check("購読が入る", #g.msg_handlers["TEST_GLOBAL"], 1)
+    g.unregister_msg_by_prefix("Test_handler_")
+    check("OFF で外れる", #g.msg_handlers["TEST_GLOBAL"], 0)
+    g.setup_hook_and_event(g.addon, "TEST_GLOBAL", "Test_handler_2", true)
+    check("同じ ON_INIT のまま ON に戻しても購読が戻る", #g.msg_handlers["TEST_GLOBAL"], 1)
+end
+
+print("[21] 置換方式フック(g.setup_hook)の掛け直しと控えの取り方")
+do
+    g.FUNCS, g.hook_owner, g.core_hooks, g.EVENT_HOOKS, g.hook_captured = {}, {}, {}, {}, {}
+    local vanilla = function() end
+    local mine = function() end
+    _G["TEST_HOOK_A"] = vanilla
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("掛かる", _G["TEST_HOOK_A"] == mine, true)
+    check("元の実体を控える", g.FUNCS["TEST_HOOK_A"] == vanilla, true)
+
+    -- 知らない誰かが連鎖しない形で差し替えたら、こちらの機能が死んでいるので掛け直す。
+    -- 「掛け済みなら何もしない」で済ませると、セッション中ずっと外れたままになる。
+    local stranger = function() end
+    _G["TEST_HOOK_A"] = stranger
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("差し替えられていたら掛け直す", _G["TEST_HOOK_A"] == mine, true)
+    check("控えは最初の実体のまま", g.FUNCS["TEST_HOOK_A"] == vanilla, true)
+
+    -- 味方(同梱アドオンの置換フック)が自分より後に掛かって手前に居るときは触らない。
+    -- 相手はこちらを呼ぶ形で連鎖しているので、掛け直すと相手を落としてしまう。
+    local friend = function() end
+    _G["TEST_HOOK_A"] = friend
+    g.hook_owner_add("TEST_HOOK_A", friend) -- mine(先) の後に friend(後) が掛かった並び
+    g.setup_hook(mine, "TEST_HOOK_A")
+    check("後から掛けた味方が手前なら張り直さない", _G["TEST_HOOK_A"] == friend, true)
+
+    -- 掛けようとしたグローバルが走っているクライアントに無い場合。控えは nil のままだが、
+    -- 2 回目に**自分自身**を「元の関数」として控えてはいけない(呼ぶと無限再帰する)。
+    _G["TEST_HOOK_MISSING"] = nil
+    g.setup_hook(mine, "TEST_HOOK_MISSING")
+    check("無いグローバルでも掛かる", _G["TEST_HOOK_MISSING"] == mine, true)
+    check("控えは nil のまま", g.FUNCS["TEST_HOOK_MISSING"], nil)
+    g.setup_hook(mine, "TEST_HOOK_MISSING")
+    check("2 回目も自分を控えない", g.FUNCS["TEST_HOOK_MISSING"], nil)
+
+    -- 同梱アドオン(mini_addons)は同じ実装へ自分の表と控えの名前だけ渡す。
+    -- ここを共有すると、控えが相手のラッパを指して無限再帰する。
+    local sub_funcs, sub_installed = {}, {}
+    local sub_func = function() end
+    _G["TEST_HOOK_B"] = vanilla
+    g.setup_hook(sub_func, "TEST_HOOK_B",
+        {installed = sub_installed, funcs = sub_funcs, prefix = "SUB", label = "sub"})
+    check("同梱側の表に入る", sub_installed["TEST_HOOK_B"] == sub_func, true)
+    check("まとめ版の表には入らない", g.core_hooks["TEST_HOOK_B"], nil)
+    check("控えは呼び出し元の g.FUNCS へ", sub_funcs["TEST_HOOK_B"] == vanilla, true)
+    check("まとめ版の g.FUNCS は汚さない", g.FUNCS["TEST_HOOK_B"], nil)
+    check("控えのグローバル名が分かれる", _G["SUB_REPLACE_TEST_HOOK_B"] == vanilla, true)
+    check("まとめ版へ味方だと伝える", g.hook_owner_index("TEST_HOOK_B", sub_func), 1)
+end
+
+-- 同じグローバルに味方が 2 つ乗り(まとめ版 + 同梱アドオン)、そのうえで知らない誰かが
+-- 割り込んだあとの復帰。まとめ版が先・同梱が後(=手前)に掛けた状態で _G を第三者に
+-- 差し替えられると、次の ON_INIT でまとめ版が先に復帰する。ここで hook_owner が単一
+-- スロットだと、まとめ版で埋まって手前の同梱側が「味方が手前」と誤判定し張り直しを飛ばす
+-- → 同梱側のフックがチェーンから外れて黙って死ぬ。並びで持てば防げることを固定する。
+print("[21-2] 味方 2 つ + 第三者割り込みからの復帰で手前の味方を落とさない")
+do
+    g.FUNCS, g.hook_owner, g.core_hooks, g.EVENT_HOOKS, g.hook_captured = {}, {}, {}, {}, {}
+    local vanilla = function() end
+    local core_func = function() end -- まとめ版(先に掛ける=後ろ)
+    local mini_func = function() end -- 同梱(後に掛ける=手前)
+    local mini_funcs, mini_installed = {}, {}
+    _G["CO_HOOK"] = vanilla
+    -- 通常の連鎖: まとめ版 → 同梱 の順で掛かり、_G には手前の mini_func が入る
+    g.setup_hook(core_func, "CO_HOOK")
+    g.setup_hook(mini_func, "CO_HOOK",
+        {installed = mini_installed, funcs = mini_funcs, prefix = "MINI", label = "mini"})
+    check("手前は同梱側", _G["CO_HOOK"] == mini_func, true)
+
+    -- 第三者が _G を差し替える(このアドオンが耐えたいまさにその状況)
+    local stranger = function() end
+    _G["CO_HOOK"] = stranger
+
+    -- 次の ON_INIT。順序どおり、まず まとめ版が復帰(第三者を検出して掛け直す)
+    g.setup_hook(core_func, "CO_HOOK")
+    check("まとめ版が第三者を退けて復帰", _G["CO_HOOK"] == core_func, true)
+    -- 続いて 同梱側。まとめ版で手前が埋まっていても、掛けた順(同梱が後)で見るので
+    -- 「先に掛けた まとめ版が手前に居る=連鎖が壊れた」と分かり、正しく張り直す。
+    g.setup_hook(mini_func, "CO_HOOK",
+        {installed = mini_installed, funcs = mini_funcs, prefix = "MINI", label = "mini"})
+    check("同梱側が手前へ復帰する(黙って死なない)", _G["CO_HOOK"] == mini_func, true)
+    check("同梱の控えは まとめ版フックを指し連鎖が保たれる", mini_funcs["CO_HOOK"] == core_func, true)
+end
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

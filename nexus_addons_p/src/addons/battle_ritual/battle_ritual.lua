@@ -25,13 +25,17 @@ function battle_ritual_on_init()
     if not g.battle_ritual_settings then
         Battle_ritual_load_settings()
     end
+    -- 購読は毎回張り直す。配信役(g.msg_handlers)は登録しっぱなしだと ON_INIT では
+    -- 畳まれないので、外さないとインスタンスを出た後も機能 OFF の後も配信が届き続ける。
+    -- OFF の early return より前に置くこと(OFF にした瞬間に外れるようにするため)。
+    g.unregister_msg_by_prefix('Battle_ritual_REQ_PLAYER_CONTENTS_RECORD')
     if g.settings.battle_ritual.use == 0 then
         ui.DestroyFrame(addon_name_lower .. "Battle_ritual")
         return
     end
     Battle_ritual_frame_init()
     if g.get_map_type() == "Instance" or g.map_id == 11244 or g.map_id == 8022 then -- 11244 聖域3F 11227 分裂 8022 ヴェルニケ
-        g.addon:RegisterMsg('REQ_PLAYER_CONTENTS_RECORD', 'Battle_ritual_REQ_PLAYER_CONTENTS_RECORD')
+        g.register_msg('REQ_PLAYER_CONTENTS_RECORD', 'Battle_ritual_REQ_PLAYER_CONTENTS_RECORD')
         Battle_ritual_auto_buff_skill_start()
     end
 end

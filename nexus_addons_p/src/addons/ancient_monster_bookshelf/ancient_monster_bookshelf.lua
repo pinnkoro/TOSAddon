@@ -22,7 +22,7 @@
 --   * 合成はカードを消費する破壊的操作なので、実機での動作確認は必須。
 function ancient_monster_bookshelf_on_init()
     Ancient_monster_bookshelf_btn_init()
-    g.addon:RegisterMsg('ANCIENT_CARD_COMBINE', 'Ancient_monster_bookshelf_on_ancient_card_update')
+    g.register_msg('ANCIENT_CARD_COMBINE', 'Ancient_monster_bookshelf_on_ancient_card_update')
 end
 
 function Ancient_monster_bookshelf_btn_init()

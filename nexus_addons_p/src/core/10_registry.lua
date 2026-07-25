@@ -439,9 +439,42 @@ g._nexus_addons_p = {{
         config_func = "Vakarine_equip_config_frame_open",
         old_init_func = "VAKARINE_EQUIP_ON_INIT"
     } --
+}, {
+    -- 個別配布されている mini_addons を同梱したもの。old_init_func に個別版の入口を
+    -- 書いておくと、20_lifecycle.lua が「個別版が入っていたら use=0 にして案内を出す」
+    -- 既存の経路に自動で乗る。同梱版側は大文字の *_ON_INIT を定義していないので、
+    -- ここで自分自身を誤検出することはない。
+    key = "mini_addons",
+    data = {
+        use = 0,
+        name = "Mini Addons",
+        frame_use = true,
+        config_func = "Mini_addons_SETTING_FRAME_INIT",
+        old_init_func = "MINI_ADDONS_ON_INIT"
+    } --
+}, {
+    -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
+    key = "market_favorite_rebuild",
+    data = {
+        use = 0,
+        name = "Market Favorite Rebuild",
+        frame_use = false,
+        config_func = "",
+        old_init_func = "MARKET_FAVORITE_REBUILD_ON_INIT"
+    } --
 }}
 
 g._nexus_addons_p_trans = {
+    ["mini_addons"] = {
+        ja = "{ol}ちょっとした便利機能の詰合せ{nl}個別版 Mini Addons を入れている場合はそちらが優先されます",
+        etc = "{ol}A collection of handy little features{nl}If the standalone Mini Addons is installed, it takes priority",
+        kr = "{ol}소소하고 유용한 기능들의 모음집{nl}개별 버전 Mini Addons가 설치된 경우 그쪽이 우선됩니다"
+    },
+    ["market_favorite_rebuild"] = {
+        ja = "{ol}マーケットのお気に入り登録と検索を強化{nl}個別版 Market Favorite Rebuild を入れている場合はそちらが優先されます",
+        etc = "{ol}Enhances market favorites and search{nl}If the standalone Market Favorite Rebuild is installed, it takes priority",
+        kr = "{ol}마켓 즐겨찾기 등록과 검색을 강화{nl}개별 버전 Market Favorite Rebuild가 설치된 경우 그쪽이 우선됩니다"
+    },
     ["bulk_sales"] = {
         ja = "{ol}雑貨屋で大量販売出来るスロットセットを提供",
         etc = "{ol}Provide slots for bulk selling at a grocery store",

@@ -352,8 +352,28 @@ function No_check_frame_close(frame, ctrl)
     end
     INVENTORY_SET_CUSTOM_RBTNDOWN('None')
     INVENTORY_CLEAR_SELECT(nil)
-    if ctrl:GetName() == "delete_slotset" then
-        ui.SysMsg("{ol}[No Check]End of Operation")
+    -- この関数は 2 通りの呼ばれ方をする。
+    --   * ボタン       … (frame, コントロール)
+    --   * INVENTORY_CLOSE の購読 … (frame, メッセージ名の文字列, str, num)
+    -- 後者で ctrl:GetName() を呼ぶと "attempt to call a nil value (method 'GetName')" で
+    -- 落ちる(実機の verbose_log で確認。インベントリを閉じるたびに出ていた)。
+    -- ボタン経由のときだけ名前を見る。
+    --
+    -- 判定は「既知の壊れ方(= 文字列)を外す」側で書くこと。type(ctrl) == "userdata" と
+    -- 書くと、コントロールの実体が userdata でなくなった途端に**何も出さずに黙る**ため、
+    -- 退行しても気付けない(この向きの想定はリポジトリ内に裏付けが無い)。
+    -- 呼べるかどうかは pcall で確かめ、呼べなかったときはログに残す。
+    if ctrl ~= nil and type(ctrl) ~= "string" then
+        local ok, name = pcall(function()
+            return ctrl:GetName()
+        end)
+        if ok then
+            if name == "delete_slotset" then
+                ui.SysMsg("{ol}[No Check]End of Operation")
+            end
+        else
+            g.vlog("{#FF6347}No_check_frame_close: ctrl:GetName() を呼べなかった{/} type=%s", type(ctrl))
+        end
     end
 end
 

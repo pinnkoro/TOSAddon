@@ -1,10 +1,15 @@
 -- silent_velnice_ranking ここから
 function silent_velnice_ranking_on_init()
+    -- 購読を外すのは OFF 判定より前。配信役(g.msg_handlers)は登録しっぱなしだと
+    -- ON_INIT では畳まれないので、ここで外さないとヴェルニケを出た後や機能 OFF の後も
+    -- スコアボードを開くたびにキー入力タイマーが走り続ける。
+    -- (条件を満たせばすぐ下で張り直すので、実質「毎回張り直し」になる)
+    g.unregister_msg_by_prefix("Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
     if g.settings.silent_velnice_ranking.use == 0 then
         return
     end
     if g.map_id == 8022 then
-        g.addon:RegisterMsg("DO_SOLODUNGEON_SCOREBOARD_OPEN", "Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
+        g.register_msg("DO_SOLODUNGEON_SCOREBOARD_OPEN", "Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
     end
 end
 

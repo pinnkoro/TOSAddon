@@ -105,7 +105,7 @@ function my_buffs_control_on_init()
         return
     end
     g.setup_hook_and_event(g.addon, "BUFF_ON_MSG", "My_buffs_control_BUFF_ON_MSG", true)
-    g.addon:RegisterMsg("BUFF_ADD", "My_buffs_control_BUFF_ADD")
+    g.register_msg("BUFF_ADD", "My_buffs_control_BUFF_ADD")
     My_buffs_control_common_buff_msg()
     local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
     _nexus_addons_p:RunUpdateScript("My_buffs_control_delayed_init", 1.0)

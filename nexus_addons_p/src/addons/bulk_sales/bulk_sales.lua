@@ -5,7 +5,7 @@ g.bulk_sales = {
     time = 0
 }
 function bulk_sales_on_init(frame, addon)
-    g.addon:RegisterMsg('DIALOG_CLOSE', 'Bulk_sales_SHOP_ON_MSG')
+    g.register_msg('DIALOG_CLOSE', 'Bulk_sales_SHOP_ON_MSG')
 end
 
 function Bulk_sales_SHOP_ON_MSG(frame, msg, str, num)

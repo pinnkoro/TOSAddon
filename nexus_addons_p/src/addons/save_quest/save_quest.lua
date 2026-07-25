@@ -47,7 +47,7 @@ function save_quest_on_init()
     g.setup_hook_and_event(g.addon, "SET_QUEST_CTRL_MARK", "Save_quest_SET_QUEST_CTRL_MARK", true)
     g.setup_hook_and_event(g.addon, "SCR_QUEST_SHARE_PARTY_MEMBER", "Save_quest_SCR_QUEST_SHARE_PARTY_MEMBER", true)
     g.setup_hook_and_event(g.addon, "EXEC_ABANDON_QUEST", "Save_quest_EXEC_ABANDON_QUEST", true)
-    g.addon:RegisterMsg("TARGET_SET", "Save_quest_ON_TARGET_SET")
+    g.register_msg("TARGET_SET", "Save_quest_ON_TARGET_SET")
     Save_quest_npc_hide()
     Save_quest_short_cut()
 end

@@ -249,6 +249,79 @@ check("取得アイテムが戻る", next(g.mkc_map_data.get_items), nil)
 check("カウンタが戻る", g.mkc_count, 0)
 check("現在地は map_ids に残す", #g.mkc_settings.map_ids, 1)
 
+-- ===== 8. 数えない場所へ移ると購読と集計を必ず畳む(記録の混ざりを防ぐ) =====
+-- 数えるマップ A で集計中に、数えないマップ B(自分とのレベル差が 50 超のフィールド等)
+-- へ移ると、以前は町以外の「数えない」経路が素の return で素通りし、購読と mkc_map_data が
+-- A のまま残った。すると B で倒したキルが A の記録へ書き込まれる(EXP_UPDATE のガードは
+-- map_data が「在るが古い」ときは通してしまう)。全ての非計測経路で on_init が
+-- teardown することを固定する。
+print("[8] 数えない場所へ移ると購読と集計を畳む")
+
+-- on_init がこの経路で触るゲーム API を最小限だけ足す
+imcAddOn = {BroadMsg = function() end}
+info = {GetLevel = function() return 200 end} -- 自分は高レベル
+session.GetMyHandle = function() return 0 end
+local map_quest_level = 1
+function GetClass(_kind, _name) return {QuestLevel = map_quest_level} end
+function GetClassList(_kind) return {}, 0 end
+ui.GetFrame = function() return {RemoveChild = function() end} end -- teardown が触る
+g.addon = {RegisterMsg = function() end}
+g.settings = {monster_kill_count = {old_init_func = "MKC_OLD_INIT_ABSENT", use = 1}}
+g.get_map_type = function() return "Field" end
+g.msg_handlers, g.msg_registered_cycle, g.msg_registered_addon = {}, {}, {}
+g.REGISTER, g.FUNCS = {}, {}
+
+-- まず数えるマップ A に居る状態を作る(集計中・EXP_UPDATE 購読済み)
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+g.map_id = 1001
+g.map_name = "map_a"
+g.mkc_map_id = 1001
+g.mkc_map_data = {map_name = "map_a", kill_count = 10, stay_time = 5000, get_items = {}}
+g.mkc_count = 10
+g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
+check("A では EXP_UPDATE を購読している", #g.msg_handlers["EXP_UPDATE"], 1)
+
+-- レベル差 50 超のフィールド B へワープ(自分 200 - マップ 1 = 199 > 50)
+g.map_id = 1002
+g.map_name = "map_b"
+files, saved = {}, {}
+files[map_path(1001)] = {map_name = "map_a", kill_count = 10, stay_time = 5000, get_items = {}}
+monster_kill_count_on_init()
+check("集計先(map_data)を落とす", g.mkc_map_data, nil)
+check("集計マップ(map_id)も落とす", g.mkc_map_id, nil)
+check("EXP_UPDATE の配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["EXP_UPDATE"]) or 0, 0)
+-- 畳む前に A の記録は保存する(消すのは集計状態だけで、貯めた記録は残す)
+local saved_a = false
+for _, s in ipairs(saved) do
+    if s.path == map_path(1001) then
+        saved_a = true
+    end
+end
+check("離れる A の記録は保存してから畳む", saved_a, true)
+
+-- ===== 9. Map クラスを引けないマップでも落ちずに畳む =====
+-- GetClass("Map", ...) が nil を返すことがある(インスタンス化・改名など)。
+-- 以前は nil のまま .QuestLevel を触って on_init が teardown 前に落ち、直前のマップの
+-- 購読と集計が残って記録が混ざった。引けないときは数えない扱いで畳むことを固定する。
+print("[9] Map クラスを引けないマップでも落ちずに畳む")
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+g.map_id = 3001
+g.map_name = "unknown_instanced_map"
+g.mkc_map_id = 1001
+g.mkc_map_data = {map_name = "map_a", kill_count = 7, stay_time = 3000, get_items = {}}
+g.mkc_count = 7
+g.msg_handlers, g.msg_registered_cycle, g.REGISTER = {}, {}, {}
+g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
+local prev_get_class = GetClass
+GetClass = function() return nil end -- このマップは Map クラスを引けない
+files, saved = {}, {}
+files[map_path(1001)] = {map_name = "map_a", kill_count = 7, stay_time = 3000, get_items = {}}
+check("落ちない", (pcall(monster_kill_count_on_init)), true)
+GetClass = prev_get_class
+check("集計先を落とす", g.mkc_map_data, nil)
+check("集計マップも落とす", g.mkc_map_id, nil)
+check("配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["EXP_UPDATE"]) or 0, 0)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
