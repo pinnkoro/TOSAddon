@@ -107,6 +107,7 @@ function Quickslot_operate_init_logic()
     AUTO_CAST(quickslot_operate_map_timer)
     quickslot_operate_map_timer:SetUpdateScript("Quickslot_operate_map_change")
     quickslot_operate_map_timer:Stop()
+    g.quickslot_operate_no_potion_ticks = 0
     quickslot_operate_map_timer:Start(3.0)
     if g.quickslot_operate_settings.rshift then
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
@@ -489,10 +490,7 @@ function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
             end
         end
     end
-    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-    local quickslot_operate_map_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_map_timer", 0, 0)
-    AUTO_CAST(quickslot_operate_map_timer)
-    quickslot_operate_map_timer:Stop()
+    Quickslot_operate_stop_map_timer()
     quickslot.RequestSave()
     QUICKSLOTNEXPBAR_UPDATE_HOTKEYNAME(quickslotnexpbar)
     if IsJoyStickMode() == 1 then
@@ -509,7 +507,49 @@ function Quickslot_operate_frame_close()
     end
 end
 
+function Quickslot_operate_stop_map_timer()
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if not _nexus_addons_p then
+        return
+    end
+    local quickslot_operate_map_timer = GET_CHILD(_nexus_addons_p, "quickslot_operate_map_timer")
+    if quickslot_operate_map_timer then
+        AUTO_CAST(quickslot_operate_map_timer)
+        quickslot_operate_map_timer:Stop()
+    end
+end
+
+-- クイックスロットに女神ポーションが 1 つでも入っているか。
+-- 入っていなければ差し替える対象そのものが無いので、監視を続ける意味が無い。
+function Quickslot_operate_has_potion_in_slots()
+    if not g.qso_potion_map then
+        Quickslot_operate_build_potion_map()
+    end
+    for i = 1, MAX_QUICKSLOT_CNT do
+        local slot_info = quickslot.GetInfoByIndex(i - 1)
+        if slot_info and g.qso_potion_map[slot_info.type] then
+            return true
+        end
+    end
+    return false
+end
+
 function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_timer)
+    -- ポーションを 1 つも置いていない人には、この監視は最後まで空振りし続ける。
+    -- ただし GAME_START 直後はクイックスロットの中身がまだ載っていないことがあり、
+    -- 1 回見て無いだけで止めると、載る前に諦めてしまう。数回続けて見つからない
+    -- ときだけ止める（3 秒周期なので約 15 秒ぶんの猶予）。
+    if not Quickslot_operate_has_potion_in_slots() then
+        local ticks = (g.quickslot_operate_no_potion_ticks or 0) + 1
+        g.quickslot_operate_no_potion_ticks = ticks
+        if ticks >= 5 then
+            Quickslot_operate_stop_map_timer()
+            g.vlog("quickslot_operate: スロットに女神ポーションが無いのでマップ監視を止める (map=%s)",
+                tostring(g.map_id))
+        end
+        return
+    end
+    g.quickslot_operate_no_potion_ticks = 0
     local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
     for _, zone_id in ipairs(g.quickslot_operate_zone_list) do
         if zone_id == g.map_id then
