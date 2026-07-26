@@ -129,7 +129,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v1.1.1**
   * Quickslot Operate: ズメイの種族を**造物 (Paramune) から野獣 (Widling) に修正**。
     ズメイ入場時に野獣の女神ポーションへ差し替わらなかったのを直した。
   * Quickslot Operate: **差し替えが毎回エラーで落ちていたのを修正。** ポーション判定用の
