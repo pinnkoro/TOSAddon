@@ -19,9 +19,6 @@ g.quickslot_operate_atk_list = {
     Widling = {640501, 640372},
     Forester = {640500, 640371}
 }
--- マウスオーバーで出す種族選択パネルの並び順。旧実装が ID 直書きで
--- {640372, 640370, 640369, 640368, 640371} だったので、その並びを引き継ぐ。
-g.quickslot_operate_panel_order = {"Widling", "Klaida", "Paramune", "Velnias", "Forester"}
 g.quickslot_operate_def_list = {
     Velnias = 640373,
     Klaida = 640375,
@@ -71,7 +68,6 @@ function quickslot_operate_on_init()
         if _nexus_addons_p then
             _nexus_addons_p:RemoveChild("quickslot_operate_map_timer")
             _nexus_addons_p:RemoveChild("quickslot_operate_timer")
-            _nexus_addons_p:RemoveChild("quickslot_operate_mouseon_timer")
         end
         local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
         if quickslotnexpbar then
@@ -81,9 +77,7 @@ function quickslot_operate_on_init()
                 Quickslot_operate_redraw_slots()
             end
             quickslotnexpbar:SetUserValue("USE", 0)
-            -- OFF にしたときの MOUSEON 解除。ここも RunUpdateScript では実行されず、
-            -- OFF にしても種族選択パネルが出続けていたので直接呼ぶ。
-            Quickslot_operate_set_script(quickslotnexpbar)
+            quickslotnexpbar:RunUpdateScript("Quickslot_operate_set_script", 2.0)
         end
         return
     end
@@ -118,17 +112,6 @@ function Quickslot_operate_init_logic()
     g.quickslot_operate_no_potion_ticks = 0
     g.quickslot_operate_no_item_ticks = 0
     quickslot_operate_map_timer:Start(3.0)
-    -- 種族選択パネル用の MOUSEON は、張ってもスロットの作り直しで消える
-    -- (redraw_slots / check_all_slots の末尾にある DebounceScript が 0.1 秒後に
-    -- 全スロットを更新する)。元実装が 2 秒待っていたのはこれを避けるためだが、
-    -- quickslotnexpbar への RunUpdateScript は実行されない。作り直しは
-    -- ドラッグ等でも起きて回数を読めないので、専用タイマーで張り直し続ける。
-    local quickslot_operate_mouseon_timer = _nexus_addons_p:CreateOrGetControl("timer",
-        "quickslot_operate_mouseon_timer", 0, 0)
-    AUTO_CAST(quickslot_operate_mouseon_timer)
-    quickslot_operate_mouseon_timer:SetUpdateScript("Quickslot_operate_mouseon_tick")
-    quickslot_operate_mouseon_timer:Stop()
-    quickslot_operate_mouseon_timer:Start(2.0)
     if g.quickslot_operate_settings.rshift then
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
         AUTO_CAST(quickslot_operate_timer)
@@ -151,9 +134,7 @@ function Quickslot_operate_frame_init()
     setting:SetEventScript(ui.LBUTTONUP, "Quickslot_operate_load_slotset_context")
     Quickslot_operate_redraw_slots()
     quickslotnexpbar:SetUserValue("USE", 1)
-    -- 直後に redraw_slots の DebounceScript がスロットを作り直して MOUSEON を
-    -- 消すので、ここで張っても残らない。実際に張り続けるのは init_logic が
-    -- 用意する quickslot_operate_mouseon_timer のほう。
+    quickslotnexpbar:RunUpdateScript("Quickslot_operate_set_script", 2.0)
 end
 
 function Quickslot_operate_context()
@@ -384,42 +365,33 @@ end
 function Quickslot_operate_set_script(quickslotnexpbar)
     Quickslot_operate_build_potion_map()
     local is_use = quickslotnexpbar:GetUserIValue("USE")
-    local hit = 0
+    -- この関数は quickslotnexpbar への RunUpdateScript からしか呼ばれず、実機では
+    -- 実行されていない（このログが一度も出ない）。マウスオーバーの種族選択パネルが
+    -- 出ないのはそのため。ログは同じ調査を繰り返さないために残す。
+    if g.quickslot_operate_logged_use ~= is_use then
+        g.quickslot_operate_logged_use = is_use
+        g.vlog("quickslot_operate: set_script 実行 USE=%s", tostring(is_use))
+    end
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot = GET_CHILD_RECURSIVELY(quickslotnexpbar, "slot" .. i)
+        AUTO_CAST(slot)
         local slot_info = quickslot.GetInfoByIndex(i - 1)
-        -- 以前はここが実行されておらず nil の slot を踏む機会が無かった。
-        -- 実際に呼ぶようにしたので、取れなかった枠は飛ばす。
-        if slot and slot_info and slot_info.type ~= 0 and g.qso_potion_map[slot_info.type] then
-            AUTO_CAST(slot)
-            hit = hit + 1
-            if is_use == 0 then
-                slot:SetEventScript(ui.MOUSEON, "None")
-            else
-                slot:SetEventScript(ui.MOUSEON, "Quickslot_operate_choice_potion")
+        if slot_info and slot_info.type ~= 0 then
+            if slot_info and g.qso_potion_map[slot_info.type] then
+                if is_use == 0 then
+                    slot:SetEventScript(ui.MOUSEON, "None")
+                else
+                    slot:SetEventScript(ui.MOUSEON, "Quickslot_operate_choice_potion")
+                end
             end
         end
     end
-    -- 2 秒周期のタイマーから呼ばれるので、状態が変わったときだけ出す。
-    -- 件数まで出すのは「呼ばれてはいるが対象スロットを 1 つも見つけていない」のか
-    -- 「登録はできているのにパネルが出ない」のかを切り分けるため。
-    local state = tostring(is_use) .. ":" .. tostring(hit)
-    if g.quickslot_operate_logged_mouseon ~= state then
-        g.quickslot_operate_logged_mouseon = state
-        g.vlog("quickslot_operate: MOUSEON を %d スロットに登録 (USE=%s)", hit, tostring(is_use))
-    end
-    return hit
-end
-
-function Quickslot_operate_mouseon_tick()
-    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-    if not quickslotnexpbar then
-        return
-    end
-    Quickslot_operate_set_script(quickslotnexpbar)
 end
 
 function Quickslot_operate_choice_potion(frame, slot, str, num)
+    slot:RunUpdateScript("Quickslot_operate_frame_close", 5.0)
+    local joystickquickslot = ui.GetFrame('joystickquickslot')
+    joystickquickslot:RunUpdateScript("Quickslot_operate_frame_close", 5.0)
     local quickslot_operate = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "quickslot_operate", 0, 0, 0, 0)
     quickslot_operate:RemoveAllChild()
     quickslot_operate:Resize(150, 30)
@@ -440,45 +412,15 @@ function Quickslot_operate_choice_potion(frame, slot, str, num)
     slotset:SetSkinName('slot')
     slotset:CreateSlots()
     local slot_count = slotset:GetSlotCount()
+    local atk_list = {640372, 640370, 640369, 640368, 640371}
     for i = 0, slot_count - 1 do
-        local race = g.quickslot_operate_panel_order[i + 1]
-        local ids = race and g.quickslot_operate_atk_list[race]
-        if ids then
-            -- 以前は旧シリーズ(女神の懲罰ポーション)の ID 直書きだったので、
-            -- 新シリーズしか持っていない人には見慣れないアイコンが並んでいた。
-            -- 所持しているほうを出し、どちらも無ければ新シリーズを出す。
-            local inv_item = session.GetInvItemByType(ids[1]) or session.GetInvItemByType(ids[2])
-            local show_id = inv_item and inv_item.type or ids[1]
-            local slot = slotset:GetSlotByIndex(i)
-            slot:SetEventScript(ui.LBUTTONDOWN, "Quickslot_operate_set_potion")
-            slot:SetEventScriptArgNumber(ui.LBUTTONDOWN, show_id)
-            SET_SLOT_ITEM_CLS(slot, GetClassByType('Item', show_id))
-        end
+        local slot = slotset:GetSlotByIndex(i)
+        slot:SetEventScript(ui.LBUTTONDOWN, "Quickslot_operate_set_potion")
+        slot:SetEventScriptArgNumber(ui.LBUTTONDOWN, atk_list[i + 1])
+        local class = GetClassByType('Item', atk_list[i + 1])
+        SET_SLOT_ITEM_CLS(slot, class)
     end
-    -- 自動で閉じる処理。元は RunUpdateScript だったが実行されないため、
-    -- 開いたパネルが残り続けていた（そもそも開けていなかったので表面化していない）。
-    -- timer は実機で動作を確認できているのでこちらを使う。
-    -- Start 直後に 1 回走るかがバージョンによって読めないので、1 秒ごとに数えて
-    -- 5 回目で閉じる。どちらでも 4〜5 秒で閉じ、従来の意図とほぼ変わらない。
-    quickslot_operate:SetUserValue("TICK", 0)
-    local close_timer = quickslot_operate:CreateOrGetControl("timer", "close_timer", 0, 0)
-    AUTO_CAST(close_timer)
-    close_timer:SetUpdateScript("Quickslot_operate_panel_tick")
-    close_timer:Stop()
-    close_timer:Start(1.0)
     quickslot_operate:ShowWindow(1)
-end
-
-function Quickslot_operate_panel_tick()
-    local quickslot_operate = ui.GetFrame(addon_name_lower .. "quickslot_operate")
-    if not quickslot_operate then
-        return
-    end
-    local ticks = quickslot_operate:GetUserIValue("TICK") + 1
-    quickslot_operate:SetUserValue("TICK", ticks)
-    if ticks >= 5 then
-        Quickslot_operate_frame_close()
-    end
 end
 
 function Quickslot_operate_set_potion(parent, slot, str, pot_id)
