@@ -71,6 +71,7 @@ function quickslot_operate_on_init()
         if _nexus_addons_p then
             _nexus_addons_p:RemoveChild("quickslot_operate_map_timer")
             _nexus_addons_p:RemoveChild("quickslot_operate_timer")
+            _nexus_addons_p:RemoveChild("quickslot_operate_mouseon_timer")
         end
         local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
         if quickslotnexpbar then
@@ -112,9 +113,22 @@ function Quickslot_operate_init_logic()
     AUTO_CAST(quickslot_operate_map_timer)
     quickslot_operate_map_timer:SetUpdateScript("Quickslot_operate_map_change")
     quickslot_operate_map_timer:Stop()
+    -- on_init はマップ移動のたびに走る(GAME_START_3SEC 経由)ので、打ち切り用の
+    -- カウンタもここで毎回 0 に戻る。前のマップで諦めていても次のマップでやり直す。
     g.quickslot_operate_no_potion_ticks = 0
-    g.quickslot_operate_mouseon_done = false
+    g.quickslot_operate_no_item_ticks = 0
     quickslot_operate_map_timer:Start(3.0)
+    -- 種族選択パネル用の MOUSEON は、張ってもスロットの作り直しで消える
+    -- (redraw_slots / check_all_slots の末尾にある DebounceScript が 0.1 秒後に
+    -- 全スロットを更新する)。元実装が 2 秒待っていたのはこれを避けるためだが、
+    -- quickslotnexpbar への RunUpdateScript は実行されない。作り直しは
+    -- ドラッグ等でも起きて回数を読めないので、専用タイマーで張り直し続ける。
+    local quickslot_operate_mouseon_timer = _nexus_addons_p:CreateOrGetControl("timer",
+        "quickslot_operate_mouseon_timer", 0, 0)
+    AUTO_CAST(quickslot_operate_mouseon_timer)
+    quickslot_operate_mouseon_timer:SetUpdateScript("Quickslot_operate_mouseon_tick")
+    quickslot_operate_mouseon_timer:Stop()
+    quickslot_operate_mouseon_timer:Start(2.0)
     if g.quickslot_operate_settings.rshift then
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
         AUTO_CAST(quickslot_operate_timer)
@@ -137,11 +151,9 @@ function Quickslot_operate_frame_init()
     setting:SetEventScript(ui.LBUTTONUP, "Quickslot_operate_load_slotset_context")
     Quickslot_operate_redraw_slots()
     quickslotnexpbar:SetUserValue("USE", 1)
-    -- ここで MOUSEON を張る。以前は RunUpdateScript 経由だったが実行されず
-    -- （実機ログで set_script の行が一度も出なかった）、種族選択パネルが
-    -- 出ないままになっていた。この時点ではスロットの中身がまだ載っていない
-    -- ことがあるので、マップ監視タイマー側でも張り直す。
-    Quickslot_operate_set_script(quickslotnexpbar)
+    -- 直後に redraw_slots の DebounceScript がスロットを作り直して MOUSEON を
+    -- 消すので、ここで張っても残らない。実際に張り続けるのは init_logic が
+    -- 用意する quickslot_operate_mouseon_timer のほう。
 end
 
 function Quickslot_operate_context()
@@ -372,13 +384,7 @@ end
 function Quickslot_operate_set_script(quickslotnexpbar)
     Quickslot_operate_build_potion_map()
     local is_use = quickslotnexpbar:GetUserIValue("USE")
-    -- 初期化・マップ監視・差し替え後の 3 箇所から呼ばれる。ログはこの経路が
-    -- 動いているかを見るためのものなので、USE が変わったときだけ出す
-    -- （毎回出すと他の行が埋もれる）。
-    if g.quickslot_operate_logged_use ~= is_use then
-        g.quickslot_operate_logged_use = is_use
-        g.vlog("quickslot_operate: set_script 実行 USE=%s", tostring(is_use))
-    end
+    local hit = 0
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot = GET_CHILD_RECURSIVELY(quickslotnexpbar, "slot" .. i)
         local slot_info = quickslot.GetInfoByIndex(i - 1)
@@ -386,6 +392,7 @@ function Quickslot_operate_set_script(quickslotnexpbar)
         -- 実際に呼ぶようにしたので、取れなかった枠は飛ばす。
         if slot and slot_info and slot_info.type ~= 0 and g.qso_potion_map[slot_info.type] then
             AUTO_CAST(slot)
+            hit = hit + 1
             if is_use == 0 then
                 slot:SetEventScript(ui.MOUSEON, "None")
             else
@@ -393,6 +400,23 @@ function Quickslot_operate_set_script(quickslotnexpbar)
             end
         end
     end
+    -- 2 秒周期のタイマーから呼ばれるので、状態が変わったときだけ出す。
+    -- 件数まで出すのは「呼ばれてはいるが対象スロットを 1 つも見つけていない」のか
+    -- 「登録はできているのにパネルが出ない」のかを切り分けるため。
+    local state = tostring(is_use) .. ":" .. tostring(hit)
+    if g.quickslot_operate_logged_mouseon ~= state then
+        g.quickslot_operate_logged_mouseon = state
+        g.vlog("quickslot_operate: MOUSEON を %d スロットに登録 (USE=%s)", hit, tostring(is_use))
+    end
+    return hit
+end
+
+function Quickslot_operate_mouseon_tick()
+    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
+    if not quickslotnexpbar then
+        return
+    end
+    Quickslot_operate_set_script(quickslotnexpbar)
 end
 
 function Quickslot_operate_choice_potion(frame, slot, str, num)
@@ -531,9 +555,6 @@ function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
     Quickslot_operate_stop_map_timer()
     quickslot.RequestSave()
     QUICKSLOTNEXPBAR_UPDATE_HOTKEYNAME(quickslotnexpbar)
-    -- SET_QUICK_SLOT でスロットを作り直したので、種族選択パネル用の MOUSEON も張り直す。
-    -- ここを通ったあとはマップ監視タイマーが止まるため、張り直す機会がここしかない。
-    Quickslot_operate_set_script(quickslotnexpbar)
     if IsJoyStickMode() == 1 then
         quickslotnexpbar:ShowWindow(0)
         joystickquickslot:ShowWindow(1)
@@ -579,7 +600,8 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
     -- ポーションを 1 つも置いていない人には、この監視は最後まで空振りし続ける。
     -- ただし GAME_START 直後はクイックスロットの中身がまだ載っていないことがあり、
     -- 1 回見て無いだけで止めると、載る前に諦めてしまう。数回続けて見つからない
-    -- ときだけ止める（3 秒周期なので約 15 秒ぶんの猶予）。
+    -- ときだけ止める（3 秒周期なので約 15 秒ぶんの猶予）。打ち切りはこのマップ限りで、
+    -- 次のマップ移動では init_logic がカウンタを戻してタイマーを張り直す。
     if not Quickslot_operate_has_potion_in_slots() then
         local ticks = (g.quickslot_operate_no_potion_ticks or 0) + 1
         g.quickslot_operate_no_potion_ticks = ticks
@@ -592,15 +614,15 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
     end
     g.quickslot_operate_no_potion_ticks = 0
     local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-    -- frame_init の時点ではスロットが空で MOUSEON を張れていないことがある。
-    -- ポーションを確認できた最初の 1 回だけ張り直す（毎周期やると 40 スロットを
-    -- 無駄に舐め続けるので、マップごとに 1 回に絞る）。
-    if not g.quickslot_operate_mouseon_done then
-        g.quickslot_operate_mouseon_done = true
-        Quickslot_operate_set_script(quickslotnexpbar)
-    end
+    -- 11257/11267/11285/11286 は zone_list と guild_eventmap の両方に載っている。
+    -- zone_list で種族を決められなくても下の eventmap 側が拾うので、ここでは
+    -- 「載っていた」ことだけ憶えて、失敗ログは両方を試したあとで出す（そうしないと
+    -- 正しく差し替えたマップに失敗ログが出るうえ、共有の unknown_map を消費して
+    -- 「未登録のレイドマップ」の診断まで潰してしまう）。
+    local in_zone_list = false
     for _, zone_id in ipairs(g.quickslot_operate_zone_list) do
         if zone_id == g.map_id then
+            in_zone_list = true
             local potion_type = Quickslot_operate_get_potion_type(g.quickslot_operate_indun_type)
             if potion_type then
                 g.vlog("quickslot_operate: map=%s indun_type=%s -> %s", tostring(g.map_id),
@@ -608,17 +630,12 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
                 quickslotnexpbar:SetUserValue("POT_TYPE", potion_type)
                 -- ここは 3 秒周期のタイマーから呼ばれる。RunUpdateScript を挟むと
                 -- 実行が観測できなかった（実機ログで差し替えが一度も走らなかった）ので直接呼ぶ。
-                -- 差し替えに成功すれば check_all_slots がこのタイマーを止めるので、
-                -- 未ロード等で空振りしてもタイマー自体が次の 3 秒後に再試行してくれる。
-                Quickslot_operate_get_potion(quickslotnexpbar)
+                -- 差し替えに成功すれば check_all_slots がこのタイマーを止める。第 2 引数の
+                -- retryable は「空振りなら確定させず次の 3 秒に回してよい」の印(get_potion 参照)。
+                Quickslot_operate_get_potion(quickslotnexpbar, true)
                 return
             end
-            -- 3 秒ごとに走るので、同じマップで何度も出さない
-            if g.quickslot_operate_unknown_map ~= g.map_id then
-                g.quickslot_operate_unknown_map = g.map_id
-                g.vlog("quickslot_operate: map=%s は対象だが種族を特定できない (indun_type=%s)", tostring(g.map_id),
-                    tostring(g.quickslot_operate_indun_type))
-            end
+            break
         end
     end -- 11285, 11286
     for _, eventmap_id in ipairs(g.quickslot_guild_eventmap) do
@@ -628,13 +645,22 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
             else
                 quickslotnexpbar:SetUserValue("POT_TYPE", "Velnias")
             end
-            Quickslot_operate_get_potion(quickslotnexpbar)
+            Quickslot_operate_get_potion(quickslotnexpbar, true)
             return
         end
     end
-    -- 対象マップの一覧はマップ ID の直値なので、新レイドが増えると取りこぼす。
-    -- レイドマップに居るのに差し替えなかったときだけ、その ID を残す（マップごとに 1 回）。
-    if g.map_name and string.find(g.map_name, "^Raid_") and g.quickslot_operate_unknown_map ~= g.map_id then
+    -- どちらの一覧でも差し替えられなかったときだけ理由を残す。3 秒ごとに走るので
+    -- マップごとに 1 回に絞る。
+    if g.quickslot_operate_unknown_map == g.map_id then
+        return
+    end
+    if in_zone_list then
+        g.quickslot_operate_unknown_map = g.map_id
+        g.vlog("quickslot_operate: map=%s は対象だが種族を特定できない (indun_type=%s)", tostring(g.map_id),
+            tostring(g.quickslot_operate_indun_type))
+    elseif g.map_name and string.find(g.map_name, "^Raid_") then
+        -- 対象マップの一覧はマップ ID の直値なので、新レイドが増えると取りこぼす。
+        -- レイドマップに居るのに差し替えなかったときだけ、その ID を残す。
         g.quickslot_operate_unknown_map = g.map_id
         g.vlog("quickslot_operate: 未登録のレイドマップ name=%s id=%s (indun_type=%s)", tostring(g.map_name),
             tostring(g.map_id), tostring(g.quickslot_operate_indun_type))
@@ -669,7 +695,9 @@ function Quickslot_operate_get_potion_type(indun_type)
     return nil
 end
 
-function Quickslot_operate_get_potion(quickslotnexpbar)
+-- retryable = マップ監視タイマーから呼ばれた（＝空振りしても 3 秒後にまた来る）ことの印。
+-- 入場ダイアログ経由(SHOW_INDUNENTER_DIALOG)は 1 回しか来ないので、こちらは付けない。
+function Quickslot_operate_get_potion(quickslotnexpbar, retryable)
     local potion_type = quickslotnexpbar:GetUserValue("POT_TYPE")
     local atk_list = g.quickslot_operate_atk_list
     local def_list = g.quickslot_operate_def_list
@@ -693,9 +721,25 @@ function Quickslot_operate_get_potion(quickslotnexpbar)
     end
     g.vlog("quickslot_operate: %s に差し替え atk=%s def=%s (0 は未所持)", potion_type, tostring(atk_id),
         tostring(def_id))
-    if (atk_id and atk_id ~= 0) or (def_id and def_id ~= 0) or atk_id == 0 or def_id == 0 then
-        Quickslot_operate_check_all_slots(potion_type, nil, atk_id, def_id)
+    -- atk も def も見つからない = マップ読み込み直後でインベントリがまだ載っていない
+    -- 可能性がある。この状態で確定させると check_all_slots が所持品を見ずに
+    -- atk_list[1](新シリーズ)を書き込むので、旧シリーズしか持っていない人のスロットを
+    -- 空にしたうえ、そのままタイマーが止まって直る機会も無くなる。
+    -- タイマー経由のときだけ数回は確定させずに見送る（3 秒周期なので約 15 秒ぶん）。
+    -- 本当に 1 本も持っていない人もいるので、猶予を使い切ったら従来どおり確定させる。
+    if retryable and atk_id == 0 and def_id == 0 then
+        local ticks = (g.quickslot_operate_no_item_ticks or 0) + 1
+        g.quickslot_operate_no_item_ticks = ticks
+        if ticks < 5 then
+            g.vlog("quickslot_operate: %s の atk/def をどちらも所持していない。インベントリ未ロードとみて確定させず再試行する (%d/5)",
+                potion_type, ticks)
+            return
+        end
+        g.vlog("quickslot_operate: %s の atk/def を %d 回続けて所持していない。未所持として確定させる", potion_type,
+            ticks)
     end
+    g.quickslot_operate_no_item_ticks = 0
+    Quickslot_operate_check_all_slots(potion_type, nil, atk_id, def_id)
 end
 
 function Quickslot_operate_switch_rshift(is_first)
