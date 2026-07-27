@@ -209,9 +209,13 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     -- 2000 超えの画面外に出て「押しても何も出ない」ように見える(実機で発生)。
     -- 画面幅は addons_menu_create_frame と同じく map フレームから取り、
     -- 取れないときだけ 1920 とみなす。
+    -- 可視かどうかは見ないこと。"map" は全画面のワールドマップで普段は閉じており、
+    -- IsVisible() == 1 で絞ると実質いつも 1920x1080 の決め打ちに落ちて、
+    -- 下のはみ出し防止が 1920x1080 以外のクライアントで一度も効かなくなる。
+    -- 非表示でもフレームのサイズ自体は画面サイズを返す(他アドオンも可視判定なしで読んでいる)。
     local map_ui = ui.GetFrame("map")
-    local screen_w = (map_ui and map_ui:IsVisible() == 1) and map_ui:GetWidth() or 1920
-    local screen_h = (map_ui and map_ui:IsVisible() == 1) and map_ui:GetHeight() or 1080
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
     local pos_x = frame:GetX() + 200
     if pos_x + setting_w > screen_w then
         -- 右に置けないなら左へ回す。それでも収まらなければ画面内へ寄せる。
@@ -691,8 +695,9 @@ function _G.addons_menu_sysmenu_toggle()
     -- 縦は「下に出す」固定にしない。sysmenu は画面下側に置かれていることがあり
     -- (利用者の環境では右下)、真下に出すと画面外になって触れなくなる(実機で発生)。
     -- 下に収まるなら下、収まらないなら上へ返す。
+    -- 可視判定を挟まないこと(理由は addons_menu_open_setting と同じ)。
     local map_ui = ui.GetFrame("map")
-    local screen_h = (map_ui and map_ui:IsVisible() == 1) and map_ui:GetHeight() or 1080
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
     local below_y = btn_y + btn:GetHeight() + 4
     local pos_y = below_y
     if below_y + height > screen_h then
@@ -794,11 +799,11 @@ function _G.addons_menu_create_frame()
     if loaded_cfg and type(loaded_cfg.y) == "number" then
         final_y = loaded_cfg.y
     end
+    -- ここも可視判定は挟まない(理由は addons_menu_open_setting と同じ)。
+    -- 元は if map_ui:IsVisible() then と書いていたが、IsVisible() は 0/1 を返し
+    -- Lua では 0 も真なので、結局いつも実サイズを読んでいた。挙動は変えていない。
     local map_ui = ui.GetFrame("map")
-    local screen_w = 1920
-    if map_ui and map_ui:IsVisible() then
-        screen_w = map_ui:GetWidth()
-    end
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
     if final_x > 1920 and screen_w <= 1920 then
         final_x = default_x
         final_y = default_y

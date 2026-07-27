@@ -1049,8 +1049,14 @@ local function esc_probe_dump_children(ctrl, prefix, depth)
     for i = 0, count - 1 do
         local child = ctrl:GetChildByIndex(i)
         if child then
-            g.vlog("%s%s | class=%s | size=%dx%d", prefix, tostring(child:GetName()), tostring(child:GetClassName()),
-                child:GetWidth(), child:GetHeight())
+            -- GetWidth/GetHeight を持たない種別で転んでも残りを出し続けられるよう、
+            -- esc_probe_dump_sysmenu の pos と同じく個別に握る(probe 全体が pcall の中なので、
+            -- 握らないと途中で打ち切られ、g.esc_probe_max = 1 の一発を空振りで消費する)。
+            local ok_size, size = pcall(function()
+                return string.format("%dx%d", child:GetWidth(), child:GetHeight())
+            end)
+            g.vlog("%s%s | class=%s | size=%s", prefix, tostring(child:GetName()), tostring(child:GetClassName()),
+                ok_size and size or "?")
             esc_probe_dump_children(child, prefix .. "  ", depth + 1)
         end
     end
