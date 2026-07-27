@@ -933,6 +933,11 @@ function g.esc_top()
         if frame ~= nil and frame:IsVisible() == 1 then
             return entry, i
         end
+        -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
+        -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
+        -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
+        g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
+            frame and tostring(frame:IsVisible()) or "-")
         table.remove(g.esc_stack, i)
     end
     return nil
@@ -990,16 +995,145 @@ end
 -- 覚えて、状態が変わったときだけ呼ぶ。毎フレーム呼ぶとゲーム側が設定した分を潰してしまう。
 -- 閉じ忘れると ESC でシステムメニューが二度と開かなくなるため、× で閉じた場合も拾えるよう
 -- _nexus_addons_p_update_frames(FPS_UPDATE)からも呼んで実際の表示状態に合わせ続ける。
-function g.esc_sync_scp()
+-- force=true のときは「覚えている状態」を無視して必ず設定し直す。
+-- 記憶(g.esc_scp_set)はこちらが最後に書いた値でしかなく、クライアント側の実際の値とは
+-- ずれうる。特に g.esc_scp_set を nil に戻した直後は want=false と「記憶なし(=false 扱い)」が
+-- 一致してしまい、こちらが割り込み先を握ったままでも clear が一度も飛ばない。
+-- こうなると ESC はすべてこちらへ来て、閉じるものが無いので何も起きない
+-- = 利用者から見ると「ESC でシステムメニューが開かない」になる(実機で発生)。
+function g.esc_sync_scp(force)
     local want = g.esc_top() ~= nil
-    if want == (g.esc_scp_set or false) then
+    if not force and want == (g.esc_scp_set or false) then
         return
     end
     g.esc_scp_set = want
-    g.vlog("esc_scp: %s (stack=%d)", want and "set" or "clear", #g.esc_stack)
+    g.vlog("esc_scp: %s (stack=%d force=%s)", want and "set" or "clear", #g.esc_stack, tostring(force or false))
     -- 古いクライアントに SetEscapeScp が無くても、ここで巻き込んで落とさない
     -- (その場合は ESCAPE_PRESSED の一斉配信だけで従来どおり動く)。
     pcall(ui.SetEscapeScp, want and "_nexus_addons_p_ESCAPE_PRESSED()" or "")
+end
+
+-- ===== 調査用: ESC で開くシステムメニューの正体を掴む =====
+--
+-- ESC のシステムメニューへ Addons Menu の導線を足せるかを判断するには、
+--   (1) そのフレーム名は何か
+--   (2) 子コントロールは何という名前で、どの種類か(= イベントを付けられるか)
+-- が要る。クライアントにフレームを列挙する API は無い(ui.GetFrame は名前引きのみ)ので、
+-- 候補名を総当たりして「実在したもの」だけ出す。当たらなかったときのために、
+-- グローバルに居る ESC/メニュー系の名前も併せて出して次の候補のヒントにする。
+--
+-- 右上のアイコン列 "sysmenu" とは別物なので混同しないこと(あちらは実在確認済み)。
+-- 候補が当たったらこの一覧を実名 1 つに絞れる。調査が終わってもこの経路のログは
+-- 残す方針だが、候補総当たりの部分は絞ってよい。
+-- 実機の調査で確定: ESC のシステムメニューは **フレーム "apps"**。
+-- 右上アイコン列 sysmenu の "system" ボタン(コレクションの右隣)が
+-- ui.ToggleFrame('apps') を呼んでおり、ESC で開くものと同じ。
+-- 総当たりしていた候補名(mainmenu / systemmenu / …)はすべて外れだったので消した。
+-- APPS_TRY_LEAVE を購読している characters_item_serch と同じ "apps" のこと。
+g.esc_probe_candidates = {"apps"}
+-- 1 起動あたりの実行回数。1 回で 30 行以上出るうえ、vlog は 1 行ごとに
+-- ファイル書き込みとチャットへのシステムメッセージを行う。ESC のたびに走らせていたときは
+-- それだけで ESC の反応が悪くなったので、起動後 1 回に絞る(CLAUDE.md「出しすぎない」)。
+g.esc_probe_max = 1
+
+-- 子ツリーを深さ制限付きで出す。GetX/GetY はコントロール種別によって
+-- 持っていないことがあるので、print_all_child と同じく名前/種別/サイズだけにする。
+local function esc_probe_dump_children(ctrl, prefix, depth)
+    if depth > 3 then
+        return
+    end
+    local count = ctrl:GetChildCount()
+    if not count or count <= 0 then
+        return
+    end
+    for i = 0, count - 1 do
+        local child = ctrl:GetChildByIndex(i)
+        if child then
+            g.vlog("%s%s | class=%s | size=%dx%d", prefix, tostring(child:GetName()), tostring(child:GetClassName()),
+                child:GetWidth(), child:GetHeight())
+            esc_probe_dump_children(child, prefix .. "  ", depth + 1)
+        end
+    end
+end
+
+-- グローバル名の総当たり出力(esc_probe_dump_globals)は、フレーム名 "apps" を
+-- 突き止めるのに使って役目を終えたので消した。1 回あたり 5 行 x 20 件出るうえ、
+-- 得られる情報は「クライアントにこの関数が居る」だけで、毎回見る価値がない。
+-- 同じ手が要るときは pairs(_G) を名前で絞って出すだけなので、書き直しは容易。
+
+-- 右上のアイコン列 sysmenu を出す。ESC のシステムメニューは
+-- 「コレクション(F11)の右隣のボタン」から開くものと同じなので、その子ボタンが
+-- 何という名前で、どのクライアント関数を呼んでいるかが分かれば、開く先のフレーム名を
+-- 手繰れる。イベントスクリプト名を読む API は名前が定かでないので、
+-- 在りそうなものを順に pcall で試して、通ったものだけ出す。
+local function esc_probe_dump_sysmenu()
+    local sysmenu = ui.GetFrame("sysmenu")
+    if not sysmenu then
+        g.vlog("esc_probe: sysmenu が取れない")
+        return
+    end
+    g.vlog("esc_probe: sysmenu visible=%s size=%dx%d child=%d", tostring(sysmenu:IsVisible()), sysmenu:GetWidth(),
+        sysmenu:GetHeight(), sysmenu:GetChildCount())
+    for i = 0, sysmenu:GetChildCount() - 1 do
+        local child = sysmenu:GetChildByIndex(i)
+        if child then
+            local script = nil
+            for _, getter in ipairs({"GetEventScriptName", "GetEventScript", "GetEventScriptArgString"}) do
+                local ok, value = pcall(function()
+                    return child[getter](child, ui.LBUTTONUP)
+                end)
+                if ok and value and value ~= "" then
+                    script = string.format("%s=%s", getter, tostring(value))
+                    break
+                end
+            end
+            -- GetX/GetY を持たないコントロール種別があるので、ここで転んでも
+            -- 残りの子を出し続けられるよう個別に握る(probe 全体が pcall の中なので、
+            -- 握らないと途中で打ち切られて肝心の子が出ない)。
+            local ok_pos, pos = pcall(function()
+                return string.format("%d,%d", child:GetX(), child:GetY())
+            end)
+            g.vlog("  sysmenu[%d] %s | class=%s | pos=%s | %s", i, tostring(child:GetName()),
+                tostring(child:GetClassName()), ok_pos and pos or "?", script or "script=読めない")
+        end
+    end
+end
+
+-- 開閉音の名前を実機から読む調査(esc_probe_dump_sounds)は消した。
+-- GetPushSound / GetSound / GetUserConfig のいずれでも読めないことが確認できたため
+-- (実機ログ: esc_probe: sound sysmenu/system -> 読めない)。同じ調査を繰り返さないこと。
+-- 音の名前が要るときは、クライアントのデータを直接見るほうが速い:
+--   * 使えるイベント名の一覧 … sound.ipf の R1.txt
+--   * フレームが鳴らす音     … ui.ipf の fixframe/<名前>/<名前>.xml の <sound .../>
+--   * Lua で作られるボタン   … 定義ファイルが無いので、候補を鳴らして選ぶしかない
+
+function g.probe_esc_menu()
+    -- 詳細ログ OFF のときは vlog が黙るだけでツリー走査は走ってしまうので、ここで止める。
+    if not g.settings or g.settings.verbose_log ~= 1 then
+        return
+    end
+    g.esc_probe_count = (g.esc_probe_count or 0) + 1
+    if g.esc_probe_count > g.esc_probe_max then
+        return
+    end
+    g.vlog("===== esc_probe [%d/%d] ESC 後のフレームを調べる =====", g.esc_probe_count, g.esc_probe_max)
+    local found = 0
+    for _, name in ipairs(g.esc_probe_candidates) do
+        local frame = ui.GetFrame(name)
+        if frame then
+            found = found + 1
+            -- IsVisible() は ESC による非表示を反映しないことがある(g.esc_sync_scp のコメント参照)。
+            -- 実在するかどうかの判断材料であって、開いているかの証明ではない点に注意。
+            g.vlog("esc_probe: frame '%s' visible=%s size=%dx%d", name, tostring(frame:IsVisible()),
+                frame:GetWidth(), frame:GetHeight())
+            esc_probe_dump_children(frame, "  ", 1)
+        end
+    end
+    g.vlog("esc_probe: 候補 %d 件中 %d 件が実在", #g.esc_probe_candidates, found)
+    -- sysmenu 側も出す。"apps" を開いているのがどのボタンかは、ここの
+    -- GetEventScript(= ui.ToggleFrame('apps')) を見れば確認できる。
+    -- 他アドオンがボタンを足すと並びも中身も変わるので、実機で毎回見られるようにしておく。
+    pcall(esc_probe_dump_sysmenu)
 end
 
 function g.debug_print_table(tbl, indent)

@@ -110,6 +110,52 @@ function _NEXUS_ADDONS_P_ON_INIT(addon, frame)
     g.setup_hook(_nexus_addons_p_CHAT_SYSTEM, "CHAT_SYSTEM")
 end
 
+-- ESC の直後にシステムメニューを調べる予約。ESC を受けたその場では、まだ
+-- ゲーム側がメニューを開いていない可能性があるので、更新スクリプトで一拍置く。
+-- 1 を返すと回り続けるので、1 回調べたら必ず 0 を返して外れること。
+function _nexus_addons_p_probe_esc_menu_tick()
+    pcall(g.probe_esc_menu)
+    return 0
+end
+
+function _nexus_addons_p_schedule_esc_probe(reason)
+    -- ツリー走査は安くないので、詳細ログ ON のときだけ予約する
+    -- (g.probe_esc_menu 側でも同じ判定をするが、そこまで行かせない)。
+    if not g.settings or g.settings.verbose_log ~= 1 then
+        return
+    end
+    -- g.frame は実機で nil になることがある(ON_INIT の frame 引数を当てにできない)。
+    -- g.queue_message と同じフォールバックで引き直し、それでも取れなければ
+    -- 予約を諦めてその場で調べる。以前は nil で即 return していたため、
+    -- 実機では調査そのものが一度も走っていなかった。
+    local frame = g.frame or ui.GetFrame(addon_name_lower)
+    if not frame then
+        g.vlog("esc_probe: フレームが取れないので即時実行 reason=%s", tostring(reason))
+        pcall(g.probe_esc_menu)
+        return
+    end
+    -- ESC 連打で同じ更新スクリプトを積み直さない。
+    -- HaveUpdateScript が false ではなく nil を返すことがあるので `== false` では見ない
+    -- (それだと条件が常に偽になり、予約が一度も走らない)。
+    local ok, have = pcall(function()
+        return frame:HaveUpdateScript("_nexus_addons_p_probe_esc_menu_tick")
+    end)
+    if ok and have then
+        g.vlog("esc_probe: 予約済みなので積み直さない reason=%s", tostring(reason))
+        return
+    end
+    local scheduled, err = pcall(function()
+        frame:RunUpdateScript("_nexus_addons_p_probe_esc_menu_tick", 0.3)
+    end)
+    g.vlog("esc_probe: 予約 %s reason=%s have=%s%s", scheduled and "OK" or "FAILED", tostring(reason), tostring(have),
+        scheduled and "" or (" err=" .. tostring(err)))
+    if not scheduled then
+        -- 更新スクリプトが使えない環境だと一生調べられないので、その場で直接調べる
+        -- (システムメニューが開く前の状態かもしれないが、候補名の実在は分かる)。
+        pcall(g.probe_esc_menu)
+    end
+end
+
 -- ESC で閉じるのは、開いている自作ウィンドウのうち一番手前の 1 枚だけ。
 -- 登録は各アドオンがフレームを開いたところで g.esc_register する(詳細は core/00_header.lua)。
 function _nexus_addons_p_ESCAPE_PRESSED()
@@ -120,11 +166,33 @@ function _nexus_addons_p_ESCAPE_PRESSED()
         return
     end
     g.esc_last_ms = imcTime.GetAppTimeMS()
+    -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
+    -- 出ない。こちらの開閉判定と食い違うので、この押下に合わせて畳んでおく
+    -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
+    pcall(addons_menu_on_escape)
+    -- 押下ごとのログはここでは出さない。**ESC の反応が悪くなるため**(実機で確認)。
+    -- g.vlog は 1 行ごとに ui.SysMsg とファイルの open/write/close を行うので、
+    -- 押すたびに必ず走る経路に置くと、その分だけ入力の処理が重くなる。
+    -- 実際に閉じたときは下で 1 行出るし、割り込み先の出し入れは esc_scp の行で追える。
+    -- ここを一時的に戻すのは「ESC がこちらへ届いているか」を疑うときだけにすること。
     local entry = g.esc_pop_top()
     if not entry then
         -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
         -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
+        -- ここは force を付けない。押下のたびに SetEscapeScp("") を撃つと、
+        -- ゲーム側が自分の都合で入れた割り込み先(開いているダイアログを閉じる等)まで
+        -- 消してしまい、次の 1 回が空振りする = ESC の効きが悪くなる。
+        -- こちらが握ったままの状態は GAME_START の force 同期で必ず解ける。
         g.esc_sync_scp()
+        -- 右クリックの付け直しもここではやらない。ESC は押すたびに必ず通る経路なので、
+        -- 毎回 UI を触る処理を積むほど反応が鈍る(ログで実証済み。上のコメント参照)。
+        -- 付け直しは GAME_START(マップ移動のたび)に任せる。もし移動を挟まずに
+        -- 外れる事例が出たら、mini_addons が sysmenu へ掛けているような
+        -- 数秒周期の更新スクリプトで直すこと。ESC の経路には戻さない。
+        -- ここで esc_probe を回していたが、押下のたびに 30 行以上の vlog(ファイル書き込み +
+        -- チャットへのシステムメッセージ)が走り、ESC の反応を悪くしていた。
+        -- 調べたかったこと(システムメニュー = フレーム "apps")は分かったので、
+        -- 定期的な調査は起動後 1 回(GAME_START)だけにする。
         return
     end
     local close_func = _G[entry.close]
@@ -451,6 +519,19 @@ function _nexus_addons_p_list_close(frame)
     ui.DestroyFrame(frame:GetName())
 end
 
+-- メニューから呼ぶ入口。開いていれば閉じる。
+-- _nexus_addons_p_frame_init を直接メニューに割り当てないのは、あちらが
+-- 「ON/OFF を切り替えた後に一覧を作り直す」用途でも呼ばれるため。あそこをトグルにすると、
+-- アドオンを 1 つ切り替えるたびに一覧が閉じてしまう。
+function _nexus_addons_p_list_toggle()
+    local frame = ui.GetFrame(addon_name_lower .. "list_frame")
+    if frame and frame:IsVisible() == 1 then
+        _nexus_addons_p_list_close(frame)
+        return
+    end
+    _nexus_addons_p_frame_init()
+end
+
 function _nexus_addons_p_toggle_addons(list_gb, use_toggle, child_addon_name, num)
     local old_init_func_name = nil
     for _, entry in ipairs(g._nexus_addons_p) do
@@ -507,12 +588,28 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- end
     -- マップ移動でゲーム側が ESC の割り込み先を戻している可能性があるので、
     -- 「設定済み」の記憶を捨てて次の同期で入れ直させる(g.esc_sync_scp 参照)。
+    -- 捨てるだけでは足りない。記憶が無い状態(false 扱い)と「開いている窓が無い(want=false)」が
+    -- 一致するため、こちらが握ったままでも clear が飛ばず ESC を飲み続ける。
+    -- ここで force 付きの同期を 1 回だけ入れて、実際の値をこちらの意図に合わせ直す。
     g.esc_scp_set = nil
+    g.esc_sync_scp(true)
     -- 以降の init ログを読むときの起点。ここより前は g.settings が無く vlog も黙る。
     -- GAME_START はマップ移動のたびに来るので、この行はマップごとの区切りにもなる
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
     g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
         tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
+    -- 調査: ESC 経由が届かない環境でも候補名の実在だけは分かるよう、起動後 1 回は
+    -- ここからも調べる。ゲーム側のフレームは表示していなくても実体があることが多いので、
+    -- システムメニューを開かなくても名前は当たりうる。マップ移動のたびに走らせると
+    -- 実行回数の上限(g.esc_probe_max)を移動だけで使い切ってしまうため、1 回だけにする。
+    -- 印を立てるのは「実際に調べられるとき」だけにする。詳細ログはログイン後に
+    -- ON にすることが多く、無条件に立てると『GAME_START では OFF だったので
+    -- 飛ばしたのに、印だけ立っていて二度と調べられない』状態になる(実機で発生)。
+    -- この条件なら、ログを ON にしてマップを移動すれば調べ直せる。
+    if not g.esc_probe_did_boot and g.settings and g.settings.verbose_log == 1 then
+        g.esc_probe_did_boot = true
+        _nexus_addons_p_schedule_esc_probe("game_start")
+    end
     -- 本家からの引き継ぎは ON_INIT(設定を読む前)で走るので、そのときは vlog が黙る。
     -- 何件コピーできたかはここまで持ち越して出す(g.migrate_from_origin)。
     if g.migrate_summary then
@@ -531,8 +628,18 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     _G["norisan"]["MENU"] = _G["norisan"]["MENU"] or {}
     local menu_data = {
         name = "Nexus Addons P",
+        -- アイコンは置き場所ごとに変える(core/90_addons_menu.lua の collect_items 参照)。
+        --   icon         … 右上のフローティングメニュー側。従来どおり sysmenu 系の画像
+        --   icon_sysmenu … 右下のシステムメニュー(右クリック)側。周りが apps のボタン群
+        --                  なので、そこに合わせて「出席報酬確認」と同じ画像を使う。
+        --                  定義は ui.ipf の fixframe/apps/apps.xml:
+        --                    <button name="attendanceBtn" ... image="calendar_button_normal" .../>
         icon = "sysmenu_coll",
-        func = "_nexus_addons_p_frame_init",
+        icon_sysmenu = "calendar_button_normal",
+        -- システムメニュー側のセルは apps のボタンと同寸(44)なので、実寸で描けば揃う。
+        icon_inflate_sysmenu = 0,
+        -- もう一度押したら閉じられるよう、直接 frame_init ではなくトグル側を割り当てる
+        func = "_nexus_addons_p_list_toggle",
         image = ""
     }
     _G["norisan"]["MENU"][addon_name] = menu_data
@@ -555,10 +662,14 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     if not menu_frame or not g.addons_menu_frame_owned then
         _G["norisan"]["MENU"].frame_name = frame_name
         addons_menu_create_frame()
-    elseif menu_frame:IsVisible() == 0 then
-        AUTO_CAST(menu_frame)
-        menu_frame:ShowWindow(1)
     end
+    -- 表示するかどうかは設定(sysmenu_only)で決まるので、ここでは無条件に ShowWindow(1)
+    -- しない。以前はここで出し直していたため、設定で消してもマップ移動で復活していた。
+    pcall(addons_menu_apply_visibility)
+    -- システムメニュー(sysmenu の "system" ボタン)の右クリックに Addons Menu を割り当てる。
+    -- ゲーム側が sysmenu を作り直すと外れるので、マップ移動のたびに付け直す
+    -- (core/90_addons_menu.lua の addons_menu_attach_to_sysmenu)。
+    pcall(addons_menu_attach_to_sysmenu)
     g.setup_hook(_nexus_addons_p_APPS_TRY_MOVE_BARRACK, "APPS_TRY_MOVE_BARRACK")
     _nexus_addons_p_fast_func()
 end

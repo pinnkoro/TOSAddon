@@ -1527,6 +1527,13 @@ function Mini_addons_FPS_UPDATE()
             coin_get_gauge:ShowWindow(1)
         end
     end
+    -- ESC などで隠れたメニューボタンを出し直す。ただし
+    -- 「システムメニューの右クリックのみにする」(core/90_addons_menu.lua の sysmenu_only)を
+    -- 選んでいるときは、意図して隠しているので出し直さない。
+    -- ここは毎フレーム走るので、設定を見ないと消した直後に必ず復活する(実機で発生)。
+    if _G["norisan"] and _G["norisan"]["MENU"] and _G["norisan"]["MENU"].sysmenu_only == 1 then
+        return
+    end
     local norisan_menu_frame = ui.GetFrame("norisan_menu_frame")
     if norisan_menu_frame and norisan_menu_frame:IsVisible() == 0 then
         norisan_menu_frame:ShowWindow(1)
@@ -1551,6 +1558,11 @@ function Mini_addons_make_menu(frame)
     end
     frame_name = "norisan_menu_frame"
     menu_frame = ui.GetFrame(frame_name)
+    -- sysmenu_only のときは「隠れている」が正常なので作り直さない
+    -- (作り直すと create_frame 側が非表示で作るため、毎回作り直し続けることになる)。
+    if _G["norisan"]["MENU"].sysmenu_only == 1 then
+        return 0
+    end
     if not menu_frame or menu_frame:IsVisible() == 0 then
         _G["norisan"]["MENU"].frame_name = frame_name
         _G.addons_menu_create_frame()
