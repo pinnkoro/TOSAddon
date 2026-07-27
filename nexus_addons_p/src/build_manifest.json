@@ -67,7 +67,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "4f9c21454a445baa4f6a5b957ea2f29d746eea08d938d382ba0ee546e3298917",
-    "_nexus_addons_p_conclude.lua": "4e45983ec6054e85a5606c14411e1878b744ae55bd89d704bce8d552303a85f7"
+    "_nexus_addons_p.lua": "710391b6f3c23ac65baee7c8726d9316eda2cc6eb774d49a9acc007464a3ea5f",
+    "_nexus_addons_p_conclude.lua": "d55cdca7e69318b602ace7b435edb2822a0a63a067f821f54654e934f0014c81"
   }
 }
