@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""nexus_addons_p/src/**  を連結して配布用 bundle（2 ファイル）を生成する。
+"""nexus_addons_p/src/**  を連結して配布用 bundle を生成する。
 
 これがビルド時の正の入口。manifest の順に src ファイルの中身を raw 連結して
     nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua
-    nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua
-を書き出す（この 2 ファイルは .gitignore 済みの生成物）。
+を書き出す（生成物なので git では追跡しない）。
 
 再現性ガード:
     - manifest["sha256"] に各ターゲットの golden ハッシュを持つ。連結結果がこれと
@@ -82,6 +81,25 @@ def build(manifest):
     return out
 
 
+def prune_stale(targets):
+    """manifest に無い生成 .lua を bundle ディレクトリから消す。
+
+    **消さないと配布に混ざる。** manifest からターゲットを 1 つ外しても、以前の
+    生成物はディスクに残り続ける（生成物なので git 管理外＝ git status も綺麗なまま）。
+    build_addon_ipf.py は bundle ディレクトリの中身をそのまま詰めるので、
+    外したはずの古い .lua が .ipf に入り、外す前の状態が復活する
+    （実際に _nexus_addons_p_conclude.lua で起きた）。
+
+    手書きの .xml は生成物ではないので触らない。
+    """
+    if not os.path.isdir(BUNDLE_DIR):
+        return
+    for name in sorted(os.listdir(BUNDLE_DIR)):
+        if name.endswith(".lua") and name not in targets:
+            os.remove(os.path.join(BUNDLE_DIR, name))
+            print(f"  removed stale {name} (manifest に無い生成物)")
+
+
 def verify_sha(manifest, out):
     """連結結果を golden sha256 と照合。全一致なら True。"""
     expected = manifest.get("sha256", {})
@@ -128,6 +146,7 @@ def main():
     if not verify_sha(manifest, out):
         sys.exit(1)
 
+    prune_stale(set(out))
     for target, data in out.items():
         dst = os.path.join(BUNDLE_DIR, target)
         old = open(dst, "rb").read() if os.path.isfile(dst) else None

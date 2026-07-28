@@ -9,5 +9,9 @@ __pycache__/
 
 # nexus_addons_p: 生成物（source of truth は nexus_addons_p/src/**。
 # docs/bundle_from_src.py で再生成する）。手書きの .xml と配布 .ipf は追跡継続。
+#
+# **もう作らなくなった生成物をここに残さないこと。** 残すと、ディスクに居座る
+# 古い bundle が git status に出ず、build_addon_ipf.py が黙って .ipf に詰めてしまう
+# （_nexus_addons_p_conclude.lua で実際に起きた）。無視から外せば未追跡ファイルとして
+# 目に見えるし、docs/bundle_from_src.py の prune_stale が生成時に消す。
 /nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua
-/nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua

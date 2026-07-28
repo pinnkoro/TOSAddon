@@ -989,4 +989,7 @@ function Ancient_monster_bookshelf_on_cancel()
     Ancient_monster_bookshelf_set_working(false)
 end
 
+-- ここまで読めた印(詳細は conclude_header.lua)。conclude チャンクの読み込みが
+-- 途中で転んだとき、どのアドオンまで届いたかを GAME_START で出すために使う。
+g.conclude_stage = "ancient_monster_bookshelf"
 -- ancient_monster_bookshelf ここまで
