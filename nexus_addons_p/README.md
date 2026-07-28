@@ -129,7 +129,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v1.3.0**
   * Mini Addons: **決闘の申し込みを自動で受ける機能を追加**（自動処理関連 / 既定は OFF）。
     通常の決闘と古代の決闘の両方に効く。楽器演奏中は従来どおり受け付けない。
   * 本体: **他のアドオンと同時に使うと Mini Addons / Market Favorite Rebuild が
