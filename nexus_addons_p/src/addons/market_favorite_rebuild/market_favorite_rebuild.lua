@@ -115,8 +115,25 @@ end
 -- フォルダ作成と一緒にチャンク読み込み時へ置いていた)。同梱版では 1 本の .lua に他アドオンが
 -- 連結されているため、ここで AID が取れないと string.format(..., nil) が投げるエラーで
 -- この後ろの定義がまるごと失われる。まとめ版も AID は ON_INIT で取っている。
+-- 戻り値: 保存先を確定できたら true。**呼び出し側は false を必ず見ること。**
 function g.update_paths()
-    g.active_id = core_g.active_id or session.loginInfo.GetAID()
+    -- AID の取得自体が転びうる(session.loginInfo がまだ無い等)。素で呼ぶと
+    -- ここから先が丸ごと走らず、購読も張られない = そのプレイ中ずっとボタンが出ない。
+    local ok, aid = pcall(function()
+        return core_g.active_id or session.loginInfo.GetAID()
+    end)
+    if not ok then
+        aid = nil
+    end
+    -- LuaJIT の string.format は nil を渡しても投げず "nil" を埋めるので、
+    -- ガードが無いと保存先が ".../nil/market_favorite_rebuild.json" になる。
+    -- そのフォルダは存在しないため設定の読み書きが両方とも空振りし、しかも
+    -- 例外が出ないので気付けない。取れないときは確定させず、次の ON_INIT へ回す。
+    if aid == nil or aid == "" then
+        core_g.vlog("{#FF6347}market_favorite_rebuild: AID が取れないので保存先を確定できない{/}")
+        return false
+    end
+    g.active_id = aid
     g.settings_path = string.format("../addons/%s/%s/market_favorite_rebuild.json", core_addon_name_lower,
         g.active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
@@ -125,6 +142,7 @@ function g.update_paths()
         g.logged_settings_path = g.settings_path
         core_g.vlog("market_favorite_rebuild: 保存先 %s", tostring(g.settings_path))
     end
+    return true
 end
 
 -- JSON の読み書きはまとめ版のものを使う(戻り値は個別版と同じ)。まとめ版側は .tmp 経由の
@@ -143,17 +161,37 @@ end
 
 function Market_favorite_rebuild_LOAD_SETTINGS()
     local settings = g.load_json(g.settings_path)
-    if not settings then
-        settings = {
-            move = 0,
-            always = 0,
-            position = {
-                x = 1420,
-                y = 0
-            },
-            items = {},
-            searchs = {}
-        }
+    -- **既定値はファイル不在時だけでなく、キー単位でも補うこと。**
+    -- 以前は「読めなかったときだけ丸ごと既定値」だったので、解析はできるが中身が
+    -- 足りない JSON(移行が途中で終わった / 旧版の書式)が残ると position が nil になり、
+    -- Market_favorite_rebuild_ON_OPEN_MARKET の 3 行目 SetOffset(g.settings.position.x, ...)
+    -- で毎回落ちていた。この経路は**再起動しても直らない**(ファイルが同じなので)。
+    local defaults = {
+        move = 0,
+        always = 0,
+        position = {
+            x = 1420,
+            y = 0
+        },
+        items = {},
+        searchs = {}
+    }
+    if type(settings) ~= "table" then
+        settings = defaults
+    else
+        for key, value in pairs(defaults) do
+            if settings[key] == nil then
+                settings[key] = value
+            end
+        end
+        -- position だけは「在るが中身が欠けている」もありうる(x か y の片方だけ等)。
+        -- Move/SetOffset に nil を渡すと落ちるので、要素まで見る。
+        if type(settings.position) ~= "table" then
+            settings.position = defaults.position
+        else
+            settings.position.x = tonumber(settings.position.x) or defaults.position.x
+            settings.position.y = tonumber(settings.position.y) or defaults.position.y
+        end
     end
     g.settings = settings
     if not g.settings.sell_items then
@@ -230,8 +268,26 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     -- 設定を読む前に保存先を確定させる(AID はここで初めて確実に取れる)
     g.update_paths()
     g.lang = option.GetCurrentCountry()
-    g.login_name = session.GetMySession():GetPCApc():GetName()
-    if not g.settings then
+    -- **ここを素で書かないこと。** GetPCApc() はロード中に nil を返しうる。
+    -- 素で書くと ON_INIT がこの行で落ち、**この下の register_msg まで到達しない**
+    -- = そのプレイ中ずっと OPEN_DLG_MARKET を受け取れず、マーケットを開き直しても
+    -- 待ってもボタンが出ない。しかも呼び出し元の pcall が握るので利用者は無言のまま。
+    -- 「再起動したら直った」という報告は、この当たり外れで説明が付く。
+    -- 取れなければ前回の名前を使い、それも無ければ空文字で進める。出品履歴の器
+    -- (g.get_sell_items)がキャラごとに分かれるだけで、他の機能は名前に依存しない。
+    local ok_name, login_name = pcall(function()
+        return session.GetMySession():GetPCApc():GetName()
+    end)
+    if ok_name and login_name ~= nil and login_name ~= "" then
+        g.login_name = login_name
+    else
+        g.login_name = g.login_name or ""
+        core_g.vlog("{#FF6347}market_favorite_rebuild: キャラ名が取れないので %s で進める{/}",
+            g.login_name == "" and "空" or ("前回の " .. tostring(g.login_name)))
+    end
+    -- 保存先が確定していないまま LOAD_SETTINGS を呼ばない。中で io.open(nil) になり、
+    -- ここで落ちると下の register_msg へ届かない(上の GetPCApc と同じ事故になる)。
+    if not g.settings and g.settings_path then
         Market_favorite_rebuild_LOAD_SETTINGS()
     end
     -- LOAD_SETTINGS は初回しか走らないが g.login_name は毎回引き直すので、
@@ -255,6 +311,11 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     g.setup_hook_and_event(addon, "MARKET_DRAW_CTRLSET_EQUIP", "Market_favorite_rebuild_MARKET_DRAW_CTRLSET_EQUIP",
         false)
     g.temp_tbl = {}
+    -- 初期化がマーケットを開いた後になった場合の追い付き。**ここを消さないこと。**
+    -- OPEN_DLG_MARKET は開いた瞬間の 1 回しか来ないので、これが無いと
+    -- 「開きっぱなしで待ってもボタンが出ない」になる(詳細は attach_market_btn)。
+    -- ON_INIT はマップ移動のたびに走るが、作るのは 1 個だけなので重ねても増えない。
+    Market_favorite_rebuild_attach_market_btn("on_init")
 end
 
 local option_image_table = {
@@ -1614,6 +1675,9 @@ function Market_favorite_rebuild_MARKET_BUYMODE(my_frame, my_msg)
         Market_favorite_rebuild_TOGGLE_FRAME("true")
         frame:ShowWindow(1)
     end
+    -- マーケットが開いている最中に必ず通る経路なので、ここでも追い付かせる
+    -- (OPEN_DLG_MARKET を取り逃がしていた場合の保険。詳細は attach_market_btn)。
+    Market_favorite_rebuild_attach_market_btn("buymode")
 end
 
 function Market_favorite_rebuild_MARKET_DELETE_SAVED_OPTION(my_frame, my_msg)
@@ -2208,6 +2272,44 @@ function Market_favorite_rebuild_END_DRAG(frame)
     Market_favorite_rebuild_SAVE_SETTINGS()
 end
 
+-- マーケット画面へ「お気に入り」ボタンを付ける。何度呼んでも同じ 1 個になる
+-- (CreateOrGetControl なので 2 度目以降は既存を引く)。
+--
+-- **OPEN_DLG_MARKET だけで付けてはいけない。** 初回ロードは 51 個のアドオンを
+-- 0.1 秒ごとに 2 件ずつ処理する分割実行(core/20_lifecycle.lua の
+-- _nexus_addons_p_async_safe_call)で、このアドオンはその**最後**に来る。実測で
+-- GAME_START の 5 秒後だった。その前にマーケットを開くと OPEN_DLG_MARKET を
+-- 取り逃がし、**開いたまま待っても永久にボタンが出ない**(開き直すまで直らない)。
+-- 設定画面から ON にしたときも on_init はその場で走るので、同じことが起きる。
+-- そこで初期化時と買/売モードの切り替え時にも通して、開いている最中でも追い付かせる。
+function Market_favorite_rebuild_attach_market_btn(reason)
+    local market = ui.GetFrame("market")
+    if not market then
+        core_g.vlog("market_favorite_rebuild: market フレームが無いのでボタンを付けない (%s)", tostring(reason))
+        return false
+    end
+    -- 新規に作ったときだけログを出すための事前確認。ここを見ずに毎回出すと、
+    -- 買/売モードを切り替えるたびに 1 行流れる(CLAUDE.md「出しすぎない」)。
+    local existed = GET_CHILD(market, "open_btn") ~= nil
+    local open_btn = market:CreateOrGetControl("button", "open_btn", 610, 120, 100, 30)
+    AUTO_CAST(open_btn)
+    if g.lang ~= "Japanese" and g.lang ~= "kr" then
+        open_btn:SetOffset(620, 120)
+    end
+    open_btn:SetSkinName("tab2_btn")
+    local text = g.lang == "Japanese" and "{@st66b18}お気に入り" or "{@st66b18}Favorites"
+    open_btn:SetText(text)
+    open_btn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_TOGGLE_FRAME")
+    -- OFF にしたあと ON に戻した経路では、teardown が消したボタンを作り直すことになる。
+    -- ゲーム側が隠した状態を引きずらないよう明示的に出す。
+    open_btn:ShowWindow(1)
+    if not existed then
+        core_g.vlog("market_favorite_rebuild: お気に入りボタンを付けた (%s / market visible=%s)", tostring(reason),
+            tostring(market:IsVisible()))
+    end
+    return true
+end
+
 function Market_favorite_rebuild_ON_OPEN_MARKET(frame, msg)
     frame = ui.GetFrame(addon_name_lower)
     frame:Move(0, 0)
@@ -2219,16 +2321,7 @@ function Market_favorite_rebuild_ON_OPEN_MARKET(frame, msg)
         Market_favorite_rebuild_TOGGLE_FRAME()
         frame:ShowWindow(1)
     end
-    local market = ui.GetFrame("market")
-    local open_btn = market:CreateOrGetControl("button", "open_btn", 610, 120, 100, 30)
-    AUTO_CAST(open_btn)
-    if g.lang ~= "Japanese" and g.lang ~= "kr" then
-        open_btn:SetOffset(620, 120)
-    end
-    open_btn:SetSkinName("tab2_btn")
-    local text = g.lang == "Japanese" and "{@st66b18}お気に入り" or "{@st66b18}Favorites"
-    open_btn:SetText(text)
-    open_btn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_TOGGLE_FRAME")
+    Market_favorite_rebuild_attach_market_btn("open_dlg_market")
 end
 
 function Market_favorite_rebuild_CLOSE(frame)
@@ -2919,7 +3012,16 @@ end
 function Market_favorite_rebuild_teardown()
     local removed = core_g.unregister_msg_by_prefix("Market_favorite_rebuild_")
     ui.DestroyFrame(addon_name_lower)
-    core_g.vlog("market_favorite_rebuild: OFF のため後始末(購読 %d 本)", removed)
+    -- マーケットへ足した「お気に入り」ボタンも外す。これが無いと、OFF にしても
+    -- 押しても何も起きないボタンが残り続ける(フレームは消えているので押せば転ぶ)。
+    -- market はゲーム側のフレームなので、消すのは自分が足した子だけにすること。
+    local market = ui.GetFrame("market")
+    local open_btn = market and GET_CHILD(market, "open_btn")
+    if open_btn then
+        market:RemoveChild("open_btn")
+    end
+    core_g.vlog("market_favorite_rebuild: OFF のため後始末(購読 %d 本 / ボタン %s)", removed,
+        open_btn and "外した" or "無し")
 end
 
 function market_favorite_rebuild_on_init()
@@ -2940,7 +3042,14 @@ function market_favorite_rebuild_on_init()
     -- 読んでから上書きすることになる。
     -- 個別版の保存先は ../addons/market_favorite_rebuild/<AID>/settings.json の 1 ファイルだけ。
     -- 引き継ぎ元のパスにも AID が要るので、ここで先に確定させる。
-    g.update_paths()
+    -- **AID が取れないうちは引き継ぎを走らせないこと。** 引き継ぎは「引き継ぎ先が
+    -- まだ無いとき」だけ走る一度きりの処理なので、間違ったパスで空振りさせると
+    -- 「引き継げなかったのに、引き継ぎ済みとみなされる」状態を作りかねない。
+    -- ON_INIT はマップ移動のたびに走るので、取れるようになった回でやり直せばよい。
+    if not g.update_paths() then
+        core_g.vlog("market_favorite_rebuild: 保存先が確定しないので今回は初期化しない(次回やり直す)")
+        return
+    end
     -- 結果(copied / partial / failed)は migrate 側がチャットへ出すので、ここでは受けない。
     core_g.migrate_individual_addon_settings("market_favorite_rebuild",
         {{src = tostring(g.active_id) .. "/settings.json", dst = "market_favorite_rebuild.json"}},
@@ -2951,5 +3060,8 @@ function market_favorite_rebuild_on_init()
     g.initialized = true
 end
 -- ===== Nexus Addons P 用のフレーム生成とアダプタ(ここまで) =====
+-- ここまで読めた印(詳細は conclude_header.lua)。conclude の最後なので、この値が
+-- 出ていれば全部読めている。core_g を使う理由は mini_addons 側と同じ。
+core_g.conclude_stage = "market_favorite_rebuild"
 end
 -- market_favorite_rebuild ここまで

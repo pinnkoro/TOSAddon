@@ -265,6 +265,26 @@ function _nexus_addons_p_vlog_init(name, duration)
     g.vlog("init: %s (%dms)", name, duration)
 end
 
+-- 登録されているのに on_init が見つからなかったときの報告。
+--
+-- **黙って飛ばしてはいけない。** 呼び出し元は type(func) == "function" のときだけ
+-- 動くので、定義そのものが失われていると成功も失敗もログに出ず、
+-- 「そのアドオンだけ何も起きない」という一番分かりにくい形になる。実際に
+-- mini_addons と market_favorite_rebuild が揃って無反応になった報告があり、
+-- この 2 つは配布 .lua のうち _nexus_addons_p_conclude.lua 側にだけ入っているため、
+-- 「片方のファイルが読み込まれていない」を疑う手掛かりがここしか無かった。
+--
+-- OFF のときは各アドオンの on_init 自身が「use=0 のため初期化しない」を出すので、
+-- この行が出るのは**定義が届いていない**ときだけ。両者を混同しないこと。
+-- 初期化はマップ移動のたびに走るため、報告はアドオンごとに 1 回だけにする。
+function _nexus_addons_p_vlog_missing_init(name)
+    if g.missing_init_logged[name] then
+        return
+    end
+    g.missing_init_logged[name] = true
+    g.vlog("{#FF6347}init: %s の on_init が見つからない{/} (定義が読み込まれていない可能性)", name)
+end
+
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
     g.error_count = 0
     local function safe_call(func, name)
@@ -282,6 +302,8 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
             else
                 _nexus_addons_p_vlog_init(name, duration)
             end
+        else
+            _nexus_addons_p_vlog_missing_init(name)
         end
     end
     if not g.loaded then
@@ -354,6 +376,14 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
                 _nexus_addons_p:RunUpdateScript("_nexus_addons_p_chat_system", 0.5)
             end
             g.loaded = true
+            -- 初回ロードが最後まで届いたことをログに残す。**この行が出ていなければ、
+            -- 途中で止まっている**(更新スクリプトが外れた / どれかの on_init が返って
+            -- こない)。止まると FUNC_INDEX 以降のアドオンは初期化されず、g.loaded も
+            -- false のままなので次の GAME_START_3SEC で 1 件目からやり直しになる。
+            -- 分割実行は 0.1 秒ごとに 2 件ずつなので、登録の末尾にあるアドオンほど
+            -- 遅れて有効になる(実測で GAME_START の 5 秒後)。「あのアドオンだけ効かない」
+            -- という報告では、まずこの行と当該アドオンの init 行の有無を見ること。
+            g.vlog("非同期の初期化が完了(%d 件 / 失敗 %d 件)", func_index - 1, g.error_count or 0)
             if g.error_count == 0 then
                 ts("All add-ons initialized successfully.")
             else
@@ -378,6 +408,8 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
             else
                 _nexus_addons_p_vlog_init(func_name, duration)
             end
+        else
+            _nexus_addons_p_vlog_missing_init(func_name)
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)
         process_count = process_count + 1
@@ -598,6 +630,43 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
     g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
         tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
+    -- conclude 側(mini_addons / market_favorite_rebuild / ancient_monster_bookshelf)が
+    -- 効いているか。壊れると**この 3 つだけが丸ごと無反応**になり、他の 49 個は普通に動くので
+    -- 気付けない。読み方:
+    --   conclude=無      … 取り込み部分が実行されていない
+    --   defs=無          … 実行されたが定義に届いていない(stage がどこまで進んだかを示す)
+    --   fallback=有      … 本家検出をその場判定で代用した。**異常ではない**
+    --   require=...      … 読み込み時の require に失敗した(空なら正常)
+    --
+    -- **判定材料は必ずこの 1 行に載せること。** 以前は fallback と require を別行にして
+    -- 「セッション中 1 回だけ」に絞っていたため、途中から取ったログでは出力済みだと消えて
+    -- しまい、**出ていないことを根拠に誤った原因を組み立てた**(実際に 1 回やった)。
+    -- GAME_START ごとに 1 行なら流れないので、状態は毎回まとめて出す。
+    -- **問題が起きていなくても出す**(正常時の見え方が分からないと異常だと判断できないため)。
+    local defs_ok = type(_G["market_favorite_rebuild_on_init"]) == "function"
+    local status = string.format("conclude=%s defs=%s stage=%s fallback=%s require=%s",
+        g.conclude_loaded and "有" or "無", defs_ok and "有" or "無", tostring(g.conclude_stage),
+        g.detect_origin_fallback and "有" or "無", g.conclude_require_failed or "なし")
+    if g.conclude_loaded and defs_ok then
+        g.vlog("%s", status)
+    else
+        g.vlog("{#FF6347}%s{/} (mini_addons / market_favorite_rebuild が動きません)", status)
+        -- **詳細ログ(既定 OFF)だけで済ませない。** この状態は一覧に項目が並び、ON にもできるのに
+        -- 押しても何も起きないという、利用者から見て最も分かりにくい壊れ方をする。
+        -- 起動ごとに 1 回だけ知らせる(マップ移動のたびに出すと鬱陶しい)。
+        if not g.conclude_notified then
+            g.conclude_notified = true
+            g.queue_message(g.lang == "Japanese" and
+                "{ol}{#FF6347}[Nexus Addons P] Mini Addons / Market Favorite Rebuild が読み込めませんでした{nl}dataフォルダの_nexus_addons_p-⛄-*.ipfが1つだけか確認してください" or
+                "{ol}{#FF6347}[Nexus Addons P] Mini Addons / Market Favorite Rebuild could not be loaded{nl}Please make sure there is only one _nexus_addons_p-⛄-*.ipf in your data folder")
+        end
+    end
+    -- 他アドオンが _G["ADDONS"] を作り直していた形跡。繋ぎ直して救えた場合も残す
+    -- (詳細は conclude_header.lua)。滅多に立たないので、こちらは 1 回だけでよい。
+    if g.addons_table_rebuilt and not g.addons_table_rebuilt_logged then
+        g.addons_table_rebuilt_logged = true
+        g.vlog("{#FF6347}_G.ADDONS が他アドオンに作り直されていた{/} (conclude 側で本体を繋ぎ直した)")
+    end
     -- 調査: ESC 経由が届かない環境でも候補名の実在だけは分かるよう、起動後 1 回は
     -- ここからも調べる。ゲーム側のフレームは表示していなくても実体があることが多いので、
     -- システムメニューを開かなくても名前は当たりうる。マップ移動のたびに走らせると

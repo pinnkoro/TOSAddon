@@ -118,9 +118,24 @@ _G["ADDONS"][author] = _G["ADDONS"][author] or {}
 _G["ADDONS"][author][addon_name] = _G["ADDONS"][author][addon_name] or {}
 local g = _G["ADDONS"][author][addon_name]
 
-local os = require("os")
-local json = require("json")
-local json_imc = require("json_imc")
+-- **読み込み時の require を素で書かないこと。** ここは conclude チャンクの途中で、
+-- 例外が出るとそこから後ろの定義が丸ごと失われる(mini_addons の残りと
+-- market_favorite_rebuild が全部消える)。しかも読み込み時の例外はどこにも残らないので、
+-- 「特定のアドオンだけ無反応」という一番分かりにくい形でしか表に出ない。
+-- 引けなかったモジュールは nil のまま進め、使う側で落ちてもらう方が被害が小さい
+-- (そちらは pcall の内側なのでログに残る)。
+local function safe_require(name)
+    local ok, mod = pcall(require, name)
+    if ok then
+        return mod
+    end
+    core_g.conclude_require_failed = (core_g.conclude_require_failed or "") .. name .. " "
+    return nil
+end
+
+local os = safe_require("os")
+local json = safe_require("json")
+local json_imc = safe_require("json_imc")
 
 local function ts(...)
     local num_args = select("#", ...)
@@ -331,6 +346,9 @@ local DEFAULT_SETTINGS = {
         def_y = 0
     },
     goodbye_ragana = 0,
+    -- 決闘の申し込みを自動で受ける。既定は 0(OFF)。**既定を 1 にしないこと。**
+    -- 断る自由を黙って奪うことになるので、明示的に ON にした人だけに効かせる。
+    auto_accept_duel = 0,
     status_upgrade = 0,
     icor_status_search = 0,
     velnice = {
@@ -384,7 +402,7 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "separated_buff", "group_chat", "memberinfo", "baubas_call", "pt_buff", "chat_recv", "pet_ring",
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
                        "inventory_mod", "reroll_option", "hair_enchant", "chat_new_btn", "pt_info", "enchant_tooltip",
-                       "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout"}
+                       "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout", "auto_accept_duel"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -692,6 +710,11 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "各種ダイアログを制御",
         text_kr = "각종 다이얼로그 제어",
         text_en = "Controls various dialogs"
+    }, {
+        name = "auto_accept_duel",
+        text_jp = "決闘の申し込みを自動で受ける",
+        text_kr = "결투 신청을 자동으로 수락",
+        text_en = "Automatically accept duel requests"
     }, {
         name = "goodbye_ragana",
         text_jp = "街でラガナを非表示",
@@ -1213,6 +1236,9 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     g.setup_hook(Mini_addons_INVENTORY_TOTAL_LIST_GET, "INVENTORY_TOTAL_LIST_GET")
     -- コロニー死んだ時に30秒タイマー動かないバグ修正
     g.setup_hook(Mini_addons_RESTART_ON_MSG, "RESTART_ON_MSG")
+    -- 決闘の申し込みを自動で受ける(設定 auto_accept_duel。OFF なら元の確認ダイアログのまま)
+    g.setup_hook(Mini_addons_ASKED_FRIENDLY_FIGHT, "ASKED_FRIENDLY_FIGHT")
+    g.setup_hook(Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT, "ASKED_ANCIENT_FRIENDLY_FIGHT")
     -- 装備錬成を自動化
     g.setup_hook(Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS, "COMMON_EQUIP_UPGRADE_PROGRESS")
     g.setup_hook_and_event(g.addon, "COMMON_EQUIP_UPGRADE_OPEN", "Mini_addons_COMMON_EQUIP_UPGRADE_OPEN", true)
@@ -5408,6 +5434,44 @@ function Mini_addons_RESTART_CONTENTS_ON_HERE(my_frame, my_msg)
     mouse.SetPos(x, y)
 end
 -- コロニー死んだ時に30秒タイマー動かないバグ修正
+-- 決闘の申し込みを自動で受ける。
+--
+-- クライアントの ASKED_FRIENDLY_FIGHT / ASKED_ANCIENT_FRIENDLY_FIGHT(ui.ipf の
+-- uiscp/community.lua)は確認ダイアログを出し、「はい」で ACK_*_FRIENDLY_FIGHT を呼ぶ。
+-- ここではその ACK を直接呼んで、ダイアログを飛ばす。
+--
+-- **自前でパケットを送らず ACK を経由すること。** ACK_FRIENDLY_FIGHT は楽器バフ中に
+-- 申し込みを弾く判定(packet.RequestFriendlyFight を呼ばず SysMsg を出す)を持っている。
+-- ここを迂回すると、その判定ごと無くなる。
+--
+-- 通常の決闘と古代の決闘は別の関数なので、両方に同じ処理を掛ける
+-- (利用者から見ればどちらも「決闘の申し込み」で、片方だけ自動だと分かりにくい)。
+local function Mini_addons_auto_accept_duel(ack_func_name, origin_func_name, handle, family_name)
+    if g.settings and g.settings.auto_accept_duel == 1 and handle ~= nil then
+        core_g.vlog("mini_addons: 決闘の申し込みを自動で受けた (%s / 相手 %s)", ack_func_name, tostring(family_name))
+        local ack = _G[ack_func_name]
+        if type(ack) == "function" then
+            ack(handle)
+            return true
+        end
+        -- ACK が居ない = クライアント側の作りが変わった。黙って握ると
+        -- 「自動で受ける設定にしたのに何も起きない」になるので、元の確認ダイアログへ回す。
+        core_g.vlog("{#FF6347}mini_addons: %s が見つからないので確認ダイアログに戻す{/}", ack_func_name)
+    end
+    if g.FUNCS[origin_func_name] then
+        g.FUNCS[origin_func_name](handle, family_name)
+    end
+    return false
+end
+
+function Mini_addons_ASKED_FRIENDLY_FIGHT(handle, family_name)
+    Mini_addons_auto_accept_duel("ACK_FRIENDLY_FIGHT", "ASKED_FRIENDLY_FIGHT", handle, family_name)
+end
+
+function Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT(handle, family_name)
+    Mini_addons_auto_accept_duel("ACK_ANCIENT_FRIENDLY_FIGHT", "ASKED_ANCIENT_FRIENDLY_FIGHT", handle, family_name)
+end
+
 function Mini_addons_RESTART_ON_MSG(frame, msg, str, num)
     if not g.settings.restart_colony or g.settings.restart_colony ~= 1 or msg ~= "RESTART_HERE" or
         (BitGet(num, 12) ~= 1 and BitGet(num, 14) ~= 1) then
@@ -7111,5 +7175,8 @@ function mini_addons_on_init()
     g.initialized = true
 end
 -- ===== Nexus Addons P 用のフレーム生成とアダプタ(ここまで) =====
+-- ここまで読めた印(詳細は conclude_header.lua)。do...end の中なので g は
+-- mini_addons 自身のものになっている。まとめ版の g は core_g で参照する。
+core_g.conclude_stage = "mini_addons"
 end
 -- mini_addons ここまで

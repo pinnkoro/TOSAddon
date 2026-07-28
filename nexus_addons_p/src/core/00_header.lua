@@ -15,6 +15,16 @@ _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
 _G["ADDONS"][author][addon_name] = _G["ADDONS"][author][addon_name] or {}
 local g = _G["ADDONS"][author][addon_name]
+-- 素の名前でも本体テーブルを引けるようにしておく。
+--
+-- **_G["ADDONS"] は全アドオン共有なので、他アドオンに作り直されうる。** 作法は
+-- `_G["ADDONS"] = _G["ADDONS"] or {}` だが、素で `= {}` と書くアドオンや、
+-- 再読み込み機能を持つアドオンが居ると、ここに入れた本体テーブルごと失われる。
+-- そうなると **後から読まれる _nexus_addons_p_conclude.lua が別の空テーブルを掴み**、
+-- そこに入っている mini_addons / market_favorite_rebuild が丸ごと動かなくなる
+-- (詳細は conclude_header.lua)。main 側はこの local g を上位値として持ち続けるので
+-- 気付けず、「一部のアドオンだけ無反応」という分かりにくい形だけが残る。
+_G["_nexus_addons_p_core_g"] = g
 local json = require("json")
 
 local function ts(...)
@@ -303,6 +313,9 @@ g.msg_registered_cycle = g.msg_registered_cycle or {}
 g.msg_registered_addon = g.msg_registered_addon or {}
 -- 配信で転んだ (メッセージ, ハンドラ) の組。同じ組を何度も報告しないための印。
 g.msg_failed = g.msg_failed or {}
+-- on_init が見つからなかったアドオン。報告済みの印(初期化はマップ移動のたびに走るので、
+-- 絞らないと同じ行が毎回流れる)。詳細は core/20_lifecycle.lua の safe_call。
+g.missing_init_logged = g.missing_init_logged or {}
 
 function g.register_msg(msg, func_name)
     if type(msg) ~= "string" or type(func_name) ~= "string" then

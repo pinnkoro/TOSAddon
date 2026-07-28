@@ -30,7 +30,7 @@ Tree of Savior アドオン .ipf の「平文(decrypted)コンテナ」を生成
     nexus_addons_p の bundle .lua は .gitignore 済みの生成物なので、bundle_from_src.py を
     先に走らせ忘れると本体を欠いた .ipf が「成功」表示で作られてしまう。それを防ぐため、
     生成物を必須指定して不在なら失敗させる:
-        --require _nexus_addons_p/_nexus_addons_p.lua,_nexus_addons_p/_nexus_addons_p_conclude.lua
+        --require _nexus_addons_p/_nexus_addons_p.lua
 """
 import os
 import sys
@@ -55,7 +55,7 @@ def collect_files(src_dir: str, addon: str):
     """<src_dir>/<addon>/ 配下を再帰的に集め、(内部パス, bytes) を内部パス昇順で返す。
 
     内部パスは "addon/相対パス"(区切りは "/")。昇順ソートで元 ipf と同じ並びを
-    再現する(例: _nexus_addons_p.lua → .xml → _conclude.lua)。
+    再現する(例: _nexus_addons_p.lua → _nexus_addons_p.xml)。
     """
     root = os.path.join(src_dir, addon)
     if not os.path.isdir(root):

@@ -718,8 +718,10 @@ g.settings = saved_settings
 -- "../addons/%s/%s/<名前>" 文字列を全部拾って突き合わせ、追加漏れをここで落とす。
 -- 新しい設定ファイルを増やしたら core/30_maintenance.lua の一覧に足すこと。
 print("[17] バックアップ対象の一覧が src と一致する")
-local BUNDLES = {"nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua",
-                 "nexus_addons_p/_nexus_addons_p/_nexus_addons_p_conclude.lua"}
+-- bundle は 1 本だけ。以前は _nexus_addons_p_conclude.lua という 2 本目があったが、
+-- 読み込み順や読み込み漏れで壊れる事故が実機で出たため main へ取り込んだ
+-- （nexus_addons_p/src/conclude_scope_open.lua を参照）。
+local BUNDLES = {"nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua"}
 -- 可変名。ここに載せたものは g.backup_files では扱えないので、扱いを個別に決めてある。
 local KNOWN_DYNAMIC = {
     ["%s"] = "monster_kill_count フォルダ自体（g.create_folder で作る）",
