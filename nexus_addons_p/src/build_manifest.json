@@ -55,19 +55,18 @@
       "addons/auto_map_change/auto_map_change.lua",
       "addons/bulk_sales/bulk_sales.lua",
       "guard_close.lua",
-      "core/90_addons_menu.lua"
-    ],
-    "_nexus_addons_p_conclude.lua": [
+      "core/90_addons_menu.lua",
+      "conclude_scope_open.lua",
       "conclude_header.lua",
       "guard_open.lua",
       "addons/ancient_monster_bookshelf/ancient_monster_bookshelf.lua",
       "addons/mini_addons/mini_addons.lua",
       "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
-      "guard_close.lua"
+      "guard_close.lua",
+      "conclude_scope_close.lua"
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "3f07db35f8de8293e517955c635311f20acd7e7bc2849b90704ca114861ac5ac",
-    "_nexus_addons_p_conclude.lua": "d55cdca7e69318b602ace7b435edb2822a0a63a067f821f54654e934f0014c81"
+    "_nexus_addons_p.lua": "148d2ff8377060ddd115b3c061e0a00bea91e2712094c30ecfe3ca7f54614d61"
   }
 }

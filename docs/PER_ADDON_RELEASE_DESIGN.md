@@ -29,11 +29,14 @@
 
 ### 1-1. 配布単位
 
-* 配布実体は `.ipf` 1 個。中身は `_nexus_addons_p/` フォルダに 3 ファイル
-  （`_nexus_addons_p.lua` / `_nexus_addons_p.xml` / `_nexus_addons_p_conclude.lua`）。
-* `.lua` 2 つは `nexus_addons_p/src/**` を manifest 順に**生連結**した生成物
+* 配布実体は `.ipf` 1 個。中身は `_nexus_addons_p/` フォルダに 2 ファイル
+  （`_nexus_addons_p.lua` / `_nexus_addons_p.xml`）。
+  ※ このメモを書いた時点では `_nexus_addons_p_conclude.lua` を加えた 3 ファイルだったが、
+  読み込み順が保証されず conclude 側が丸ごと無効になる事故が起きたため、
+  `.lua` は 1 本に統合した（[BUILD_IPF.md](BUILD_IPF.md)）。
+* `.lua` は `nexus_addons_p/src/**` を manifest 順に**生連結**した生成物
   （[bundle_from_src.py](bundle_from_src.py)、golden sha で再現性を固定）。
-* アドオンは **49 個**（main 側 48 + conclude 側 `ancient_monster_bookshelf` 1）。
+* アドオンは **49 個**（うち `ancient_monster_bookshelf` は当時 conclude 側にあった）。
   `src/addons/<key>/<key>.lua` に 1 アドオン 1 フォルダで分割済み。合計 29,131 行。
 
 ### 1-2. アドオン → core の依存

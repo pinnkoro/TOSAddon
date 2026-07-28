@@ -9,12 +9,22 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "1.2.0"
+local ver = "1.3.0"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
 _G["ADDONS"][author][addon_name] = _G["ADDONS"][author][addon_name] or {}
 local g = _G["ADDONS"][author][addon_name]
+-- 素の名前でも本体テーブルを引けるようにしておく。
+--
+-- **_G["ADDONS"] は全アドオン共有なので、他アドオンに作り直されうる。** 作法は
+-- `_G["ADDONS"] = _G["ADDONS"] or {}` だが、素で `= {}` と書くアドオンや、
+-- 再読み込み機能を持つアドオンが居ると、ここに入れた本体テーブルごと失われる。
+-- そうなると **後から読まれる _nexus_addons_p_conclude.lua が別の空テーブルを掴み**、
+-- そこに入っている mini_addons / market_favorite_rebuild が丸ごと動かなくなる
+-- (詳細は conclude_header.lua)。main 側はこの local g を上位値として持ち続けるので
+-- 気付けず、「一部のアドオンだけ無反応」という分かりにくい形だけが残る。
+_G["_nexus_addons_p_core_g"] = g
 local json = require("json")
 
 local function ts(...)
@@ -303,6 +313,9 @@ g.msg_registered_cycle = g.msg_registered_cycle or {}
 g.msg_registered_addon = g.msg_registered_addon or {}
 -- 配信で転んだ (メッセージ, ハンドラ) の組。同じ組を何度も報告しないための印。
 g.msg_failed = g.msg_failed or {}
+-- on_init が見つからなかったアドオン。報告済みの印(初期化はマップ移動のたびに走るので、
+-- 絞らないと同じ行が毎回流れる)。詳細は core/20_lifecycle.lua の safe_call。
+g.missing_init_logged = g.missing_init_logged or {}
 
 function g.register_msg(msg, func_name)
     if type(msg) ~= "string" or type(func_name) ~= "string" then
@@ -824,9 +837,16 @@ local function vlog_write(line)
     g.vlog_lines = g.vlog_lines + 1
 end
 
+-- 実際に出力したときだけ true を返す。
+--
+-- 「同じ行を 1 回だけ出す」ために印を立てる呼び出し側が幾つかあるが、印を先に立てると
+-- **既定 OFF の間に印だけ消費され、後から ON にしても二度と出ない**。特に
+-- ログイン直後の非同期初期化はログを ON にする前に走り切るので、一番知りたい
+-- 起動時の 1 回が必ず消える(実機で発生)。印は必ずこの戻り値で立てること:
+--     if not g.foo_logged and g.vlog("...") then g.foo_logged = true end
 function g.vlog(fmt, ...)
     if not g.settings or g.settings.verbose_log ~= 1 then
-        return
+        return false
     end
     local ok, msg = pcall(string.format, fmt, ...)
     if not ok then
@@ -835,6 +855,7 @@ function g.vlog(fmt, ...)
     ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
     local plain = msg:gsub("{[^}]*}", "")
     vlog_write(plain)
+    return true
 end
 
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
@@ -856,9 +877,11 @@ function g.get_map_type()
     if not map_cls then
         -- 失敗はキャッシュしない = 毎フレームここへ来るので、ログはマップごとに 1 回だけ。
         -- (絞らないと FPS_UPDATE 経由でシステムメッセージが毎フレーム流れる)
-        if g.map_type_failed_name ~= map_name then
+        -- 印は出力できたときだけ立てる(g.vlog のコメント参照)。OFF の間に立ててしまうと
+        -- 後からログを ON にしても、そのマップに居る限りこの行が出ない。
+        if g.map_type_failed_name ~= map_name and
+            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
             g.map_type_failed_name = map_name
-            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name))
         end
         return nil
     end
@@ -867,9 +890,9 @@ function g.get_map_type()
         -- クラスは引けたが MapType が空。これも「引けなかった」と同じ扱いにする。
         -- ここでキャッシュすると無効化する契機が無く、そのマップに居る間ずっと
         -- nil が返り続けてしまう(上のコメントと同じ理由)。
-        if g.map_type_failed_name ~= map_name then
+        if g.map_type_failed_name ~= map_name and
+            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
             g.map_type_failed_name = map_name
-            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name))
         end
         return nil
     end

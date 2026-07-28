@@ -66,8 +66,7 @@ REBUILD_HINT = (
     "       python docs/bundle_from_src.py\n"
     "       python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \\\n"
     '           "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" \\\n'
-    "           --require _nexus_addons_p/_nexus_addons_p.lua,"
-    "_nexus_addons_p/_nexus_addons_p_conclude.lua \\\n"
+    "           --require _nexus_addons_p/_nexus_addons_p.lua \\\n"
     "           --encrypt")
 
 

@@ -9,7 +9,7 @@ GUI(IPFSuite)を使う方法と、スクリプトで自動生成する方法の 
 
 配布用 `.ipf` は **2 層構造**:
 
-1. **平文コンテナ** … アドオンフォルダ配下のファイル(`.lua` / `.xml` / `_conclude.lua`)を
+1. **平文コンテナ** … アドオンフォルダ配下のファイル(`.lua` / `.xml`)を
    それぞれ raw deflate 圧縮して 1 つにまとめたもの
 2. **PKware 暗号化** … 上をさらに暗号化したもの(これが配布形式)
 
@@ -18,10 +18,15 @@ GUI(IPFSuite)を使う方法と、スクリプトで自動生成する方法の 
 ```
 _nexus_addons_p/_nexus_addons_p.lua              ← 生成物(.gitignore)
 _nexus_addons_p/_nexus_addons_p.xml              ← 手書き
-_nexus_addons_p/_nexus_addons_p_conclude.lua     ← 生成物(.gitignore)
 ```
 
-> **重要**: `.lua` 2 ファイルは **`nexus_addons_p/src/**` を連結した生成物**（source of
+> **`.lua` は 1 本だけにすること。** 以前は engine 規約に乗って
+> `_nexus_addons_p_conclude.lua` という 2 本目を出していたが、**2 本ある状態そのものが
+> 不具合の温床だった**（読み込み順が同居アドオンで変わる / 片方だけ読まれない）。
+> 実機で 2 通りの壊れ方を確認したため 1 本へ統合した。詳細は
+> [nexus_addons_p/src/conclude_scope_open.lua](../nexus_addons_p/src/conclude_scope_open.lua)。
+
+> **重要**: `.lua` は **`nexus_addons_p/src/**` を連結した生成物**（source of
 > truth は `src/`）。編集は `src/` 側で行い、`docs/bundle_from_src.py` で再生成する。
 > 設計と分割の詳細は [REFACTOR_SPLIT_DESIGN.md](REFACTOR_SPLIT_DESIGN.md) を参照。
 
@@ -73,7 +78,7 @@ python docs/bundle_from_src.py
 #    詰めると本体を欠いた壊れた .ipf ができるので、不在なら失敗させる。
 python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
     "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" \
-    --require _nexus_addons_p/_nexus_addons_p.lua,_nexus_addons_p/_nexus_addons_p_conclude.lua \
+    --require _nexus_addons_p/_nexus_addons_p.lua \
     --encrypt
 ```
 

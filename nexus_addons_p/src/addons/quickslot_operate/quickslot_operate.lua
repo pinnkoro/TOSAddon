@@ -368,9 +368,11 @@ function Quickslot_operate_set_script(quickslotnexpbar)
     -- この関数は quickslotnexpbar への RunUpdateScript からしか呼ばれず、実機では
     -- 実行されていない（このログが一度も出ない）。マウスオーバーの種族選択パネルが
     -- 出ないのはそのため。ログは同じ調査を繰り返さないために残す。
-    if g.quickslot_operate_logged_use ~= is_use then
+    -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。ログを ON にする前に
+    -- 一度通っていると、印だけ立って「実行されたか」が二度と分からなくなる。
+    if g.quickslot_operate_logged_use ~= is_use and
+        g.vlog("quickslot_operate: set_script 実行 USE=%s", tostring(is_use)) then
         g.quickslot_operate_logged_use = is_use
-        g.vlog("quickslot_operate: set_script 実行 USE=%s", tostring(is_use))
     end
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot = GET_CHILD_RECURSIVELY(quickslotnexpbar, "slot" .. i)

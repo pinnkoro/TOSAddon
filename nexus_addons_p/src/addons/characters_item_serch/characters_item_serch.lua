@@ -425,6 +425,19 @@ function Characters_item_serch_load_data(select_name, search_mode, search_text)
     end
     local items = {}
     local target_name = (select_name == "") and g.login_name or select_name
+    -- 検索語の小文字化はここで 1 回だけ行う。以前は行ごとのループ内で
+    -- string.lower(search_text) を呼んでいて、.dat の行数(実機で数千〜2 万行)ぶん
+    -- 同じ文字列を作り直していた。
+    --
+    -- 行の側は小文字化しない。アイテム名は保存時に string.lower 済みで入っている
+    -- (Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE などを参照)ので、小文字の検索語と
+    -- そのまま突き合わせれば大文字小文字を区別しない一致になる。行全体を小文字化すると
+    -- 全行ぶんの一時文字列を作ることになり、そこが GC の主な発生源だった。
+    --
+    -- plain=true も併せて付ける。これが無いと検索語が Lua パターンとして解釈され、
+    -- 強化値の "+" や括弧を含む名前で検索したときに空振りするか malformed pattern で落ちる。
+    -- キャラ表示モード側(下の find)は元から plain=true なので、扱いも揃う。
+    local needle = search_text and string.lower(search_text) or ""
     if search_mode == "ITEM_SEARCH" then
         table.insert(dat_tbl, g.characters_item_serch_dat_tbl[4])
     end
@@ -437,7 +450,7 @@ function Characters_item_serch_load_data(select_name, search_mode, search_text)
             for line in content:gmatch("([^\n]+)") do
                 local is_match = false
                 if search_mode == "ITEM_SEARCH" then
-                    if string.find(string.lower(line), string.lower(search_text)) then
+                    if string.find(line, needle, 1, true) then
                         is_match = true
                     end
                 else
@@ -513,6 +526,11 @@ function Characters_item_serch_item_search(my_frame, ctrl, str, num)
     tree:SetFitToChild(true, 10)
     tree:SetFontName("white_16_ol")
     local items = Characters_item_serch_load_data("", "ITEM_SEARCH", search_text)
+    -- 検索は Enter/ボタンを押したときにしか走らないので、1 回の検索につき 1 行。
+    -- 検索語をそのまま出すのは、"+" や括弧を含む語で 0 件になる(パターン誤解釈)不具合が
+    -- 再発したときに、利用者の verbose_log.txt だけで「何を打って何件だったか」が
+    -- 分かるようにするため。
+    g.vlog("characters_item_serch: 検索 '%s' → %d 件", tostring(search_text), #items)
     local names = {}
     for i = 1, #items do
         local item = items[i]
@@ -679,13 +697,19 @@ function Characters_item_serch_build_tree(characters_item_serch, tree, select_na
         ["nil"] = g.lang == "Japanese" and "レリック" or "Relic",
         PHousing = g.lang == "Japanese" and "家具" or "Housing"
     }
+    -- キャラ表示モードの items は Characters_item_serch_load_data で先頭のキャラ名を
+    -- 落としてあるので、{IESID, ClassID, 個数, アイテム名, 場所, カテゴリ} の並びになる。
+    -- 以前はここを [3](個数) と [4](アイテム名) で見ていたため、シルバー(ClassID 900011)が
+    -- 一致することが無く、表示は常に 0 だった。個数側は tonumber されず文字列のままなので、
+    -- "900011" == 900011 が Lua では常に false になるのも重なっていた。
     local silver = 0
     for i = 1, #items do
-        if items[i][3] == 900011 then
-            silver = items[i][4]
+        if items[i][2] == 900011 then
+            silver = items[i][3]
             break
         end
     end
+    g.vlog("characters_item_serch: %s のシルバー=%s (%d 件から探索)", tostring(select_name), tostring(silver), #items)
     local categorized_items = {}
     for _, item in ipairs(items) do
         local category = item[5]
