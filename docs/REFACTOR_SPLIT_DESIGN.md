@@ -1,5 +1,15 @@
 # Nexus Addons ソース分割リファクタ設計（方式A：ソース分割＋ビルド時連結）
 
+> **【実施済み・一部は現状と異なる — 配布 `.lua` は今は 1 本だけ】**
+> このメモは分割リファクタ当時（配布 `.lua` が 2 本だった頃）の記録。
+> ソースを `src/**` に分割してビルド時に連結する方式そのものは現在も有効だが、
+> **連結先は `_nexus_addons_p.lua` 1 本だけ**で、`_nexus_addons_p_conclude.lua` は
+> ターゲットごと廃止した。§1 の「engine 規約で main の後に自動ロードされる」は誤りで、
+> **読み込み順は同居する他アドオンの顔ぶれで変わる**（conclude 側が読まれず、そこに
+> 入っていた 3 アドオンだけ丸ごと無効になる事故が実際に起きた）。
+> 新しいアドオンは `_nexus_addons_p.lua` へ連結すること。現行の構成は
+> [BUILD_IPF.md](BUILD_IPF.md) と `nexus_addons_p/src/build_manifest.json` が正。
+
 ## 0. 方針（3行）
 
 - 49 アドオンを **1 アドオン = 1 ファイル**に分割する。`_replaced/` は対象外。
@@ -20,7 +30,7 @@
 
 分割が成立する根拠（既に実証済み）：
 
-1. **engine は複数 lua を読む**。`_conclude.lua` は engine 規約で main の後に自動ロードされる。実際 `ancient_monster_bookshelf` が 1 アドオンまるごと conclude に入っており、登録リストからは**グローバル名で参照**されている。＝「1 アドオン = 別ファイル」は既に本番稼働中。
+1. **engine は複数 lua を読む**。~~`_conclude.lua` は engine 規約で main の後に自動ロードされる。~~（**誤り**。読まれはするが順序は保証されず、これが後の不具合の原因になった。上の枠を参照）実際 `ancient_monster_bookshelf` が 1 アドオンまるごと conclude に入っており、登録リストからは**グローバル名で参照**されている。＝「1 アドオン = 別ファイル」は既に本番稼働中。
 2. **アドオンは疎結合**。登録リスト `g._nexus_addons_p` に `key` を列挙するだけ。実処理はグローバル関数 `<key>_on_init` を `_G[key.."_on_init"]` で名前引き（[_nexus_addons_p.lua:1167-1177](../nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua#L1167-L1177)）。連携は共有 `g` テーブルとグローバル関数経由のみ。
 3. **境界が既にマーカーで明示されている**。main には `-- <name> ここから` / `-- <name> ここまで` が **48 組**存在し、各アドオンブロックを完全に区切っている。conclude 側も `ancient_monster_bookshelf ここから/ここまで` あり。
 

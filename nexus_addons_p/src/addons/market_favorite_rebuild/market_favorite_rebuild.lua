@@ -138,9 +138,11 @@ function g.update_paths()
         g.active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
     -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
-    if g.logged_settings_path ~= g.settings_path then
+    -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると
+    -- ログ OFF の初回で消費され、後から ON にしても保存先が分からないままになる。
+    if g.logged_settings_path ~= g.settings_path and
+        core_g.vlog("market_favorite_rebuild: 保存先 %s", tostring(g.settings_path)) then
         g.logged_settings_path = g.settings_path
-        core_g.vlog("market_favorite_rebuild: 保存先 %s", tostring(g.settings_path))
     end
     return true
 end

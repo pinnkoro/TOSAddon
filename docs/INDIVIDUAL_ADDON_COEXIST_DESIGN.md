@@ -183,16 +183,31 @@
 
 **`.lua` の置き場**
 
+> **【この節は撤回済み — 現在の方針は「配布 `.lua` は 1 本だけ」】**
+> 下の既定方針（conclude へ連結）は、engine が `.lua` を**必ず main → conclude の順で
+> 読む**という前提に立っていた。実際には読み込み順は同居する他アドオンの顔ぶれで変わり、
+> conclude 側が読まれずに `mini_addons` / `market_favorite_rebuild` /
+> `ancient_monster_bookshelf` の 3 つだけが丸ごと無効になる事故が起きた。
+> このため `_nexus_addons_p_conclude.lua` は**ターゲットごと廃止**し、
+> [conclude_scope_open.lua](../nexus_addons_p/src/conclude_scope_open.lua) /
+> `conclude_scope_close.lua` で `do ... end` を作って `_nexus_addons_p.lua` 1 本に
+> 取り込んである（詳細は [BUILD_IPF.md](BUILD_IPF.md#L24)）。
+> **新しいアドオンも `_nexus_addons_p.lua` に連結すること。** 配布 `.lua` を
+> 増やすと同じ事故が再発する。以下は当時の判断の記録として残す。
+
 engine が配布パック内の `.lua` をどう読むかは確定していない。
 [REFACTOR_SPLIT_DESIGN.md:23](REFACTOR_SPLIT_DESIGN.md#L23) は
 「`_conclude.lua` は engine 規約で main の後に自動ロードされる」と書いているが、
 **任意のファイル名を増やしても読まれるかは不明**。したがって:
 
-* **既定方針**: 新規 target を増やさず、実績のある
+* **既定方針**（撤回済み）: 新規 target を増やさず、実績のある
   `_nexus_addons_p_conclude.lua` に連結する。各アドオンは `do ... end` で囲み、
   ファイルスコープの `local`（`g` / `json` / `addon_name` / `ts`）を隔離する。
   囲んでもグローバル関数の定義には影響しない。
 * 新規 `.lua` を増やす案は、**実機で読み込まれることを確認できてから**にする。
+
+※ `do ... end` で `local` を隔離する部分だけは現在も有効で、1 本化した後も
+そのまま使っている（隔離しないと `local` が 200 個上限に当たる）。
 
 **XML は同梱しない（フレームはプログラム生成に変換する）** — 確定
 
@@ -278,7 +293,8 @@ CLAUDE.md の方針どおり `g.vlog` に判断材料を出す。
 
 1. `market_favorite_rebuild` / `mini_addons` を `src/addons/<key>/` に配置し、§2-2 のリネームを行う
 2. 登録リストにエントリを追加（`old_init_func` 込み）
-3. `build_manifest.json` の conclude 側に `do ... end` で囲んで追加
+3. `build_manifest.json` の `_nexus_addons_p.lua` に `do ... end` で囲んで追加
+   （当時は conclude 側に足していたが、conclude は廃止済み。§2-2 の枠を参照）
 4. 設定引き継ぎの共通関数と宣言を実装（まず新規 2 アドオンに適用）
 5. bundle 再生成（`--bless`）→ 構文チェック（WSL luajit）
 6. **実機確認**: `verbose_log.txt` で「個別版検出」「引き継ぎ」の分岐を確認
@@ -301,7 +317,7 @@ CLAUDE.md の方針どおり `g.vlog` に判断材料を出す。
 
 | # | 内容 | 対応 |
 | --- | --- | --- |
-| 1 | engine が任意名の `.lua` を読むか不明 | conclude に連結する既定方針で回避（§2-2） |
+| 1 | engine が任意名の `.lua` を読むか不明 | ~~conclude に連結する既定方針で回避~~ → **顕在化した**。順序も保証されず conclude 側が読まれない事故が起きたため、配布 `.lua` を 1 本に統合して解消（§2-2 の枠） |
 | 2 | `mini_addons` の `norisan_menu_*` 二重定義 | 実装本体を削除し登録のみにする（§2-2）。**ride-along 名は変えない** |
 | 3 | `Cc_helper_equip_card` の名前衝突 | 実害は限定的だが未検証。cc_helper 個別版併用時に確認（§1-3） |
 | 4 | 引き継ぎで既存設定を壊す | マーカー方式 + 既定値へのマージ + `use` は同梱版優先（§2-3） |
@@ -309,8 +325,10 @@ CLAUDE.md の方針どおり `g.vlog` に判断材料を出す。
 
 ### 未決事項
 
-* engine の `.lua` ロード規約（実機で確認する）。
-  ただし §2-2 の既定方針（conclude へ連結）を採る限り**着手の前提にはならない**。
+* ~~engine の `.lua` ロード規約（実機で確認する）。
+  ただし §2-2 の既定方針（conclude へ連結）を採る限り**着手の前提にはならない**。~~
+  → **解決**: 実機で「複数 `.lua` は読まれるが順序が保証されない」ことが判明した。
+  配布 `.lua` を 1 本にしたので、この規約に依存する箇所は無くなった。
 * `mini_addons` の各機能を設定 UI にどう出すか（自前の設定フレームを持つため、
   まとめ版の一覧に 1 項目として出すのか、機能ごとに出すのか）
 

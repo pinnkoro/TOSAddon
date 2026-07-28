@@ -173,9 +173,11 @@ function g.update_paths()
     g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
     -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
-    if g.logged_settings_path ~= g.settings_path then
+    -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると
+    -- ログ OFF の初回で消費され、後から ON にしても保存先が分からないままになる。
+    if g.logged_settings_path ~= g.settings_path and
+        core_g.vlog("mini_addons: 保存先 %s", tostring(g.settings_path)) then
         g.logged_settings_path = g.settings_path
-        core_g.vlog("mini_addons: 保存先 %s", tostring(g.settings_path))
     end
 end
 
@@ -5446,7 +5448,14 @@ end
 --
 -- 通常の決闘と古代の決闘は別の関数なので、両方に同じ処理を掛ける
 -- (利用者から見ればどちらも「決闘の申し込み」で、片方だけ自動だと分かりにくい)。
-local function Mini_addons_auto_accept_duel(ack_func_name, origin_func_name, handle, family_name)
+--
+-- **フックは設定に関係なく全利用者に掛かる**(掛け外しは GAME_START_3SEC の一度きり)。
+-- そのため、自動で受けない経路は元の関数へ**素通し**でなければならない。引数を
+-- (handle, family_name) に固定して受け直すと、クライアントが 3 つ目以降を渡すように
+-- なったときに黙って落ち、戻り値も握り潰す。機能を OFF にしている利用者まで巻き込むので、
+-- ここは可変長(...)で受けてそのまま渡し、戻り値も返すこと。
+local function Mini_addons_auto_accept_duel(ack_func_name, origin_func_name, ...)
+    local handle, family_name = ...
     if g.settings and g.settings.auto_accept_duel == 1 and handle ~= nil then
         -- **成功ログは ACK を呼べたときだけ出す。** 存在チェックより前に出すと、
         -- ACK が無いときに「自動で受けた」と下の「戻す」が並んで出て、ログから
@@ -5455,25 +5464,24 @@ local function Mini_addons_auto_accept_duel(ack_func_name, origin_func_name, han
         if type(ack) == "function" then
             core_g.vlog("mini_addons: 決闘の申し込みを自動で受けた (%s / 相手 %s)", ack_func_name,
                 tostring(family_name))
-            ack(handle)
-            return true
+            return ack(handle)
         end
         -- ACK が居ない = クライアント側の作りが変わった。黙って握ると
         -- 「自動で受ける設定にしたのに何も起きない」になるので、元の確認ダイアログへ回す。
         core_g.vlog("{#FF6347}mini_addons: %s が見つからないので確認ダイアログに戻す{/}", ack_func_name)
     end
-    if g.FUNCS[origin_func_name] then
-        g.FUNCS[origin_func_name](handle, family_name)
+    local origin = g.FUNCS[origin_func_name]
+    if origin then
+        return origin(...)
     end
-    return false
 end
 
-function Mini_addons_ASKED_FRIENDLY_FIGHT(handle, family_name)
-    Mini_addons_auto_accept_duel("ACK_FRIENDLY_FIGHT", "ASKED_FRIENDLY_FIGHT", handle, family_name)
+function Mini_addons_ASKED_FRIENDLY_FIGHT(...)
+    return Mini_addons_auto_accept_duel("ACK_FRIENDLY_FIGHT", "ASKED_FRIENDLY_FIGHT", ...)
 end
 
-function Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT(handle, family_name)
-    Mini_addons_auto_accept_duel("ACK_ANCIENT_FRIENDLY_FIGHT", "ASKED_ANCIENT_FRIENDLY_FIGHT", handle, family_name)
+function Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT(...)
+    return Mini_addons_auto_accept_duel("ACK_ANCIENT_FRIENDLY_FIGHT", "ASKED_ANCIENT_FRIENDLY_FIGHT", ...)
 end
 
 function Mini_addons_RESTART_ON_MSG(frame, msg, str, num)
