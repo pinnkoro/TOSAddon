@@ -28,7 +28,11 @@ _G['ADDONS'] = _G['ADDONS'] or {}
 _G['ADDONS'][author] = _G['ADDONS'][author] or {}
 _G['ADDONS'][author][addon_name] = _G['ADDONS'][author][addon_name] or {}
 local g = _G['ADDONS'][author][addon_name]
-local json = require('json')
+-- 個別版にあった local json = require('json') は削除した。**読み込み時に走る require は
+-- 素で書いてはいけない**(conclude_scope_open.lua)。ここで例外が出ると、この下の定義が
+-- 丸ごと失われるうえ読み込み時の例外はどこにも残らず、「このアドオンだけ無反応」という
+-- 一番分かりにくい形でしか出ない。json の読み書きは core_g.load_json / save_json 経由で
+-- 行っており、この local はどこからも使われていなかった。
 local function ts(...)
     local num_args = select('#', ...)
     if num_args == 0 then
@@ -1426,7 +1430,13 @@ function Market_favorite_rebuild_req_register_item(itemGuid, floorprice, count, 
     }
     local sell_items = g.get_sell_items()
     table.insert(sell_items, data)
-    g.item_index = #sell_items
+    -- **索引ではなく行そのものを覚えること。** market_guid は登録の直後には分からず、
+    -- 次の販売一覧(ON_MARKET_SELL_LIST)まで待って書き込む。その間に
+    -- g.get_sell_items() の返す器が入れ替わりうる(キャラ名が取れずに捨て器を使っていて、
+    -- 途中で名前が取れると本来の器へ切り替わる)ため、素の索引で持つと
+    -- **無関係な出品の n 番目に market_guid を書き込んで保存してしまう**。
+    -- 行の参照なら、器が入れ替わっても消えていても、書き込み先を取り違えない。
+    g.pending_sell_item = data
     market.ReqRegisterItem(itemGuid, tonumber(floorprice), tonumber(count), 1, tonumber(needTime))
 end
 
@@ -1658,10 +1668,11 @@ function Market_favorite_rebuild_ON_MARKET_SELL_LIST(my_frame, my_msg)
         if msg == "MARKET_SELL_LIST" then
             live_guids[tostring(marketItem:GetMarketGuid())] = true
             if not g.temp_tbl[tostring(marketItem:GetMarketGuid())] then
-                local sell_items = g.get_sell_items()
-                if sell_items[g.item_index] then
-                    sell_items[g.item_index].market_guid = tostring(marketItem:GetMarketGuid())
-                    g.item_index = nil
+                -- 直前に登録した行へ market_guid を書き戻す。器の索引ではなく行の参照で
+                -- 持っているので、その間に器が入れ替わっても取り違えない(登録側の注釈参照)。
+                if g.pending_sell_item then
+                    g.pending_sell_item.market_guid = tostring(marketItem:GetMarketGuid())
+                    g.pending_sell_item = nil
                 end
             end
             g.temp_tbl[tostring(marketItem:GetMarketGuid())] = true
@@ -2302,6 +2313,14 @@ end
 -- 取り逃がし、**開いたまま待っても永久にボタンが出ない**(開き直すまで直らない)。
 -- 設定画面から ON にしたときも on_init はその場で走るので、同じことが起きる。
 -- そこで初期化時と買/売モードの切り替え時にも通して、開いている最中でも追い付かせる。
+--
+-- **コントロール名には接頭辞を付けること。** 個別版も同じ market フレームへ "open_btn"
+-- という名前で同じボタンを足す。素の名前のままだと、
+--   * CreateOrGetControl が個別版のボタンを掴んで、イベントをこちらへ書き換える
+--   * teardown の RemoveChild が個別版のボタンを消す(マーケットを開いたまま消える)
+-- という形で相手を壊す。名前を分ければ両方とも自分のものだけを触る。
+local open_btn_name = addon_name_lower .. "_open_btn"
+
 function Market_favorite_rebuild_attach_market_btn(reason)
     local market = ui.GetFrame("market")
     if not market then
@@ -2310,8 +2329,8 @@ function Market_favorite_rebuild_attach_market_btn(reason)
     end
     -- 新規に作ったときだけログを出すための事前確認。ここを見ずに毎回出すと、
     -- 買/売モードを切り替えるたびに 1 行流れる(CLAUDE.md「出しすぎない」)。
-    local existed = GET_CHILD(market, "open_btn") ~= nil
-    local open_btn = market:CreateOrGetControl("button", "open_btn", 610, 120, 100, 30)
+    local existed = GET_CHILD(market, open_btn_name) ~= nil
+    local open_btn = market:CreateOrGetControl("button", open_btn_name, 610, 120, 100, 30)
     AUTO_CAST(open_btn)
     if g.lang ~= "Japanese" and g.lang ~= "kr" then
         open_btn:SetOffset(620, 120)
@@ -3035,10 +3054,13 @@ function Market_favorite_rebuild_teardown()
     -- マーケットへ足した「お気に入り」ボタンも外す。これが無いと、OFF にしても
     -- 押しても何も起きないボタンが残り続ける(フレームは消えているので押せば転ぶ)。
     -- market はゲーム側のフレームなので、消すのは自分が足した子だけにすること。
+    -- 名前に接頭辞が入っているので、個別版の "open_btn" には当たらない
+    -- (この経路は個別版を検出して畳むときにも通るため、素の名前だと相手のボタンを
+    -- 開いたまま消してしまう)。
     local market = ui.GetFrame("market")
-    local open_btn = market and GET_CHILD(market, "open_btn")
+    local open_btn = market and GET_CHILD(market, open_btn_name)
     if open_btn then
-        market:RemoveChild("open_btn")
+        market:RemoveChild(open_btn_name)
     end
     core_g.vlog("market_favorite_rebuild: OFF のため後始末(購読 %d 本 / ボタン %s)", removed,
         open_btn and "外した" or "無し")

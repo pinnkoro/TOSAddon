@@ -133,7 +133,11 @@ local function safe_require(name)
     return nil
 end
 
-local os = safe_require("os")
+-- os は require しなくても最初から居る標準ライブラリなので、**引けなくても
+-- グローバルの os へ必ず落とすこと**。ここを nil のままにすると、読み込み時の
+-- 1 回の中断で済むはずの失敗が、os.date / os.time を使う 15 箇所へ散らばった
+-- 実行時エラーに化ける(しかも発生箇所と原因が離れて追いにくい)。
+local os = safe_require("os") or os
 local json = safe_require("json")
 local json_imc = safe_require("json_imc")
 
