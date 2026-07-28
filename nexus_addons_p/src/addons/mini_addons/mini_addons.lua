@@ -860,8 +860,12 @@ local function create_setting_row(gbox, setting, y)
         if g.settings.baubas_call.guild_notice == 0 or not g.settings.baubas_call.guild_notice then
             baubas_call_btn:SetText("{ol}{#FFFFFF}OFF")
             baubas_call_btn:SetSkinName("test_gray_button")
-            g.settings.baubas_call.guild_notice = 0
-            Mini_addons_save_settings()
+            -- 保存は「値がまだ無い」ときだけ。一覧は検索や折りたたみのたびに作り直されるので、
+            -- 既に 0 のときも保存すると、何も変わっていないのに settings.json を書き続ける
+            if not g.settings.baubas_call.guild_notice then
+                g.settings.baubas_call.guild_notice = 0
+                Mini_addons_save_settings()
+            end
         else
             baubas_call_btn:SetText("{ol}{#FFFFFF}ON")
             baubas_call_btn:SetSkinName("test_red_button")
@@ -951,8 +955,11 @@ local function create_setting_row(gbox, setting, y)
         if g.settings.event_shout.guild_notice == 0 or not g.settings.event_shout.guild_notice then
             event_shout_btn:SetText("{ol}{#FFFFFF}OFF")
             event_shout_btn:SetSkinName("test_gray_button")
-            g.settings.event_shout.guild_notice = 0
-            Mini_addons_save_settings()
+            -- baubas_call と同じ理由で、保存は値がまだ無いときだけ
+            if not g.settings.event_shout.guild_notice then
+                g.settings.event_shout.guild_notice = 0
+                Mini_addons_save_settings()
+            end
         else
             event_shout_btn:SetText("{ol}{#FFFFFF}ON")
             event_shout_btn:SetSkinName("test_red_button")
@@ -1108,12 +1115,44 @@ function Mini_addons_setting_build(setting, filter_text, keep_pos)
     setting:Resize(width, height)
     gbox:Resize(setting:GetWidth() - 20, setting:GetHeight() - 90)
     gbox:EnableScrollBar(1)
-    gbox:SetScrollPos(prev_scroll)
+    -- 畳んで中身が縮んだときに、縮む前の位置をそのまま戻すと末尾より下へ飛ぶ。
+    -- 新しい中身の高さ(y)と表示領域の差を上限にする
+    local scroll_max = y - gbox:GetHeight()
+    if scroll_max < 0 then
+        scroll_max = 0
+    end
+    if prev_scroll > scroll_max then
+        prev_scroll = scroll_max
+    end
+    -- GetScrollPos と同じ理由で、SetScrollPos も無い可能性を見て pcall で呼ぶ。
+    -- 片方だけ素で呼ぶと、無かったときにここで一覧の構築ごと落ちる
+    pcall(function()
+        gbox:SetScrollPos(prev_scroll)
+    end)
     if keep_pos then
+        -- 展開やフィルタ解除で背が伸びると、元の左上のままでは画面外へはみ出す。
+        -- この窓はタイトルバーが無く掴み直しづらいので、画面内へ押し戻しておく
+        local max_x = screen_width - setting:GetWidth()
+        local max_y = screen_height - setting:GetHeight()
+        if prev_x > max_x then
+            prev_x = max_x
+        end
+        if prev_y > max_y then
+            prev_y = max_y
+        end
+        if prev_x < 0 then
+            prev_x = 0
+        end
+        if prev_y < 0 then
+            prev_y = 0
+        end
         setting:SetPos(prev_x, prev_y)
     else
         setting:SetPos((screen_width - setting:GetWidth()) / 2, (screen_height - setting:GetHeight()) / 2)
     end
+    -- 実際にこの一覧を作ったときの絞り込み。折りたたみの可否は検索窓の「今の文字」ではなく
+    -- こちらで判定する(未確定の入力で見出しが無反応になるのを防ぐ)
+    g.setting_applied_filter = filter_text or ""
     core_g.vlog("mini_addons: 設定画面を構築 filter=" .. tostring(filter_text or "") .. " hit=" .. hit)
 end
 
@@ -1124,8 +1163,10 @@ function Mini_addons_section_toggle(frame, ctrl, section_name, num)
     if not setting or not section_name then
         return
     end
-    local search_edit = GET_CHILD_RECURSIVELY(setting, "search_edit")
-    local filter_text = search_edit and search_edit:GetText() or ""
+    -- 見るのは検索窓の「今の文字」ではなく、今表示されている一覧を作ったときの絞り込み。
+    -- 打っただけで確定していない文字で弾くと、全件表示のまま見出しを押しても
+    -- 何の反応も無い(押せない理由も出ない)状態になる
+    local filter_text = g.setting_applied_filter or ""
     -- 検索中は畳めない(理由は Mini_addons_setting_build 側のコメント)。
     -- 検索中の見出しにはそもそもこの関数を繋いでいないが、押せてしまったときの保険
     if filter_text ~= "" then
