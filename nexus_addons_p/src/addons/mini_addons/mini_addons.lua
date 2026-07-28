@@ -5448,9 +5448,13 @@ end
 -- (利用者から見ればどちらも「決闘の申し込み」で、片方だけ自動だと分かりにくい)。
 local function Mini_addons_auto_accept_duel(ack_func_name, origin_func_name, handle, family_name)
     if g.settings and g.settings.auto_accept_duel == 1 and handle ~= nil then
-        core_g.vlog("mini_addons: 決闘の申し込みを自動で受けた (%s / 相手 %s)", ack_func_name, tostring(family_name))
+        -- **成功ログは ACK を呼べたときだけ出す。** 存在チェックより前に出すと、
+        -- ACK が無いときに「自動で受けた」と下の「戻す」が並んで出て、ログから
+        -- どちらが起きたのか読めなくなる。
         local ack = _G[ack_func_name]
         if type(ack) == "function" then
+            core_g.vlog("mini_addons: 決闘の申し込みを自動で受けた (%s / 相手 %s)", ack_func_name,
+                tostring(family_name))
             ack(handle)
             return true
         end

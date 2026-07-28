@@ -837,9 +837,16 @@ local function vlog_write(line)
     g.vlog_lines = g.vlog_lines + 1
 end
 
+-- 実際に出力したときだけ true を返す。
+--
+-- 「同じ行を 1 回だけ出す」ために印を立てる呼び出し側が幾つかあるが、印を先に立てると
+-- **既定 OFF の間に印だけ消費され、後から ON にしても二度と出ない**。特に
+-- ログイン直後の非同期初期化はログを ON にする前に走り切るので、一番知りたい
+-- 起動時の 1 回が必ず消える(実機で発生)。印は必ずこの戻り値で立てること:
+--     if not g.foo_logged and g.vlog("...") then g.foo_logged = true end
 function g.vlog(fmt, ...)
     if not g.settings or g.settings.verbose_log ~= 1 then
-        return
+        return false
     end
     local ok, msg = pcall(string.format, fmt, ...)
     if not ok then
@@ -848,6 +855,7 @@ function g.vlog(fmt, ...)
     ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
     local plain = msg:gsub("{[^}]*}", "")
     vlog_write(plain)
+    return true
 end
 
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
@@ -869,9 +877,11 @@ function g.get_map_type()
     if not map_cls then
         -- 失敗はキャッシュしない = 毎フレームここへ来るので、ログはマップごとに 1 回だけ。
         -- (絞らないと FPS_UPDATE 経由でシステムメッセージが毎フレーム流れる)
-        if g.map_type_failed_name ~= map_name then
+        -- 印は出力できたときだけ立てる(g.vlog のコメント参照)。OFF の間に立ててしまうと
+        -- 後からログを ON にしても、そのマップに居る限りこの行が出ない。
+        if g.map_type_failed_name ~= map_name and
+            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
             g.map_type_failed_name = map_name
-            g.vlog("MapType 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name))
         end
         return nil
     end
@@ -880,9 +890,9 @@ function g.get_map_type()
         -- クラスは引けたが MapType が空。これも「引けなかった」と同じ扱いにする。
         -- ここでキャッシュすると無効化する契機が無く、そのマップに居る間ずっと
         -- nil が返り続けてしまう(上のコメントと同じ理由)。
-        if g.map_type_failed_name ~= map_name then
+        if g.map_type_failed_name ~= map_name and
+            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
             g.map_type_failed_name = map_name
-            g.vlog("MapType が空: %s (キャッシュせず次回引き直す)", tostring(map_name))
         end
         return nil
     end

@@ -197,7 +197,9 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
     if not g.settings.sell_items then
         g.settings.sell_items = {}
     end
-    if not g.settings.sell_items[g.login_name] then
+    -- g.login_name は nil でありうる(ON_INIT でキャラ名が取れなかったとき)。
+    -- nil を鍵にすると代入の時点で落ちるので、器は g.get_sell_items に任せる。
+    if g.login_name and not g.settings.sell_items[g.login_name] then
         g.settings.sell_items[g.login_name] = {}
     end
     local has_changed = false
@@ -227,9 +229,17 @@ end
 -- 一方 g.login_name は ON_INIT のたびに引き直すので、**キャラチェンジすると
 -- g.settings.sell_items[g.login_name] だけが存在しない**状態になる。
 -- この器を素で index していた箇所が、CC 後の初出品や販売一覧の表示で落ちていた。
+--
+-- キャラ名が取れなかった(g.login_name == nil)ときは、**settings に入らない捨て器**を
+-- 返す。ここで前回のキャラの器を返すと、ON_MARKET_SELL_LIST がそのキャラの出品を
+-- status="nothing" に倒して保存してしまう(詳細は ON_INIT のコメント)。
 function g.get_sell_items()
     if not g.settings then
         return {}
+    end
+    if not g.login_name then
+        g.orphan_sell_items = g.orphan_sell_items or {}
+        return g.orphan_sell_items
     end
     if not g.settings.sell_items then
         g.settings.sell_items = {}
@@ -273,17 +283,21 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     -- = そのプレイ中ずっと OPEN_DLG_MARKET を受け取れず、マーケットを開き直しても
     -- 待ってもボタンが出ない。しかも呼び出し元の pcall が握るので利用者は無言のまま。
     -- 「再起動したら直った」という報告は、この当たり外れで説明が付く。
-    -- 取れなければ前回の名前を使い、それも無ければ空文字で進める。出品履歴の器
-    -- (g.get_sell_items)がキャラごとに分かれるだけで、他の機能は名前に依存しない。
+    --
+    -- **取れなかったときに前回の名前へ落としてはいけない。** 出品履歴はキャラ名を鍵に
+    -- 保存していて、ON_MARKET_SELL_LIST は「販売中なのに一覧に居ない」出品を
+    -- status="nothing" に倒して保存する。名前を取り違えたままここへ来ると、
+    -- **別キャラの実在する出品履歴が丸ごと消える**(落ちるより悪い)。
+    -- そこで未取得は nil のままにし、履歴の読み書きだけを g.get_sell_items 側で
+    -- 保存しない器へ逃がす。他の機能は名前に依存しないのでそのまま動く。
     local ok_name, login_name = pcall(function()
         return session.GetMySession():GetPCApc():GetName()
     end)
     if ok_name and login_name ~= nil and login_name ~= "" then
         g.login_name = login_name
     else
-        g.login_name = g.login_name or ""
-        core_g.vlog("{#FF6347}market_favorite_rebuild: キャラ名が取れないので %s で進める{/}",
-            g.login_name == "" and "空" or ("前回の " .. tostring(g.login_name)))
+        g.login_name = nil
+        core_g.vlog("{#FF6347}market_favorite_rebuild: キャラ名が取れないので出品履歴は保存しない{/}")
     end
     -- 保存先が確定していないまま LOAD_SETTINGS を呼ばない。中で io.open(nil) になり、
     -- ここで落ちると下の register_msg へ届かない(上の GetPCApc と同じ事故になる)。
@@ -1436,8 +1450,12 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             table.insert(clean_items, saved_item)
         end
     end
-    g.settings.sell_items[g.login_name] = clean_items
-    Market_favorite_rebuild_SAVE_SETTINGS()
+    -- キャラ名が取れていないときは書き戻さない(nil 鍵で落ちるうえ、clean_items は
+    -- 捨て器を絞った結果でしかない)。詳細は g.get_sell_items。
+    if g.login_name then
+        g.settings.sell_items[g.login_name] = clean_items
+        Market_favorite_rebuild_SAVE_SETTINGS()
+    end
     for i = 0, cnt - 1 do
         local cabinetItem = session.market.GetCabinetItemByIndex(i);
         local itemID = cabinetItem:GetItemID();

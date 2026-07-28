@@ -277,12 +277,16 @@ end
 -- OFF のときは各アドオンの on_init 自身が「use=0 のため初期化しない」を出すので、
 -- この行が出るのは**定義が届いていない**ときだけ。両者を混同しないこと。
 -- 初期化はマップ移動のたびに走るため、報告はアドオンごとに 1 回だけにする。
+-- **印を立てるのは実際に出力できたときだけ**(g.vlog の戻り値で判定する)。既定は
+-- OFF なので、先に印を立てるとログインの初回パスで黙って消費され、後からログを
+-- ON にしてもこの行が二度と出ない = 塞ぎたかった死角がそのまま残る。
 function _nexus_addons_p_vlog_missing_init(name)
     if g.missing_init_logged[name] then
         return
     end
-    g.missing_init_logged[name] = true
-    g.vlog("{#FF6347}init: %s の on_init が見つからない{/} (定義が読み込まれていない可能性)", name)
+    if g.vlog("{#FF6347}init: %s の on_init が見つからない{/} (定義が読み込まれていない可能性)", name) then
+        g.missing_init_logged[name] = true
+    end
 end
 
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
@@ -663,9 +667,11 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     end
     -- 他アドオンが _G["ADDONS"] を作り直していた形跡。繋ぎ直して救えた場合も残す
     -- (詳細は conclude_header.lua)。滅多に立たないので、こちらは 1 回だけでよい。
+    -- 印は出力できたときだけ立てる(_nexus_addons_p_vlog_missing_init と同じ理由)。
     if g.addons_table_rebuilt and not g.addons_table_rebuilt_logged then
-        g.addons_table_rebuilt_logged = true
-        g.vlog("{#FF6347}_G.ADDONS が他アドオンに作り直されていた{/} (conclude 側で本体を繋ぎ直した)")
+        if g.vlog("{#FF6347}_G.ADDONS が他アドオンに作り直されていた{/} (conclude 側で本体を繋ぎ直した)") then
+            g.addons_table_rebuilt_logged = true
+        end
     end
     -- 調査: ESC 経由が届かない環境でも候補名の実在だけは分かるよう、起動後 1 回は
     -- ここからも調べる。ゲーム側のフレームは表示していなくても実体があることが多いので、
