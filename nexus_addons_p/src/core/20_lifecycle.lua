@@ -634,9 +634,12 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     -- (ログファイルはここでは作り直さない。詳細は 00_header.lua の vlog_write)。
     g.vlog("===== GAME_START v%s lang=%s map=%s(%s) cid=%s", tostring(ver), tostring(g.lang),
         tostring(session.GetMapName()), tostring(g.get_map_type()), tostring(g.cid))
-    -- conclude 側(mini_addons / market_favorite_rebuild / ancient_monster_bookshelf)が
-    -- 効いているか。壊れると**この 3 つだけが丸ごと無反応**になり、他の 49 個は普通に動くので
-    -- 気付けない。読み方:
+    -- 取り込み部分(mini_addons / market_favorite_rebuild / ancient_monster_bookshelf)まで
+    -- 読み込みが届いたか。この 3 つは連結の**末尾**にあるので、ここが欠けていれば
+    -- 「どこかで落ちて、そこから後ろが全部消えている」ことを意味する。
+    -- 配布 .lua が 2 本だった頃はこの 3 つだけが落ちる形だったが、1 本化した今は
+    -- **落ちた地点より後ろが全部無い**(core かもしれないし、途中のアドオンかもしれない)。
+    -- どこまで届いたかは stage で見る。読み方:
     --   conclude=無      … 取り込み部分が実行されていない
     --   defs=無          … 実行されたが定義に届いていない(stage がどこまで進んだかを示す)
     --   fallback=有      … 本家検出をその場判定で代用した。**異常ではない**
@@ -654,15 +657,28 @@ function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
     if g.conclude_loaded and defs_ok then
         g.vlog("%s", status)
     else
-        g.vlog("{#FF6347}%s{/} (mini_addons / market_favorite_rebuild が動きません)", status)
+        g.vlog("{#FF6347}%s{/} (読み込みが最後まで届いていません)", status)
         -- **詳細ログ(既定 OFF)だけで済ませない。** この状態は一覧に項目が並び、ON にもできるのに
         -- 押しても何も起きないという、利用者から見て最も分かりにくい壊れ方をする。
         -- 起動ごとに 1 回だけ知らせる(マップ移動のたびに出すと鬱陶しい)。
+        --
+        -- **stage をこのメッセージにも載せること。** 1 本化した今、この状態は
+        -- 「読み込みが途中で落ちた」以外を意味しない。落ちた地点を示す値は stage しか
+        -- 無いのに、それが詳細ログ(既定 OFF)にしか出ないと、報告を受けても
+        -- 「ログを ON にして再現してください」から始めることになる。1 行載せておけば
+        -- 画面のコピーだけで切り分けの起点が手に入る。
+        --
+        -- 逆に「.ipf が 1 つだけか確認してください」はもう書かない。2 本立ての頃の
+        -- 案内で、今は既に満たしている条件を確認させるだけになり、利用者の次の手を奪う。
         if not g.conclude_notified then
             g.conclude_notified = true
             g.queue_message(g.lang == "Japanese" and
-                "{ol}{#FF6347}[Nexus Addons P] Mini Addons / Market Favorite Rebuild が読み込めませんでした{nl}dataフォルダの_nexus_addons_p-⛄-*.ipfが1つだけか確認してください" or
-                "{ol}{#FF6347}[Nexus Addons P] Mini Addons / Market Favorite Rebuild could not be loaded{nl}Please make sure there is only one _nexus_addons_p-⛄-*.ipf in your data folder")
+                string.format(
+                    "{ol}{#FF6347}[Nexus Addons P] 読み込みが途中で止まりました (stage=%s){nl}一部のアドオンが一覧に出ない・押しても反応しない状態です。お手数ですが、この行をそのまま添えてご報告ください",
+                    tostring(g.conclude_stage)) or
+                string.format(
+                    "{ol}{#FF6347}[Nexus Addons P] Loading stopped partway (stage=%s){nl}Some addons will be missing from the list or unresponsive. Please report this message as-is",
+                    tostring(g.conclude_stage)))
         end
     end
     -- 他アドオンが _G["ADDONS"] を作り直していた形跡。繋ぎ直して救えた場合も残す

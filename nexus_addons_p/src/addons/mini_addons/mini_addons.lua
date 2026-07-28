@@ -138,8 +138,11 @@ end
 -- 1 回の中断で済むはずの失敗が、os.date / os.time を使う 15 箇所へ散らばった
 -- 実行時エラーに化ける(しかも発生箇所と原因が離れて追いにくい)。
 local os = safe_require("os") or os
-local json = safe_require("json")
-local json_imc = safe_require("json_imc")
+-- 個別版にあった json / json_imc の require は削除した。**どちらもこのファイルで
+-- 使っていない**うえ、json_imc は src 全体でここでしか require しておらず、
+-- 解決できないと毎セッション core_g.conclude_require_failed が立つ。すると
+-- GAME_START の状態行が恒久的に `require=json_imc` を報告し続け、**健全性を見るための
+-- 1 行が偽の警告で埋まる**。json の読み書きは core_g.load_json / save_json 経由。
 
 local function ts(...)
     local num_args = select("#", ...)
