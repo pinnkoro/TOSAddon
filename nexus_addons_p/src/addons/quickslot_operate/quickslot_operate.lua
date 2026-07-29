@@ -515,14 +515,14 @@ end
 -- 以前はジョイスティックモードかどうかだけで「元は非表示だったはず」と決めていたので、
 -- ジョイスティックモードでキーボード用バーを出している人のバーを差し替えのたびに
 -- 消してしまい(次のマップ移動まで戻らない)、透明度も 100 決め打ちで上書きしていた。
+--
+-- **透明度は保存も復元もしない。** ここで触るのは ShowWindow だけなので戻すものが無く、
+-- GetAlpha が無いクライアントでは pcall のフォールバック 100 を掴んでしまう。
+-- そのまま SetAlpha すると、利用者が設定したバーの透明度をこちらが勝手に
+-- 不透明へ書き換えることになる(戻す手段はゲーム側の設定をやり直すしかない)。
 function Quickslot_operate_begin_slot_edit(quickslotnexpbar)
-    -- GetAlpha が無いクライアントでも壊れないように pcall で読む(取れなければ不透明)。
-    local ok_alpha, alpha = pcall(function()
-        return quickslotnexpbar:GetAlpha()
-    end)
     local restore = {
-        visible = quickslotnexpbar:IsVisible(),
-        alpha = ok_alpha and alpha or 100
+        visible = quickslotnexpbar:IsVisible()
     }
     quickslotnexpbar:ShowWindow(1)
     return restore
@@ -530,9 +530,8 @@ end
 
 function Quickslot_operate_end_slot_edit(quickslotnexpbar, restore)
     if quickslotnexpbar and restore then
-        -- 触る前の実測値へ戻す。
+        -- 触る前の実測値へ戻す(触ったのは表示だけ。上のコメント参照)。
         quickslotnexpbar:ShowWindow(restore.visible)
-        quickslotnexpbar:SetAlpha(restore.alpha)
     end
     -- 隠していないジョイスティックバーは、中身だけ描き直してもらう(従来どおり毎回)。
     DebounceScript("JOYSTICK_QUICKSLOT_UPDATE_ALL_SLOT", 0.1)

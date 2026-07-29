@@ -924,12 +924,6 @@ function g.get_map_type()
     return map_type
 end
 
--- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。
---
--- ゲーム側の chat_memberlist.xml は <option hideable="true"> で、ESC はこの hideable な
--- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
--- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
--- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
 -- 何度も直値で出てくるマップ ID。同じ ID が 4 アドオン 6 箇所に散っていて、
 -- 説明のコメント(-- 11244 聖域3F ...)まで丸ごとコピーされていた。名前を付けて 1 箇所に集める。
 g.MAP_SANCTUARY_3F = 11244 -- 未知の聖域3F
@@ -1038,6 +1032,12 @@ function g.clear_error_once(key)
     g.error_logged[key] = nil
 end
 
+-- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。
+--
+-- ゲーム側の chat_memberlist.xml は <option hideable="true"> で、ESC はこの hideable な
+-- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
+-- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
+-- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
 function g.create_persistent_frame(frame_name)
     return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end

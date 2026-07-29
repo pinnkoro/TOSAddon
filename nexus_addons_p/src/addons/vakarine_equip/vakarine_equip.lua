@@ -136,14 +136,22 @@ function Vakarine_equip_load_settings()
     Vakarine_equip_save_settings()
 end
 
-function vakarine_equip_on_init()
-    ui.SetHoldUI(false)
+-- 設定とこのキャラの枠を用意する。**OFF のときも必ず通すこと。**
+-- 設定ボタンは use に関係なくアドオン一覧に出るので、chars[g.cid] が無いまま
+-- Vakarine_equip_config_frame_open が呼ばれると nil を index して落ちる
+-- (既定は OFF なので、入れて最初に設定を開いた人が必ず踏む)。
+function Vakarine_equip_ensure_settings()
     if not g.vakarine_equip_settings then
         Vakarine_equip_load_settings()
     end
     if not g.vakarine_equip_settings.chars[g.cid] then
         Vakarine_equip_chrs_settings()
     end
+end
+
+function vakarine_equip_on_init()
+    ui.SetHoldUI(false)
+    Vakarine_equip_ensure_settings()
     -- 保険。OFF のときは core が on_init ではなく vakarine_equip_on_teardown を呼ぶ。
     if g.settings.vakarine_equip.use == 0 then
         vakarine_equip_on_teardown()
@@ -165,9 +173,8 @@ end
 -- STAT_UPDATE / TAKE_DAMAGE / BUFF_ADD が届き続け、消したフレームを触りに行く。
 function vakarine_equip_on_teardown()
     -- 設定は OFF でも読んでおく(以前は on_init が OFF でも呼ばれていたので読まれていた)。
-    if not g.vakarine_equip_settings then
-        Vakarine_equip_load_settings()
-    end
+    -- chars[g.cid] まで作るのは、OFF のまま設定画面を開けるため(上のコメント参照)。
+    Vakarine_equip_ensure_settings()
     ui.SetHoldUI(false)
     g.unregister_msg_by_prefix("Vakarine_equip_")
     ui.DestroyFrame(addon_name_lower .. "vakarine_equip")
@@ -397,6 +404,14 @@ function Vakarine_equip_start_operation(is_manual)
         DO_WEAPON_SLOT_CHANGE(inventory, 1)
         ui.SetHoldUI(true)
         local vakarine_equip = ui.GetFrame(addon_name_lower .. "vakarine_equip")
+        -- **HoldUI を掛けたら、その場で解除の保険を仕掛けること。**
+        -- 一度これを「実際に着脱を始めると決めてから」まで後ろへ動かしたが、
+        -- 間の処理(装備一覧の取得やキューの組み立て)で落ちると **UI ロックが
+        -- 掛かりっぱなしになり、掲示板もインベントリも何も開けなくなる**
+        -- (次のマップ移動で on_init が SetHoldUI(false) するまで戻らない)。実機で発生。
+        -- 早い段階で仕掛けても実害は無い: 途中で抜ける経路は自分で SetHoldUI(false) を
+        -- 呼ぶので、10 秒後の解除は「もう解除済みのものをもう一度解除する」だけになる。
+        vakarine_equip:RunUpdateScript("Vakarine_equip_holdui_release", 10.0)
         g.vakarine_equip_queue = {}
         local checked_count = 0
         local equip_item_list = session.GetEquipItemList()
@@ -427,10 +442,6 @@ function Vakarine_equip_start_operation(is_manual)
             ui.SetHoldUI(false)
             return
         end
-        -- HoldUI の保険は、実際に着脱を始めると決めてから仕掛ける。上の早期 return より
-        -- 前に仕掛けると、10 秒後に「その間に始まった別の操作が取った HoldUI」を
-        -- 解除しかねない。
-        vakarine_equip:RunUpdateScript("Vakarine_equip_holdui_release", 10.0)
         for i, data in ipairs(g.vakarine_equip_queue) do
             if data.spot == "RH_SUB" then
                 item.UnEquip(data.index)
