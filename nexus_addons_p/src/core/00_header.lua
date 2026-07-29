@@ -232,9 +232,19 @@ end
 -- 戻り値: nil=何もしなかった / "copied" / "partial" / "failed"
 -- 結果は**呼び出し側が戻り値を捨てても伝わるよう、この中でチャットへも出す**。
 -- display_name は案内に出す表示名(省略時は individual_lower)。
+-- 「引き継ぎ元が見つからない」を報告済みかどうか。個別版を使っていない人では
+-- 見つからないのが普通なので、アドオンごとに 1 回だけ出す(この関数はマップ移動の
+-- たびに呼ばれる)。
+g.migrate_probe_logged = g.migrate_probe_logged or {}
+
+-- **"<名前>_p" のフォルダを引き継ぎ元にしてはいけない。**
+-- 例えば ../addons/mini_addons_p/ は個別版のものではなく、**まとめ版自身が作る**
+-- フォルダ(同梱 mini_addons の addon_name_lower が "MINI_ADDONS_P" で、
+-- create_folder と log.dat がここを使う)。個別版は "mini_addons" のまま。
+-- ここを引き継ぎ元に含めると、自分が置いた古いファイルを個別版の設定と誤認して
+-- 取り込むことになる。探すのは個別版のフォルダ名だけにすること。
 function g.migrate_individual_addon_settings(individual_lower, files, display_name)
     display_name = display_name or individual_lower
-    local src_dir = string.format("../addons/%s", individual_lower)
     local dst_dir = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
     local dst_main = string.format("%s/%s", dst_dir, files[1].dst)
     local dst_file = io.open(dst_main, "r")
@@ -242,8 +252,18 @@ function g.migrate_individual_addon_settings(individual_lower, files, display_na
         dst_file:close()
         return nil
     end
-    local src_file = io.open(string.format("%s/%s", src_dir, files[1].src), "r")
+    -- **見つからなかったことを黙って返さないこと。** 引き継ぎ元のフォルダ名が
+    -- 想定と違うと、ここで何も言わずに抜けて既定値で始まる。利用者から見ると
+    -- 「設定が引き継がれない」だけで、原因を追う手掛かりが一切残らない
+    -- (実際に mini_addons のフォルダ名違いで発生した)。探した先まで残す。
+    local src_dir = string.format("../addons/%s", individual_lower)
+    local src_main = string.format("%s/%s", src_dir, files[1].src)
+    local src_file = io.open(src_main, "r")
     if not src_file then
+        if not g.migrate_probe_logged[individual_lower] and
+            g.vlog("migrate: %s の個別版設定が見つからないので引き継がない (%s)", individual_lower, src_main) then
+            g.migrate_probe_logged[individual_lower] = true
+        end
         return nil
     end
     src_file:close()
@@ -282,7 +302,7 @@ function g.migrate_individual_addon_settings(individual_lower, files, display_na
         return "partial"
     end
     main_ok:close()
-    g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", individual_lower, addon_name_lower, copied, found)
+    g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", src_dir, addon_name_lower, copied, found)
     g.queue_message(g.lang == "Japanese" and
         string.format("{ol}{#00BFFF}[Nexus Addons P] %s: 個別版の設定を引き継ぎました", display_name) or
         string.format("{ol}{#00BFFF}[Nexus Addons P] %s: Settings were carried over from the standalone version",

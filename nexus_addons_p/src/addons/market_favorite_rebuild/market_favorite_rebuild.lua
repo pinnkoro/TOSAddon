@@ -161,8 +161,42 @@ function g.load_json(path)
     return core_g.load_json(path)
 end
 
+-- items のうち中身のある(clsid を持つ)スロット数。
+local function market_favorite_count_items(settings)
+    local n = 0
+    if type(settings) == "table" and type(settings.items) == "table" then
+        for _, item in pairs(settings.items) do
+            if type(item) == "table" and item.clsid then
+                n = n + 1
+            end
+        end
+    end
+    return n
+end
+
+-- **中身のあるお気に入りを、まとめて空になった items で上書きしない。**
+--
+-- Market_favorite_rebuild_TOGGLE_FRAME はフレームを開くたびに 56 スロットを舐めて、
+-- clsid の無いスロットへ {} を代入する。つまり**設定の読み込みに失敗した直後
+-- (items が空の既定値)にフレームが開かれると、メモリ上の items が 56 個すべて {} になる**。
+-- その状態で保存が走ると、ファイルの中身が丸ごと [] に化ける。保存の呼び出し元は
+-- 16 箇所あり、アイテムを置く・消す・並べ替える・検索ボタンを触る、のどれでも通る。
+-- **元に戻す手段が無い**(登録し直すしかない)ので、保存の直前で止める。
+--
+-- 手で 1 個ずつ消していく操作は妨げない。31→30→…→1→0 と減るので、直前が 1 件なら
+-- 通す。弾くのは「2 件以上あったものが一度に 0 になった」保存だけ。
 function Market_favorite_rebuild_SAVE_SETTINGS()
+    local count = market_favorite_count_items(g.settings)
+    local last = g.items_count_saved
+    if count == 0 and last and last >= 2 then
+        core_g.log_error_once("market_favorite_items", string.format(
+            "MarketFavorite: お気に入り %d 件が一度に空になったため保存を見送った (設定の読み込みに失敗している可能性)",
+            last))
+        return
+    end
     g.save_settings()
+    g.items_count_saved = count
+    core_g.clear_error_once("market_favorite_items")
 end
 
 function Market_favorite_rebuild_LOAD_SETTINGS()
@@ -183,6 +217,11 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
         searchs = {}
     }
     if type(settings) ~= "table" then
+        -- **既定値で始めたことを残す。** ここを黙って通すと、読み込みに失敗しただけの
+        -- ときも「お気に入りが空のまま」としか見えず、次の保存で空が確定してしまう
+        -- (保存側の歯止めは Market_favorite_rebuild_SAVE_SETTINGS を参照)。
+        core_g.vlog("market_favorite_rebuild: 設定を読めなかったので既定値で始める (%s)",
+            tostring(g.settings_path))
         settings = defaults
     else
         for key, value in pairs(defaults) do
@@ -200,6 +239,9 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
         end
     end
     g.settings = settings
+    -- 保存側の歯止めの基準。読み込んだ時点の件数を憶えておく
+    -- (Market_favorite_rebuild_SAVE_SETTINGS のコメント参照)。
+    g.items_count_saved = market_favorite_count_items(g.settings)
     if not g.settings.sell_items then
         g.settings.sell_items = {}
     end
