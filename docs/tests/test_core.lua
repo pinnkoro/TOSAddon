@@ -1161,6 +1161,23 @@ local picked5, mode5 = _nexus_addons_p_resolve_init_func("legacy_addon")
 check("teardown が無ければ OFF でも on_init", mode5, "init")
 check("選ばれたのは on_init(legacy)", picked5 == _G["legacy_addon_on_init"], true)
 
+-- ===== 24. 古い個別版の検出が、自分自身を誤検出しない =====
+-- instant_cc は他アドオンとの連携用に _G["INSTANTCC_ON_INIT"] を自分で公開する。
+-- 素で見ると自分を古い個別版と誤検出して、個別版を入れていないのに OFF にされる
+-- (実機で発生。初回ロードでは未公開なので通り、キャラ切替の 2 回目で踏む)。
+print("[24] 古い個別版の検出が自分自身を誤検出しない")
+_G["FOO_ON_INIT"] = nil
+check("グローバルが無ければ検出しない", _nexus_addons_p_origin_addon_present("FOO_ON_INIT"), false)
+_G["FOO_ON_INIT"] = function() end
+check("グローバルが在れば検出する", _nexus_addons_p_origin_addon_present("FOO_ON_INIT"), true)
+check("名前が空なら検出しない", _nexus_addons_p_origin_addon_present(""), false)
+check("名前が nil でも落ちない", _nexus_addons_p_origin_addon_present(nil), false)
+_G["INSTANTCC_ON_INIT"] = function() end
+_G["instant_cc_on_init"] = nil
+check("INSTANTCC: 自分が居なければ個別版とみなす", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), true)
+_G["instant_cc_on_init"] = function() end
+check("INSTANTCC: 自分が居れば誤検出しない", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), false)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

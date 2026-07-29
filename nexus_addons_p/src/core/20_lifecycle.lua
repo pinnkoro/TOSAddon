@@ -291,6 +291,32 @@ function _nexus_addons_p_vlog_missing_init(name)
     end
 end
 
+-- 「競合する古い個別版アドオンが居るか」の判定。**検出箇所は必ずこれを通すこと。**
+-- 判定が 2 箇所(初回ロードの一括検出と、一覧の ON 切り替え)にあり、例外を片方に
+-- しか書いていなかったせいで実際に誤検出が出た。
+--
+-- **instant_cc だけは自分で `_G["INSTANTCC_ON_INIT"]` を公開している。**
+-- 他アドオン(indun_list_viewer / indun_panel / other_character_skill_list)が
+-- この名前で「Instant CC が使えるか」を見る連携用。素で見ると**自分自身を
+-- 古い個別版だと誤検出する**。
+-- 初回ロードの時点ではまだ公開されていないので通るが、キャラ切替などで g.loaded が
+-- 戻ると 2 回目の検出が走り、そのときには自分が公開した名前が居る = 個別版を
+-- 入れていないのに「競合を検出したので無効化しました」と出て OFF にされる
+-- (実機で発生: 21:13:03 に init して公開 → 21:13:10 のキャラ切替で誤検出)。
+-- 自分の on_init(小文字)が居れば、その名前を公開したのは自分だと分かる。
+function _nexus_addons_p_origin_addon_present(old_init_func_name)
+    if not old_init_func_name or old_init_func_name == "" then
+        return false
+    end
+    if not _G[old_init_func_name] then
+        return false
+    end
+    if old_init_func_name == "INSTANTCC_ON_INIT" and _G["instant_cc_on_init"] then
+        return false
+    end
+    return true
+end
+
 -- 機能 OFF のアドオンの後始末を、ここ 1 箇所で振り分ける。
 --
 -- on_init は ON/OFF によらず呼ばれる契約なので、「OFF なら畳む」を各アドオンが
@@ -361,7 +387,7 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
         for _, entry in ipairs(g._nexus_addons_p) do
             local key = entry.key
             local old_init_func_name = entry.data.old_init_func
-            if old_init_func_name and old_init_func_name ~= "" and _G[old_init_func_name] then
+            if _nexus_addons_p_origin_addon_present(old_init_func_name) then
                 local message
                 old_init_func_name = string.lower(string.gsub(old_init_func_name, "_ON_INIT", ""))
                 old_init_func_name = string.gsub(old_init_func_name, "_", " ")
@@ -628,8 +654,7 @@ function _nexus_addons_p_toggle_addons(list_gb, use_toggle, child_addon_name, nu
             break
         end
     end
-    if old_init_func_name and old_init_func_name ~= "" and _G[old_init_func_name] and
-        not (old_init_func_name == "INSTANTCC_ON_INIT" and _G["instant_cc_on_init"]) then
+    if _nexus_addons_p_origin_addon_present(old_init_func_name) then
         local message = nil
         old_init_func_name = string.lower(string.gsub(old_init_func_name, "_ON_INIT", ""))
         old_init_func_name = string.gsub(old_init_func_name, "_", " ")
