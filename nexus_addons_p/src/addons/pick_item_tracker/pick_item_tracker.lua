@@ -25,12 +25,34 @@ function Pick_item_tracker_load_settings()
     Pick_item_tracker_save_settings()
 end
 
+-- 数えるのをやめるときの後始末。購読・集計・フレーム(と、その子のタイマー)を畳む。
+function Pick_item_tracker_teardown()
+    g.unregister_msg_by_prefix('Pick_item_tracker_ITEMMSG_ITEM_COUNT')
+    g.pick_item_tracker_map_id = nil
+    g.pick_item_tracker_items = {}
+    g.pick_item_tracker_y = 45
+    g.pick_item_tracker_x = 120
+    local pick_item_tracker = ui.GetFrame(addon_name_lower .. "pick_item_tracker")
+    if pick_item_tracker then
+        -- 1 秒タイマーはこのフレームの子なので、破棄すれば一緒に消える
+        ui.DestroyFrame(pick_item_tracker:GetName())
+    end
+end
+
 function pick_item_tracker_on_init()
     if not g.pick_item_tracker_settings then
         Pick_item_tracker_load_settings()
     end
     local old_func = g.settings.pick_item_tracker.old_init_func
     if _G[old_func] then
+        return
+    end
+    -- 機能 OFF なら畳んで抜ける。on_init は ON/OFF によらず呼ばれる契約
+    -- (core/20_lifecycle.lua)なので、畳めるのはここだけ。以前は use を 1 秒タイマーの
+    -- 中でしか見ておらず、OFF でもマップ移動のたびにフレームを作って表示し、
+    -- 破棄されるまでの約 1 秒間だけ画面に出ていた(拾得の購読も張っていた)。
+    if g.settings.pick_item_tracker.use == 0 then
+        Pick_item_tracker_teardown()
         return
     end
     if g.get_map_type() ~= "City" and g.get_map_type() ~= "Instance" then
@@ -148,17 +170,19 @@ function Pick_item_tracker_redraw_item_list(pick_item_tracker)
 end
 
 function Pick_item_tracker_timer_update(pick_item_tracker, timer)
+    -- OFF になっていたら、表示だけでなく購読と集計もまとめて畳む
+    -- (フレームを消すだけでは拾得が届き続ける)。
+    if g.settings.pick_item_tracker.use == 0 then
+        Pick_item_tracker_teardown()
+        return
+    end
     g.pick_item_tracker_diff_time = imcTime.GetAppTimeMS() - g.pick_item_tracker_start_time
     local h = math.floor(g.pick_item_tracker_diff_time / (60 * 60 * 1000))
     local m = math.floor((g.pick_item_tracker_diff_time / (60 * 1000)) % 60)
     local s = math.floor((g.pick_item_tracker_diff_time / 1000) % 60)
     local time_text = GET_CHILD(pick_item_tracker, "time_text")
     time_text:SetText(string.format("{ol}{s14}%02d:%02d:%02d{/}", h, m, s))
-    if g.settings.pick_item_tracker.use == 1 then
-        pick_item_tracker:ShowWindow(1)
-    else
-        ui.DestroyFrame(pick_item_tracker:GetName())
-    end
+    pick_item_tracker:ShowWindow(1)
 end
 
 function Pick_item_tracker_ITEMMSG_ITEM_COUNT(frame, msg, cls_id, item_count)

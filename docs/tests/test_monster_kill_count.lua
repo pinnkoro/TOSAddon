@@ -322,6 +322,36 @@ check("集計先を落とす", g.mkc_map_data, nil)
 check("集計マップも落とす", g.mkc_map_id, nil)
 check("配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["EXP_UPDATE"]) or 0, 0)
 
+-- ===== 10. 機能 OFF なら数えるマップでも畳む =====
+-- on_init は ON/OFF によらず呼ばれる契約なので、use を見ないと OFF のままでも
+-- マップに入るたび記録ファイルと設定ファイルを書き、購読と 1 秒タイマーまで張っていた。
+print("[10] 機能 OFF なら数えるマップでも畳む")
+g.settings.monster_kill_count.use = 0
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+g.map_id = 1001
+g.map_name = "map_a"
+g.mkc_map_id = 1001
+g.mkc_map_data = {map_name = "map_a", kill_count = 3, stay_time = 1000, get_items = {}}
+g.mkc_count = 3
+g.msg_handlers, g.msg_registered_cycle, g.REGISTER = {}, {}, {}
+g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
+files, saved = {}, {}
+files[map_path(1001)] = {map_name = "map_a", kill_count = 3, stay_time = 1000, get_items = {}}
+map_quest_level = 200 -- レベル差では弾かれない = 本来なら数えるマップ
+check("落ちない", (pcall(monster_kill_count_on_init)), true)
+check("集計先を落とす", g.mkc_map_data, nil)
+check("集計マップも落とす", g.mkc_map_id, nil)
+check("配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["EXP_UPDATE"]) or 0, 0)
+-- map_ids への追記 = 設定ファイルの保存は OFF では起こさない
+local wrote_settings = false
+for _, s in ipairs(saved) do
+    if s.path == g.mkc_path then
+        wrote_settings = true
+    end
+end
+check("OFF では設定ファイルを書かない", wrote_settings, false)
+g.settings.monster_kill_count.use = 1
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

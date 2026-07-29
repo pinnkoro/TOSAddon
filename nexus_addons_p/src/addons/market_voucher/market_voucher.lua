@@ -94,10 +94,32 @@ function Market_voucher_ui_text(key)
     return "{ol}" .. Market_voucher_lang_trans(key)
 end
 
+-- 記録を取る 3 本のフック(CABINET_GET_ALL_LIST / _BUY_MARKET_ITEM / _CABINET_ITEM_BUY)は
+-- OFF でも記録を書き続けていた。use を見ていたのは「売上伝票」ボタンを作る init_frame
+-- だけで、OFF ではボタンが消えるだけだったため。
+--
+-- **ただし、この 3 本は setup_hook_and_event の第 4 引数が false = ゲーム側の関数を
+-- 呼ばずに丸ごと置き換える形で張っている。**つまり買い注文・受け取りの実処理そのものを
+-- このアドオンが肩代わりしている。OFF で早期 return すると、市場で買えない/受け取れない
+-- という致命的な壊れ方をする。止めてよいのは記録の部分だけ。
 function Market_voucher_CABINET_GET_ALL_LIST(my_frame, my_msg)
     local fmarket_cabinet, control, strarg, now = g.get_event_args(my_msg)
     local item_count = session.market.GetCabinetItemCount()
     if item_count == 0 then
+        return
+    end
+    Market_voucher_record_sold_list(item_count)
+    local count = session.market.GetCabinetItemCount()
+    AddLuaTimerFuncWithLimitCount("CABINET_GET_ITEM", 200, count * 5)
+    local market_cabinet_soldlist = ui.GetFrame("market_cabinet_soldlist")
+    if market_cabinet_soldlist then
+        ui.CloseFrame("market_cabinet_soldlist")
+    end
+end
+
+-- 一括受け取りの中身を売上として記録する。OFF なら何もしない。
+function Market_voucher_record_sold_list(item_count)
+    if g.settings.market_voucher.use == 0 then
         return
     end
     local my_char_name = GETMYPCNAME()
@@ -136,12 +158,6 @@ function Market_voucher_CABINET_GET_ALL_LIST(my_frame, my_msg)
             file_handle:write(all_results .. "\n")
             file_handle:close()
         end
-    end
-    local count = session.market.GetCabinetItemCount()
-    AddLuaTimerFuncWithLimitCount("CABINET_GET_ITEM", 200, count * 5)
-    local market_cabinet_soldlist = ui.GetFrame("market_cabinet_soldlist")
-    if market_cabinet_soldlist then
-        ui.CloseFrame("market_cabinet_soldlist")
     end
 end
 
@@ -206,56 +222,64 @@ function Market_voucher__BUY_MARKET_ITEM(my_frame, my_msg)
             return
         end
     end
-    local my_char_name = GETMYPCNAME()
-    local item_obj = GetIES(market_item:GetObject())
-    local item_name = dictionary.ReplaceDicIDInCompStr(item_obj.Name)
-    local sanitized_item_name = string.gsub(item_name, "-", "?")
-    local time = geTime.GetServerSystemTime()
-    local formatted_time = string.format("%04d-%02d-%02d %02d:%02d:%02d", time.wYear, time.wMonth, time.wDay,
-        time.wHour, time.wMinute, time.wSecond)
-    local quantity = tonumber(buy_count)
-    local total_amount = tonumber(total_price)
-    local unit_price = 0
-    if quantity > 0 then
-        unit_price = total_amount / quantity
+    -- 記録は OFF なら取らない。買い注文(ReqBuyItems)は OFF でも必ず出すこと
+    -- (このフックがゲーム側の _BUY_MARKET_ITEM を置き換えているため)。
+    if g.settings.market_voucher.use == 1 then
+        local my_char_name = GETMYPCNAME()
+        local item_obj = GetIES(market_item:GetObject())
+        local item_name = dictionary.ReplaceDicIDInCompStr(item_obj.Name)
+        local sanitized_item_name = string.gsub(item_name, "-", "?")
+        local time = geTime.GetServerSystemTime()
+        local formatted_time = string.format("%04d-%02d-%02d %02d:%02d:%02d", time.wYear, time.wMonth, time.wDay,
+            time.wHour, time.wMinute, time.wSecond)
+        local quantity = tonumber(buy_count)
+        local total_amount = tonumber(total_price)
+        local unit_price = 0
+        if quantity > 0 then
+            unit_price = total_amount / quantity
+        end
+        local result_string = string.format("%s/%s/%s/%d/%d/%d/%s", formatted_time, my_char_name, sanitized_item_name,
+            quantity, unit_price, total_amount, "buy")
+        table.insert(g.market_voucher_settings, result_string)
+        local file_handle = io.open(g.market_voucher_log_path, "a")
+        if file_handle then
+            file_handle:write(result_string .. "\n")
+            file_handle:close()
+        end
+        Market_voucher_save_settings()
     end
-    local result_string = string.format("%s/%s/%s/%d/%d/%d/%s", formatted_time, my_char_name, sanitized_item_name,
-        quantity, unit_price, total_amount, "buy")
-    table.insert(g.market_voucher_settings, result_string)
-    local file_handle = io.open(g.market_voucher_log_path, "a")
-    if file_handle then
-        file_handle:write(result_string .. "\n")
-        file_handle:close()
-    end
-    Market_voucher_save_settings()
     market.ReqBuyItems()
 end
 
 function Market_voucher__CABINET_ITEM_BUY(my_frame, my_msg)
     local frame, ctrl, guid = g.get_event_args(my_msg)
-    local cabinet_item = session.market.GetCabinetItemByItemID(guid)
-    local item_obj = GetIES(cabinet_item:GetObject())
-    local item_name = dictionary.ReplaceDicIDInCompStr(item_obj.Name)
-    local sanitized_item_name = string.gsub(item_name, "-", "?")
-    local reg_time = cabinet_item:GetRegSysTime()
-    local formatted_time = string.format("%04d-%02d-%02d %02d:%02d:%02d", reg_time.wYear, reg_time.wMonth,
-        reg_time.wDay, reg_time.wHour, reg_time.wMinute, reg_time.wSecond)
-    local quantity = tonumber(cabinet_item.sellItemAmount)
-    local total_amount = tonumber(cabinet_item:GetCount())
-    local unit_price = 0
-    if quantity > 0 then
-        unit_price = total_amount / quantity
+    -- 記録は OFF なら取らない。受け取り(ReqGetCabinetItem)は OFF でも必ず出すこと
+    -- (このフックがゲーム側の _CABINET_ITEM_BUY を置き換えているため)。
+    if g.settings.market_voucher.use == 1 then
+        local cabinet_item = session.market.GetCabinetItemByItemID(guid)
+        local item_obj = GetIES(cabinet_item:GetObject())
+        local item_name = dictionary.ReplaceDicIDInCompStr(item_obj.Name)
+        local sanitized_item_name = string.gsub(item_name, "-", "?")
+        local reg_time = cabinet_item:GetRegSysTime()
+        local formatted_time = string.format("%04d-%02d-%02d %02d:%02d:%02d", reg_time.wYear, reg_time.wMonth,
+            reg_time.wDay, reg_time.wHour, reg_time.wMinute, reg_time.wSecond)
+        local quantity = tonumber(cabinet_item.sellItemAmount)
+        local total_amount = tonumber(cabinet_item:GetCount())
+        local unit_price = 0
+        if quantity > 0 then
+            unit_price = total_amount / quantity
+        end
+        local my_char_name = GETMYPCNAME()
+        local result_string = string.format("%s/%s/%s/%d/%d/%d/%s", formatted_time, my_char_name, sanitized_item_name,
+            quantity, unit_price, total_amount, "sell")
+        table.insert(g.market_voucher_settings, result_string)
+        local file_handle = io.open(g.market_voucher_log_path, "a")
+        if file_handle then
+            file_handle:write(result_string .. "\n")
+            file_handle:close()
+        end
+        Market_voucher_save_settings()
     end
-    local my_char_name = GETMYPCNAME()
-    local result_string = string.format("%s/%s/%s/%d/%d/%d/%s", formatted_time, my_char_name, sanitized_item_name,
-        quantity, unit_price, total_amount, "sell")
-    table.insert(g.market_voucher_settings, result_string)
-    local file_handle = io.open(g.market_voucher_log_path, "a")
-    if file_handle then
-        file_handle:write(result_string .. "\n")
-        file_handle:close()
-    end
-    Market_voucher_save_settings()
     market.ReqGetCabinetItem(guid)
     local market_cabinet_popup = ui.GetFrame("market_cabinet_popup")
     if market_cabinet_popup then

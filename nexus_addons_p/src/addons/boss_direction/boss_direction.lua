@@ -19,6 +19,19 @@ function Boss_direction_load_settings()
     end
 end
 
+-- 出している矢印を全部片付ける。表(g.boss_direction_handls)を空にするだけだと
+-- フレーム名を見失い、矢印が画面に残ったまま二度と消せなくなるので、必ずここを通す。
+function Boss_direction_cleanup()
+    if g.boss_direction_handls then
+        for _, frame_name in pairs(g.boss_direction_handls) do
+            if ui.GetFrame(frame_name) then
+                ui.DestroyFrame(frame_name)
+            end
+        end
+    end
+    g.boss_direction_handls = {}
+end
+
 function boss_direction_on_init()
     if not g.boss_direction_settings then
         Boss_direction_load_settings()
@@ -27,7 +40,21 @@ function boss_direction_on_init()
     if _G[old_func] then
         return
     end
-    g.boss_direction_handls = {}
+    Boss_direction_cleanup()
+    -- 機能 OFF なら監視を張らない。以前はここで use を見ておらず、OFF でも 0.5 秒
+    -- タイマーを張って初回 tick で自分を止めていた。止めるだけで矢印は消さないので、
+    -- 矢印が出ている状態で OFF にすると画面に残り続けた。
+    if g.settings.boss_direction.use == 0 then
+        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+        if _nexus_addons_p then
+            local boss_direction_timer = GET_CHILD(_nexus_addons_p, "boss_direction_timer")
+            if boss_direction_timer then
+                AUTO_CAST(boss_direction_timer)
+                boss_direction_timer:Stop()
+            end
+        end
+        return
+    end
     if g.get_map_type() ~= "City" then
         Boss_direction_handle_check_reserve()
     end
@@ -108,6 +135,9 @@ end
 
 function Boss_direction_handle_check(_nexus_addons_p, Boss_direction_timer)
     if g.settings.boss_direction.use == 0 then
+        -- 止める前に出ている矢印を消す。ここで消さないと tick が来なくなり、
+        -- 矢印が画面に残ったままになる。
+        Boss_direction_cleanup()
         Boss_direction_timer:Stop()
         return
     end

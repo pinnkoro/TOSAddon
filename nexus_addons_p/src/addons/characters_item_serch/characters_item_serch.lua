@@ -101,21 +101,38 @@ function characters_item_serch_on_init()
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Characters_item_serch_INVENTORY_CLOSE", true)
     g.setup_hook_and_event(g.addon, "ACCOUNTWAREHOUSE_CLOSE", "Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE", true)
     g.setup_hook_and_event(g.addon, "WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
+    -- インベントリボタンの右クリックは OFF のときは奪わない。以前は OFF でも
+    -- 右クリックを取り上げたうえ「右クリック: Characters Item Serch」と案内していたが、
+    -- toggle_frame が use==0 で即 return するので押しても無反応だった。
+    -- 他アドオンが同じ右クリックを使いたいときの邪魔にもなる。
     local sysmenu = ui.GetFrame("sysmenu")
     local inven = GET_CHILD(sysmenu, "inven")
     AUTO_CAST(inven)
-    inven:SetEventScript(ui.RBUTTONUP, "Characters_item_serch_toggle_frame")
-    local function get_localized_tooltip(lang)
+    local function get_localized_tooltip(lang, enabled)
+        local base
         if lang == "Japanese" then
-            return "{@st59}インベントリ (F2){nl}右クリック: Characters Item Serch"
+            base = "{@st59}インベントリ (F2)"
+            return enabled and (base .. "{nl}右クリック: Characters Item Serch") or base
         elseif lang == "kr" then
-            return "{@st59}인벤토리 (F2){nl}Right click: Characters Item Serch"
+            base = "{@st59}인벤토리 (F2)"
+            return enabled and (base .. "{nl}Right click: Characters Item Serch") or base
         else
-            return "{@st59}Inventory (F2){nl}Right click: Characters Item Serch"
+            base = "{@st59}Inventory (F2)"
+            return enabled and (base .. "{nl}Right click: Characters Item Serch") or base
         end
     end
-    local tooltip = get_localized_tooltip(g.lang)
-    inven:SetTextTooltip(tooltip)
+    local enabled = characters_item_serch_enabled()
+    -- ON に戻したときに張り直せるよう、OFF では外すところまでやる
+    inven:SetEventScript(ui.RBUTTONUP, enabled and "Characters_item_serch_toggle_frame" or "None")
+    inven:SetTextTooltip(get_localized_tooltip(g.lang, enabled))
+    if not enabled then
+        -- 開いていた検索ウィンドウも畳む(OFF にした瞬間に閉じられなくなるため)
+        local characters_item_serch = ui.GetFrame(addon_name_lower .. "characters_item_serch")
+        if characters_item_serch then
+            ui.DestroyFrame(characters_item_serch:GetName())
+        end
+        return
+    end
     Characters_item_serch_char_data()
 end
 

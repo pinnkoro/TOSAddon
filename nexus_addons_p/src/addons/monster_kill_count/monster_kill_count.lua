@@ -120,6 +120,14 @@ function monster_kill_count_on_init()
     if _G[old_func] then
         return
     end
+    -- 機能 OFF なら、数えている途中でも畳んで抜ける。on_init は ON/OFF によらず
+    -- 呼ばれる契約(core/20_lifecycle.lua)なので、畳めるのはここだけ。
+    -- 以前は use を 1 秒タイマーの表示切替でしか見ておらず、OFF のままでも
+    -- マップに入るたび記録ファイルと設定ファイルを書き、購読とタイマーも張っていた。
+    if g.settings.monster_kill_count.use == 0 then
+        Monster_kill_count_teardown()
+        return
+    end
     g.setup_hook_and_event(g.addon, "APPLY_SCREEN", "Monster_kill_count_APPLY_SCREEN", true)
 
     -- ここが「討伐数を数える場所」かを先に判定する。数えない経路は 1 つではなく、
@@ -267,6 +275,11 @@ function Monster_kill_count_get_map_filepath(map_id)
 end
 
 function Monster_kill_count_APPLY_SCREEN(my_frame, my_msg)
+    -- 置換方式のフックは一度張ると外せないので、OFF の判定はここに置く
+    -- (張らずに済ませると、ON に戻したときに解像度変更へ追従できなくなる)。
+    if g.settings.monster_kill_count.use == 0 or not g.mkc_map_id then
+        return
+    end
     Monster_kill_count_frame_init()
 end
 
@@ -346,12 +359,19 @@ function Monster_kill_count_frame_init()
 end
 
 function Monster_kill_count_time_update(_nexus_addons_p)
-    local monster_kill_count = ui.GetFrame(addon_name_lower .. "monster_kill_count")
-    if g.settings.monster_kill_count.use == 1 then
-        monster_kill_count:ShowWindow(1)
-    else
-        ui.DestroyFrame(addon_name_lower .. "monster_kill_count")
+    -- OFF なら畳んで抜ける。以前はフレームを破棄した直後に、その破棄済みフレームへ
+    -- GET_CHILD(timer_text) していたので、OFF のまま毎秒落ちていた。
+    -- 破棄だけでは購読も 1 秒タイマー自身も残るので、後始末は teardown に任せる。
+    if g.settings.monster_kill_count.use == 0 then
+        Monster_kill_count_teardown()
+        return
     end
+    local monster_kill_count = ui.GetFrame(addon_name_lower .. "monster_kill_count")
+    -- 数える下地が揃っていなければ触らない(畳んだ直後に 1 通届くことがある)。
+    if not monster_kill_count or not g.mkc_map_data or not g.mkc_start_time then
+        return
+    end
+    monster_kill_count:ShowWindow(1)
     local now_ms = imcTime.GetAppTimeMS()
     g.mkc_diff_ms = now_ms - g.mkc_start_time
     local total_sec = math.floor(g.mkc_diff_ms / 1000)
