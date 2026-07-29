@@ -1,4 +1,9 @@
 -- vakarine_equip ここから
+-- 着脱対象になりうる部位。キャラ設定の初期化とチェック有無の判定で共有する
+-- (以前は初期化側にだけリストがあり、増減時に片方だけ直す事故が起きうる)。
+g.vakarine_equip_spots = {"RH", "LH", "RH_SUB", "LH_SUB", "RING1", "RING2", "SHIRT", "PANTS", "GLOVES", "BOOTS",
+                          "SHOULDER", "BELT", "NECK"}
+
 function Vakarine_equip_save_settings()
     g.save_json(g.vakarine_equip_path, g.vakarine_equip_settings)
 end
@@ -46,12 +51,10 @@ function vakarine_equip_on_init()
 end
 
 function Vakarine_equip_chrs_settings()
-    local equips = {"RH", "LH", "RH_SUB", "LH_SUB", "RING1", "RING2", "SHIRT", "PANTS", "GLOVES", "BOOTS", "SHOULDER",
-                    "BELT", "NECK"}
     g.vakarine_equip_settings.chars[g.cid] = {
         use = 0
     }
-    for _, equip in ipairs(equips) do
+    for _, equip in ipairs(g.vakarine_equip_spots) do
         g.vakarine_equip_settings.chars[g.cid][equip] = 0
     end
     Vakarine_equip_save_settings()
@@ -150,6 +153,37 @@ function Vakarine_equip_config_or_startup(frame, ctrl)
     end
 end
 
+-- 週間ボスレイド(ボス協同戦 = JSR)のマップかどうか。マップ ID の直書きだと運営側で
+-- マップが追加されたときに漏れるので、マップの Keyword で見る
+-- (guild_event_warp / lets_go_home / indun_panel と同じ判定材料)。
+-- 区切り文字は ";" だが、他アドオンが StringSplit の区切りに "" を渡していて
+-- 挙動が読めないため、ここは区切りに依存しない plain find で判定する。
+function Vakarine_equip_is_weekly_boss_map()
+    local map_cls = GetClass("Map", session.GetMapName())
+    if not map_cls then
+        return false
+    end
+    local keyword = TryGetProp(map_cls, "Keyword", "None")
+    if type(keyword) ~= "string" then
+        return false
+    end
+    return string.find(keyword, "WeeklyBossMap", 1, true) ~= nil
+end
+
+-- 設定でチェックされている部位が 1 つでもあるか。インベントリを開く前に見て、
+-- 0 個ならそもそも開かない(開いてから空で return すると開きっぱなしになる)。
+function Vakarine_equip_has_checked_spot(char_settings)
+    if not char_settings then
+        return false
+    end
+    for _, spot_name in ipairs(g.vakarine_equip_spots) do
+        if char_settings[spot_name] == 1 then
+            return true
+        end
+    end
+    return false
+end
+
 function Vakarine_equip_start_operation(is_manual)
     if not is_manual then
         local char_data = g.vakarine_equip_settings.chars[g.cid]
@@ -161,10 +195,24 @@ function Vakarine_equip_start_operation(is_manual)
     if not is_vakarine and not is_manual then
         return
     end
+    -- JSR チェックは「週間ボスレイドのマップでも作動させるか」だけを決める。
+    -- (以前はここが `or jsr == 1` で、ON のときマップ判定を丸ごと素通りしていたため、
+    --  フィールドや旧ダンジョンを含む都市以外の全マップで着脱が走っていた)
+    local is_weekly_boss = Vakarine_equip_is_weekly_boss_map()
     local is_valid_map =
         (g.get_map_type() == "Instance" and g.map_id ~= 11227) -- 11244 聖域3F 11227 分裂 8022 ヴェルニケ
         or g.map_id == 8022 or g.map_id == 11244
-    if is_valid_map or is_manual or g.vakarine_equip_settings.jsr == 1 then
+        or (is_weekly_boss and g.vakarine_equip_settings.jsr == 1)
+    g.vlog("VakarineEquip 起動判定: map_id=%s type=%s weekly_boss=%s jsr=%s manual=%s -> %s",
+        tostring(g.map_id), tostring(g.get_map_type()), tostring(is_weekly_boss),
+        tostring(g.vakarine_equip_settings.jsr), tostring(is_manual and true or false),
+        tostring(is_valid_map or (is_manual and true or false)))
+    if is_valid_map or is_manual then
+        local char_settings = g.vakarine_equip_settings.chars[g.cid]
+        if not Vakarine_equip_has_checked_spot(char_settings) then
+            g.vlog("VakarineEquip 中止: 対象部位が 1 つもチェックされていない")
+            return
+        end
         g.vakarine_equip_field_boss = nil
         local inventory = ui.GetFrame("inventory")
         inventory:ShowWindow(1)
@@ -188,7 +236,6 @@ function Vakarine_equip_start_operation(is_manual)
             NECK = 19
         }
         g.vakarine_equip_queue = {}
-        local char_settings = g.vakarine_equip_settings.chars[g.cid]
         local equip_item_list = session.GetEquipItemList()
         for spot_name, index in pairs(equip_map) do
             local current_item = equip_item_list:GetEquipItemByIndex(index)
@@ -203,6 +250,10 @@ function Vakarine_equip_start_operation(is_manual)
         local animas_item = session.GetInvItemByName("NECK04_103")
         g.vakarine_equip_animas_iesid = animas_item and animas_item:GetIESID() or nil
         if #g.vakarine_equip_queue == 0 then
+            -- チェックはあるが該当部位を装備していない場合。ここで閉じないと
+            -- インベントリが開いたまま残る。
+            g.vlog("VakarineEquip 中止: チェックした部位を 1 つも装備していない")
+            inventory:ShowWindow(0)
             ui.SetHoldUI(false)
             return
         end
@@ -343,6 +394,9 @@ function Vakarine_equip_config_frame_open()
     jsr_check:SetCheck(g.vakarine_equip_settings.jsr)
     local text = g.lang == "Japanese" and "チェックするとJSRで作動" or "Activated in JSR when checked"
     jsr_check:SetText("{ol}" .. text)
+    jsr_check:SetTextTooltip(g.lang == "Japanese" and
+                                 "{ol}週間ボスレイド(ボス協同戦)のマップでも着脱するかどうかです。{nl}インスタンスダンジョン(レイド/ミッション)はこの設定に関係なく作動します。{nl}フィールドや旧ダンジョンでは作動しません。" or
+                                 "{ol}Whether to also run on weekly boss raid (boss co-op) maps.{nl}Instanced dungeons (raids/missions) run regardless of this setting.{nl}It never runs on fields or old dungeons.")
     jsr_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
     local x = 0
     local width = jsr_check:GetWidth()
@@ -350,9 +404,7 @@ function Vakarine_equip_config_frame_open()
         x = width
     end
     local y = 40
-    local equips = {"RH", "LH", "RH_SUB", "LH_SUB", "RING1", "RING2", "SHIRT", "PANTS", "GLOVES", "BOOTS", "SHOULDER",
-                    "BELT", "NECK"}
-    for i, equip_name in ipairs(equips) do
+    for i, equip_name in ipairs(g.vakarine_equip_spots) do
         local check_box = config_gb:CreateOrGetControl('checkbox', "check_box" .. i, 20, y, 30, 30)
         AUTO_CAST(check_box)
         check_box:SetCheck(g.vakarine_equip_settings.chars[g.cid][equip_name])

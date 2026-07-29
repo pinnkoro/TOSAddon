@@ -436,16 +436,50 @@ function Quickslot_operate_set_potion(parent, slot, str, pot_id)
     end
 end
 
+-- スロットの差し替えには quickslotnexpbar が表示されている必要があるという
+-- クライアント側の制約がある。以前はジョイスティックモードのとき
+-- 「joystickquickslot を隠す → 差し替え → 戻す」としていたが、途中の早期 return や
+-- エラーで復元を飛ばすと、ジョイスティックバーが消えたまま次のマップ移動まで戻らなかった。
+--
+-- そこで joystickquickslot には一切触れない。隠さないので消えようがない。
+-- キーボード用バーだけを「完全に透明」にして一瞬表示するので、画面上でちらつかない。
+-- 万一復元を飛ばしても、残るのは透明な quickslotnexpbar だけで見た目に影響しない。
+function Quickslot_operate_begin_slot_edit()
+    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
+    if IsJoyStickMode() ~= 1 then
+        return quickslotnexpbar, false
+    end
+    quickslotnexpbar:SetAlpha(0)
+    quickslotnexpbar:ShowWindow(1)
+    return quickslotnexpbar, true
+end
+
+function Quickslot_operate_end_slot_edit(quickslotnexpbar, was_hidden)
+    if was_hidden then
+        -- ジョイスティックモードではキーボード用バーは元から非表示。透明のまま残すと
+        -- クリックを吸う恐れがあるので、隠してから不透明に戻す(次に普通に表示された
+        -- ときに透明のままにならないようにする)。
+        quickslotnexpbar:ShowWindow(0)
+        quickslotnexpbar:SetAlpha(100)
+    end
+    -- 隠していないジョイスティックバーは、中身だけ描き直してもらう(従来どおり毎回)。
+    DebounceScript("JOYSTICK_QUICKSLOT_UPDATE_ALL_SLOT", 0.1)
+end
+
 function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
     if not g.qso_potion_map then
         Quickslot_operate_build_potion_map()
     end
-    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-    local joystickquickslot = ui.GetFrame('joystickquickslot')
-    if IsJoyStickMode() == 1 then
-        quickslotnexpbar:ShowWindow(1)
-        joystickquickslot:ShowWindow(0)
+    local quickslotnexpbar, was_hidden = Quickslot_operate_begin_slot_edit()
+    -- 差し替えの途中で落ちても必ず復元へ抜けるように pcall で囲む。
+    local ok, err = pcall(Quickslot_operate_apply_slots, quickslotnexpbar, race, down_potion_id, atk_id, def_id)
+    Quickslot_operate_end_slot_edit(quickslotnexpbar, was_hidden)
+    if not ok then
+        g.vlog("QuickslotOperate スロット差し替えでエラー: %s", tostring(err))
     end
+end
+
+function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, atk_id, def_id)
     local atk_list = g.quickslot_operate_atk_list
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot = GET_CHILD_RECURSIVELY(quickslotnexpbar, "slot" .. i)
@@ -499,11 +533,6 @@ function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
     Quickslot_operate_stop_map_timer()
     quickslot.RequestSave()
     QUICKSLOTNEXPBAR_UPDATE_HOTKEYNAME(quickslotnexpbar)
-    if IsJoyStickMode() == 1 then
-        quickslotnexpbar:ShowWindow(0)
-        joystickquickslot:ShowWindow(1)
-    end
-    DebounceScript("JOYSTICK_QUICKSLOT_UPDATE_ALL_SLOT", 0.1)
 end
 
 function Quickslot_operate_frame_close()
@@ -709,12 +738,10 @@ function Quickslot_operate_set_rshift_script()
     if keyboard.IsKeyPressed("RSHIFT") == 0 then
         return
     end
-    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-    local joystickquickslot = ui.GetFrame('joystickquickslot')
-    if IsJoyStickMode() == 1 then
-        quickslotnexpbar:ShowWindow(1)
-        joystickquickslot:ShowWindow(0)
-    end
+    -- ここではバーの表示を触らない。現在のポーション種別を調べるだけなら表示は不要で、
+    -- 実際に差し替える Quickslot_operate_check_all_slots が表示の面倒を見る。
+    -- (以前はここで先に切り替えていたため、下の「ポーションが見つからない」early return を
+    --  通るとジョイスティックバーが消えたまま戻らなかった)
     local current_potion_type = nil
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot_info = quickslot.GetInfoByIndex(i - 1)
@@ -745,6 +772,7 @@ function Quickslot_operate_set_rshift_script()
         end
     end
     if not current_potion_type then
+        g.vlog("QuickslotOperate RSHIFT 循環: 現在のポーション種別を特定できず中止")
         return
     end
     local potion_type_order = {"Velnias", "Klaida", "Paramune", "Widling", "Forester"}
@@ -763,17 +791,14 @@ function Quickslot_operate_set_rshift_script()
     local def_id_candidate = g.quickslot_operate_def_list[target_race]
     local inv_def = session.GetInvItemByType(def_id_candidate)
     local found_def_id = inv_def and def_id_candidate or 0 -- 持ってなければ 0
+    g.vlog("QuickslotOperate RSHIFT 循環: %s -> %s (atk=%s def=%s)", tostring(current_potion_type),
+        tostring(target_race), tostring(found_atk_id), tostring(found_def_id))
+    -- 2 回呼ぶのは従来どおり(1 回では反映が漏れることがあるため)。
+    -- 常に真だった `if target_race then` のぶんだけ畳んでいる。
     Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
     quickslot.RequestSave()
-    if target_race then
-        Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
-        quickslot.RequestSave()
-    end
-
-    if IsJoyStickMode() == 1 then
-        quickslotnexpbar:ShowWindow(0)
-        joystickquickslot:ShowWindow(1)
-    end
+    Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
+    quickslot.RequestSave()
 end
 -- quickslot_operate ここまで
 
