@@ -210,7 +210,16 @@ function Vakarine_equip_start_operation(is_manual)
     if is_valid_map or is_manual then
         local char_settings = g.vakarine_equip_settings.chars[g.cid]
         if not Vakarine_equip_has_checked_spot(char_settings) then
-            g.vlog("VakarineEquip 中止: 対象部位が 1 つもチェックされていない")
+            -- 既定は全部位チェック無しなので、初めて手動で呼んだ人は必ずここを通る。
+            -- 黙って return するとアドオンが壊れているようにしか見えないため、
+            -- 手動のときだけ理由を伝える(自動は毎マップ出てしまうので出さない)。
+            if is_manual then
+                ui.SysMsg(g.lang == "Japanese" and
+                    "{ol}{#FF6347}[女神の像]{/} 着脱する部位が 1 つも選択されていません。設定画面で部位を選んでください" or
+                    "{ol}{#FF6347}[Vakarine]{/} No equipment slot is selected. Please choose slots in the settings.")
+            end
+            g.vlog("VakarineEquip 中止: 対象部位が 1 つもチェックされていない (manual=%s)",
+                tostring(is_manual and true or false))
             return
         end
         g.vakarine_equip_field_boss = nil

@@ -474,8 +474,20 @@ function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
     -- 差し替えの途中で落ちても必ず復元へ抜けるように pcall で囲む。
     local ok, err = pcall(Quickslot_operate_apply_slots, quickslotnexpbar, race, down_potion_id, atk_id, def_id)
     Quickslot_operate_end_slot_edit(quickslotnexpbar, was_hidden)
+    -- 差し替えの成否によらずマップ監視は止める。apply_slots の中で止めていた頃は、
+    -- 途中で落ちると 3 秒周期のタイマーが残り、同じエラーを黙って踏み続けていた。
+    Quickslot_operate_stop_map_timer()
     if not ok then
-        g.vlog("QuickslotOperate スロット差し替えでエラー: %s", tostring(err))
+        local msg = "QuickslotOperate スロット差し替えでエラー: " .. tostring(err)
+        g.vlog("%s", msg)
+        -- vlog は既定 OFF なので、利用者の手元には何も残らない。debug_log.txt にも出す。
+        -- ただし RSHIFT 経路は 0.15 秒周期なので、同じエラーの連投は 1 回に丸める。
+        if g.quickslot_operate_last_slot_error ~= msg then
+            g.quickslot_operate_last_slot_error = msg
+            g.log_to_file(msg)
+        end
+    else
+        g.quickslot_operate_last_slot_error = nil
     end
 end
 
@@ -530,7 +542,8 @@ function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, a
             end
         end
     end
-    Quickslot_operate_stop_map_timer()
+    -- マップ監視の停止は呼び出し元(check_all_slots)に移した。ここで止めると、
+    -- 途中で落ちたときだけ止め損ねて無言のリトライが続くため。
     quickslot.RequestSave()
     QUICKSLOTNEXPBAR_UPDATE_HOTKEYNAME(quickslotnexpbar)
 end
@@ -734,9 +747,25 @@ function Quickslot_operate_switch_rshift(is_first)
     Quickslot_operate_save_settings()
 end
 
+-- この関数は 0.15 秒周期のタイマーから呼ばれる(= RSHIFT を押している間は毎秒約 7 回)。
+-- 中のログをそのまま出すとチャットと verbose_log.txt が流れて肝心の行が埋もれるので、
+-- 「押し始めの 1 回」と「離したときの要約」だけに絞る。判断材料(何回・最後にどれへ
+-- 切り替わったか・種別を特定できなかった回数)は要約側に残す。
 function Quickslot_operate_set_rshift_script()
     if keyboard.IsKeyPressed("RSHIFT") == 0 then
+        if g.quickslot_operate_rshift_held then
+            g.quickslot_operate_rshift_held = nil
+            g.vlog("QuickslotOperate RSHIFT 循環: 押下終了 切替 %d 回 最終=%s 種別不明で中止 %d 回",
+                g.quickslot_operate_rshift_count or 0, tostring(g.quickslot_operate_rshift_last),
+                g.quickslot_operate_rshift_miss or 0)
+        end
         return
+    end
+    if not g.quickslot_operate_rshift_held then
+        g.quickslot_operate_rshift_held = true
+        g.quickslot_operate_rshift_count = 0
+        g.quickslot_operate_rshift_miss = 0
+        g.quickslot_operate_rshift_last = nil
     end
     -- ここではバーの表示を触らない。現在のポーション種別を調べるだけなら表示は不要で、
     -- 実際に差し替える Quickslot_operate_check_all_slots が表示の面倒を見る。
@@ -772,7 +801,11 @@ function Quickslot_operate_set_rshift_script()
         end
     end
     if not current_potion_type then
-        g.vlog("QuickslotOperate RSHIFT 循環: 現在のポーション種別を特定できず中止")
+        -- 押下区間の 1 回目だけ出す(回数は離したときの要約に出る)。
+        g.quickslot_operate_rshift_miss = (g.quickslot_operate_rshift_miss or 0) + 1
+        if g.quickslot_operate_rshift_miss == 1 then
+            g.vlog("QuickslotOperate RSHIFT 循環: 現在のポーション種別を特定できず中止")
+        end
         return
     end
     local potion_type_order = {"Velnias", "Klaida", "Paramune", "Widling", "Forester"}
@@ -791,8 +824,12 @@ function Quickslot_operate_set_rshift_script()
     local def_id_candidate = g.quickslot_operate_def_list[target_race]
     local inv_def = session.GetInvItemByType(def_id_candidate)
     local found_def_id = inv_def and def_id_candidate or 0 -- 持ってなければ 0
-    g.vlog("QuickslotOperate RSHIFT 循環: %s -> %s (atk=%s def=%s)", tostring(current_potion_type),
-        tostring(target_race), tostring(found_atk_id), tostring(found_def_id))
+    g.quickslot_operate_rshift_count = (g.quickslot_operate_rshift_count or 0) + 1
+    g.quickslot_operate_rshift_last = target_race
+    if g.quickslot_operate_rshift_count == 1 then
+        g.vlog("QuickslotOperate RSHIFT 循環開始: %s -> %s (atk=%s def=%s)", tostring(current_potion_type),
+            tostring(target_race), tostring(found_atk_id), tostring(found_def_id))
+    end
     -- 2 回呼ぶのは従来どおり(1 回では反映が漏れることがあるため)。
     -- 常に真だった `if target_race then` のぶんだけ畳んでいる。
     Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
