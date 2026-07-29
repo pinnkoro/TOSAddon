@@ -208,16 +208,24 @@ function Vakarine_equip_config_or_startup(frame, ctrl)
     end
 end
 
--- 週間ボスレイド(ボス協同戦 = JSR)のマップかどうか。マップ ID の直書きだと運営側で
--- マップが追加されたときに漏れるので、マップの Keyword で見る
--- (guild_event_warp / lets_go_home / indun_panel と同じ判定材料)。
+-- ボス協同戦(JSR)のマップかどうか。マップ ID の直書きだと運営側でマップが
+-- 追加されたときに漏れるので、マップの Keyword で見る。
 --
--- 判定は g.map_has_keyword に寄せてある。Keyword は ";" 区切りなので、素の
--- string.find だと "WeeklyBossMapEntrance" のような別キーワードにも部分一致して
--- しまう(このアドオンが直したかった「対象外のマップでも作動する」そのもの)。
+-- **キーワードは "FieldBossMap"。** 実機で確認した対応は次のとおり(2026-07-29):
+--   ボス協同戦 field_d_cathedral_78_1 (11219, Instance) = FieldBossMap
+--   通常レイド Raid_Zmei             (11291, Instance) = IsRaidField;NoTrade;NoWarp;HealControl
+--   ヴェルニケ d_solo_dungeon        (8022,  Dungeon)  = solo_dungeon
+--   フィールド ep13_f_siauliai_1     (11209, Field)    = None
+-- 通常レイドは IsRaidField で、FieldBossMap は付かない = この 1 語で区別できる。
+--
+-- **"WeeklyBossMap" ではない。** 当初そちらで実装したが、実機では 1 度も一致しない。
+-- あれは週間ボスレイド用で、ボス協同戦(FIELD_BOSS_JOIN で入るコンテンツ)とは
+-- 別物だった。同じ調査を繰り返さないこと。
+--
+-- 判定は g.map_has_keyword に寄せてある(";" 区切りのトークン一致)。
 -- 引けなかったときは false ではなく nil が返る。呼び出し側で区別すること。
-function Vakarine_equip_is_weekly_boss_map()
-    return g.map_has_keyword("WeeklyBossMap")
+function Vakarine_equip_is_field_boss_map()
+    return g.map_has_keyword("FieldBossMap")
 end
 
 -- 設定でチェックされている部位が 1 つでもあるか。インベントリを開く前に見て、
@@ -245,46 +253,54 @@ function Vakarine_equip_start_operation(is_manual)
     if not is_vakarine and not is_manual then
         return
     end
-    -- JSR チェックは「週間ボスレイドのマップでも作動させるか」だけを決める。
-    -- (以前はここが `or jsr == 1` で、ON のときマップ判定を丸ごと素通りしていたため、
-    --  フィールドや旧ダンジョンを含む都市以外の全マップで着脱が走っていた)
+    -- **JSR チェックは「ボス協同戦のマップで作動させるか」を丸ごと決める。**
+    -- ON なら作動し、OFF なら作動しない。ボス協同戦は MapType が Instance なので、
+    -- 下の by_instance に任せると **チェックを外しても作動してしまう**
+    -- (実機で確認: field_d_cathedral_78_1 = Instance)。ラベルどおりに効かせるには
+    -- ここでインスタンスの判定より先に決める必要がある。
+    --
+    -- 以前はここが `or jsr == 1` で、ON のときマップ判定を丸ごと素通りしていたため、
+    -- フィールドや旧ダンジョンを含む都市以外の全マップで着脱が走っていた。そのうえ
+    -- OFF でもインスタンス扱いで作動していたので、**このチェックは ON/OFF どちらでも
+    -- 挙動が変わらない飾りになっていた**。
     is_manual = is_manual and true or false
     local map_type = g.get_map_type()
     local jsr_on = g.vakarine_equip_settings.jsr == 1
-    local is_valid_map = (map_type == "Instance" and g.map_id ~= g.MAP_SPLIT) or g.map_id == g.MAP_VELNIKE or
-                             g.map_id == g.MAP_SANCTUARY_3F
-    -- Keyword を引くのは JSR が ON のときだけ。既定は OFF で結果を使わないのに、
-    -- GetClass は IES 引きで重い(on_init はマップ移動のたびに全アドオン分が
-    -- 1 フレームで同期実行される)。ON の人でもマップごとに 1 回で済む(メモ化)。
-    --
-    -- **is_valid_map が既に true でも引くこと。** 「インスタンスなので他の条件で
-    -- 確定した」ときに引かずに済ませると、そのマップが週間ボスレイドだったのかが
-    -- ログから一切分からず、**JSR チェックが効いているのかを確かめられない**。
-    -- 実機でレイドに入ったとき、まさにここが測れなかった。
-    local is_weekly_boss = nil
-    if jsr_on then
-        is_weekly_boss = Vakarine_equip_is_weekly_boss_map()
-        -- nil = Map クラスを引けず判定できなかった。false(該当しない)と混ぜると、
-        -- 利用者が送ってくる verbose_log.txt では区別が付かず「JSR なのに動かない」の
-        -- 原因が追えない。作動はさせない側に倒し、ログにだけ違いを残す。
-        if not is_valid_map then
-            is_valid_map = is_weekly_boss == true
-        end
+    -- ID で対象にしているマップ(聖域3F / ヴェルニケ)。ヴェルニケは MapType が
+    -- Dungeon で Instance ではないため、ID で持つ必要がある(実機で確認)。
+    local by_id = g.map_id == g.MAP_VELNIKE or g.map_id == g.MAP_SANCTUARY_3F
+    local by_instance = map_type == "Instance" and g.map_id ~= g.MAP_SPLIT
+    -- **JSR が OFF でも引くこと。** OFF のときは「ボス協同戦なら作動させない」ために
+    -- 要る。引かずに済ませると by_instance で素通りしてしまう。
+    -- ID で対象が確定しているマップだけは引かない(Keyword を見ないので無駄になる)。
+    -- GetClass は IES 引きで重いが、g.map_has_keyword がマップごとにメモ化する。
+    local is_field_boss = nil
+    local field_boss_checked = false
+    if not by_id then
+        is_field_boss = Vakarine_equip_is_field_boss_map()
+        field_boss_checked = true
+    end
+    local is_valid_map
+    if is_field_boss == true then
+        is_valid_map = jsr_on
+    else
+        -- nil(Map クラスを引けなかった)ときは従来どおりの判定に落とす。
+        is_valid_map = by_id or by_instance
     end
     -- **「引いていない」と「引けなかった」を同じ表示にしないこと。**
     -- 一度これを混ぜて、Map クラスを引けている(type=Instance)のに
     -- 「判定不可(Mapクラスを引けない)」と出す嘘のログになった。
-    local weekly_boss_text
-    if not jsr_on then
-        weekly_boss_text = "未判定(JSR OFF)"
-    elseif is_weekly_boss == nil then
-        weekly_boss_text = "判定不可(Mapクラスを引けない)"
+    local field_boss_text
+    if not field_boss_checked then
+        field_boss_text = "未判定(ID で対象確定)"
+    elseif is_field_boss == nil then
+        field_boss_text = "判定不可(Mapクラスを引けない)"
     else
-        weekly_boss_text = tostring(is_weekly_boss)
+        field_boss_text = tostring(is_field_boss)
     end
     local will_run = is_valid_map or is_manual
-    g.vlog("VakarineEquip 起動判定: map_id=%s type=%s jsr=%s weekly_boss=%s manual=%s -> %s", tostring(g.map_id),
-        tostring(map_type), tostring(g.vakarine_equip_settings.jsr), weekly_boss_text, tostring(is_manual),
+    g.vlog("VakarineEquip 起動判定: map_id=%s type=%s jsr=%s field_boss=%s manual=%s -> %s", tostring(g.map_id),
+        tostring(map_type), tostring(g.vakarine_equip_settings.jsr), field_boss_text, tostring(is_manual),
         tostring(will_run))
     if will_run then
         local char_settings = g.vakarine_equip_settings.chars[g.cid]
@@ -480,8 +496,8 @@ function Vakarine_equip_config_frame_open()
     local text = g.lang == "Japanese" and "チェックするとJSRで作動" or "Activated in JSR when checked"
     jsr_check:SetText("{ol}" .. text)
     jsr_check:SetTextTooltip(g.lang == "Japanese" and
-                                 "{ol}週間ボスレイド(ボス協同戦)のマップでも着脱するかどうかです。{nl}インスタンスダンジョン(レイド/ミッション)はこの設定に関係なく作動します。{nl}フィールドや旧ダンジョンでは作動しません。" or
-                                 "{ol}Whether to also run on weekly boss raid (boss co-op) maps.{nl}Instanced dungeons (raids/missions) run regardless of this setting.{nl}It never runs on fields or old dungeons.")
+                                 "{ol}ボス協同戦(JSR)のマップで着脱するかどうかです。{nl}チェックを外すと、ボス協同戦では作動しません。{nl}ボス協同戦以外のインスタンスダンジョン(レイド/ミッション)は、この設定に関係なく作動します。{nl}フィールドや旧ダンジョンでは作動しません。" or
+                                 "{ol}Whether to run on boss co-op (JSR) maps.{nl}Unchecked, it does not run there.{nl}Other instanced dungeons (raids/missions) run regardless of this setting.{nl}It never runs on fields or old dungeons.")
     jsr_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
     local x = 0
     local width = jsr_check:GetWidth()
