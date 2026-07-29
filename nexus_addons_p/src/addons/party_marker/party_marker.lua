@@ -10,6 +10,19 @@ function party_marker_on_init()
     end
 end
 
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。
+--
+-- 以前は on_init で use を見ておらず、Party_marker_set 側も use==0 のとき
+-- 目印を消すだけで **タイマーを止めていなかった**。そのため OFF にしても、
+-- そのマップに居る間はずっと 0.5 秒ごとにパーティ一覧を舐め続けていた
+-- (boss_direction と同じ形。マップをまたぐかどうかは g.stop_timer のコメント参照)。
+-- **順序が要る**: 先に止めると tick が来なくなり、出ている目印を消せなくなる。
+function party_marker_on_teardown()
+    Party_marker_cleanup()
+    g.stop_timer("party_marker_timer")
+end
+
 function Party_marker_cleanup()
     if g.party_marker and next(g.party_marker) then
         for handle_str, _ in pairs(g.party_marker) do
@@ -23,8 +36,10 @@ function Party_marker_cleanup()
 end
 
 function Party_marker_set(_nexus_addons_p, party_marker_timer)
+    -- 保険。通常は on_teardown が止めるが、そこを通らずに OFF になった場合でも
+    -- 回り続けないようにする。
     if g.settings.party_marker.use == 0 then
-        Party_marker_cleanup()
+        party_marker_on_teardown()
         return
     end
     local party_list = session.party.GetPartyMemberList(PARTY_NORMAL)

@@ -70,6 +70,15 @@ session = {
     GetMySession = function() return {GetCID = function() return 1 end} end,
 }
 
+-- Keyword は ";" 区切りの並び。実機では別キーワードが前後に付く。
+local MAP_KEYWORDS = {
+    town = "CityMap;SafeZone",
+    field1 = "FieldMap",
+    raid1 = "WeeklyBossMap;RaidMap",
+    -- 「部分一致で誤爆しないか」を見るための、紛らわしい名前だけを持つマップ
+    tricky = "WeeklyBossMapEntrance;NotWeeklyBossMap",
+}
+
 function GetClass(_kind, name)
     state.getclass_calls = state.getclass_calls + 1
     if MAP_TYPE_EMPTY[name] then
@@ -77,9 +86,20 @@ function GetClass(_kind, name)
     end
     local t = MAP_TYPES[name]
     if not t then
+        if MAP_KEYWORDS[name] then
+            return {Keyword = MAP_KEYWORDS[name]} -- MapType は無いが Keyword はある
+        end
         return nil -- 未知/インスタンスマップでは実機でも nil が返りうる
     end
-    return {MapType = t}
+    return {MapType = t, Keyword = MAP_KEYWORDS[name]}
+end
+
+function TryGetProp(cls, prop, default)
+    local v = cls and cls[prop]
+    if v == nil then
+        return default
+    end
+    return v
 end
 
 local frames = {}
@@ -1084,6 +1104,79 @@ do
     check("同梱側が手前へ復帰する(黙って死なない)", _G["CO_HOOK"] == mini_func, true)
     check("同梱の控えは まとめ版フックを指し連鎖が保たれる", mini_funcs["CO_HOOK"] == core_func, true)
 end
+
+-- ===== 22. map_has_keyword: トークン単位で当てる =====
+-- Keyword は ";" 区切り。素の部分一致だと "WeeklyBossMapEntrance" のような別キーワードにも
+-- 当たり、対象外のマップでアドオンが作動する(vakarine_equip が直したかったのがこれ)。
+print("[22] map_has_keyword はトークン単位で当てる")
+state.map_name = "raid1"
+check("持っているキーワード", g.map_has_keyword("WeeklyBossMap"), true)
+check("同じマップの別キーワード", g.map_has_keyword("RaidMap"), true)
+check("持っていないキーワード", g.map_has_keyword("FieldMap"), false)
+state.map_name = "tricky"
+check("紛らわしい名前には当たらない", g.map_has_keyword("WeeklyBossMap"), false)
+check("その名前そのものには当たる", g.map_has_keyword("NotWeeklyBossMap"), true)
+-- 「該当しない(false)」と「判定できなかった(nil)」を混ぜないこと。混ぜると
+-- 利用者の verbose_log.txt から「なぜ動かないのか」を切り分けられなくなる。
+state.map_name = "unknown"
+check("Map クラスを引けなければ nil", g.map_has_keyword("WeeklyBossMap"), nil)
+state.getclass_calls = 0
+g.map_has_keyword("WeeklyBossMap")
+g.map_has_keyword("WeeklyBossMap")
+check("引けないマップは毎回引き直す", state.getclass_calls, 2)
+state.map_name = "raid1"
+state.getclass_calls = 0
+g.map_has_keyword("WeeklyBossMap")
+g.map_has_keyword("RaidMap")
+check("引けたマップはメモ化する", state.getclass_calls, 1)
+
+-- ===== 23. OFF のアドオンは on_teardown へ振り分ける =====
+-- 「OFF なら畳む」を各アドオンが手書きしていたため、守り漏れが実際に出ていた
+-- (party_marker / boss_direction は OFF のままタイマーを回し続けていた)。
+-- 振り分けは core の責任にし、on_teardown を定義したアドオンだけ opt-in で拾う。
+print("[23] use==0 なら on_teardown を呼び、畳むのは 1 回だけ")
+g.addon_torn_down = {}
+g.settings = g.settings or {} -- ここまでの検査で差し替えられていることがある
+g.settings.dummy_addon = {use = 0}
+_G["dummy_addon_on_init"] = function() end
+_G["dummy_addon_on_teardown"] = function() end
+local picked, mode = _nexus_addons_p_resolve_init_func("dummy_addon")
+check("OFF なら teardown を選ぶ", mode, "teardown")
+check("選ばれたのは on_teardown", picked == _G["dummy_addon_on_teardown"], true)
+local _, mode2 = _nexus_addons_p_resolve_init_func("dummy_addon")
+-- マップ移動のたびに畳み直すと、OFF で固定している人の移動ごとに購読表の全走査が走る
+check("2 度目は畳み直さない", mode2, "skip")
+g.settings.dummy_addon.use = 1
+local picked3, mode3 = _nexus_addons_p_resolve_init_func("dummy_addon")
+check("ON に戻せば on_init", mode3, "init")
+check("選ばれたのは on_init", picked3 == _G["dummy_addon_on_init"], true)
+check("畳み済みの印が落ちる", g.addon_torn_down["dummy_addon"], nil)
+g.settings.dummy_addon.use = 0
+local _, mode4 = _nexus_addons_p_resolve_init_func("dummy_addon")
+check("もう一度 OFF にすればまた畳む", mode4, "teardown")
+-- on_teardown を持たないアドオン(OFF でもフックを張る必要がある側)は従来どおり
+g.settings.legacy_addon = {use = 0}
+_G["legacy_addon_on_init"] = function() end
+local picked5, mode5 = _nexus_addons_p_resolve_init_func("legacy_addon")
+check("teardown が無ければ OFF でも on_init", mode5, "init")
+check("選ばれたのは on_init(legacy)", picked5 == _G["legacy_addon_on_init"], true)
+
+-- ===== 24. 古い個別版の検出が、自分自身を誤検出しない =====
+-- instant_cc は他アドオンとの連携用に _G["INSTANTCC_ON_INIT"] を自分で公開する。
+-- 素で見ると自分を古い個別版と誤検出して、個別版を入れていないのに OFF にされる
+-- (実機で発生。初回ロードでは未公開なので通り、キャラ切替の 2 回目で踏む)。
+print("[24] 古い個別版の検出が自分自身を誤検出しない")
+_G["FOO_ON_INIT"] = nil
+check("グローバルが無ければ検出しない", _nexus_addons_p_origin_addon_present("FOO_ON_INIT"), false)
+_G["FOO_ON_INIT"] = function() end
+check("グローバルが在れば検出する", _nexus_addons_p_origin_addon_present("FOO_ON_INIT"), true)
+check("名前が空なら検出しない", _nexus_addons_p_origin_addon_present(""), false)
+check("名前が nil でも落ちない", _nexus_addons_p_origin_addon_present(nil), false)
+_G["INSTANTCC_ON_INIT"] = function() end
+_G["instant_cc_on_init"] = nil
+check("INSTANTCC: 自分が居なければ個別版とみなす", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), true)
+_G["instant_cc_on_init"] = function() end
+check("INSTANTCC: 自分が居れば誤検出しない", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), false)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

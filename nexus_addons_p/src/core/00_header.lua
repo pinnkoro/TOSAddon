@@ -232,9 +232,19 @@ end
 -- 戻り値: nil=何もしなかった / "copied" / "partial" / "failed"
 -- 結果は**呼び出し側が戻り値を捨てても伝わるよう、この中でチャットへも出す**。
 -- display_name は案内に出す表示名(省略時は individual_lower)。
+-- 「引き継ぎ元が見つからない」を報告済みかどうか。個別版を使っていない人では
+-- 見つからないのが普通なので、アドオンごとに 1 回だけ出す(この関数はマップ移動の
+-- たびに呼ばれる)。
+g.migrate_probe_logged = g.migrate_probe_logged or {}
+
+-- **"<名前>_p" のフォルダを引き継ぎ元にしてはいけない。**
+-- 例えば ../addons/mini_addons_p/ は個別版のものではなく、**まとめ版自身が作る**
+-- フォルダ(同梱 mini_addons の addon_name_lower が "MINI_ADDONS_P" で、
+-- create_folder と log.dat がここを使う)。個別版は "mini_addons" のまま。
+-- ここを引き継ぎ元に含めると、自分が置いた古いファイルを個別版の設定と誤認して
+-- 取り込むことになる。探すのは個別版のフォルダ名だけにすること。
 function g.migrate_individual_addon_settings(individual_lower, files, display_name)
     display_name = display_name or individual_lower
-    local src_dir = string.format("../addons/%s", individual_lower)
     local dst_dir = string.format("../addons/%s/%s", addon_name_lower, g.active_id)
     local dst_main = string.format("%s/%s", dst_dir, files[1].dst)
     local dst_file = io.open(dst_main, "r")
@@ -242,8 +252,18 @@ function g.migrate_individual_addon_settings(individual_lower, files, display_na
         dst_file:close()
         return nil
     end
-    local src_file = io.open(string.format("%s/%s", src_dir, files[1].src), "r")
+    -- **見つからなかったことを黙って返さないこと。** 引き継ぎ元のフォルダ名が
+    -- 想定と違うと、ここで何も言わずに抜けて既定値で始まる。利用者から見ると
+    -- 「設定が引き継がれない」だけで、原因を追う手掛かりが一切残らない
+    -- (実際に mini_addons のフォルダ名違いで発生した)。探した先まで残す。
+    local src_dir = string.format("../addons/%s", individual_lower)
+    local src_main = string.format("%s/%s", src_dir, files[1].src)
+    local src_file = io.open(src_main, "r")
     if not src_file then
+        if not g.migrate_probe_logged[individual_lower] and
+            g.vlog("migrate: %s の個別版設定が見つからないので引き継がない (%s)", individual_lower, src_main) then
+            g.migrate_probe_logged[individual_lower] = true
+        end
         return nil
     end
     src_file:close()
@@ -282,7 +302,7 @@ function g.migrate_individual_addon_settings(individual_lower, files, display_na
         return "partial"
     end
     main_ok:close()
-    g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", individual_lower, addon_name_lower, copied, found)
+    g.vlog("migrate: %s -> %s/ (copied, %d/%d files)", src_dir, addon_name_lower, copied, found)
     g.queue_message(g.lang == "Japanese" and
         string.format("{ol}{#00BFFF}[Nexus Addons P] %s: 個別版の設定を引き継ぎました", display_name) or
         string.format("{ol}{#00BFFF}[Nexus Addons P] %s: Settings were carried over from the standalone version",
@@ -902,6 +922,114 @@ function g.get_map_type()
     -- ここを通るのは「マップが変わった」ときだけなので、移動のたびに 1 行出る。
     g.vlog("MapType: %s = %s", tostring(map_name), tostring(map_type))
     return map_type
+end
+
+-- 何度も直値で出てくるマップ ID。同じ ID が 4 アドオン 6 箇所に散っていて、
+-- 説明のコメント(-- 11244 聖域3F ...)まで丸ごとコピーされていた。名前を付けて 1 箇所に集める。
+g.MAP_SANCTUARY_3F = 11244 -- 未知の聖域3F
+g.MAP_SPLIT = 11227 -- 分裂
+g.MAP_VELNIKE = 8022 -- ヴェルニケ
+
+-- 現在のマップの Keyword に、指定のキーワードが含まれるか。
+--   true  … 含まれる
+--   false … 含まれない
+--   nil   … Map クラスを引けなかった(= 判定できなかった)
+-- **false と nil を混ぜないこと。** 「該当しない」と「引けなかった」を同じ false で
+-- 返すと、呼び出し側は判定できなかったことに気付けず、ログにも差が出ないので
+-- 「なぜ動かないのか」を実機ログから追えなくなる(g.get_map_type と同じ理由)。
+--
+-- Keyword は ";" 区切りの並び。素の string.find だと "WeeklyBossMapEntrance" のような
+-- 別キーワードにも部分一致してしまうので、前後を ";" で挟んでトークン単位で当てる。
+-- GetClass は IES 引きで重いのでマップ名でメモ化する。失敗はキャッシュしない
+-- = 次回引き直す(g.get_map_type と同じ理由)。
+function g.map_has_keyword(keyword)
+    local map_name = session.GetMapName()
+    if g.map_keyword_cache_name ~= map_name then
+        local map_cls = GetClass("Map", map_name)
+        local kw = map_cls and TryGetProp(map_cls, "Keyword", "None")
+        if type(kw) ~= "string" then
+            if g.map_keyword_failed_name ~= map_name and
+                g.vlog("Map Keyword 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
+                g.map_keyword_failed_name = map_name
+            end
+            return nil
+        end
+        g.map_keyword_failed_name = nil
+        g.map_keyword_cache_name = map_name
+        g.map_keyword_cache = ";" .. kw .. ";"
+        g.vlog("Map Keyword: %s = %s", tostring(map_name), kw)
+    end
+    return string.find(g.map_keyword_cache, ";" .. keyword .. ";", 1, true) ~= nil
+end
+
+-- 共有フレーム(_nexus_addons_p)に載せたタイマーを止める。
+--
+-- 一度 Start したタイマーは、明示的に Stop しない限りそのマップに居る間ずっと
+-- 回り続ける。止め忘れは実際に何度も出ており
+-- (dungeon_rp_charger / boss_direction / party_marker)、各アドオンが
+-- 「GetFrame → GET_CHILD → AUTO_CAST → Stop」を手で書くと nil ガードや AUTO_CAST の
+-- 抜けが毎回入り込む。止める経路は必ずここを通すこと。
+--
+-- 止める判定は g 側のフラグに頼らない。フラグが落ちていてもタイマーは生きている
+-- ことがある(タイマーはフレームに載っているので g より寿命が長い)ため、
+-- 見つけたら必ず Stop する。
+--
+-- 戻り値は 3 通り。**"止めた/止めていない" の 2 値にしないこと。**
+--   true      … 見つけて止めた
+--   false     … 共有フレームは在るが、そのタイマーは載っていなかった
+--   nil       … 共有フレームそのものが無い
+-- false と nil を混ぜると「タイマーが元から無い」のか「フレームごと作り直された」のかが
+-- 実機ログから切り分けられない。**この 2 つは意味がまるで違う**。
+--
+-- ===== 実機で確認した事実(2026-07-29) — 同じ調査を繰り返さないこと =====
+-- **共有フレームの子タイマーはマップ移動をまたがない。**
+--   * フィールドで boss_direction_timer を Start した 8〜11 秒後に街へ移動すると、
+--     街の on_init での g.stop_timer が **false**(= フレームは在るがタイマーは無い)を返す。
+--     これが 3 回のマップ移動で毎回再現した。
+--   * 一方、同じマップ内では確実に止まる: quickslot_operate のマップ監視は
+--     打ち切りログが**マップごとに 1 行**しか出ない。止まっていなければ 3 秒ごとに
+--     出続けるので、GET_CHILD + Stop 自体は効いている。
+-- つまり「一度 Start すると**クライアントを落とすまで**回り続ける」は誤り。
+-- 正しくは「**そのマップに居る間は**回り続ける」。マップを離れれば道連れに消える。
+-- したがって各アドオンの Stop が効くのは、
+--   * 同じマップに居るまま設定を OFF にした / 条件が変わった …… **意味がある**
+--   * マップを移動した …………………………………………………… 念のための保険
+-- という位置づけになる。前者は実在するので Stop は残すこと。
+function g.stop_timer(timer_name)
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if not _nexus_addons_p then
+        return nil
+    end
+    local timer = GET_CHILD(_nexus_addons_p, timer_name)
+    if not timer then
+        return false
+    end
+    AUTO_CAST(timer)
+    timer:Stop()
+    return true
+end
+
+-- 同じエラーを何度も出さないログ。周期タイマーの中で落ちると、そのままでは
+-- 同じ行が毎秒何本も流れて肝心の行が埋もれる(CLAUDE.md「出しすぎない」)。
+--   key … アドオンごとの識別子。この単位で「直前と同じか」を憶える
+--   msg … 出す本文
+-- vlog は既定 OFF なので利用者の手元には何も残らない。debug_log.txt にも出す。
+-- 直前と違うメッセージなら出し直すので、原因が変わったことには気付ける。
+-- 成功したら g.clear_error_once(key) を呼んで印を落とすこと(次の失敗をまた出せる)。
+g.error_logged = g.error_logged or {}
+
+function g.log_error_once(key, msg)
+    if g.error_logged[key] == msg then
+        return false
+    end
+    g.error_logged[key] = msg
+    g.vlog("%s", msg)
+    g.log_to_file(msg)
+    return true
+end
+
+function g.clear_error_once(key)
+    g.error_logged[key] = nil
 end
 
 -- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。

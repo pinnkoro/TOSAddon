@@ -13,6 +13,27 @@ local function characters_item_serch_enabled()
     return setting ~= nil and setting.use == 1
 end
 
+-- sysmenu/inven ボタンのツールチップ。右クリックの案内を足すかどうかだけが違う。
+-- 言語ごとに同じ式を書き分けると、片方だけ直す事故が起きる。
+--
+-- 「(F2)」はクライアント既定の文字列をこちらで組み直したもの。ゲーム側の値を
+-- 読み出す手段が無いため復元は近似で、キー割り当てを変えている人には合わない。
+-- **だからこそ、自分が書き換えたときにしか書き戻さないこと**(下の button_hooked)。
+local function characters_item_serch_inven_tooltip(lang, enabled)
+    local base = "{@st59}Inventory (F2)"
+    if lang == "Japanese" then
+        base = "{@st59}インベントリ (F2)"
+    elseif lang == "kr" then
+        base = "{@st59}인벤토리 (F2)"
+    end
+    if not enabled then
+        return base
+    end
+    return base ..
+               (lang == "Japanese" and "{nl}右クリック: Characters Item Serch" or
+                   "{nl}Right click: Characters Item Serch")
+end
+
 -- 実体(IES)を引けなかったアイテムを、クラス定義の名前だけで記録するための代替。
 --
 -- 倉庫には iesid が 0 で返るアイテムが混じることがあり、それは GetObjectByGuid では
@@ -101,22 +122,52 @@ function characters_item_serch_on_init()
     g.setup_hook_and_event(g.addon, "INVENTORY_CLOSE", "Characters_item_serch_INVENTORY_CLOSE", true)
     g.setup_hook_and_event(g.addon, "ACCOUNTWAREHOUSE_CLOSE", "Characters_item_serch_ACCOUNTWAREHOUSE_CLOSE", true)
     g.setup_hook_and_event(g.addon, "WAREHOUSE_CLOSE", "Characters_item_serch_WAREHOUSE_CLOSE", true)
+    -- 保険。OFF のときは core が on_init ではなく characters_item_serch_on_teardown を呼ぶ。
+    if not characters_item_serch_enabled() then
+        characters_item_serch_on_teardown()
+        return
+    end
+    -- インベントリボタンの右クリックを取る。以前は OFF でも取り上げたうえ
+    -- 「右クリック: Characters Item Serch」と案内していたが、toggle_frame が use==0 で
+    -- 即 return するので押しても無反応だった。
     local sysmenu = ui.GetFrame("sysmenu")
     local inven = GET_CHILD(sysmenu, "inven")
     AUTO_CAST(inven)
     inven:SetEventScript(ui.RBUTTONUP, "Characters_item_serch_toggle_frame")
-    local function get_localized_tooltip(lang)
-        if lang == "Japanese" then
-            return "{@st59}インベントリ (F2){nl}右クリック: Characters Item Serch"
-        elseif lang == "kr" then
-            return "{@st59}인벤토리 (F2){nl}Right click: Characters Item Serch"
-        else
-            return "{@st59}Inventory (F2){nl}Right click: Characters Item Serch"
-        end
-    end
-    local tooltip = get_localized_tooltip(g.lang)
-    inven:SetTextTooltip(tooltip)
+    inven:SetTextTooltip(characters_item_serch_inven_tooltip(g.lang, true))
+    -- 自分が書き換えた印。戻すのはこれが立っているときだけ(下記 on_teardown)。
+    g.characters_item_serch.button_hooked = true
     Characters_item_serch_char_data()
+end
+
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。
+--
+-- **書き戻すのは、自分が書き換えたときだけ。** sysmenu/inven はゲーム側のボタンで、
+-- 他アドオンが同じ右クリックを使うこともある。無条件に "None" を書くと、
+-- こちらが OFF なのに相手のハンドラをマップ移動のたびに潰してしまい、
+-- 「相手のアドオンだけ突然効かなくなった」という一番分かりにくい形になる。
+function characters_item_serch_on_teardown()
+    -- 設定と .dat の用意は OFF でも通しておく(以前は on_init が OFF でも呼ばれていたので
+    -- ここまでは走っていた。旧版からの .dat 引き継ぎもこの中で行う)。
+    if not g.characters_item_serch_settings then
+        Characters_item_serch_load_settings()
+    end
+    if g.characters_item_serch.button_hooked then
+        local sysmenu = ui.GetFrame("sysmenu")
+        local inven = sysmenu and GET_CHILD(sysmenu, "inven")
+        if inven then
+            AUTO_CAST(inven)
+            inven:SetEventScript(ui.RBUTTONUP, "None")
+            inven:SetTextTooltip(characters_item_serch_inven_tooltip(g.lang, false))
+        end
+        g.characters_item_serch.button_hooked = nil
+    end
+    -- 開いていた検索ウィンドウも畳む(OFF にした瞬間に閉じられなくなるため)
+    local characters_item_serch = ui.GetFrame(addon_name_lower .. "characters_item_serch")
+    if characters_item_serch then
+        ui.DestroyFrame(characters_item_serch:GetName())
+    end
 end
 
 function Characters_item_serch_toggle_frame()

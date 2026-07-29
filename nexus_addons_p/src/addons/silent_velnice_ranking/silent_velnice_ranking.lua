@@ -8,7 +8,7 @@ function silent_velnice_ranking_on_init()
     if g.settings.silent_velnice_ranking.use == 0 then
         return
     end
-    if g.map_id == 8022 then
+    if g.map_id == g.MAP_VELNIKE then
         g.register_msg("DO_SOLODUNGEON_SCOREBOARD_OPEN", "Silent_velnice_ranking_SOLODUNGEON_SCOREBOARD_OPEN")
     end
 end

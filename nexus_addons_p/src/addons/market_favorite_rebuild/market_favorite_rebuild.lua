@@ -161,8 +161,64 @@ function g.load_json(path)
     return core_g.load_json(path)
 end
 
+-- items のうち中身のある(clsid を持つ)スロット数。
+local function market_favorite_count_items(settings)
+    local n = 0
+    if type(settings) == "table" and type(settings.items) == "table" then
+        for _, item in pairs(settings.items) do
+            if type(item) == "table" and item.clsid then
+                n = n + 1
+            end
+        end
+    end
+    return n
+end
+
+-- 設定ファイル(または .tmp)が実在するか。**「読み込みに失敗した」と
+-- 「まだ持っていない」を分けるため**に見る。両方とも load_json は nil を返すが、
+-- 前者は上書きすると既存のお気に入りを失い、後者は失うものが無い。
+local function market_favorite_settings_file_exists()
+    for _, path in ipairs({g.settings_path, g.settings_path .. ".tmp"}) do
+        local file = io.open(path, "r")
+        if file then
+            file:close()
+            return true
+        end
+    end
+    return false
+end
+
+-- **中身のあるお気に入りを、まとめて空になった items で上書きしない。**
+--
+-- Market_favorite_rebuild_TOGGLE_FRAME はフレームを開くたびに 56 スロットを舐めて、
+-- clsid の無いスロットへ {} を代入する。つまり**設定の読み込みに失敗した直後
+-- (items が空の既定値)にフレームが開かれると、メモリ上の items が 56 個すべて {} になる**。
+-- その状態で保存が走ると、ファイルの中身が丸ごと [] に化ける。保存の呼び出し元は
+-- 16 箇所あり、アイテムを置く・消す・並べ替える・検索ボタンを触る、のどれでも通る。
+-- **元に戻す手段が無い**(登録し直すしかない)ので、保存の直前で止める。
+--
+-- 判定に件数だけを使わないこと。**読み込みに失敗したときは g.items_count_saved も
+-- 0 になる**(LOAD_SETTINGS は既定値の空 items を数える)ので、「直前が 2 件以上」の
+-- 条件は肝心のその場面で偽になり、歯止めがまったく効かない。だから
+-- 「ファイルは在るのに table にできなかった」= g.settings_load_failed を別に立てる。
+--
+-- 手で 1 個ずつ消していく操作は妨げない。31→30→…→1→0 と減るので、直前が 1 件なら
+-- 通す。弾くのは「読み込みに失敗している」か「2 件以上あったものが一度に 0 になった」
+-- 保存だけ。
 function Market_favorite_rebuild_SAVE_SETTINGS()
+    local count = market_favorite_count_items(g.settings)
+    local last = g.items_count_saved
+    if count == 0 and (g.settings_load_failed or (last and last >= 2)) then
+        core_g.log_error_once("market_favorite_items", string.format(
+            "MarketFavorite: お気に入りが空になったため保存を見送った (直前 %d 件 / 読み込み失敗 %s)",
+            last or 0, tostring(g.settings_load_failed == true)))
+        return
+    end
     g.save_settings()
+    g.items_count_saved = count
+    -- 書けたのだから、以降は「今のファイル = 今のメモリ」。印を落として次の保存を通す。
+    g.settings_load_failed = false
+    core_g.clear_error_once("market_favorite_items")
 end
 
 function Market_favorite_rebuild_LOAD_SETTINGS()
@@ -183,8 +239,18 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
         searchs = {}
     }
     if type(settings) ~= "table" then
+        -- **既定値で始めたことを残す。** ここを黙って通すと、読み込みに失敗しただけの
+        -- ときも「お気に入りが空のまま」としか見えず、次の保存で空が確定してしまう
+        -- (保存側の歯止めは Market_favorite_rebuild_SAVE_SETTINGS を参照)。
+        --
+        -- ファイルが在るのに読めなかったときだけ印を立てる。ファイルが無いのは
+        -- 初回起動なので、ここで止めると新規の利用者が何も保存できなくなる。
+        g.settings_load_failed = market_favorite_settings_file_exists()
+        core_g.vlog("market_favorite_rebuild: 設定を読めなかったので既定値で始める (%s / ファイルあり %s)",
+            tostring(g.settings_path), tostring(g.settings_load_failed))
         settings = defaults
     else
+        g.settings_load_failed = false
         for key, value in pairs(defaults) do
             if settings[key] == nil then
                 settings[key] = value
@@ -200,6 +266,9 @@ function Market_favorite_rebuild_LOAD_SETTINGS()
         end
     end
     g.settings = settings
+    -- 保存側の歯止めの基準。読み込んだ時点の件数を憶えておく
+    -- (Market_favorite_rebuild_SAVE_SETTINGS のコメント参照)。
+    g.items_count_saved = market_favorite_count_items(g.settings)
     if not g.settings.sell_items then
         g.settings.sell_items = {}
     end

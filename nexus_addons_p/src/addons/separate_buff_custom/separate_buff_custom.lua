@@ -34,7 +34,11 @@ function separate_buff_custom_on_init()
     g.setup_hook_and_event(g.addon, "BUFF_SEPARATED_TIME_UPDATE", "Separate_buff_custom_BUFF_SEPARATED_TIME_UPDATE",
         false)
     g.separate_buff_custom_temp_buffs = {}
-    Separate_buff_custom_frame_move()
+    -- core/20_lifecycle.lua は同じ関数を use==1 のときだけ呼んでいる。ここだけ
+    -- 素通しだと、機能 OFF でもバフ枠の位置を動かしてしまう。判定を揃える。
+    if g.settings.separate_buff_custom.use == 1 then
+        Separate_buff_custom_frame_move()
+    end
 end
 
 function Separate_buff_custom_buff_separatedlist_save_pos(frame)
