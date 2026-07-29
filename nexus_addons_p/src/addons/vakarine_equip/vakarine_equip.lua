@@ -253,22 +253,39 @@ function Vakarine_equip_start_operation(is_manual)
     local jsr_on = g.vakarine_equip_settings.jsr == 1
     local is_valid_map = (map_type == "Instance" and g.map_id ~= g.MAP_SPLIT) or g.map_id == g.MAP_VELNIKE or
                              g.map_id == g.MAP_SANCTUARY_3F
-    -- Keyword を引くのは JSR が ON で、かつ他の条件で決まらなかったときだけ。
-    -- 既定は OFF で結果を捨てるのに、GetClass は IES 引きで重い(on_init はマップ移動の
-    -- たびに全アドオン分が 1 フレームで同期実行される)。
+    -- Keyword を引くのは JSR が ON のときだけ。既定は OFF で結果を使わないのに、
+    -- GetClass は IES 引きで重い(on_init はマップ移動のたびに全アドオン分が
+    -- 1 フレームで同期実行される)。ON の人でもマップごとに 1 回で済む(メモ化)。
+    --
+    -- **is_valid_map が既に true でも引くこと。** 「インスタンスなので他の条件で
+    -- 確定した」ときに引かずに済ませると、そのマップが週間ボスレイドだったのかが
+    -- ログから一切分からず、**JSR チェックが効いているのかを確かめられない**。
+    -- 実機でレイドに入ったとき、まさにここが測れなかった。
     local is_weekly_boss = nil
-    if jsr_on and not is_valid_map then
+    if jsr_on then
         is_weekly_boss = Vakarine_equip_is_weekly_boss_map()
         -- nil = Map クラスを引けず判定できなかった。false(該当しない)と混ぜると、
         -- 利用者が送ってくる verbose_log.txt では区別が付かず「JSR なのに動かない」の
         -- 原因が追えない。作動はさせない側に倒し、ログにだけ違いを残す。
-        is_valid_map = is_weekly_boss == true
+        if not is_valid_map then
+            is_valid_map = is_weekly_boss == true
+        end
+    end
+    -- **「引いていない」と「引けなかった」を同じ表示にしないこと。**
+    -- 一度これを混ぜて、Map クラスを引けている(type=Instance)のに
+    -- 「判定不可(Mapクラスを引けない)」と出す嘘のログになった。
+    local weekly_boss_text
+    if not jsr_on then
+        weekly_boss_text = "未判定(JSR OFF)"
+    elseif is_weekly_boss == nil then
+        weekly_boss_text = "判定不可(Mapクラスを引けない)"
+    else
+        weekly_boss_text = tostring(is_weekly_boss)
     end
     local will_run = is_valid_map or is_manual
     g.vlog("VakarineEquip 起動判定: map_id=%s type=%s jsr=%s weekly_boss=%s manual=%s -> %s", tostring(g.map_id),
-        tostring(map_type), tostring(g.vakarine_equip_settings.jsr),
-        is_weekly_boss == nil and (jsr_on and "判定不可(Mapクラスを引けない)" or "未判定(JSR OFF か他条件で確定)") or
-            tostring(is_weekly_boss), tostring(is_manual), tostring(will_run))
+        tostring(map_type), tostring(g.vakarine_equip_settings.jsr), weekly_boss_text, tostring(is_manual),
+        tostring(will_run))
     if will_run then
         local char_settings = g.vakarine_equip_settings.chars[g.cid]
         if not Vakarine_equip_has_checked_spot(char_settings) then
