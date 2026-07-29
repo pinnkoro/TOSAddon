@@ -910,6 +910,114 @@ end
 -- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
 -- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
 -- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
+-- 何度も直値で出てくるマップ ID。同じ ID が 4 アドオン 6 箇所に散っていて、
+-- 説明のコメント(-- 11244 聖域3F ...)まで丸ごとコピーされていた。名前を付けて 1 箇所に集める。
+g.MAP_SANCTUARY_3F = 11244 -- 未知の聖域3F
+g.MAP_SPLIT = 11227 -- 分裂
+g.MAP_VELNIKE = 8022 -- ヴェルニケ
+
+-- 現在のマップの Keyword に、指定のキーワードが含まれるか。
+--   true  … 含まれる
+--   false … 含まれない
+--   nil   … Map クラスを引けなかった(= 判定できなかった)
+-- **false と nil を混ぜないこと。** 「該当しない」と「引けなかった」を同じ false で
+-- 返すと、呼び出し側は判定できなかったことに気付けず、ログにも差が出ないので
+-- 「なぜ動かないのか」を実機ログから追えなくなる(g.get_map_type と同じ理由)。
+--
+-- Keyword は ";" 区切りの並び。素の string.find だと "WeeklyBossMapEntrance" のような
+-- 別キーワードにも部分一致してしまうので、前後を ";" で挟んでトークン単位で当てる。
+-- GetClass は IES 引きで重いのでマップ名でメモ化する。失敗はキャッシュしない
+-- = 次回引き直す(g.get_map_type と同じ理由)。
+function g.map_has_keyword(keyword)
+    local map_name = session.GetMapName()
+    if g.map_keyword_cache_name ~= map_name then
+        local map_cls = GetClass("Map", map_name)
+        local kw = map_cls and TryGetProp(map_cls, "Keyword", "None")
+        if type(kw) ~= "string" then
+            if g.map_keyword_failed_name ~= map_name and
+                g.vlog("Map Keyword 取得失敗: %s (キャッシュせず次回引き直す)", tostring(map_name)) then
+                g.map_keyword_failed_name = map_name
+            end
+            return nil
+        end
+        g.map_keyword_failed_name = nil
+        g.map_keyword_cache_name = map_name
+        g.map_keyword_cache = ";" .. kw .. ";"
+        g.vlog("Map Keyword: %s = %s", tostring(map_name), kw)
+    end
+    return string.find(g.map_keyword_cache, ";" .. keyword .. ";", 1, true) ~= nil
+end
+
+-- 共有フレーム(_nexus_addons_p)に載せたタイマーを止める。
+--
+-- 一度 Start したタイマーは、明示的に Stop しない限りそのマップに居る間ずっと
+-- 回り続ける。止め忘れは実際に何度も出ており
+-- (dungeon_rp_charger / boss_direction / party_marker)、各アドオンが
+-- 「GetFrame → GET_CHILD → AUTO_CAST → Stop」を手で書くと nil ガードや AUTO_CAST の
+-- 抜けが毎回入り込む。止める経路は必ずここを通すこと。
+--
+-- 止める判定は g 側のフラグに頼らない。フラグが落ちていてもタイマーは生きている
+-- ことがある(タイマーはフレームに載っているので g より寿命が長い)ため、
+-- 見つけたら必ず Stop する。
+--
+-- 戻り値は 3 通り。**"止めた/止めていない" の 2 値にしないこと。**
+--   true      … 見つけて止めた
+--   false     … 共有フレームは在るが、そのタイマーは載っていなかった
+--   nil       … 共有フレームそのものが無い
+-- false と nil を混ぜると「タイマーが元から無い」のか「フレームごと作り直された」のかが
+-- 実機ログから切り分けられない。**この 2 つは意味がまるで違う**。
+--
+-- ===== 実機で確認した事実(2026-07-29) — 同じ調査を繰り返さないこと =====
+-- **共有フレームの子タイマーはマップ移動をまたがない。**
+--   * フィールドで boss_direction_timer を Start した 8〜11 秒後に街へ移動すると、
+--     街の on_init での g.stop_timer が **false**(= フレームは在るがタイマーは無い)を返す。
+--     これが 3 回のマップ移動で毎回再現した。
+--   * 一方、同じマップ内では確実に止まる: quickslot_operate のマップ監視は
+--     打ち切りログが**マップごとに 1 行**しか出ない。止まっていなければ 3 秒ごとに
+--     出続けるので、GET_CHILD + Stop 自体は効いている。
+-- つまり「一度 Start すると**クライアントを落とすまで**回り続ける」は誤り。
+-- 正しくは「**そのマップに居る間は**回り続ける」。マップを離れれば道連れに消える。
+-- したがって各アドオンの Stop が効くのは、
+--   * 同じマップに居るまま設定を OFF にした / 条件が変わった …… **意味がある**
+--   * マップを移動した …………………………………………………… 念のための保険
+-- という位置づけになる。前者は実在するので Stop は残すこと。
+function g.stop_timer(timer_name)
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if not _nexus_addons_p then
+        return nil
+    end
+    local timer = GET_CHILD(_nexus_addons_p, timer_name)
+    if not timer then
+        return false
+    end
+    AUTO_CAST(timer)
+    timer:Stop()
+    return true
+end
+
+-- 同じエラーを何度も出さないログ。周期タイマーの中で落ちると、そのままでは
+-- 同じ行が毎秒何本も流れて肝心の行が埋もれる(CLAUDE.md「出しすぎない」)。
+--   key … アドオンごとの識別子。この単位で「直前と同じか」を憶える
+--   msg … 出す本文
+-- vlog は既定 OFF なので利用者の手元には何も残らない。debug_log.txt にも出す。
+-- 直前と違うメッセージなら出し直すので、原因が変わったことには気付ける。
+-- 成功したら g.clear_error_once(key) を呼んで印を落とすこと(次の失敗をまた出せる)。
+g.error_logged = g.error_logged or {}
+
+function g.log_error_once(key, msg)
+    if g.error_logged[key] == msg then
+        return false
+    end
+    g.error_logged[key] = msg
+    g.vlog("%s", msg)
+    g.log_to_file(msg)
+    return true
+end
+
+function g.clear_error_once(key)
+    g.error_logged[key] = nil
+end
+
 function g.create_persistent_frame(frame_name)
     return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end

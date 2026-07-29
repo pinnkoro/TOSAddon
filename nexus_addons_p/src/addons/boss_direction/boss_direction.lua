@@ -41,23 +41,36 @@ function boss_direction_on_init()
         return
     end
     Boss_direction_cleanup()
-    -- 機能 OFF なら監視を張らない。以前はここで use を見ておらず、OFF でも 0.5 秒
-    -- タイマーを張って初回 tick で自分を止めていた。止めるだけで矢印は消さないので、
-    -- 矢印が出ている状態で OFF にすると画面に残り続けた。
-    if g.settings.boss_direction.use == 0 then
-        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-        if _nexus_addons_p then
-            local boss_direction_timer = GET_CHILD(_nexus_addons_p, "boss_direction_timer")
-            if boss_direction_timer then
-                AUTO_CAST(boss_direction_timer)
-                boss_direction_timer:Stop()
-            end
-        end
+    -- 街では監視しない。矢印を消すだけでなく、タイマーを止めるところまでやる。
+    -- (実測では街に着いた時点でタイマーは道連れに消えている = stopped=false。
+    --  マップ移動でまたがないことの確認は g.stop_timer のコメント。ここは保険として残す。
+    --  同じマップに居るまま OFF にした場合は on_teardown 側が効く)
+    if g.get_map_type() == "City" then
+        -- **止められたかどうかまで出すこと。** 「止めたときだけ出す」にすると、
+        -- 行が出ない理由が「タイマーが無かった」のか「共有フレームごと作り直された」のか
+        -- 分からない(実機ログで実際にこの区別が必要になった)。
+        -- stopped=true 止めた / false タイマーが無い / nil 共有フレームが無い
+        g.vlog("boss_direction: 街なので監視を止める (map=%s stopped=%s)", tostring(g.map_id),
+            tostring(g.stop_timer("boss_direction_timer")))
         return
     end
-    if g.get_map_type() ~= "City" then
-        Boss_direction_handle_check_reserve()
+    g.vlog("boss_direction: 監視を開始する (map=%s type=%s)", tostring(g.map_id), tostring(g.get_map_type()))
+    Boss_direction_handle_check_reserve()
+end
+
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。以前は on_init で use を見ておらず、OFF でも 0.5 秒タイマーを張って
+-- 初回 tick で自分を止めていた。止めるだけで矢印は消さないので、矢印が出ている状態で
+-- OFF にすると画面に残り続けた。
+-- **順序が要る**: 先に止めると tick が来なくなり、出ている矢印を消せなくなる。
+function boss_direction_on_teardown()
+    -- 設定は OFF でも読んでおく。以前は on_init が OFF でも呼ばれていたのでここで
+    -- 読まれており、設定画面(レイヤー設定)はそれに依存している。
+    if not g.boss_direction_settings then
+        Boss_direction_load_settings()
     end
+    Boss_direction_cleanup()
+    g.stop_timer("boss_direction_timer")
 end
 
 function Boss_direction_settings_frame_init()
@@ -134,11 +147,11 @@ function Boss_direction_handle_check_reserve()
 end
 
 function Boss_direction_handle_check(_nexus_addons_p, Boss_direction_timer)
+    -- 保険。通常は on_teardown が止めるが、そこを通らずに OFF になった場合でも
+    -- 回り続けないようにする。止める前に出ている矢印を消すこと(消さないと tick が
+    -- 来なくなり、矢印が画面に残ったままになる)。
     if g.settings.boss_direction.use == 0 then
-        -- 止める前に出ている矢印を消す。ここで消さないと tick が来なくなり、
-        -- 矢印が画面に残ったままになる。
-        Boss_direction_cleanup()
-        Boss_direction_timer:Stop()
+        boss_direction_on_teardown()
         return
     end
     local visible_bosses = {}

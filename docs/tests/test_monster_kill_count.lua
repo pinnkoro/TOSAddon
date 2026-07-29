@@ -62,6 +62,10 @@ ui = {
     GetFrame = function() return nil end,
     DestroyFrame = function() end,
 }
+-- 共有フレームの子(1 秒タイマー)は張らないので、常に「無い」を返す。
+-- g.stop_timer はこれで何もせず false を返す。
+function GET_CHILD() return nil end
+function AUTO_CAST(x) return x end
 imcTime = {GetAppTimeMS = function() return 0 end}
 session = {
     GetMapName = function() return "map_a" end,
@@ -327,7 +331,10 @@ check("配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["E
 -- マップに入るたび記録ファイルと設定ファイルを書き、購読と 1 秒タイマーまで張っていた。
 print("[10] 機能 OFF なら数えるマップでも畳む")
 g.settings.monster_kill_count.use = 0
-g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {1001}}
+-- **map_ids は空にすること。** ここに g.map_id が既に入っていると、ON でも
+-- 「登録済み」で設定ファイルを書かない経路に落ちる = 下の「書かない」検査が
+-- OFF でも ON でも通ってしまい、teardown を丸ごと消しても気付けない。
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {}}
 g.map_id = 1001
 g.map_name = "map_a"
 g.mkc_map_id = 1001
@@ -338,7 +345,11 @@ g.register_msg("EXP_UPDATE", "Monster_kill_count_EXP_UPDATE")
 files, saved = {}, {}
 files[map_path(1001)] = {map_name = "map_a", kill_count = 3, stay_time = 1000, get_items = {}}
 map_quest_level = 200 -- レベル差では弾かれない = 本来なら数えるマップ
-check("落ちない", (pcall(monster_kill_count_on_init)), true)
+-- core は OFF のとき on_init ではなく on_teardown を呼ぶ。その振り分けごと検査する。
+g.addon_torn_down = {}
+local picked, mode = _nexus_addons_p_resolve_init_func("monster_kill_count")
+check("OFF なら on_teardown が選ばれる", mode, "teardown")
+check("落ちない", (pcall(picked)), true)
 check("集計先を落とす", g.mkc_map_data, nil)
 check("集計マップも落とす", g.mkc_map_id, nil)
 check("配信先も外す", (g.msg_handlers["EXP_UPDATE"] and #g.msg_handlers["EXP_UPDATE"]) or 0, 0)
@@ -350,7 +361,43 @@ for _, s in ipairs(saved) do
     end
 end
 check("OFF では設定ファイルを書かない", wrote_settings, false)
+-- 対になる確認: ON なら同じ状態で設定ファイルを書く(上の検査が効いていることの裏取り)
+-- ON の経路は数える判定まで進むので、そこで触るゲーム API を足す。
+-- (この先の Monster_kill_count_frame_init は落ちるが、設定の保存はその手前で済む)
+session.party = {
+    GetPartyMemberList = function()
+        return {Count = function() return 0 end}
+    end,
+}
 g.settings.monster_kill_count.use = 1
+g.mkc_settings = {frame_x = 1340, frame_y = 20, map_ids = {}}
+g.mkc_map_id = nil
+g.mkc_map_data = nil
+files, saved = {}, {}
+pcall(monster_kill_count_on_init)
+local wrote_settings_on = false
+for _, s in ipairs(saved) do
+    if s.path == g.mkc_path then
+        wrote_settings_on = true
+    end
+end
+check("ON なら設定ファイルを書く", wrote_settings_on, true)
+
+-- ===== 11. 畳むときに書き戻すのは「生きている集計」 =====
+-- 自動保存は 60 tick ごと。ディスクを読み直して書き戻すと、直前の自動保存から後の
+-- 討伐・拾得・滞在時間が丸ごと消える。OFF にした瞬間・マップ移動のたびに起きるので、
+-- 実機では「気付いたときには手遅れ」になる。
+print("[11] 畳むときは生きている集計を書き戻す")
+g.settings.monster_kill_count.use = 1
+g.mkc_map_id = 1001
+g.mkc_count = 43
+files, saved = {}, {}
+files[map_path(1001)] = {map_name = "map_a", kill_count = 3, stay_time = 1000, get_items = {}} -- 自動保存時点
+g.mkc_map_data = {map_name = "map_a", kill_count = 43, stay_time = 51000, get_items = {["1"] = 5}}
+Monster_kill_count_teardown()
+check("討伐数はディスクの古い値ではない", files[map_path(1001)].kill_count, 43)
+check("滞在時間も生きている値", files[map_path(1001)].stay_time, 51000)
+check("拾得も生きている値", files[map_path(1001)].get_items["1"], 5)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

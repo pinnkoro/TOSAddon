@@ -254,7 +254,8 @@ function _nexus_addons_p_CHAT_SYSTEM(msg, color)
 end
 
 -- 成功した init の詳細ログ。ON のアドオンだけに絞る。
--- on_init は ON/OFF によらず全アドオン分呼ばれる(OFF 側はフレームの後始末に使う)ため、
+-- on_init は ON/OFF によらず全アドオン分呼ばれる(<key>_on_teardown を定義していない
+-- アドオンは、OFF 側でもフレームの後始末に on_init を使う)ため、
 -- 絞らないとマップ移動のたびに 48 行流れて、肝心の行が埋もれる。
 -- 失敗(FAILED)は OFF でも知りたいので、そちらは絞らずそのまま出す。
 function _nexus_addons_p_vlog_init(name, duration)
@@ -274,8 +275,9 @@ end
 -- この 2 つは配布 .lua のうち _nexus_addons_p_conclude.lua 側にだけ入っているため、
 -- 「片方のファイルが読み込まれていない」を疑う手掛かりがここしか無かった。
 --
--- OFF のときは各アドオンの on_init 自身が「use=0 のため初期化しない」を出すので、
--- この行が出るのは**定義が届いていない**ときだけ。両者を混同しないこと。
+-- OFF のときは <key>_on_teardown 側の「teardown:」行、または各アドオンの on_init 自身が
+-- 出す「use=0 のため初期化しない」が出るので、この行が出るのは**定義が届いていない**
+-- ときだけ。両者を混同しないこと。
 -- 初期化はマップ移動のたびに走るため、報告はアドオンごとに 1 回だけにする。
 -- **印を立てるのは実際に出力できたときだけ**(g.vlog の戻り値で判定する)。既定は
 -- OFF なので、先に印を立てるとログインの初回パスで黙って消費され、後からログを
@@ -289,9 +291,47 @@ function _nexus_addons_p_vlog_missing_init(name)
     end
 end
 
+-- 機能 OFF のアドオンの後始末を、ここ 1 箇所で振り分ける。
+--
+-- on_init は ON/OFF によらず呼ばれる契約なので、「OFF なら畳む」を各アドオンが
+-- 自前で書く必要があった。**この規約はコメントにしか無く、実際に守り漏れていた**
+-- (登録済み 51 本のうち 18 本が on_init で use を見ておらず、party_marker と
+--  boss_direction は OFF のままタイマーを回し続けていた)。
+--
+-- そこで <key>_on_teardown を定義したアドオンだけ、use == 0 のとき on_init の
+-- 代わりにそちらを呼ぶ。**opt-in にしてあるのが要点**で、定義していないアドオンは
+-- 従来どおり on_init が呼ばれる。OFF でもフック張りなどで on_init を通す必要がある
+-- アドオン(market_voucher / characters_item_serch)を壊さないため。
+--
+-- 畳むのは OFF になった 1 回だけ。on_init はマップ移動のたびに全アドオン分走るので、
+-- 毎回呼ぶと OFF に固定している人のマップ移動で購読表の全走査が延々と繰り返される。
+-- 一度畳めば on_init を呼ばない = 何も作られないので、もう一度畳む必要は無い。
+g.addon_torn_down = g.addon_torn_down or {}
+
+-- 戻り値: 呼ぶべき関数, 種別("init" / "teardown" / "skip")
+function _nexus_addons_p_resolve_init_func(key)
+    local setting = g.settings and g.settings[key]
+    local teardown_func = _G[key .. "_on_teardown"]
+    if setting and setting.use == 0 and type(teardown_func) == "function" then
+        if g.addon_torn_down[key] then
+            return nil, "skip"
+        end
+        g.addon_torn_down[key] = true
+        return teardown_func, "teardown"
+    end
+    -- ON に戻った(あるいは teardown を持たない)ときは印を落とす。落とさないと
+    -- 次に OFF にしたとき「畳み済み」と誤判定して後始末が走らない。
+    g.addon_torn_down[key] = nil
+    return _G[key .. "_on_init"], "init"
+end
+
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
     g.error_count = 0
-    local function safe_call(func, name)
+    local function safe_call(name)
+        local func, mode = _nexus_addons_p_resolve_init_func(name)
+        if mode == "skip" then
+            return
+        end
         if type(func) == "function" then
             local func_start = imcTime.GetAppTimeMS()
             local success, err = pcall(func)
@@ -299,10 +339,15 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
             local duration = func_end - func_start
             if not success then
                 g.error_count = g.error_count + 1
-                local err_msg = string.format("Error during on_init of '%s': %s", name, tostring(err))
+                local label = mode == "teardown" and "on_teardown" or "on_init"
+                local err_msg = string.format("Error during %s of '%s': %s", label, name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
-                g.vlog("{#FF6347}init: %s FAILED{/} %s", name, tostring(err))
+                g.vlog("{#FF6347}%s: %s FAILED{/} %s", mode, name, tostring(err))
+            elseif mode == "teardown" then
+                -- OFF になった 1 回だけなので流れない。「OFF にしたのにまだ動く」の
+                -- 報告で、畳めたのかどうかがここで分かる。
+                g.vlog("teardown: %s (機能 OFF のため畳んだ)", name)
             else
                 _nexus_addons_p_vlog_init(name, duration)
             end
@@ -348,13 +393,12 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
     else
         for _, entry in ipairs(g._nexus_addons_p) do
             local key = entry.key
-            local on_init_func = _G[key .. "_on_init"]
             if is_toggle then
                 if key == toggled_addon_name then
-                    safe_call(on_init_func, key)
+                    safe_call(key)
                 end
             else
-                safe_call(on_init_func, key)
+                safe_call(key)
             end
         end
     end
@@ -396,23 +440,31 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
             return 0
         end
         local func_name = entry.key
-        local on_init_func = _G[func_name .. "_on_init"]
-        if type(on_init_func) == "function" then
+        -- 初回ロードもマップ移動時と同じ振り分けを通す(_nexus_addons_p_resolve_init_func)。
+        -- ここを素の on_init のままにすると、OFF で起動した人だけ後始末が走らない。
+        local init_func, mode = _nexus_addons_p_resolve_init_func(func_name)
+        if mode == "skip" then
+            init_func = nil
+        end
+        if type(init_func) == "function" then
             local func_start = imcTime.GetAppTimeMS()
-            local success, err = pcall(on_init_func)
+            local success, err = pcall(init_func)
             local func_end = imcTime.GetAppTimeMS()
             local duration = func_end - func_start
             ts(string.format("init ADDON: %s (%d ms)", func_name, duration))
             if not success then
                 g.error_count = g.error_count + 1
-                local err_msg = string.format("Error during on_init of '%s': %s", func_name, tostring(err))
+                local label = mode == "teardown" and "on_teardown" or "on_init"
+                local err_msg = string.format("Error during %s of '%s': %s", label, func_name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
-                g.vlog("{#FF6347}init: %s FAILED{/} %s", func_name, tostring(err))
+                g.vlog("{#FF6347}%s: %s FAILED{/} %s", mode, func_name, tostring(err))
+            elseif mode == "teardown" then
+                g.vlog("teardown: %s (機能 OFF のため畳んだ)", func_name)
             else
                 _nexus_addons_p_vlog_init(func_name, duration)
             end
-        else
+        elseif mode ~= "skip" then
             _nexus_addons_p_vlog_missing_init(func_name)
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)

@@ -336,8 +336,11 @@ g._nexus_addons_p = {{
     data = {
         use = 0,
         name = "Quickslot Operate",
-        frame_use = false,
-        config_func = "",
+        -- 設定はクイックスロットバー上の QSO ボタンにも出しているが、あれは
+        -- quickslotnexpbar の子なのでジョイスティックモードでは押せない。
+        -- 一覧側からも開けるようにする(Quickslot_operate_config_open のコメント参照)。
+        frame_use = true,
+        config_func = "Quickslot_operate_config_open",
         old_init_func = "QUICKSLOT_OPERATE_ON_INIT"
     }
 }, {

@@ -33,7 +33,7 @@ function Monster_kill_count_load_settings()
         if map_cls then
             local map_level = map_cls.QuestLevel
             local my_level = info.GetLevel(session.GetMyHandle())
-            if math.abs(my_level - map_level) <= 50 or map_cls.ClassID == 11244 then
+            if math.abs(my_level - map_level) <= 50 or map_cls.ClassID == g.MAP_SANCTUARY_3F then
                 allowed_map_ids_by_level[tostring(map_cls.ClassID)] = true
             end
         end
@@ -120,10 +120,10 @@ function monster_kill_count_on_init()
     if _G[old_func] then
         return
     end
-    -- 機能 OFF なら、数えている途中でも畳んで抜ける。on_init は ON/OFF によらず
-    -- 呼ばれる契約(core/20_lifecycle.lua)なので、畳めるのはここだけ。
-    -- 以前は use を 1 秒タイマーの表示切替でしか見ておらず、OFF のままでも
-    -- マップに入るたび記録ファイルと設定ファイルを書き、購読とタイマーも張っていた。
+    -- 保険。OFF のときは core が on_init ではなく monster_kill_count_on_teardown を
+    -- 呼ぶので通常ここは通らない。以前は use を 1 秒タイマーの表示切替でしか見ておらず、
+    -- OFF のままでもマップに入るたび記録ファイルと設定ファイルを書き、購読とタイマーも
+    -- 張っていた。
     if g.settings.monster_kill_count.use == 0 then
         Monster_kill_count_teardown()
         return
@@ -150,7 +150,7 @@ function monster_kill_count_on_init()
         if map_cls then
             local map_level = map_cls.QuestLevel
             local my_level = info.GetLevel(session.GetMyHandle())
-            if my_level - map_level <= 50 or g.map_id == 11244 then
+            if my_level - map_level <= 50 or g.map_id == g.MAP_SANCTUARY_3F then
                 should_count = true
                 local colony_list, cnt = GetClassList("guild_colony")
                 for i = 0, cnt - 1 do
@@ -195,10 +195,11 @@ function monster_kill_count_on_init()
         g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
         g.mkc_last_tick_ms = g.mkc_start_time
     elseif g.mkc_map_id ~= g.map_id then
-        local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
-        local map_data = g.load_json(map_file_path)
-        if map_data then
-            g.save_json(map_file_path, map_data)
+        -- 直前のマップの記録を確定させる。**書き出すのは g.mkc_map_data(生きている
+        -- 集計)。** 以前はファイルを読み直して同じ内容を書き戻していたので、直前の
+        -- 自動保存から後の討伐・拾得・滞在時間がマップ移動のたびに捨てられていた。
+        if g.mkc_map_data then
+            g.save_json(Monster_kill_count_get_map_filepath(g.mkc_map_id), g.mkc_map_data)
         end
         g.mkc_count = 0
         g.mkc_start_time = imcTime.GetAppTimeMS() - 3000
@@ -245,29 +246,53 @@ function Monster_kill_count_teardown()
     g.unregister_msg_by_prefix("Monster_kill_count_EXP_UPDATE")
     g.unregister_msg_by_prefix("Monster_kill_count_ITEM_PICK")
     g.unregister_msg_by_prefix("Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT")
+    -- **1 秒タイマーの停止を状態フラグの中に入れないこと。** 以前は下の
+    -- `if g.mkc_map_id` の中に置いていたので、フラグだけ先に落ちているとタイマーが
+    -- 生き残り、毎秒 3 本の購読走査を空回しし続ける形になりえた。
+    --
+    -- また、この関数はその 1 秒タイマー自身の更新スクリプトからも呼ばれる。
+    -- RemoveChild は「実行中の自分を消す」ことになるので、先に Stop しておく
+    -- (削除が効くまでに次の tick が来ても、止まっていれば何も起きない)。
+    g.stop_timer("monster_kill_count_timer")
+    -- 共有フレームがまだ無い/破棄済みのことがある(早期の後始末やフレームリセット後)。
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if _nexus_addons_p then
+        _nexus_addons_p:RemoveChild("monster_kill_count_timer")
+    end
     if g.mkc_map_id then
-        local map_file_path = Monster_kill_count_get_map_filepath(g.mkc_map_id)
-        local map_data = g.load_json(map_file_path)
-        if map_data then
-            g.save_json(map_file_path, map_data)
+        -- **書き戻すのは g.mkc_map_data(生きている集計)。** 以前はここでファイルを
+        -- 読み直して同じ内容を書き戻しており、直前の自動保存(60 tick = 約 60 秒ごと)
+        -- から後の討伐数・拾得・滞在時間が丸ごと捨てられていた。
+        if g.mkc_map_data then
+            g.save_json(Monster_kill_count_get_map_filepath(g.mkc_map_id), g.mkc_map_data)
         end
         g.mkc_map_id = nil
         g.mkc_count = nil
         g.mkc_start_time = nil
         g.mkc_map_data = nil
         ui.DestroyFrame(addon_name_lower .. "monster_kill_count")
-        -- 共有フレームがまだ無い/破棄済みのことがある(早期の後始末やフレームリセット後)。
-        -- nil のまま RemoveChild を呼ぶと teardown が途中で落ち、記録は保存済みなのに購読と
-        -- 状態のクリアが中途半端になる。あるときだけ子を外す。
-        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-        if _nexus_addons_p then
-            _nexus_addons_p:RemoveChild("monster_kill_count_timer")
-        end
     end
 end
 
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。
+function monster_kill_count_on_teardown()
+    -- 設定は OFF でも読んでおく。以前は on_init が OFF でも呼ばれていたのでここで
+    -- 読まれており、「マップ情報」のコンテキストメニューはそれに依存している。
+    if not g.mkc_settings then
+        Monster_kill_count_load_settings()
+    end
+    Monster_kill_count_teardown()
+end
+
+-- チャレンジモードの集計表示が出るときは、こちらのフレームを畳む。
+-- **フレームを消すだけにしないこと。** 以前は DestroyFrame だけで g.mkc_map_id も
+-- 1 秒タイマーもそのまま残していたので、以降 time_update と EXP_UPDATE が
+-- 「下地が無い」で黙って返るだけになり、同じマップに居る限り討伐数も滞在時間も
+-- 数えないまま 1 秒タイマーだけが回り続けた(エラーもログも出ない)。
 function Monster_kill_count_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT(frame, msg)
-    ui.DestroyFrame(addon_name_lower .. "monster_kill_count")
+    g.vlog("monster_kill_count: チャレンジモードの集計が出たので畳む (map=%s)", tostring(g.mkc_map_id))
+    Monster_kill_count_teardown()
 end
 
 function Monster_kill_count_get_map_filepath(map_id)
@@ -275,8 +300,9 @@ function Monster_kill_count_get_map_filepath(map_id)
 end
 
 function Monster_kill_count_APPLY_SCREEN(my_frame, my_msg)
-    -- 置換方式のフックは一度張ると外せないので、OFF の判定はここに置く
-    -- (張らずに済ませると、ON に戻したときに解像度変更へ追従できなくなる)。
+    -- 置換方式のフックは一度張ると外せないので、OFF の判定はここにも置く。
+    -- (張るのは ON のときだけ = OFF で起動した人には最初から張られない。ON に戻すと
+    --  その場で on_init が走って張られるので、解像度変更への追従は失われない)
     if g.settings.monster_kill_count.use == 0 or not g.mkc_map_id then
         return
     end
@@ -367,8 +393,13 @@ function Monster_kill_count_time_update(_nexus_addons_p)
         return
     end
     local monster_kill_count = ui.GetFrame(addon_name_lower .. "monster_kill_count")
-    -- 数える下地が揃っていなければ触らない(畳んだ直後に 1 通届くことがある)。
+    -- 数える下地が揃っていないのに tick が来ている = どこかでフレームか集計だけが
+    -- 失われた状態。**黙って返してはいけない。** 返すだけだと 1 秒タイマーが延々と
+    -- 空回りし、討伐数も滞在時間も数えないまま何の手掛かりも残らない。畳んで止める。
     if not monster_kill_count or not g.mkc_map_data or not g.mkc_start_time then
+        g.vlog("monster_kill_count: 数える下地が無いので畳む (frame=%s map_data=%s start_time=%s)",
+            tostring(monster_kill_count ~= nil), tostring(g.mkc_map_data ~= nil), tostring(g.mkc_start_time ~= nil))
+        Monster_kill_count_teardown()
         return
     end
     monster_kill_count:ShowWindow(1)

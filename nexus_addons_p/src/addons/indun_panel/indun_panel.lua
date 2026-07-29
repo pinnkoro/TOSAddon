@@ -608,7 +608,7 @@ function Indun_panel_frame_init(is_toggle, msg)
         end
     end
     if g.get_map_type() ~= "City" then
-        if g.get_map_type() == "Instance" or g.map_id == 8022 then
+        if g.get_map_type() == "Instance" or g.map_id == g.MAP_VELNIKE then
             return
         end
         if g.indun_panel_settings.etc.field_mode ~= 1 then
@@ -617,7 +617,7 @@ function Indun_panel_frame_init(is_toggle, msg)
         end
     end
     --[[if g.get_map_type() ~= "City" and
-        (g.indun_panel_settings.etc.field_mode ~= 1 and g.get_map_type() == "Instance" and g.map_id == 8022) then
+        (g.indun_panel_settings.etc.field_mode ~= 1 and g.get_map_type() == "Instance" and g.map_id == g.MAP_VELNIKE) then
         return
     end]]
     Indun_list_viewer_save_current_char_counts()

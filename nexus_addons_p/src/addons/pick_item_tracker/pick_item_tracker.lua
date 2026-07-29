@@ -25,18 +25,38 @@ function Pick_item_tracker_load_settings()
     Pick_item_tracker_save_settings()
 end
 
--- 数えるのをやめるときの後始末。購読・集計・フレーム(と、その子のタイマー)を畳む。
-function Pick_item_tracker_teardown()
+-- 数えるのをやめるときの後始末。購読とフレーム(と、その子のタイマー)を畳む。
+--   reset_data … 集計そのものも捨てるかどうか
+--
+-- **OFF にしたときは捨てないこと。** 設定画面で OFF→ON した人の集計と経過時間が
+-- 無警告で 0 に戻る(旧実装は OFF でフレームを消すだけで集計は残しており、
+-- ON に戻せば同じマップの続きから数え直せた)。
+-- 数えない場所(街・インスタンス)へ移ったときは、次に数え始めるのが別マップなので捨てる。
+function Pick_item_tracker_stop_counting(reset_data)
     g.unregister_msg_by_prefix('Pick_item_tracker_ITEMMSG_ITEM_COUNT')
-    g.pick_item_tracker_map_id = nil
-    g.pick_item_tracker_items = {}
-    g.pick_item_tracker_y = 45
-    g.pick_item_tracker_x = 120
+    if reset_data then
+        g.pick_item_tracker_map_id = nil
+        g.pick_item_tracker_items = {}
+        g.pick_item_tracker_y = 45
+        g.pick_item_tracker_x = 120
+    end
     local pick_item_tracker = ui.GetFrame(addon_name_lower .. "pick_item_tracker")
     if pick_item_tracker then
         -- 1 秒タイマーはこのフレームの子なので、破棄すれば一緒に消える
         ui.DestroyFrame(pick_item_tracker:GetName())
     end
+end
+
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。以前は use を 1 秒タイマーの中でしか見ておらず、OFF でもマップ移動の
+-- たびにフレームを作って表示し、破棄されるまでの約 1 秒間だけ画面に出ていた
+-- (拾得の購読も張っていた)。
+function pick_item_tracker_on_teardown()
+    -- 設定は OFF でも読んでおく(以前は on_init が OFF でも呼ばれていたので読まれていた)。
+    if not g.pick_item_tracker_settings then
+        Pick_item_tracker_load_settings()
+    end
+    Pick_item_tracker_stop_counting(false)
 end
 
 function pick_item_tracker_on_init()
@@ -47,15 +67,14 @@ function pick_item_tracker_on_init()
     if _G[old_func] then
         return
     end
-    -- 機能 OFF なら畳んで抜ける。on_init は ON/OFF によらず呼ばれる契約
-    -- (core/20_lifecycle.lua)なので、畳めるのはここだけ。以前は use を 1 秒タイマーの
-    -- 中でしか見ておらず、OFF でもマップ移動のたびにフレームを作って表示し、
-    -- 破棄されるまでの約 1 秒間だけ画面に出ていた(拾得の購読も張っていた)。
+    -- 保険。OFF のときは core が on_init ではなく pick_item_tracker_on_teardown を
+    -- 呼ぶので通常ここは通らないが、直接呼ばれても数え始めないようにしておく。
     if g.settings.pick_item_tracker.use == 0 then
-        Pick_item_tracker_teardown()
+        pick_item_tracker_on_teardown()
         return
     end
-    if g.get_map_type() ~= "City" and g.get_map_type() ~= "Instance" then
+    local map_type = g.get_map_type()
+    if map_type ~= "City" and map_type ~= "Instance" then
         if not g.pick_item_tracker_map_id or g.map_id ~= g.pick_item_tracker_map_id then
             g.pick_item_tracker_map_id = g.map_id
             g.pick_item_tracker_start_time = imcTime.GetAppTimeMS() - 3000
@@ -69,11 +88,13 @@ function pick_item_tracker_on_init()
         -- 数えない場所へ来たら購読も外す。配信役(g.msg_handlers)は登録しっぱなしだと
         -- ON_INIT では畳まれないので、外さないと町でも拾得が届いて集計へ混ざる
         -- (次にフィールドへ入れば g.register_msg が張り直す)。
-        g.unregister_msg_by_prefix('Pick_item_tracker_ITEMMSG_ITEM_COUNT')
-        g.pick_item_tracker_map_id = nil
-        g.pick_item_tracker_items = {}
-        g.pick_item_tracker_y = 45
-        g.pick_item_tracker_x = 120
+        --
+        -- **フレームは作り直す前に必ず破棄すること。** g.create_persistent_frame は
+        -- 既存フレームがあればそれを返すので、1 秒タイマーが子として生き残る。
+        -- 以前はここで畳んでおらず、隠した直後の tick が ShowWindow(1) を呼んで
+        -- 空の集計枠が街で出っぱなしになった。
+        Pick_item_tracker_stop_counting(true)
+        g.vlog("pick_item_tracker: 数えない場所なので畳む (map=%s type=%s)", tostring(g.map_id), tostring(map_type))
         Pick_item_tracker_frame_init("is_city")
     end
 end
@@ -170,10 +191,10 @@ function Pick_item_tracker_redraw_item_list(pick_item_tracker)
 end
 
 function Pick_item_tracker_timer_update(pick_item_tracker, timer)
-    -- OFF になっていたら、表示だけでなく購読と集計もまとめて畳む
-    -- (フレームを消すだけでは拾得が届き続ける)。
+    -- OFF になっていたら、表示だけでなく購読も畳む(フレームを消すだけでは拾得が
+    -- 届き続ける)。集計は捨てない = ON に戻せば続きから数え直せる。
     if g.settings.pick_item_tracker.use == 0 then
-        Pick_item_tracker_teardown()
+        Pick_item_tracker_stop_counting(false)
         return
     end
     g.pick_item_tracker_diff_time = imcTime.GetAppTimeMS() - g.pick_item_tracker_start_time

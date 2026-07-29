@@ -63,25 +63,47 @@ function quickslot_operate_on_init()
         _nexus_addons_p:RunUpdateScript("Quickslot_operate_lazy_start", 0.1)
         return
     end
+    -- 保険。OFF のときは core が on_init ではなく quickslot_operate_on_teardown を呼ぶ。
     if g.settings.quickslot_operate.use == 0 then
-        local quickslot_operate_map_timer = GET_CHILD(_nexus_addons_p, "quickslot_operate_map_timer")
-        if _nexus_addons_p then
-            _nexus_addons_p:RemoveChild("quickslot_operate_map_timer")
-            _nexus_addons_p:RemoveChild("quickslot_operate_timer")
-        end
-        local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-        if quickslotnexpbar then
-            quickslotnexpbar:RemoveChild("setting")
-            if g.quickslot_operate_settings and g.quickslot_operate_settings.straight then
-                g.quickslot_operate_settings.straight = false
-                Quickslot_operate_redraw_slots()
-            end
-            quickslotnexpbar:SetUserValue("USE", 0)
-            quickslotnexpbar:RunUpdateScript("Quickslot_operate_set_script", 2.0)
-        end
+        quickslot_operate_on_teardown()
         return
     end
     Quickslot_operate_init_logic()
+end
+
+-- RSHIFT 押下区間の記録を捨てる。**0.15 秒タイマーを消す側は必ずここを通すこと。**
+-- 記録が残ったままだと「押している」と誤認したままになり、次に押しても
+-- 押し始めのログが出ず、要約が前回の累計を混ぜて出る。
+function Quickslot_operate_reset_rshift()
+    g.qso_rshift = nil
+end
+
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。外す前に止めておく(RemoveChild が効くまでに tick が来ないように)。
+function quickslot_operate_on_teardown()
+    -- 設定は OFF でも読んでおく(以前は on_init 経由の lazy_start が読んでいた)。
+    -- 下の straight の戻しもこれが無いと素通りしてしまう。
+    if not g.quickslot_operate_settings then
+        Quickslot_operate_load_settings()
+    end
+    g.stop_timer("quickslot_operate_map_timer")
+    g.stop_timer("quickslot_operate_timer")
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if _nexus_addons_p then
+        _nexus_addons_p:RemoveChild("quickslot_operate_map_timer")
+        _nexus_addons_p:RemoveChild("quickslot_operate_timer")
+    end
+    Quickslot_operate_reset_rshift()
+    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
+    if quickslotnexpbar then
+        quickslotnexpbar:RemoveChild("setting")
+        if g.quickslot_operate_settings and g.quickslot_operate_settings.straight then
+            g.quickslot_operate_settings.straight = false
+            Quickslot_operate_redraw_slots()
+        end
+        quickslotnexpbar:SetUserValue("USE", 0)
+        quickslotnexpbar:RunUpdateScript("Quickslot_operate_set_script", 2.0)
+    end
 end
 
 function Quickslot_operate_lazy_start(frame)
@@ -112,6 +134,8 @@ function Quickslot_operate_init_logic()
     g.quickslot_operate_no_potion_ticks = 0
     g.quickslot_operate_no_item_ticks = 0
     g.quickslot_operate_no_map_ticks = 0
+    g.quickslot_operate_slot_fails = 0
+    Quickslot_operate_reset_rshift()
     quickslot_operate_map_timer:Start(3.0)
     if g.quickslot_operate_settings.rshift then
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
@@ -138,9 +162,35 @@ function Quickslot_operate_frame_init()
     quickslotnexpbar:RunUpdateScript("Quickslot_operate_set_script", 2.0)
 end
 
+-- アドオン一覧(メニューボタン)の「設定」から開く入口。
+--
+-- クイックスロットバー上の QSO ボタンは quickslotnexpbar の子なので、
+-- **ジョイスティックモードではバーごと隠れて押せない**。RSHIFT の ON/OFF も
+-- スロットセットの保存・読込も全部そこからなので、パッド操作の人は設定に
+-- 一切たどり着けなかった(キーボードモードへ戻すしかなかった)。
+-- 一覧側からも同じメニューを開けるようにする。
+function Quickslot_operate_config_open()
+    if not g.quickslot_operate_settings then
+        Quickslot_operate_load_settings()
+    end
+    -- OFF のまま設定を触らせない。ここから RSHIFT を ON にすると、機能 OFF なのに
+    -- 0.15 秒タイマーだけが動き出す(このリリースで潰したのと同じ形)。
+    if g.settings.quickslot_operate.use == 0 then
+        ui.SysMsg(g.lang == "Japanese" and
+                      "{ol}{#FF6347}[Quickslot Operate]{/} 機能が OFF です。ON にしてから設定してください" or
+                      "{ol}{#FF6347}[Quickslot Operate]{/} The addon is OFF. Turn it ON before changing settings.")
+        return
+    end
+    Quickslot_operate_context()
+end
+
 function Quickslot_operate_context()
     local context = ui.CreateContextMenu("CONTEXT", "{ol}slotset context", 0, -300, 0, 0)
     ui.AddContextMenuItem(context, "-----", "None")
+    -- 読込はバー上の QSO ボタンでは左クリック側にあるが、一覧の「設定」からは
+    -- こちらのメニューしか開けないので、ここにも置いて全部たどり着けるようにする。
+    ui.AddContextMenuItem(context, g.lang == "Japanese" and "{ol}スロットセット読込" or "{ol}Load Slot Set",
+        "Quickslot_operate_load_slotset_context()")
     ui.AddContextMenuItem(context,
         g.lang == "Japanese" and "{ol}スロットレイアウト保存" or "{ol}Save Slot layout",
         "Quickslot_operate_save_slotset()")
@@ -366,9 +416,11 @@ end
 function Quickslot_operate_set_script(quickslotnexpbar)
     Quickslot_operate_build_potion_map()
     local is_use = quickslotnexpbar:GetUserIValue("USE")
-    -- この関数は quickslotnexpbar への RunUpdateScript からしか呼ばれず、実機では
-    -- 実行されていない（このログが一度も出ない）。マウスオーバーの種族選択パネルが
-    -- 出ないのはそのため。ログは同じ調査を繰り返さないために残す。
+    -- この関数は quickslotnexpbar への RunUpdateScript からしか呼ばれない。
+    -- 以前は「実機で一度も実行されていない」と見ていたが、**それは誤りだった**:
+    -- v1.4.0 の実機ログで `set_script 実行 USE=1` が出ている(レイド入場後に発火)。
+    -- マウスオーバーの種族選択パネルが出ない件の原因はここではない。
+    -- ログは同じ調査を繰り返さないために残す。
     -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。ログを ON にする前に
     -- 一度通っていると、印だけ立って「実行されたか」が二度と分からなくなる。
     if g.quickslot_operate_logged_use ~= is_use and
@@ -437,63 +489,131 @@ function Quickslot_operate_set_potion(parent, slot, str, pot_id)
     end
 end
 
--- スロットの差し替えには quickslotnexpbar が表示されている必要があるという
--- クライアント側の制約がある。以前はジョイスティックモードのとき
--- 「joystickquickslot を隠す → 差し替え → 戻す」としていたが、途中の早期 return や
--- エラーで復元を飛ばすと、ジョイスティックバーが消えたまま次のマップ移動まで戻らなかった。
+-- スロットの差し替えには quickslotnexpbar が表示されている必要がある、というのが
+-- 元々の言い分。以前はジョイスティックモードのとき「joystickquickslot を隠す →
+-- 差し替え → 戻す」としていたが、途中の早期 return やエラーで復元を飛ばすと、
+-- ジョイスティックバーが消えたまま次のマップ移動まで戻らなかった。
 --
--- そこで joystickquickslot には一切触れない。隠さないので消えようがない。
--- キーボード用バーだけを「完全に透明」にして一瞬表示するので、画面上でちらつかない。
--- 万一復元を飛ばしても、残るのは透明な quickslotnexpbar だけで見た目に影響しない。
-function Quickslot_operate_begin_slot_edit()
-    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
-    if IsJoyStickMode() ~= 1 then
-        return quickslotnexpbar, false
-    end
-    quickslotnexpbar:SetAlpha(0)
+-- 次に「キーボード用バーを SetAlpha(0) で透明にして出す」に変えたが、**これは効かない**。
+-- **実機で確認済み(2026-07-29): SetAlpha はフレームのスキンにしか効かず、中のスロット
+-- アイコンはそのまま描画される。**ジョイスティックモードで RSHIFT を押すと
+-- キーボード用バーがはっきり見える。同じ調査を繰り返さないこと。
+--
+-- そこで今は「**まず表示を触らずに差し替えてみて、反映されていなかったときだけ出す**」
+-- という順にしている(Quickslot_operate_check_all_slots)。キーボードモードでは元から
+-- 出ているので一切触らず、ジョイスティックモードでも本当に必要なときしか出さない。
+-- joystickquickslot には引き続き一切触れない(隠さないので消えようがない)。
+--
+-- **そして実機で確かめた結果、「表示が必要」という前提そのものが誤りだった**
+-- (2026-07-29 / ジョイスティックモードで RSHIFT 循環 50 回以上):
+--     quickslot_operate: 差し替えにバーの表示が不要だった (joystick=1)
+-- バーを一度も出さずに全部成功し、画面にも出なくなった。
+-- 下の「出してやり直す」経路は保険として残してあるだけで、通常は通らない。
+-- **この経路を通ったらログに出る**ので、通ったという報告があるまで消さないこと。
+--
+-- 戻り値は「触る前の状態」。復元に使う。**推測で埋めないこと。**
+-- 以前はジョイスティックモードかどうかだけで「元は非表示だったはず」と決めていたので、
+-- ジョイスティックモードでキーボード用バーを出している人のバーを差し替えのたびに
+-- 消してしまい(次のマップ移動まで戻らない)、透明度も 100 決め打ちで上書きしていた。
+function Quickslot_operate_begin_slot_edit(quickslotnexpbar)
+    -- GetAlpha が無いクライアントでも壊れないように pcall で読む(取れなければ不透明)。
+    local ok_alpha, alpha = pcall(function()
+        return quickslotnexpbar:GetAlpha()
+    end)
+    local restore = {
+        visible = quickslotnexpbar:IsVisible(),
+        alpha = ok_alpha and alpha or 100
+    }
     quickslotnexpbar:ShowWindow(1)
-    return quickslotnexpbar, true
+    return restore
 end
 
-function Quickslot_operate_end_slot_edit(quickslotnexpbar, was_hidden)
-    if was_hidden then
-        -- ジョイスティックモードではキーボード用バーは元から非表示。透明のまま残すと
-        -- クリックを吸う恐れがあるので、隠してから不透明に戻す(次に普通に表示された
-        -- ときに透明のままにならないようにする)。
-        quickslotnexpbar:ShowWindow(0)
-        quickslotnexpbar:SetAlpha(100)
+function Quickslot_operate_end_slot_edit(quickslotnexpbar, restore)
+    if quickslotnexpbar and restore then
+        -- 触る前の実測値へ戻す。
+        quickslotnexpbar:ShowWindow(restore.visible)
+        quickslotnexpbar:SetAlpha(restore.alpha)
     end
     -- 隠していないジョイスティックバーは、中身だけ描き直してもらう(従来どおり毎回)。
     DebounceScript("JOYSTICK_QUICKSLOT_UPDATE_ALL_SLOT", 0.1)
+end
+
+-- 差し替えが実際に効いたか。apply_slots が「こう入れたい」と投げた分を読み直す。
+-- 対象が 0 件なら「やることが無かった」= 成功扱い(バーを出す必要も無い)。
+function Quickslot_operate_slots_applied(targets)
+    if not targets then
+        return false
+    end
+    for _, t in ipairs(targets) do
+        local slot_info = quickslot.GetInfoByIndex(t.index)
+        if not slot_info or slot_info.type ~= t.id then
+            return false
+        end
+    end
+    return true
 end
 
 function Quickslot_operate_check_all_slots(race, down_potion_id, atk_id, def_id)
     if not g.qso_potion_map then
         Quickslot_operate_build_potion_map()
     end
-    local quickslotnexpbar, was_hidden = Quickslot_operate_begin_slot_edit()
-    -- 差し替えの途中で落ちても必ず復元へ抜けるように pcall で囲む。
-    local ok, err = pcall(Quickslot_operate_apply_slots, quickslotnexpbar, race, down_potion_id, atk_id, def_id)
-    Quickslot_operate_end_slot_edit(quickslotnexpbar, was_hidden)
-    -- 差し替えの成否によらずマップ監視は止める。apply_slots の中で止めていた頃は、
-    -- 途中で落ちると 3 秒周期のタイマーが残り、同じエラーを黙って踏み続けていた。
-    Quickslot_operate_stop_map_timer()
-    if not ok then
-        local msg = "QuickslotOperate スロット差し替えでエラー: " .. tostring(err)
-        g.vlog("%s", msg)
-        -- vlog は既定 OFF なので、利用者の手元には何も残らない。debug_log.txt にも出す。
-        -- ただし RSHIFT 経路は 0.15 秒周期なので、同じエラーの連投は 1 回に丸める。
-        if g.quickslot_operate_last_slot_error ~= msg then
-            g.quickslot_operate_last_slot_error = msg
-            g.log_to_file(msg)
+    -- **表示の切り替えも pcall の中に入れること。** 以前は begin_slot_edit を外に
+    -- 置いていたので、quickslotnexpbar がまだ組み上がっていない(マップ読み込み直後や
+    -- バラック復帰直後)ときにそこで落ちると、復元もマップ監視の停止もエラーログも
+    -- まとめて飛ばして、3 秒ごとに同じ所で無言のまま落ち続けた。
+    local quickslotnexpbar = ui.GetFrame("quickslotnexpbar")
+    local restore
+    local ok, err = pcall(function()
+        if not quickslotnexpbar then
+            error("quickslotnexpbar がまだ無い", 0)
         end
-    else
-        g.quickslot_operate_last_slot_error = nil
+        -- 1 回目は表示を一切触らずに試す。
+        local targets = Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, atk_id, def_id)
+        if Quickslot_operate_slots_applied(targets) then
+            return
+        end
+        -- 反映されていなかった = バーを出さないと差し替えられないクライアント。
+        -- ここで初めて出す(ジョイスティックモードではこの瞬間だけ画面に見える)。
+        restore = Quickslot_operate_begin_slot_edit(quickslotnexpbar)
+        Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, atk_id, def_id)
+    end)
+    Quickslot_operate_end_slot_edit(quickslotnexpbar, restore)
+    if ok then
+        g.quickslot_operate_slot_fails = 0
+        g.clear_error_once("quickslot_operate_slot")
+        -- 「バーを出す必要があったか」は判断の材料になるので残す。毎回出すと
+        -- RSHIFT 経路(0.15 秒周期)で流れるので、変わったときだけ 1 行出す。
+        local needed = restore ~= nil
+        if g.quickslot_operate_needs_visible ~= needed and
+            g.vlog("quickslot_operate: 差し替えにバーの表示が%s (joystick=%s)",
+                needed and "必要だった" or "不要だった", tostring(IsJoyStickMode())) then
+            g.quickslot_operate_needs_visible = needed
+        end
+        -- 差し替えられたのでマップ監視は要らない。
+        Quickslot_operate_stop_map_timer()
+        return
+    end
+    -- **一度の失敗で監視を止めないこと。** バーやスロットがまだ組み上がっていない
+    -- だけのことがあり、止めるとそのマップでは二度と差し替わらない(3 秒後の再試行で
+    -- 成功していた形を壊してしまう)。連続で失敗したときだけ止める。
+    -- ログは g.log_error_once に任せる(RSHIFT 経路は 0.15 秒周期なので、
+    -- 絞らないと同じ行が毎秒 13 本流れる)。
+    g.log_error_once("quickslot_operate_slot", "QuickslotOperate スロット差し替えでエラー: " .. tostring(err))
+    local fails = (g.quickslot_operate_slot_fails or 0) + 1
+    g.quickslot_operate_slot_fails = fails
+    if fails >= 5 then
+        Quickslot_operate_stop_map_timer()
+        g.vlog("quickslot_operate: 差し替えに %d 回続けて失敗したのでマップ監視を止める (map=%s)", fails,
+            tostring(g.map_id))
     end
 end
 
+-- 戻り値は「このスロットにこの ID を入れたい」の一覧({index = 0 起点, id = アイテム ID})。
+-- 呼び出し元が読み直して、実際に反映されたかを確かめるために使う
+-- (Quickslot_operate_slots_applied)。0 件なら差し替える対象が無かったということ。
 function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, atk_id, def_id)
     local atk_list = g.quickslot_operate_atk_list
+    local targets = {}
     for i = 1, MAX_QUICKSLOT_CNT do
         local slot = GET_CHILD_RECURSIVELY(quickslotnexpbar, "slot" .. i)
         AUTO_CAST(slot)
@@ -511,7 +631,7 @@ function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, a
                     break
                 end
             end
-            local target_race = race or detected_race
+            local target_race = race
             if is_atk_potion then
                 local new_atk_id = atk_id
                 if not new_atk_id or new_atk_id == 0 then
@@ -527,6 +647,10 @@ function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, a
                 end
                 if new_atk_id and new_atk_id ~= 0 then
                     SET_QUICK_SLOT(quickslotnexpbar, slot, slot_info.category, new_atk_id, nil, 0, true, true)
+                    table.insert(targets, {
+                        index = i - 1,
+                        id = new_atk_id
+                    })
                 end
             else
                 local new_def_id = def_id
@@ -539,6 +663,10 @@ function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, a
                 end
                 if new_def_id and new_def_id ~= 0 then
                     SET_QUICK_SLOT(quickslotnexpbar, slot, slot_info.category, new_def_id, nil, 0, true, true)
+                    table.insert(targets, {
+                        index = i - 1,
+                        id = new_def_id
+                    })
                 end
             end
         end
@@ -547,6 +675,7 @@ function Quickslot_operate_apply_slots(quickslotnexpbar, race, down_potion_id, a
     -- 途中で落ちたときだけ止め損ねて無言のリトライが続くため。
     quickslot.RequestSave()
     QUICKSLOTNEXPBAR_UPDATE_HOTKEYNAME(quickslotnexpbar)
+    return targets
 end
 
 function Quickslot_operate_frame_close()
@@ -557,15 +686,7 @@ function Quickslot_operate_frame_close()
 end
 
 function Quickslot_operate_stop_map_timer()
-    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-    if not _nexus_addons_p then
-        return
-    end
-    local quickslot_operate_map_timer = GET_CHILD(_nexus_addons_p, "quickslot_operate_map_timer")
-    if quickslot_operate_map_timer then
-        AUTO_CAST(quickslot_operate_map_timer)
-        quickslot_operate_map_timer:Stop()
-    end
+    return g.stop_timer("quickslot_operate_map_timer")
 end
 
 -- クイックスロットに女神ポーションが 1 つでも入っているか。
@@ -641,8 +762,17 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
     -- したら止める(3 秒周期なので約 15 秒ぶんの猶予。入場直後で indun_type がまだ
     -- 載っていないことがあるので即断はしない)。打ち切りはこのマップ限りで、
     -- 次のマップ移動では init_logic がカウンタを戻してタイマーを張り直す。
-    local ticks = (g.quickslot_operate_no_map_ticks or 0) + 1
-    g.quickslot_operate_no_map_ticks = ticks
+    --
+    -- ただし in_zone_list = **対象マップではあるが indun_type がまだ載っていない**
+    -- 状態は数えない。indun_type を載せるのは入場ダイアログ
+    -- (Quickslot_operate_SHOW_INDUNENTER_DIALOG)だけなので、パーティリーダーに
+    -- 飛ばされた・再入場した・レイドの中で再ログインした人はそこを通らない。
+    -- 数えて打ち切ると、そういう人だけレイド中ずっと差し替わらなくなる。
+    local ticks = g.quickslot_operate_no_map_ticks or 0
+    if not in_zone_list then
+        ticks = ticks + 1
+        g.quickslot_operate_no_map_ticks = ticks
+    end
     -- どちらの一覧でも差し替えられなかったときだけ理由を残す。3 秒ごとに走るので
     -- マップごとに 1 回に絞る。
     if g.quickslot_operate_unknown_map ~= g.map_id then
@@ -658,7 +788,7 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
                 tostring(g.map_id), tostring(g.quickslot_operate_indun_type))
         end
     end
-    if ticks >= 5 then
+    if not in_zone_list and ticks >= 5 then
         Quickslot_operate_stop_map_timer()
         g.vlog("quickslot_operate: map=%s は差し替えの対象外なのでマップ監視を止める (name=%s)", tostring(g.map_id),
             tostring(g.map_name))
@@ -741,14 +871,23 @@ function Quickslot_operate_get_potion(quickslotnexpbar, retryable)
 end
 
 function Quickslot_operate_switch_rshift(is_first)
+    -- 機能 OFF のまま ON にされると、アドオンは OFF なのに 0.15 秒タイマーだけが
+    -- 動き出す。設定は保存するが、タイマーは張らない(次に ON にしたとき
+    -- Quickslot_operate_init_logic が rshift 設定を見て張る)。
+    if g.settings.quickslot_operate.use == 0 then
+        g.quickslot_operate_settings.rshift = not g.quickslot_operate_settings.rshift
+        Quickslot_operate_save_settings()
+        return
+    end
     local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
     _nexus_addons_p:SetVisible(1)
     if g.quickslot_operate_settings.rshift == true then
         g.quickslot_operate_settings.rshift = false
-        local quickslot_operate_timer = GET_CHILD(_nexus_addons_p, "quickslot_operate_timer")
-        if quickslot_operate_timer then
-            _nexus_addons_p:RemoveChild("quickslot_operate_timer")
-        end
+        g.stop_timer("quickslot_operate_timer")
+        _nexus_addons_p:RemoveChild("quickslot_operate_timer")
+        -- 押したままここへ来る(片手で RSHIFT、もう片手で切り替え)ことがある。
+        -- 捨てておかないと「押している」と誤認したままになる。
+        Quickslot_operate_reset_rshift()
     else
         g.quickslot_operate_settings.rshift = true
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
@@ -764,21 +903,29 @@ end
 -- 「押し始めの 1 回」と「離したときの要約」だけに絞る。判断材料(何回・最後にどれへ
 -- 切り替わったか・種別を特定できなかった回数)は要約側に残す。
 function Quickslot_operate_set_rshift_script()
+    -- 押下区間の状態は 1 つのテーブルにまとめて持ち、**存在そのものを「押している」の
+    -- 印にする**。以前は held / count / miss / last の 4 つを別々に持ち、リセットは
+    -- 押し始めの 1 箇所だけだった。押したままタイマーを消される経路が 2 つあり
+    -- (Quickslot_operate_switch_rshift / 機能 OFF)、そこを通ると held が true のまま
+    -- 残って、以降このログが二度と正しい値を出さなくなった。
+    -- 消す側は g.qso_rshift = nil を書くだけでよい(Quickslot_operate_reset_rshift)。
     if keyboard.IsKeyPressed("RSHIFT") == 0 then
-        if g.quickslot_operate_rshift_held then
-            g.quickslot_operate_rshift_held = nil
-            g.vlog("QuickslotOperate RSHIFT 循環: 押下終了 切替 %d 回 最終=%s 種別不明で中止 %d 回",
-                g.quickslot_operate_rshift_count or 0, tostring(g.quickslot_operate_rshift_last),
-                g.quickslot_operate_rshift_miss or 0)
+        local held = g.qso_rshift
+        if held then
+            g.qso_rshift = nil
+            g.vlog("QuickslotOperate RSHIFT 循環: 押下終了 切替 %d 回 最終=%s 種別不明で中止 %d 回", held.count,
+                tostring(held.last), held.miss)
         end
         return
     end
-    if not g.quickslot_operate_rshift_held then
-        g.quickslot_operate_rshift_held = true
-        g.quickslot_operate_rshift_count = 0
-        g.quickslot_operate_rshift_miss = 0
-        g.quickslot_operate_rshift_last = nil
+    if not g.qso_rshift then
+        g.qso_rshift = {
+            count = 0,
+            miss = 0,
+            last = nil
+        }
     end
+    local held = g.qso_rshift
     -- ここではバーの表示を触らない。現在のポーション種別を調べるだけなら表示は不要で、
     -- 実際に差し替える Quickslot_operate_check_all_slots が表示の面倒を見る。
     -- (以前はここで先に切り替えていたため、下の「ポーションが見つからない」early return を
@@ -814,8 +961,8 @@ function Quickslot_operate_set_rshift_script()
     end
     if not current_potion_type then
         -- 押下区間の 1 回目だけ出す(回数は離したときの要約に出る)。
-        g.quickslot_operate_rshift_miss = (g.quickslot_operate_rshift_miss or 0) + 1
-        if g.quickslot_operate_rshift_miss == 1 then
+        held.miss = held.miss + 1
+        if held.miss == 1 then
             g.vlog("QuickslotOperate RSHIFT 循環: 現在のポーション種別を特定できず中止")
         end
         return
@@ -836,18 +983,19 @@ function Quickslot_operate_set_rshift_script()
     local def_id_candidate = g.quickslot_operate_def_list[target_race]
     local inv_def = session.GetInvItemByType(def_id_candidate)
     local found_def_id = inv_def and def_id_candidate or 0 -- 持ってなければ 0
-    g.quickslot_operate_rshift_count = (g.quickslot_operate_rshift_count or 0) + 1
-    g.quickslot_operate_rshift_last = target_race
-    if g.quickslot_operate_rshift_count == 1 then
+    held.count = held.count + 1
+    held.last = target_race
+    if held.count == 1 then
         g.vlog("QuickslotOperate RSHIFT 循環開始: %s -> %s (atk=%s def=%s)", tostring(current_potion_type),
             tostring(target_race), tostring(found_atk_id), tostring(found_def_id))
     end
     -- 2 回呼ぶのは従来どおり(1 回では反映が漏れることがあるため)。
-    -- 常に真だった `if target_race then` のぶんだけ畳んでいる。
-    Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
-    quickslot.RequestSave()
-    Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
-    quickslot.RequestSave()
+    -- **quickslot.RequestSave() をここで足さないこと。** Quickslot_operate_apply_slots が
+    -- 最後に毎回出しているので、足すと 1 tick あたり 4 回 = 0.15 秒周期で毎秒約 27 回の
+    -- 保存要求をサーバへ投げることになる。
+    for _ = 1, 2 do
+        Quickslot_operate_check_all_slots(target_race, nil, found_atk_id, found_def_id)
+    end
 end
 -- quickslot_operate ここまで
 
