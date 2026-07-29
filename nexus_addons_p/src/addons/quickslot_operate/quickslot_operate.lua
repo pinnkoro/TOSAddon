@@ -111,6 +111,7 @@ function Quickslot_operate_init_logic()
     -- カウンタもここで毎回 0 に戻る。前のマップで諦めていても次のマップでやり直す。
     g.quickslot_operate_no_potion_ticks = 0
     g.quickslot_operate_no_item_ticks = 0
+    g.quickslot_operate_no_map_ticks = 0
     quickslot_operate_map_timer:Start(3.0)
     if g.quickslot_operate_settings.rshift then
         local quickslot_operate_timer = _nexus_addons_p:CreateOrGetControl("timer", "quickslot_operate_timer", 0, 0)
@@ -635,21 +636,32 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
             return
         end
     end
+    -- ここまで来た = このマップでは差し替えるものが無い。街や普通の狩り場がこれで、
+    -- 何もしないまま次のマップ移動まで 3 秒ごとに回り続けていた。数回続けて空振り
+    -- したら止める(3 秒周期なので約 15 秒ぶんの猶予。入場直後で indun_type がまだ
+    -- 載っていないことがあるので即断はしない)。打ち切りはこのマップ限りで、
+    -- 次のマップ移動では init_logic がカウンタを戻してタイマーを張り直す。
+    local ticks = (g.quickslot_operate_no_map_ticks or 0) + 1
+    g.quickslot_operate_no_map_ticks = ticks
     -- どちらの一覧でも差し替えられなかったときだけ理由を残す。3 秒ごとに走るので
     -- マップごとに 1 回に絞る。
-    if g.quickslot_operate_unknown_map == g.map_id then
-        return
+    if g.quickslot_operate_unknown_map ~= g.map_id then
+        if in_zone_list then
+            g.quickslot_operate_unknown_map = g.map_id
+            g.vlog("quickslot_operate: map=%s は対象だが種族を特定できない (indun_type=%s)", tostring(g.map_id),
+                tostring(g.quickslot_operate_indun_type))
+        elseif g.map_name and string.find(g.map_name, "^Raid_") then
+            -- 対象マップの一覧はマップ ID の直値なので、新レイドが増えると取りこぼす。
+            -- レイドマップに居るのに差し替えなかったときだけ、その ID を残す。
+            g.quickslot_operate_unknown_map = g.map_id
+            g.vlog("quickslot_operate: 未登録のレイドマップ name=%s id=%s (indun_type=%s)", tostring(g.map_name),
+                tostring(g.map_id), tostring(g.quickslot_operate_indun_type))
+        end
     end
-    if in_zone_list then
-        g.quickslot_operate_unknown_map = g.map_id
-        g.vlog("quickslot_operate: map=%s は対象だが種族を特定できない (indun_type=%s)", tostring(g.map_id),
-            tostring(g.quickslot_operate_indun_type))
-    elseif g.map_name and string.find(g.map_name, "^Raid_") then
-        -- 対象マップの一覧はマップ ID の直値なので、新レイドが増えると取りこぼす。
-        -- レイドマップに居るのに差し替えなかったときだけ、その ID を残す。
-        g.quickslot_operate_unknown_map = g.map_id
-        g.vlog("quickslot_operate: 未登録のレイドマップ name=%s id=%s (indun_type=%s)", tostring(g.map_name),
-            tostring(g.map_id), tostring(g.quickslot_operate_indun_type))
+    if ticks >= 5 then
+        Quickslot_operate_stop_map_timer()
+        g.vlog("quickslot_operate: map=%s は差し替えの対象外なのでマップ監視を止める (name=%s)", tostring(g.map_id),
+            tostring(g.map_name))
     end
 end
 
