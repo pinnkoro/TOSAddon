@@ -1,42 +1,97 @@
 -- Dungeon RP charger ここから
+-- 一度 Start した 3 秒タイマーは、明示的に Stop しない限りそのマップに居る間ずっと
+-- 回り続ける。以前は Stop がどこにも無く、設定を OFF にしても・中でエラーが出ても
+-- 止まらなかった(同じエラーを 3 秒ごとに無言で踏み続けた)。
+-- 止める経路は必ずこの関数を通すこと。
+--
+-- **「マップ移動をまたいで残る」は誤りだった**(2026-07-29 の実機ログで確認)。
+-- 詳細は g.stop_timer のコメント。マップを離れれば道連れに消えるので、
+-- ここで止めるのは「同じマップに居る間」のための処理として読むこと。
+-- 止める判定は g のフラグに頼らない(g.stop_timer のコメント参照)。フラグは
+-- 「毎マップのログを増やさない」ためだけに使う。
+--
+-- 理由は書式と引数で受けて、**組み立てるのは実際にログへ出すときまで遅らせる**。
+-- この関数は対象マップ外のマップ移動のたびに呼ばれるので、呼び出し側で
+-- string.format すると捨てるだけの文字列を毎回作ることになる。
+function Dungeon_rp_charger_stop_timer(reason_fmt, ...)
+    local stopped = g.stop_timer("dungeon_rp_charger_timer")
+    if g.dungeon_rp_charger_running then
+        g.dungeon_rp_charger_running = false
+        g.vlog("dungeon_rp_charger: 自動補充タイマーを止める (" .. tostring(reason_fmt) .. ")", ...)
+    end
+    return stopped
+end
+
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。
+function dungeon_rp_charger_on_teardown()
+    Dungeon_rp_charger_stop_timer("設定が OFF")
+end
+
 function dungeon_rp_charger_on_init()
-    if g.map_id == 11244 then -- 11244 未知の聖域3F -- 40049 レリックバフ -- 11030036 エクトナイト(マケ売り可) misc_Ectonite    -- 11030451 エクトナイト misc_Ectonite_Care
-        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-        if _nexus_addons_p then
-            local dungeon_rp_charger_timer = GET_CHILD(_nexus_addons_p, "dungeon_rp_charger_timer")
-            if not dungeon_rp_charger_timer then
-                dungeon_rp_charger_timer = _nexus_addons_p:CreateOrGetControl("timer", "dungeon_rp_charger_timer", 0, 0)
-            end
-            AUTO_CAST(dungeon_rp_charger_timer)
-            dungeon_rp_charger_timer:SetUpdateScript("Dungeon_rp_charger_auto_charge")
-            dungeon_rp_charger_timer:Start(3.0)
-        end
+    -- 11244 未知の聖域3F -- 40049 レリックバフ -- 11030036 エクトナイト(マケ売り可) misc_Ectonite    -- 11030451 エクトナイト misc_Ectonite_Care
+    -- on_init はマップ移動のたびに全アドオン分走る(GAME_START_3SEC 経由)。
+    -- 対象マップを離れたことに気付けるのはここだけなので、張るより先に止める判定を置く。
+    if not g.settings.dungeon_rp_charger or g.settings.dungeon_rp_charger.use == 0 then
+        Dungeon_rp_charger_stop_timer("設定が OFF")
+        return
+    end
+    if g.map_id ~= g.MAP_SANCTUARY_3F then
+        Dungeon_rp_charger_stop_timer("対象マップ外へ移動した map=%s", tostring(g.map_id))
+        return
+    end
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    if not _nexus_addons_p then
+        return
+    end
+    local dungeon_rp_charger_timer = GET_CHILD(_nexus_addons_p, "dungeon_rp_charger_timer")
+    if not dungeon_rp_charger_timer then
+        dungeon_rp_charger_timer = _nexus_addons_p:CreateOrGetControl("timer", "dungeon_rp_charger_timer", 0, 0)
+    end
+    AUTO_CAST(dungeon_rp_charger_timer)
+    dungeon_rp_charger_timer:SetUpdateScript("Dungeon_rp_charger_auto_charge")
+    dungeon_rp_charger_timer:Start(3.0)
+    g.dungeon_rp_charger_running = true
+    g.dungeon_rp_charger_fail_count = 0
+    g.clear_error_once("dungeon_rp_charger")
+    g.vlog("dungeon_rp_charger: 聖域で自動補充を開始する (map=%s)", tostring(g.map_id))
+end
+
+function Dungeon_rp_charger_auto_charge(_nexus_addons_p, dungeon_rp_charger_timer)
+    if not g.settings.dungeon_rp_charger or g.settings.dungeon_rp_charger.use == 0 then
+        Dungeon_rp_charger_stop_timer("設定が OFF")
+        return
+    end
+    -- 保険。通常はマップ移動時の on_init が止めるが、そこを通らずに抜けた場合でも
+    -- 対象マップ外で回り続けないようにする。
+    if g.map_id ~= g.MAP_SANCTUARY_3F then
+        Dungeon_rp_charger_stop_timer("対象マップ外 map=%s", tostring(g.map_id))
+        return
+    end
+    -- 中で落ちると 3 秒周期でそのまま踏み続けるので、いずれ止めて理由を残す。
+    local ok, err = pcall(Dungeon_rp_charger_charge_once)
+    if ok then
+        g.dungeon_rp_charger_fail_count = 0
+        g.clear_error_once("dungeon_rp_charger")
+        return
+    end
+    -- **1 回で止めてはいけない。** 遺物を装備していない・PC オブジェクトがまだ載って
+    -- いない・別のダイアログが開いている、といった一時的な失敗でも落ちるので、
+    -- 即断すると聖域に居る間ずっと補充されなくなる(装備し直しても戻らず、マップを
+    -- 出入りするしかない)。連続で失敗したときだけ止める(3 秒周期なので約 15 秒ぶん)。
+    local fails = (g.dungeon_rp_charger_fail_count or 0) + 1
+    g.dungeon_rp_charger_fail_count = fails
+    g.log_error_once("dungeon_rp_charger", string.format("DungeonRpCharger 自動補充でエラー(%d/5 回目): %s", fails,
+        tostring(err)))
+    if fails >= 5 then
+        Dungeon_rp_charger_stop_timer("補充処理で %d 回続けてエラー", fails)
     end
 end
 
---[[function Dungeon_rp_charger_BUFF_ADD(frame, msg, str, buff_id)
-    if g.settings.dungeon_rp_charger.use == 0 then
-        return
-    end
-    if buff_id == 40049 then
-        local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-        if _nexus_addons_p then
-            _nexus_addons_p:SetVisible(1)
-            local dungeon_rp_charger_timer = GET_CHILD(_nexus_addons_p, "dungeon_rp_charger_timer")
-            if not dungeon_rp_charger_timer then
-                dungeon_rp_charger_timer = _nexus_addons_p:CreateOrGetControl("timer", "dungeon_rp_charger_timer", 0, 0)
-            end
-            AUTO_CAST(dungeon_rp_charger_timer)
-            dungeon_rp_charger_timer:SetUpdateScript("Dungeon_rp_charger_auto_charge")
-            dungeon_rp_charger_timer:Start(1.0)
-        end
-    end
-end]]
-
-function Dungeon_rp_charger_auto_charge(_nexus_addons_p, dungeon_rp_charger_timer)
-    if g.settings.dungeon_rp_charger.use == 0 then
-        return
-    end
+-- RP 満タン・素材未所持でもタイマーは止めない。聖域に居る間は RP がまた減るし、
+-- エクトナイトを後から手に入れることもあるので、止めると再開する機会が無くなる。
+-- (止めてよいのは「この先ずっと空振りする」= OFF / マップ外 / エラー の 3 つだけ)
+function Dungeon_rp_charger_charge_once()
     local pc = GetMyPCObject()
     local cur_rp, max_rp = shared_item_relic.get_rp(pc)
     if cur_rp >= 200 then

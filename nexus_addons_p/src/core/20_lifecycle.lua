@@ -254,7 +254,8 @@ function _nexus_addons_p_CHAT_SYSTEM(msg, color)
 end
 
 -- 成功した init の詳細ログ。ON のアドオンだけに絞る。
--- on_init は ON/OFF によらず全アドオン分呼ばれる(OFF 側はフレームの後始末に使う)ため、
+-- on_init は ON/OFF によらず全アドオン分呼ばれる(<key>_on_teardown を定義していない
+-- アドオンは、OFF 側でもフレームの後始末に on_init を使う)ため、
 -- 絞らないとマップ移動のたびに 48 行流れて、肝心の行が埋もれる。
 -- 失敗(FAILED)は OFF でも知りたいので、そちらは絞らずそのまま出す。
 function _nexus_addons_p_vlog_init(name, duration)
@@ -274,8 +275,9 @@ end
 -- この 2 つは配布 .lua のうち _nexus_addons_p_conclude.lua 側にだけ入っているため、
 -- 「片方のファイルが読み込まれていない」を疑う手掛かりがここしか無かった。
 --
--- OFF のときは各アドオンの on_init 自身が「use=0 のため初期化しない」を出すので、
--- この行が出るのは**定義が届いていない**ときだけ。両者を混同しないこと。
+-- OFF のときは <key>_on_teardown 側の「teardown:」行、または各アドオンの on_init 自身が
+-- 出す「use=0 のため初期化しない」が出るので、この行が出るのは**定義が届いていない**
+-- ときだけ。両者を混同しないこと。
 -- 初期化はマップ移動のたびに走るため、報告はアドオンごとに 1 回だけにする。
 -- **印を立てるのは実際に出力できたときだけ**(g.vlog の戻り値で判定する)。既定は
 -- OFF なので、先に印を立てるとログインの初回パスで黙って消費され、後からログを
@@ -289,9 +291,73 @@ function _nexus_addons_p_vlog_missing_init(name)
     end
 end
 
+-- 「競合する古い個別版アドオンが居るか」の判定。**検出箇所は必ずこれを通すこと。**
+-- 判定が 2 箇所(初回ロードの一括検出と、一覧の ON 切り替え)にあり、例外を片方に
+-- しか書いていなかったせいで実際に誤検出が出た。
+--
+-- **instant_cc だけは自分で `_G["INSTANTCC_ON_INIT"]` を公開している。**
+-- 他アドオン(indun_list_viewer / indun_panel / other_character_skill_list)が
+-- この名前で「Instant CC が使えるか」を見る連携用。素で見ると**自分自身を
+-- 古い個別版だと誤検出する**。
+-- 初回ロードの時点ではまだ公開されていないので通るが、キャラ切替などで g.loaded が
+-- 戻ると 2 回目の検出が走り、そのときには自分が公開した名前が居る = 個別版を
+-- 入れていないのに「競合を検出したので無効化しました」と出て OFF にされる
+-- (実機で発生: 21:13:03 に init して公開 → 21:13:10 のキャラ切替で誤検出)。
+-- 自分の on_init(小文字)が居れば、その名前を公開したのは自分だと分かる。
+function _nexus_addons_p_origin_addon_present(old_init_func_name)
+    if not old_init_func_name or old_init_func_name == "" then
+        return false
+    end
+    if not _G[old_init_func_name] then
+        return false
+    end
+    if old_init_func_name == "INSTANTCC_ON_INIT" and _G["instant_cc_on_init"] then
+        return false
+    end
+    return true
+end
+
+-- 機能 OFF のアドオンの後始末を、ここ 1 箇所で振り分ける。
+--
+-- on_init は ON/OFF によらず呼ばれる契約なので、「OFF なら畳む」を各アドオンが
+-- 自前で書く必要があった。**この規約はコメントにしか無く、実際に守り漏れていた**
+-- (登録済み 51 本のうち 18 本が on_init で use を見ておらず、party_marker と
+--  boss_direction は OFF のままタイマーを回し続けていた)。
+--
+-- そこで <key>_on_teardown を定義したアドオンだけ、use == 0 のとき on_init の
+-- 代わりにそちらを呼ぶ。**opt-in にしてあるのが要点**で、定義していないアドオンは
+-- 従来どおり on_init が呼ばれる。OFF でもフック張りなどで on_init を通す必要がある
+-- アドオン(market_voucher / characters_item_serch)を壊さないため。
+--
+-- 畳むのは OFF になった 1 回だけ。on_init はマップ移動のたびに全アドオン分走るので、
+-- 毎回呼ぶと OFF に固定している人のマップ移動で購読表の全走査が延々と繰り返される。
+-- 一度畳めば on_init を呼ばない = 何も作られないので、もう一度畳む必要は無い。
+g.addon_torn_down = g.addon_torn_down or {}
+
+-- 戻り値: 呼ぶべき関数, 種別("init" / "teardown" / "skip")
+function _nexus_addons_p_resolve_init_func(key)
+    local setting = g.settings and g.settings[key]
+    local teardown_func = _G[key .. "_on_teardown"]
+    if setting and setting.use == 0 and type(teardown_func) == "function" then
+        if g.addon_torn_down[key] then
+            return nil, "skip"
+        end
+        g.addon_torn_down[key] = true
+        return teardown_func, "teardown"
+    end
+    -- ON に戻った(あるいは teardown を持たない)ときは印を落とす。落とさないと
+    -- 次に OFF にしたとき「畳み済み」と誤判定して後始末が走らない。
+    g.addon_torn_down[key] = nil
+    return _G[key .. "_on_init"], "init"
+end
+
 function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addons_p)
     g.error_count = 0
-    local function safe_call(func, name)
+    local function safe_call(name)
+        local func, mode = _nexus_addons_p_resolve_init_func(name)
+        if mode == "skip" then
+            return
+        end
         if type(func) == "function" then
             local func_start = imcTime.GetAppTimeMS()
             local success, err = pcall(func)
@@ -299,10 +365,15 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
             local duration = func_end - func_start
             if not success then
                 g.error_count = g.error_count + 1
-                local err_msg = string.format("Error during on_init of '%s': %s", name, tostring(err))
+                local label = mode == "teardown" and "on_teardown" or "on_init"
+                local err_msg = string.format("Error during %s of '%s': %s", label, name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
-                g.vlog("{#FF6347}init: %s FAILED{/} %s", name, tostring(err))
+                g.vlog("{#FF6347}%s: %s FAILED{/} %s", mode, name, tostring(err))
+            elseif mode == "teardown" then
+                -- OFF になった 1 回だけなので流れない。「OFF にしたのにまだ動く」の
+                -- 報告で、畳めたのかどうかがここで分かる。
+                g.vlog("teardown: %s (機能 OFF のため畳んだ)", name)
             else
                 _nexus_addons_p_vlog_init(name, duration)
             end
@@ -316,7 +387,7 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
         for _, entry in ipairs(g._nexus_addons_p) do
             local key = entry.key
             local old_init_func_name = entry.data.old_init_func
-            if old_init_func_name and old_init_func_name ~= "" and _G[old_init_func_name] then
+            if _nexus_addons_p_origin_addon_present(old_init_func_name) then
                 local message
                 old_init_func_name = string.lower(string.gsub(old_init_func_name, "_ON_INIT", ""))
                 old_init_func_name = string.gsub(old_init_func_name, "_", " ")
@@ -348,13 +419,12 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
     else
         for _, entry in ipairs(g._nexus_addons_p) do
             local key = entry.key
-            local on_init_func = _G[key .. "_on_init"]
             if is_toggle then
                 if key == toggled_addon_name then
-                    safe_call(on_init_func, key)
+                    safe_call(key)
                 end
             else
-                safe_call(on_init_func, key)
+                safe_call(key)
             end
         end
     end
@@ -396,23 +466,31 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
             return 0
         end
         local func_name = entry.key
-        local on_init_func = _G[func_name .. "_on_init"]
-        if type(on_init_func) == "function" then
+        -- 初回ロードもマップ移動時と同じ振り分けを通す(_nexus_addons_p_resolve_init_func)。
+        -- ここを素の on_init のままにすると、OFF で起動した人だけ後始末が走らない。
+        local init_func, mode = _nexus_addons_p_resolve_init_func(func_name)
+        if mode == "skip" then
+            init_func = nil
+        end
+        if type(init_func) == "function" then
             local func_start = imcTime.GetAppTimeMS()
-            local success, err = pcall(on_init_func)
+            local success, err = pcall(init_func)
             local func_end = imcTime.GetAppTimeMS()
             local duration = func_end - func_start
             ts(string.format("init ADDON: %s (%d ms)", func_name, duration))
             if not success then
                 g.error_count = g.error_count + 1
-                local err_msg = string.format("Error during on_init of '%s': %s", func_name, tostring(err))
+                local label = mode == "teardown" and "on_teardown" or "on_init"
+                local err_msg = string.format("Error during %s of '%s': %s", label, func_name, tostring(err))
                 ts(err_msg)
                 g.log_to_file(err_msg)
-                g.vlog("{#FF6347}init: %s FAILED{/} %s", func_name, tostring(err))
+                g.vlog("{#FF6347}%s: %s FAILED{/} %s", mode, func_name, tostring(err))
+            elseif mode == "teardown" then
+                g.vlog("teardown: %s (機能 OFF のため畳んだ)", func_name)
             else
                 _nexus_addons_p_vlog_init(func_name, duration)
             end
-        else
+        elseif mode ~= "skip" then
             _nexus_addons_p_vlog_missing_init(func_name)
         end
         _nexus_addons_p:SetUserValue("FUNC_INDEX", func_index + 1)
@@ -576,8 +654,7 @@ function _nexus_addons_p_toggle_addons(list_gb, use_toggle, child_addon_name, nu
             break
         end
     end
-    if old_init_func_name and old_init_func_name ~= "" and _G[old_init_func_name] and
-        not (old_init_func_name == "INSTANTCC_ON_INIT" and _G["instant_cc_on_init"]) then
+    if _nexus_addons_p_origin_addon_present(old_init_func_name) then
         local message = nil
         old_init_func_name = string.lower(string.gsub(old_init_func_name, "_ON_INIT", ""))
         old_init_func_name = string.gsub(old_init_func_name, "_", " ")

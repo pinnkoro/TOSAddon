@@ -1,4 +1,107 @@
 -- vakarine_equip ここから
+-- 着脱対象になりうる部位と、その装備スロット番号。
+-- キャラ設定の初期化・設定画面のチェックボックス・チェック有無の判定・実際の着脱、
+-- **この 4 箇所すべてがここだけを見る**。以前は名前の一覧と番号の対応表が別々にあり、
+-- 部位を 1 つ足すとチェックボックスは増えるのに着脱の対象表には載らない、という
+-- 半端な壊れ方をしていた(設定画面には出るのに何も脱がない)。
+g.vakarine_equip_spots = {{
+    name = "RH",
+    index = 8
+}, {
+    name = "LH",
+    index = 9
+}, {
+    name = "RH_SUB",
+    index = 30
+}, {
+    name = "LH_SUB",
+    index = 31
+}, {
+    name = "RING1",
+    index = 17
+}, {
+    name = "RING2",
+    index = 18
+}, {
+    name = "SHIRT",
+    index = 3
+}, {
+    name = "PANTS",
+    index = 14
+}, {
+    name = "GLOVES",
+    index = 4
+}, {
+    name = "BOOTS",
+    index = 5
+}, {
+    name = "SHOULDER",
+    index = 34
+}, {
+    name = "BELT",
+    index = 33
+}, {
+    name = "NECK",
+    index = 19
+}}
+
+-- 自動起動の対象にするマップ種別。設定画面のチェックと判定で共有する。
+--
+-- **既定値は「この項目を入れる前の動作」をそのまま再現している。**
+-- インスタンス系は作動、フィールドと分裂とその他ダンジョンは対象外。
+-- 以前は「JSR で作動」の 1 個だけで、しかもボス協同戦は MapType が Instance のため
+-- チェックの ON/OFF に関わらず作動していた(= 何も効いていなかった)。
+--
+-- 判定材料は実機で確認済み(2026-07-29)。同じ調査を繰り返さないこと:
+--   ボス協同戦     field_d_cathedral_78_1     (11219, Instance) = FieldBossMap
+--   週間ボスレイド weekly_d_underfortress_68_1 (11205, Instance) = WeeklyBossMap
+--   通常レイド     Raid_Zmei                  (11291, Instance) = IsRaidField;NoTrade;NoWarp;HealControl
+--   ヴェルニケ     d_solo_dungeon             (8022,  Dungeon)  = solo_dungeon
+--   フィールド     ep13_f_siauliai_1          (11209, Field)    = None
+-- ボス協同戦と週間ボスレイドは**別のキーワード**で、どちらも MapType は Instance。
+-- 通常レイドは IsRaidField なので、この 2 つとは区別できる。
+g.vakarine_equip_map_kinds = {{
+    key = "jsr",
+    default = 1,
+    ja = "JSR（ボス協同戦）",
+    en = "JSR (boss co-op)"
+}, {
+    key = "wbr",
+    default = 1,
+    ja = "WBR（週間ボスレイド）",
+    en = "WBR (weekly boss raid)"
+}, {
+    key = "instance",
+    default = 1,
+    ja = "インスタンスダンジョン（レイド/ミッション）",
+    en = "Instanced dungeon (raid/mission)"
+}, {
+    key = "velnike",
+    default = 1,
+    ja = "ヴェルニケ",
+    en = "Velnice"
+}, {
+    key = "sanctuary",
+    default = 1,
+    ja = "未知の聖域3F",
+    en = "Unknown Sanctuary 3F"
+}, {
+    key = "split",
+    default = 0,
+    ja = "分裂",
+    en = "Split"
+}, {
+    key = "field",
+    default = 0,
+    ja = "フィールド",
+    en = "Field"
+}, {
+    key = "dungeon",
+    default = 0,
+    ja = "その他のダンジョン",
+    en = "Other dungeons"
+}}
+
 function Vakarine_equip_save_settings()
     g.save_json(g.vakarine_equip_path, g.vakarine_equip_settings)
 end
@@ -10,7 +113,6 @@ function Vakarine_equip_load_settings()
         settings = {
             buffid = {},
             delay = 0.1,
-            jsr = 0,
             x = 0,
             y = 0,
             move = 1,
@@ -18,20 +120,41 @@ function Vakarine_equip_load_settings()
             auto_remove = 0
         }
     end
+    -- 作動するマップ種別。**キー単位で既定値を補うこと。** 項目を後から足すので、
+    -- 「maps が在るかどうか」だけで見ると、増えた分が nil のまま判定に来る。
+    -- 旧 settings の jsr は引き継がない。ボス協同戦は MapType が Instance で、
+    -- あの設定は ON/OFF どちらでも作動していた = 引き継ぐ意味のある値ではない。
+    if type(settings.maps) ~= "table" then
+        settings.maps = {}
+    end
+    for _, kind in ipairs(g.vakarine_equip_map_kinds) do
+        if settings.maps[kind.key] == nil then
+            settings.maps[kind.key] = kind.default
+        end
+    end
     g.vakarine_equip_settings = settings
     Vakarine_equip_save_settings()
 end
 
-function vakarine_equip_on_init()
-    ui.SetHoldUI(false)
+-- 設定とこのキャラの枠を用意する。**OFF のときも必ず通すこと。**
+-- 設定ボタンは use に関係なくアドオン一覧に出るので、chars[g.cid] が無いまま
+-- Vakarine_equip_config_frame_open が呼ばれると nil を index して落ちる
+-- (既定は OFF なので、入れて最初に設定を開いた人が必ず踏む)。
+function Vakarine_equip_ensure_settings()
     if not g.vakarine_equip_settings then
         Vakarine_equip_load_settings()
     end
     if not g.vakarine_equip_settings.chars[g.cid] then
         Vakarine_equip_chrs_settings()
     end
+end
+
+function vakarine_equip_on_init()
+    ui.SetHoldUI(false)
+    Vakarine_equip_ensure_settings()
+    -- 保険。OFF のときは core が on_init ではなく vakarine_equip_on_teardown を呼ぶ。
     if g.settings.vakarine_equip.use == 0 then
-        ui.DestroyFrame(addon_name_lower .. "vakarine_equip")
+        vakarine_equip_on_teardown()
         return
     end
     g.register_msg('STAT_UPDATE', 'Vakarine_equip_stat_update')
@@ -45,14 +168,24 @@ function vakarine_equip_on_init()
     end
 end
 
+-- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の
+-- 代わりに呼ぶ)。フレームを消すだけでなく購読も外す。外さないと OFF でも
+-- STAT_UPDATE / TAKE_DAMAGE / BUFF_ADD が届き続け、消したフレームを触りに行く。
+function vakarine_equip_on_teardown()
+    -- 設定は OFF でも読んでおく(以前は on_init が OFF でも呼ばれていたので読まれていた)。
+    -- chars[g.cid] まで作るのは、OFF のまま設定画面を開けるため(上のコメント参照)。
+    Vakarine_equip_ensure_settings()
+    ui.SetHoldUI(false)
+    g.unregister_msg_by_prefix("Vakarine_equip_")
+    ui.DestroyFrame(addon_name_lower .. "vakarine_equip")
+end
+
 function Vakarine_equip_chrs_settings()
-    local equips = {"RH", "LH", "RH_SUB", "LH_SUB", "RING1", "RING2", "SHIRT", "PANTS", "GLOVES", "BOOTS", "SHOULDER",
-                    "BELT", "NECK"}
     g.vakarine_equip_settings.chars[g.cid] = {
         use = 0
     }
-    for _, equip in ipairs(equips) do
-        g.vakarine_equip_settings.chars[g.cid][equip] = 0
+    for _, spot in ipairs(g.vakarine_equip_spots) do
+        g.vakarine_equip_settings.chars[g.cid][spot.name] = 0
     end
     Vakarine_equip_save_settings()
 end
@@ -150,6 +283,78 @@ function Vakarine_equip_config_or_startup(frame, ctrl)
     end
 end
 
+-- ボス協同戦(JSR)のマップかどうか。マップ ID の直書きだと運営側でマップが
+-- 追加されたときに漏れるので、マップの Keyword で見る。
+--
+-- **キーワードは "FieldBossMap"。** 実機で確認した対応は次のとおり(2026-07-29):
+--   ボス協同戦 field_d_cathedral_78_1 (11219, Instance) = FieldBossMap
+--   通常レイド Raid_Zmei             (11291, Instance) = IsRaidField;NoTrade;NoWarp;HealControl
+--   ヴェルニケ d_solo_dungeon        (8022,  Dungeon)  = solo_dungeon
+--   フィールド ep13_f_siauliai_1     (11209, Field)    = None
+-- 通常レイドは IsRaidField で、FieldBossMap は付かない = この 1 語で区別できる。
+--
+-- **"WeeklyBossMap" ではない。** 当初そちらで実装したが、実機では 1 度も一致しない。
+-- あれは週間ボスレイド用で、ボス協同戦(FIELD_BOSS_JOIN で入るコンテンツ)とは
+-- 別物だった。同じ調査を繰り返さないこと。
+--
+-- 判定は g.map_has_keyword に寄せてある(";" 区切りのトークン一致)。
+-- 引けなかったときは false ではなく nil が返る。呼び出し側で区別すること。
+function Vakarine_equip_is_field_boss_map()
+    return g.map_has_keyword("FieldBossMap")
+end
+
+-- いま居るマップがどの種別に当たるか。g.vakarine_equip_map_kinds のキーを返す
+-- (どれにも当たらなければ nil)。
+--
+-- **細かいものから順に見ること。** ボス協同戦も週間ボスレイドも MapType は Instance
+-- なので、先に Keyword で拾わないと「インスタンスダンジョン」の設定に飲み込まれて、
+-- 個別のチェックが何も効かなくなる(以前の「JSR で作動」がまさにその状態だった)。
+--
+-- ID で持っている 3 つ(ヴェルニケ/聖域3F/分裂)を先に見るのは、そちらの方が具体的で、
+-- かつヴェルニケと聖域3F は MapType が Dungeon で Keyword からは辿れないため。
+function Vakarine_equip_map_kind()
+    if g.map_id == g.MAP_VELNIKE then
+        return "velnike"
+    end
+    if g.map_id == g.MAP_SANCTUARY_3F then
+        return "sanctuary"
+    end
+    if g.map_id == g.MAP_SPLIT then
+        return "split"
+    end
+    if Vakarine_equip_is_field_boss_map() == true then
+        return "jsr"
+    end
+    if g.map_has_keyword("WeeklyBossMap") == true then
+        return "wbr"
+    end
+    local map_type = g.get_map_type()
+    if map_type == "Instance" then
+        return "instance"
+    end
+    if map_type == "Field" then
+        return "field"
+    end
+    if map_type == "Dungeon" then
+        return "dungeon"
+    end
+    return nil
+end
+
+-- 設定でチェックされている部位が 1 つでもあるか。インベントリを開く前に見て、
+-- 0 個ならそもそも開かない(開いてから空で return すると開きっぱなしになる)。
+function Vakarine_equip_has_checked_spot(char_settings)
+    if not char_settings then
+        return false
+    end
+    for _, spot in ipairs(g.vakarine_equip_spots) do
+        if char_settings[spot.name] == 1 then
+            return true
+        end
+    end
+    return false
+end
+
 function Vakarine_equip_start_operation(is_manual)
     if not is_manual then
         local char_data = g.vakarine_equip_settings.chars[g.cid]
@@ -161,48 +366,79 @@ function Vakarine_equip_start_operation(is_manual)
     if not is_vakarine and not is_manual then
         return
     end
-    local is_valid_map =
-        (g.get_map_type() == "Instance" and g.map_id ~= 11227) -- 11244 聖域3F 11227 分裂 8022 ヴェルニケ
-        or g.map_id == 8022 or g.map_id == 11244
-    if is_valid_map or is_manual or g.vakarine_equip_settings.jsr == 1 then
-        g.vakarine_equip_field_boss = nil
+    -- 作動するかは「このマップの種別」と「その種別のチェック」だけで決まる。
+    -- 以前は「JSR で作動」の 1 個しか無く、しかも `or jsr == 1` が ON のとき
+    -- マップ判定を丸ごと素通りしていたため、フィールドや旧ダンジョンを含む
+    -- 都市以外の全マップで着脱が走っていた。そのうえボス協同戦は MapType が
+    -- Instance なので **OFF にしても作動しており、チェックは飾りだった**。
+    is_manual = is_manual and true or false
+    local map_type = g.get_map_type()
+    local kind = Vakarine_equip_map_kind()
+    local is_valid_map = kind ~= nil and g.vakarine_equip_settings.maps[kind] == 1
+    -- 「どの種別と判定したか」を必ず残す。ここが分からないと、作動した/しなかった
+    -- 理由を利用者の verbose_log.txt から説明できない。
+    local will_run = is_valid_map or is_manual
+    g.vlog("VakarineEquip 起動判定: map_id=%s type=%s 種別=%s 設定=%s manual=%s -> %s", tostring(g.map_id),
+        tostring(map_type), tostring(kind or "該当なし"),
+        kind and tostring(g.vakarine_equip_settings.maps[kind]) or "-", tostring(is_manual),
+        tostring(will_run))
+    if will_run then
+        local char_settings = g.vakarine_equip_settings.chars[g.cid]
+        if not Vakarine_equip_has_checked_spot(char_settings) then
+            -- 既定は全部位チェック無しなので、初めて手動で呼んだ人は必ずここを通る。
+            -- 黙って return するとアドオンが壊れているようにしか見えないため、
+            -- 手動のときだけ理由を伝える(自動は毎マップ出てしまうので出さない)。
+            if is_manual then
+                ui.SysMsg(g.lang == "Japanese" and
+                    "{ol}{#FF6347}[女神の像]{/} 着脱する部位が 1 つも選択されていません。設定画面で部位を選んでください" or
+                    "{ol}{#FF6347}[Vakarine]{/} No equipment slot is selected. Please choose slots in the settings.")
+            end
+            g.vlog("VakarineEquip 中止: 対象部位が 1 つもチェックされていない (manual=%s)", tostring(is_manual))
+            return
+        end
         local inventory = ui.GetFrame("inventory")
+        -- 自分で開いたのか、元から出ていたのかを憶えておく。空振りで閉じるときに
+        -- ここを見ないと、利用者が自分で開いていたインベントリまで勝手に閉じてしまう。
+        local inventory_was_open = inventory:IsVisible() == 1
         inventory:ShowWindow(1)
         DO_WEAPON_SLOT_CHANGE(inventory, 1)
         ui.SetHoldUI(true)
         local vakarine_equip = ui.GetFrame(addon_name_lower .. "vakarine_equip")
+        -- **HoldUI を掛けたら、その場で解除の保険を仕掛けること。**
+        -- 一度これを「実際に着脱を始めると決めてから」まで後ろへ動かしたが、
+        -- 間の処理(装備一覧の取得やキューの組み立て)で落ちると **UI ロックが
+        -- 掛かりっぱなしになり、掲示板もインベントリも何も開けなくなる**
+        -- (次のマップ移動で on_init が SetHoldUI(false) するまで戻らない)。実機で発生。
+        -- 早い段階で仕掛けても実害は無い: 途中で抜ける経路は自分で SetHoldUI(false) を
+        -- 呼ぶので、10 秒後の解除は「もう解除済みのものをもう一度解除する」だけになる。
         vakarine_equip:RunUpdateScript("Vakarine_equip_holdui_release", 10.0)
-        local equip_map = {
-            RH = 8,
-            LH = 9,
-            RH_SUB = 30,
-            LH_SUB = 31,
-            RING1 = 17,
-            RING2 = 18,
-            SHIRT = 3,
-            PANTS = 14,
-            GLOVES = 4,
-            BOOTS = 5,
-            SHOULDER = 34,
-            BELT = 33,
-            NECK = 19
-        }
         g.vakarine_equip_queue = {}
-        local char_settings = g.vakarine_equip_settings.chars[g.cid]
+        local checked_count = 0
         local equip_item_list = session.GetEquipItemList()
-        for spot_name, index in pairs(equip_map) do
-            local current_item = equip_item_list:GetEquipItemByIndex(index)
-            if char_settings[spot_name] == 1 and current_item then
-                table.insert(g.vakarine_equip_queue, {
-                    spot = spot_name,
-                    index = index,
-                    iesid = current_item:GetIESID()
-                })
+        for _, spot in ipairs(g.vakarine_equip_spots) do
+            if char_settings[spot.name] == 1 then
+                checked_count = checked_count + 1
+                local current_item = equip_item_list:GetEquipItemByIndex(spot.index)
+                if current_item then
+                    table.insert(g.vakarine_equip_queue, {
+                        spot = spot.name,
+                        index = spot.index,
+                        iesid = current_item:GetIESID()
+                    })
+                end
             end
         end
         local animas_item = session.GetInvItemByName("NECK04_103")
         g.vakarine_equip_animas_iesid = animas_item and animas_item:GetIESID() or nil
         if #g.vakarine_equip_queue == 0 then
+            -- チェックはあるが該当部位を装備していない場合。判断材料になるのは
+            -- 「何部位チェックされていたか」で、0 なら上で弾かれているはずなので、
+            -- ここに来た時点で「チェックはあるが装備していない」が確定する。
+            g.vlog("VakarineEquip 中止: チェックした %d 部位をどれも装備していない (manual=%s)", checked_count,
+                tostring(is_manual))
+            if not inventory_was_open then
+                inventory:ShowWindow(0)
+            end
             ui.SetHoldUI(false)
             return
         end
@@ -338,24 +574,51 @@ function Vakarine_equip_config_frame_open()
     close:SetImage("testclose_button")
     close:SetGravity(ui.RIGHT, ui.TOP)
     close:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_frame_close")
-    local jsr_check = config_gb:CreateOrGetControl('checkbox', "jsr_check", 10, 5, 30, 30)
-    AUTO_CAST(jsr_check)
-    jsr_check:SetCheck(g.vakarine_equip_settings.jsr)
-    local text = g.lang == "Japanese" and "チェックするとJSRで作動" or "Activated in JSR when checked"
-    jsr_check:SetText("{ol}" .. text)
-    jsr_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
+    -- 自動起動するマップ種別。以前は「チェックするとJSRで作動」の 1 個だけで、
+    -- それがどこに効くのかが分からないうえ、実際には効いてもいなかった
+    -- (Vakarine_equip_map_kind のコメント参照)。種別ごとに並べて、
+    -- 「チェックしたところだけで作動する」を見たままにする。
     local x = 0
-    local width = jsr_check:GetWidth()
-    if x < width then
-        x = width
+    local y = 5
+    local maps_label = config_gb:CreateOrGetControl("richtext", "maps_label", 10, y)
+    AUTO_CAST(maps_label)
+    maps_label:SetText(g.lang == "Japanese" and "{ol}自動で作動する場所" or "{ol}Where it runs automatically")
+    if x < maps_label:GetWidth() then
+        x = maps_label:GetWidth()
     end
-    local y = 40
-    local equips = {"RH", "LH", "RH_SUB", "LH_SUB", "RING1", "RING2", "SHIRT", "PANTS", "GLOVES", "BOOTS", "SHOULDER",
-                    "BELT", "NECK"}
-    for i, equip_name in ipairs(equips) do
+    y = y + 25
+    for i, kind in ipairs(g.vakarine_equip_map_kinds) do
+        local map_check = config_gb:CreateOrGetControl('checkbox', "map_check" .. i, 10, y, 30, 30)
+        AUTO_CAST(map_check)
+        -- `or 0` を外さないこと。項目を後から足すと、保存済みの設定にそのキーが無い。
+        -- nil を SetCheck に渡すと落ちて、json を消すまで設定画面が開かなくなる。
+        map_check:SetCheck(g.vakarine_equip_settings.maps[kind.key] or 0)
+        map_check:SetText("{ol}" .. (g.lang == "Japanese" and kind.ja or kind.en))
+        map_check:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックした場所でだけ自動で着脱します" or
+                                     "{ol}Runs automatically only where checked")
+        map_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
+        map_check:SetEventScriptArgString(ui.LBUTTONUP, kind.key)
+        if x < map_check:GetWidth() then
+            x = map_check:GetWidth()
+        end
+        y = y + 30
+    end
+    local spots_label = config_gb:CreateOrGetControl("richtext", "spots_label", 10, y + 5)
+    AUTO_CAST(spots_label)
+    spots_label:SetText(g.lang == "Japanese" and "{ol}着脱する部位" or "{ol}Slots to swap")
+    if x < spots_label:GetWidth() then
+        x = spots_label:GetWidth()
+    end
+    y = y + 35
+    for i, spot in ipairs(g.vakarine_equip_spots) do
+        local equip_name = spot.name
         local check_box = config_gb:CreateOrGetControl('checkbox', "check_box" .. i, 20, y, 30, 30)
         AUTO_CAST(check_box)
-        check_box:SetCheck(g.vakarine_equip_settings.chars[g.cid][equip_name])
+        -- `or 0` を外さないこと。既存キャラの設定は Vakarine_equip_chrs_settings が
+        -- **キャラ設定がまだ無いときにしか作らない**ので、後から部位を足すと
+        -- 保存済みのキャラにはそのキーが無い。nil のまま SetCheck に渡すと落ちて、
+        -- json を消すまで設定画面が二度と開かなくなる。
+        check_box:SetCheck(g.vakarine_equip_settings.chars[g.cid][equip_name] or 0)
         check_box:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックした装備を脱着します" or
                                      "{ol}Remove and detach checked equipment")
         check_box:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
@@ -400,8 +663,9 @@ end
 
 function Vakarine_equip_check_switch(config, ctrl, equip_name, num)
     local ischeck = ctrl:IsChecked()
-    if ctrl:GetName() == "jsr_check" then
-        g.vakarine_equip_settings.jsr = ischeck
+    if string.find(ctrl:GetName(), "map_check") then
+        -- equip_name には g.vakarine_equip_map_kinds のキーが入っている
+        g.vakarine_equip_settings.maps[equip_name] = ischeck
     elseif ctrl:GetName() == "move_check" then
         g.vakarine_equip_settings.move = ischeck
         Vakarine_equip_frame_init()

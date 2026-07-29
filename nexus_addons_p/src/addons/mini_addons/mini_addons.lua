@@ -178,6 +178,10 @@ function g.update_paths()
     g.active_id = active_id
     g.settings_path = string.format("../addons/%s/%s/mini_addons.json", core_addon_name_lower, active_id)
     g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
+    -- バフ一覧の「バックアップ」用。1 世代だけ持つ(まとめ版の設定バックアップとは別で、
+    -- バフ一覧だけを一括で切り替える前に自分で控えるためのもの)。
+    g.buffs_backup_path = string.format("../addons/%s/%s/mini_addons_buffs_backup.json", core_addon_name_lower,
+        active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
     -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
     -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると
@@ -4547,6 +4551,83 @@ function Mini_addons_INDUN_EDITMSGBOX_FRAME_OPEN_YES(parent, ctrl, arg_str, arg_
     ui.CloseFrame("indun_editmsgbox")
 end
 -- PTバフの表示非表示切り替え
+-- 一覧に出すバフを列挙する。**表示と一括操作で必ずこれを共有すること。**
+-- 条件(Group1 / ShowIcon / TeamLevel 除外 / 検索語 / アイコン無しの除外)が 2 箇所に
+-- 分かれると、「見えているものと一括操作の対象」が食い違って、出ていないバフまで
+-- 勝手に切り替わる。
+function Mini_addons_buff_list_each(filter_text, func)
+    local cls_list, count = GetClassList("Buff")
+    for i = 0, count - 1 do
+        local buff_cls = GetClassByIndexFromList(cls_list, i)
+        if buff_cls and buff_cls.Group1 == "Buff" and IS_PARTY_INFO_SHOWICON(buff_cls.ShowIcon) == true and
+            buff_cls.ClassName ~= "TeamLevel" then
+            local buff_name = dictionary.ReplaceDicIDInCompStr(buff_cls.Name)
+            if filter_text == "" or string.find(buff_name, filter_text) then
+                local image_name = GET_BUFF_ICON_NAME(buff_cls)
+                if buff_name ~= "None" and image_name ~= "icon_None" then
+                    func(i, buff_cls, buff_name, image_name)
+                end
+            end
+        end
+    end
+end
+
+-- いま検索欄に入っている絞り込み。一括操作の対象を「見えている分」に合わせるために使う。
+function Mini_addons_buff_list_filter_text(buff_list)
+    local search_edit = GET_CHILD_RECURSIVELY(buff_list, "search_edit")
+    return search_edit and search_edit:GetText() or ""
+end
+
+-- 一覧に出ているバフをまとめて ON / OFF にする(num: 1=ON, 0=OFF)。
+function Mini_addons_buff_list_set_all(frame, ctrl, str, num)
+    local value = num == 1 and 1 or 0
+    local filter_text = Mini_addons_buff_list_filter_text(frame)
+    local changed = 0
+    g.buffs = g.buffs or {}
+    Mini_addons_buff_list_each(filter_text, function(_, buff_cls)
+        local key = tostring(buff_cls.ClassID)
+        -- 未設定は「表示する(1)」扱い。既定値と同じ値を入れても変更にはしない。
+        if (g.buffs[key] or 1) ~= value then
+            g.buffs[key] = value
+            changed = changed + 1
+        end
+    end)
+    g.save_json(g.buffs_path, g.buffs)
+    core_g.vlog("mini_addons: バフ一覧を一括変更 value=%d 変更 %d 件 filter=%s", value, changed, tostring(filter_text))
+    ui.SysMsg(g.lang == "Japanese" and
+                  string.format("{ol}{#00BFFF}[Nexus Addons P] バフ表示を %d 件 %s にしました", changed,
+            value == 1 and "ON" or "OFF") or
+                  string.format("{ol}{#00BFFF}[Nexus Addons P] Turned %s %d buff(s)", value == 1 and "ON" or "OFF",
+            changed))
+    Mini_addons_buff_list_open(frame, ctrl, filter_text, num)
+end
+
+-- いまのチェック状態を控える。控えは 1 つだけで、押すたびに上書きする。
+function Mini_addons_buff_list_backup(frame, ctrl, str, num)
+    g.buffs = g.buffs or {}
+    g.save_json(g.buffs_backup_path, g.buffs)
+    core_g.vlog("mini_addons: バフ一覧をバックアップした (%s)", tostring(g.buffs_backup_path))
+    ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧をバックアップしました" or
+                  "{ol}{#00BFFF}[Nexus Addons P] Backed up the buff list")
+end
+
+-- 控えたチェック状態へ戻す。控えが無いときは何もしない(黙って空で上書きしないこと)。
+function Mini_addons_buff_list_restore(frame, ctrl, str, num)
+    local backup = g.load_json(g.buffs_backup_path)
+    if type(backup) ~= "table" then
+        core_g.vlog("mini_addons: バフ一覧の控えが無い (%s)", tostring(g.buffs_backup_path))
+        ui.SysMsg(g.lang == "Japanese" and "{ol}{#FF6347}[Nexus Addons P] バフ一覧のバックアップがありません" or
+                      "{ol}{#FF6347}[Nexus Addons P] No buff list backup")
+        return
+    end
+    g.buffs = backup
+    g.save_json(g.buffs_path, g.buffs)
+    core_g.vlog("mini_addons: バフ一覧を復元した")
+    ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧を復元しました" or
+                  "{ol}{#00BFFF}[Nexus Addons P] Restored the buff list")
+    Mini_addons_buff_list_open(frame, ctrl, Mini_addons_buff_list_filter_text(frame), num)
+end
+
 function Mini_addons_buff_list_open(frame, ctrl, ctrl_text, num)
     local buff_list = ui.GetFrame(addon_name_lower .. "buff_list")
     if not buff_list then
@@ -4575,46 +4656,75 @@ function Mini_addons_buff_list_open(frame, ctrl, ctrl_text, num)
         close_button:SetImage("testclose_button")
         close_button:SetGravity(ui.RIGHT, ui.TOP)
         close_button:SetEventScript(ui.LBUTTONUP, "Mini_addons_buff_list_frame_close")
+        -- 一括操作のボタン列。文言はまとめ版の設定バックアップと揃える(バックアップ/復元)。
+        local ja = g.lang == "Japanese"
+        local buttons = {{
+            name = "all_on_btn",
+            text = ja and "{ol}全部ON" or "{ol}All ON",
+            tooltip = ja and "{ol}いま一覧に出ているバフを全部 ON にします{nl}検索で絞り込んでいるときは、その分だけが対象です" or
+                "{ol}Turn ON every buff currently listed{nl}Only the filtered ones while searching",
+            script = "Mini_addons_buff_list_set_all",
+            arg = 1
+        }, {
+            name = "all_off_btn",
+            text = ja and "{ol}全部OFF" or "{ol}All OFF",
+            tooltip = ja and "{ol}いま一覧に出ているバフを全部 OFF にします{nl}検索で絞り込んでいるときは、その分だけが対象です" or
+                "{ol}Turn OFF every buff currently listed{nl}Only the filtered ones while searching",
+            script = "Mini_addons_buff_list_set_all",
+            arg = 0
+        }, {
+            name = "backup_btn",
+            text = ja and "{ol}バックアップ" or "{ol}Backup",
+            tooltip = ja and "{ol}いまのチェック状態を控えます{nl}控えは 1 つだけで、押すたびに上書きします" or
+                "{ol}Save the current checks{nl}Only one copy is kept; each press overwrites it",
+            script = "Mini_addons_buff_list_backup",
+            arg = 0
+        }, {
+            name = "restore_btn",
+            text = ja and "{ol}復元" or "{ol}Restore",
+            tooltip = ja and "{ol}控えたチェック状態に戻します{nl}いまの状態は上書きされます" or
+                "{ol}Restore the saved checks{nl}The current state is overwritten",
+            script = "Mini_addons_buff_list_restore",
+            arg = 0
+        }}
+        local btn_x = 10
+        for _, spec in ipairs(buttons) do
+            local btn = buff_list:CreateOrGetControl("button", spec.name, btn_x, 50, 115, 30)
+            AUTO_CAST(btn)
+            btn:SetText(spec.text)
+            btn:SetTextTooltip(spec.tooltip)
+            btn:SetEventScript(ui.LBUTTONUP, spec.script)
+            btn:SetEventScriptArgNumber(ui.LBUTTONUP, spec.arg)
+            btn_x = btn_x + 120
+        end
     end
-    local buff_list_gb = buff_list:CreateOrGetControl("groupbox", "buff_list_gb", 10, 50, 480,
-        buff_list:GetHeight() - 60)
+    -- ボタン列のぶん下げる
+    local buff_list_gb = buff_list:CreateOrGetControl("groupbox", "buff_list_gb", 10, 85, 480,
+        buff_list:GetHeight() - 95)
     AUTO_CAST(buff_list_gb)
     buff_list_gb:SetSkinName("bg")
     buff_list_gb:RemoveAllChild()
-    local cls_list, count = GetClassList("Buff")
     local y = 0
-    for i = 0, count - 1 do
-        local buff_cls = GetClassByIndexFromList(cls_list, i)
-        if buff_cls and buff_cls.Group1 == "Buff" and IS_PARTY_INFO_SHOWICON(buff_cls.ShowIcon) == true and
-            buff_cls.ClassName ~= "TeamLevel" then
-            local buff_id = buff_cls.ClassID
-            local buff_name = dictionary.ReplaceDicIDInCompStr(buff_cls.Name)
-            if ctrl_text == "" or (ctrl_text ~= "" and string.find(buff_name, ctrl_text)) then
-                local buff_slot = buff_list_gb:CreateOrGetControl('slot', 'buffslot' .. i, 10, y + 5, 30, 30)
-                AUTO_CAST(buff_slot)
-                local image_name = GET_BUFF_ICON_NAME(buff_cls)
-                if buff_name ~= "None" and image_name ~= "icon_None" then
-                    SET_SLOT_IMG(buff_slot, image_name)
-                    local icon = CreateIcon(buff_slot)
-                    AUTO_CAST(icon)
-                    icon:SetTooltipType('buff')
-                    icon:SetTooltipArg(buff_name, buff_id, 0)
-                    local buffcheck = buff_list_gb:CreateOrGetControl("checkbox", "buffcheck" .. buff_id, 45, y + 5, 30,
-                        30)
-                    AUTO_CAST(buffcheck)
-                    buffcheck:SetCheck(g.buffs[tostring(buff_id)] or 1)
-                    buffcheck:SetEventScript(ui.LBUTTONUP, "Mini_addons_buff_check")
-                    buffcheck:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
-                    buffcheck:SetText("{ol}" .. buff_cls.Name)
-                    buffcheck:SetTextTooltip(g.lang == "Japanese" and "{ol}" .. buff_id ..
-                                                 "{nl}チェックするとパーティーバフ表示" or "{ol}" ..
-                                                 buff_id .. "{nl}Party buff display when checked")
-                    buffcheck:AdjustFontSizeByWidth(380)
-                    y = y + 35
-                end
-            end
-        end
-    end
+    Mini_addons_buff_list_each(ctrl_text or "", function(i, buff_cls, buff_name, image_name)
+        local buff_id = buff_cls.ClassID
+        local buff_slot = buff_list_gb:CreateOrGetControl('slot', 'buffslot' .. i, 10, y + 5, 30, 30)
+        AUTO_CAST(buff_slot)
+        SET_SLOT_IMG(buff_slot, image_name)
+        local icon = CreateIcon(buff_slot)
+        AUTO_CAST(icon)
+        icon:SetTooltipType('buff')
+        icon:SetTooltipArg(buff_name, buff_id, 0)
+        local buffcheck = buff_list_gb:CreateOrGetControl("checkbox", "buffcheck" .. buff_id, 45, y + 5, 30, 30)
+        AUTO_CAST(buffcheck)
+        buffcheck:SetCheck(g.buffs[tostring(buff_id)] or 1)
+        buffcheck:SetEventScript(ui.LBUTTONUP, "Mini_addons_buff_check")
+        buffcheck:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
+        buffcheck:SetText("{ol}" .. buff_cls.Name)
+        buffcheck:SetTextTooltip(g.lang == "Japanese" and "{ol}" .. buff_id .. "{nl}チェックするとパーティーバフ表示" or
+                                     "{ol}" .. buff_id .. "{nl}Party buff display when checked")
+        buffcheck:AdjustFontSizeByWidth(380)
+        y = y + 35
+    end)
     buff_list:ShowWindow(1)
     -- 設定画面の「パーティーバフ」から開くサブ画面なので、設定画面と同じく ESC で閉じられる
     -- ようにする。検索し直すとこの関数がもう一度呼ばれるが、esc_register は同じフレームの
@@ -4636,13 +4746,7 @@ function Mini_addons_buff_list_frame_close(buff_list)
 end
 
 function Mini_addons_buff_list_search(frame, ctrl, str, num)
-    local search_edit = GET_CHILD_RECURSIVELY(frame, "search_edit")
-    local ctrl_text = search_edit:GetText()
-    if ctrl_text ~= "" then
-        Mini_addons_buff_list_open(frame, ctrl, ctrl_text, num)
-    else
-        Mini_addons_buff_list_open(frame, ctrl, "", num)
-    end
+    Mini_addons_buff_list_open(frame, ctrl, Mini_addons_buff_list_filter_text(frame), num)
 end
 
 function Mini_addons_buff_check(frame, ctrl, str, buff_id)
