@@ -38,7 +38,17 @@ function guild_event_warp_on_init()
 end
 
 function Guild_event_warp_frame_init()
+    -- この並び順がそのまま画面左から右への並びになる(右端は開閉の矢印)。
     g.guild_event_warp_info = {{
+        -- ギルドアジトだけは封鎖戦と経路が違う(モンスターも event_id も無い)ので、
+        -- アイコン画像とクリック時の関数を個別に指定する。画像はギルド活動 UI の
+        -- 「アジトへ移動」メニューと同じもの。
+        name = "guild_agit",
+        image = "guild_activity_menu_GuildAgitMove",
+        bg = "black_color",
+        script = "Guild_event_warp_move_to_guild_agit",
+        tooltip = g.lang == "Japanese" and "{ol}ギルドアジトに移動します" or "{ol}Move to the guild agit"
+    }, {
         name = "dragoon",
         event_id = 500,
         monster = "guild_boss_dragoon_ex",
@@ -68,27 +78,42 @@ function Guild_event_warp_frame_init()
     local icon_size = 28
     local icon_space = 33
     local x = 0
+    local show_window = g.guild_event_warp_settings.open == true and 1 or 0
     for _, info in ipairs(g.guild_event_warp_info) do
+        -- 透過のあるアイコン(モンスターアイコンと違い UI 側のボタン画像はくり抜かれている)
+        -- は下地が透けるので、先に黒い板を敷いておく。同じ親では後から作った方が上に
+        -- 描かれるので、slot より先に作ること。クリックは上の slot に通す。
+        if info.bg then
+            local bg = guild_event_warp:CreateOrGetControl("picture", info.name .. "_bg", x, 0, icon_size,
+                icon_size)
+            AUTO_CAST(bg)
+            bg:SetImage(info.bg)
+            bg:SetEnableStretch(1)
+            bg:EnableHitTest(0)
+            bg:ShowWindow(show_window)
+        end
         local slot_name = info.name .. "_slot"
         local slot = guild_event_warp:CreateOrGetControl("slot", slot_name, x, 0, icon_size, icon_size)
         AUTO_CAST(slot)
         slot:EnablePop(0)
         slot:EnableDrop(0)
         slot:EnableDrag(0)
-        slot:SetEventScript(ui.LBUTTONUP, "Guild_event_warp_move_to_guild_event")
+        slot:SetEventScript(ui.LBUTTONUP, info.script or "Guild_event_warp_move_to_guild_event")
         slot:SetEventScriptArgString(ui.LBUTTONUP, tostring(info.event_id))
-        local mon_cls = GetClass("Monster", info.monster)
-        if mon_cls then
+        local image_name = info.image
+        if not image_name and info.monster then
+            local mon_cls = GetClass("Monster", info.monster)
+            if mon_cls then
+                image_name = mon_cls.Icon
+            end
+        end
+        if image_name then
             local icon = CreateIcon(slot)
             AUTO_CAST(icon)
-            icon:SetImage(mon_cls.Icon)
+            icon:SetImage(image_name)
             icon:SetTextTooltip(info.tooltip)
         end
-        if g.guild_event_warp_settings.open == true then
-            slot:ShowWindow(1)
-        else
-            slot:ShowWindow(0)
-        end
+        slot:ShowWindow(show_window)
         x = x + icon_space
     end
     local open = guild_event_warp:CreateOrGetControl('picture', "open", x, 0, 20, 20)
@@ -123,6 +148,14 @@ function Guild_event_warp_toggle_frame(frame, ctrl, str, num)
         local slot = GET_CHILD(frame, slot_name)
         AUTO_CAST(slot)
         slot:ShowWindow(show_window)
+        -- 下地の黒板も一緒に畳む(残すと畳んだあとに黒い四角だけが浮く)
+        if info.bg then
+            local bg = GET_CHILD(frame, info.name .. "_bg")
+            if bg then
+                AUTO_CAST(bg)
+                bg:ShowWindow(show_window)
+            end
+        end
     end
     ctrl:SetImage(new_image_name)
     g.guild_event_warp_settings.open = new_open_state
@@ -173,6 +206,20 @@ function Guild_event_warp_move_to_guild_event(_, _, event_id)
     end
     g.guild_event_warp_channnel_change = true
     control.CustomCommand("MOVE_TO_ENTER_NPC", event_type, 1, 0)
+end
+
+-- guild_activity_ui の EXEC_AGIT_MOVE_GUILD_ACTIVITY_DETAIL_AGIT_MOVE と同じ。
+-- 封鎖戦の移動と違い、公式側もここでは移動可否チェックを持たない(可否はサーバーが
+-- 判定する)ので、こちらも g.guild_event_warp_can_move は通さない。
+-- 移動先はギルドごとの専用マップなので、チャンネル 1 への切り替えも行わない。
+function Guild_event_warp_move_to_guild_agit()
+    if GetMyGuildObject() == nil then
+        ui.SysMsg(g.lang == "Japanese" and "ギルドに所属していません" or "You do not belong to a guild")
+        g.vlog("guild_event_warp: ギルド未所属のためアジトへ移動しない")
+        return
+    end
+    g.vlog("guild_event_warp: ギルドアジトへの移動を要求する (map=%s)", tostring(session.GetMapName()))
+    guild.RequestGuildAgitMove()
 end
 
 function Guild_event_warp_channel_change()
