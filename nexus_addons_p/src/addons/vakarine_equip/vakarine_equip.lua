@@ -659,6 +659,7 @@ function Vakarine_equip_config_frame_open()
         config:SetPos(width / 2 - config:GetWidth() / 2 or 1165, 105)
     end
     config:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "vakarine_equip_config_frame")
 end
 
 function Vakarine_equip_check_switch(config, ctrl, equip_name, num)
@@ -830,6 +831,7 @@ function Vakarine_equip_buff_list(buff_list, ctrl, ctrl_text)
         y = y + 35
     end
     buff_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "vakarine_equip_buff_list")
 end
 
 function Vakarine_equip_buff_list_search(buff_list, ctrl, ctrl_text, num)

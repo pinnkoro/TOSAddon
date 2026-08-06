@@ -75,6 +75,7 @@ function Tavern_of_soul_main_frame_init()
     gbox:SetSkinName("bg")
     gbox:ShowWindow(0)
     tos_main:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "tos_main")
 end
 
 function Tavern_of_soul_search_enter(parent, ctrl)

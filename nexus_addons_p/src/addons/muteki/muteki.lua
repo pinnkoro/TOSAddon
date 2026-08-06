@@ -1014,6 +1014,15 @@ function Muteki_setting_frame_init()
     gb:RemoveAllChild()
     Muteki_setting_gbox_init(settings, gb)
     settings:ShowWindow(1)
+    -- ESC は × ボタンと同じ閉じ方にする(設定を閉じたらバフ/スキル一覧も畳む)。
+    -- Muteki_setting_frame_close は押されたコントロールから GetTopParentFrame で辿る作りなので、
+    -- フレームしか手元に無いここからは呼べない。同じ後始末をここで行う。
+    local settings_name = addon_name_lower .. "muteki_settings"
+    g.esc_register(settings_name, function()
+        ui.DestroyFrame(settings_name)
+        ui.DestroyFrame(addon_name_lower .. "muteki_buff_list")
+        ui.DestroyFrame(addon_name_lower .. "muteki_skill_list")
+    end)
 end
 
 function Muteki_setting_gbox_init(settings, gb)
@@ -1578,6 +1587,7 @@ function Muteki_buff_list_open(frame, ctrl, ctrl_text, num)
         end
     end
     buff_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "muteki_buff_list")
 end
 
 function Muteki_buff_list_search(frame, ctrl, str, num)
@@ -1675,6 +1685,7 @@ function Muteki_skill_list_open(frame, add, ctrl_text, buff_id)
 
     end
     skill_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "muteki_skill_list")
 end
 
 function Muteki_skill_list_search(frame, ctrl, str, buff_id)

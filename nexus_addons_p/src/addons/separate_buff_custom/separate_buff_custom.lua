@@ -355,6 +355,7 @@ function Separate_buff_custom_settings(buff_list, ctrl, ctrl_text)
     buff_list_gb:Resize(g.separate_buff_custom_x, buff_list:GetHeight() - 60)
     buff_list_gb:SetScrollPos(0)
     buff_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "separate_buff_custom_buff_list")
 end
 
 function Separate_buff_custom_buff_toggle(buff_list, ctrl, ctrl_text, buff_id)

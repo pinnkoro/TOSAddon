@@ -592,18 +592,27 @@ end
 --
 -- ESC は押すたびに必ず通る経路なので、ここは軽い処理だけにすること
 -- (ui.GetFrame 2 回。ログとファイル I/O は置かない。詳細は 20_lifecycle.lua)。
+--
+-- 呼び出し元が「この押下を使ったか」を判断できるよう、**実際に畳んだときだけ true** を返す。
+-- 無条件に true を返すと、何も開いていない押下まで消費した扱いになり、
+-- ESC でシステムメニューが開かなくなる。
+-- 隠すだけの設定画面は IsVisible() を見て、既に隠れているものは数えない。
 function _G.addons_menu_on_escape()
+    local closed = false
     local list = ui.GetFrame(SYSMENU_LIST_FRAME)
     if list then
         ui.DestroyFrame(SYSMENU_LIST_FRAME)
+        closed = true
     end
     -- 設定画面も同じ土台なので同じことが起きる。こちらは破棄せず隠す
     -- (CreateNewFrame で作り直せないため。addons_menu_setting_frame のコメント参照)。
     local setting = ui.GetFrame("addons_menu_setting")
-    if setting then
+    if setting and setting:IsVisible() == 1 then
         AUTO_CAST(setting)
         setting:ShowWindow(0)
+        closed = true
     end
+    return closed
 end
 
 -- "system" ボタンの左クリック。元の処理(システムメニューの開閉)はそのまま行い、

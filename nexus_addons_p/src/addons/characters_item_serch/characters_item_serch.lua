@@ -709,6 +709,7 @@ function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
     tree:SetFontName("white_16_ol")
     -- tree:SetTabWidth(80)
     Characters_item_serch_build_tree(characters_item_serch, tree, select_name)
+    g.esc_register_destroy(addon_name_lower .. "characters_item_serch")
 end
 
 function Characters_item_serch_close(characters_item_serch)

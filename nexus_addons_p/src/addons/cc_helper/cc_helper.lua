@@ -581,6 +581,7 @@ function Cc_helper_setting_frame_init(frame)
     pet_select:SetEventScript(ui.LBUTTONUP, "Cc_helper_context_pet")
     gbox:Resize(cch_setting:GetWidth() - 20, cch_setting:GetHeight() - 50)
     cch_setting:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "cch_setting")
     Cc_helper_slot_create_reserve(cch_setting, gbox)
 end
 

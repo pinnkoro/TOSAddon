@@ -166,10 +166,6 @@ function _nexus_addons_p_ESCAPE_PRESSED()
         return
     end
     g.esc_last_ms = imcTime.GetAppTimeMS()
-    -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
-    -- 出ない。こちらの開閉判定と食い違うので、この押下に合わせて畳んでおく
-    -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
-    pcall(addons_menu_on_escape)
     -- 押下ごとのログはここでは出さない。**ESC の反応が悪くなるため**(実機で確認)。
     -- g.vlog は 1 行ごとに ui.SysMsg とファイルの open/write/close を行うので、
     -- 押すたびに必ず走る経路に置くと、その分だけ入力の処理が重くなる。
@@ -177,6 +173,22 @@ function _nexus_addons_p_ESCAPE_PRESSED()
     -- ここを一時的に戻すのは「ESC がこちらへ届いているか」を疑うときだけにすること。
     local entry = g.esc_pop_top()
     if not entry then
+        -- スタックに閉じるものが無いときだけ、Addons Menu 側(一覧と設定画面)を畳む。
+        -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
+        -- 出ないので、こちらの開閉判定と食い違う分をここで合わせる
+        -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
+        --
+        -- **スタックより先に呼んではいけない。** 以前は無条件に先頭で呼んでいたため、
+        -- 手前の自作ウィンドウを閉じる押下で Addons Menu の設定画面まで一緒に消えていた
+        -- (「1 回の ESC でまとめて消える」を防ぐためのスタックが、ここだけ素通りしていた)。
+        local ok, closed = pcall(addons_menu_on_escape)
+        if ok and closed then
+            -- 実際に畳んだ押下は「使った」扱いにする。そうしないと設定画面が閉じるのと
+            -- 同時にシステムメニューが開き、indun_panel のトグルまで走る。
+            g.esc_closed_ms = imcTime.GetAppTimeMS()
+            g.esc_sync_scp()
+            return
+        end
         -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
         -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
         -- ここは force を付けない。押下のたびに SetEscapeScp("") を撃つと、
@@ -195,7 +207,11 @@ function _nexus_addons_p_ESCAPE_PRESSED()
         -- 定期的な調査は起動後 1 回(GAME_START)だけにする。
         return
     end
-    local close_func = _G[entry.close]
+    -- close は関数そのものか、グローバル関数の名前(g.esc_register 参照)。
+    local close_func = entry.close
+    if type(close_func) ~= "function" then
+        close_func = _G[close_func]
+    end
     if type(close_func) ~= "function" then
         g.vlog("ESCAPE_PRESSED: close func not found frame=%s func=%s", tostring(entry.frame), tostring(entry.close))
         g.esc_sync_scp()

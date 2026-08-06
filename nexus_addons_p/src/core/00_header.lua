@@ -1057,7 +1057,11 @@ g.esc_stack = g.esc_stack or {}
 
 -- ESC で閉じたいフレームを開いたときに呼ぶ。
 --   frame_name: ui.GetFrame に渡すフレーム名
---   close_func: 閉じるグローバル関数の名前(引数無しで呼べること)
+--   close_func: 閉じ方。次のどちらでもよい
+--     * グローバル関数の**名前**(引数無しで呼べること) … 既存の閉じる処理を使い回すとき
+--     * 関数そのもの(引数無しで呼ばれる)               … その場の無名関数で足りるとき
+--   後者を許すのは、閉じる処理がフレーム名を引数に取る作りのアドオンが多く、
+--   そのたびに引数無しのラッパをグローバルへ足していると名前が増えるだけだから。
 -- 開き直しは積み直し = 最前面扱いにする。
 -- **フレームを作って ShowWindow(1) した後で呼ぶこと**。まだ出ていない状態で呼ぶと、
 -- 直後の同期で「閉じ終わった登録」と見なされてその場で捨てられる。
@@ -1072,6 +1076,26 @@ function g.esc_register(frame_name, close_func)
         close = close_func
     })
     g.esc_sync_scp()
+end
+
+-- 「ESC で破棄する」だけの窓のための短縮形。閉じるときに保存などの後始末が要らない、
+-- ui.DestroyFrame するだけの窓はこれで足りる(自作ウィンドウの大半がこれ)。
+function g.esc_register_destroy(frame_name)
+    g.esc_register(frame_name, function()
+        ui.DestroyFrame(frame_name)
+    end)
+end
+
+-- 「ESC で隠す」だけの窓のための短縮形。作り直せない土台(chat_memberlist など)や、
+-- 破棄すると持っている参照が無効になる窓はこちらを使う。
+function g.esc_register_hide(frame_name)
+    g.esc_register(frame_name, function()
+        local frame = ui.GetFrame(frame_name)
+        if frame then
+            AUTO_CAST(frame)
+            frame:ShowWindow(0)
+        end
+    end)
 end
 
 -- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。

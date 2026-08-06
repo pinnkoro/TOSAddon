@@ -130,6 +130,23 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * 全体: **ESC キーでウィンドウが閉じない不具合を修正しました。**
+    * これまで ESC で閉じられたのは 4 アドオンの一部のウィンドウだけで、
+      **ほとんどの設定画面は ESC を押しても無反応**でした。
+      Always Status / Another Warehouse / Archeology Helper / Auto Repair /
+      Battle Ritual / Boss Direction / CC Helper / Characters Item Serch /
+      Easy Buff / Instant CC / Lets Go Home / Market Favorite Rebuild /
+      Market Voucher / Monster Kill Count / Muteki / My Buffs Control /
+      No Check / Quickslot Operate / Revival Timer / Save Quest /
+      Separate Buff Custom / Status Point Check / Sub Map / Sub Slotset /
+      Tavern of Soul / Vakarine Equip / Aethergem Manager / Indun Panel の
+      設定画面・一覧ウィンドウが ESC で閉じるようになります。
+      重なっているときは、これまでどおり**一番手前の 1 枚だけ**が閉じます。
+    * Addons Menu の設定画面まわりの取りこぼしも修正しました。
+      手前のウィンドウを ESC で閉じたときに設定画面まで一緒に消えていたのと、
+      設定画面を ESC で閉じると同時にゲームのシステムメニューが開いてしまうのを直しています。
+    * ゲームのウィンドウに貼り付いて開く一部のパネル（Bulk Sales / Ancient Auto Set /
+      Another Warehouse の倉庫本体など）は、これまでどおり親のウィンドウと一緒に閉じます。
   * Guild Event Warp: **ギルドアジトへのワープボタンを追加しました。**
     封鎖戦の 3 つの左隣（一番左）に、黒背景のアイコンで並びます。
     ギルド活動 UI の「アジトへ移動」と同じ処理を呼ぶので、

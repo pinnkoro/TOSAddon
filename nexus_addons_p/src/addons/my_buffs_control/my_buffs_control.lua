@@ -329,6 +329,7 @@ function My_buffs_control_setting_menu()
     AUTO_CAST(text)
     text:SetText(g.lang == "Japanese" and "{ol}{#FF0000}※街では全て表示します" or
                      "{ol}{#FF0000}※Show all in town")
+    g.esc_register_destroy(addon_name_lower .. "my_buffs_control_setting")
 end
 
 function My_buffs_control_original_position()

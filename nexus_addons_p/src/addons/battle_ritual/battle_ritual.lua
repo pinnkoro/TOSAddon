@@ -488,6 +488,14 @@ function Battle_ritual_create_row(gbox, index, skill_id, buff_id, priority, y)
     setting:Resize(550, 945)
     gbox:Resize(setting:GetWidth() - 20, 895) -- 945
     setting:ShowWindow(1)
+    -- ESC は × ボタンと同じ閉じ方にする(設定を閉じたらスキル/バフ一覧も畳む)。
+    local setting_name = addon_name_lower .. "Battle_ritual_setting"
+    g.esc_register(setting_name, function()
+        local frame = ui.GetFrame(setting_name)
+        if frame then
+            Battle_ritual_frame_close(frame)
+        end
+    end)
 end
 
 function Battle_ritual_priority_change(ctrl)
@@ -605,6 +613,7 @@ function Battle_ritual_skill_list_open(frame, add, ctrl_text, index)
 
     end
     skill_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "Battle_ritual_skill_list")
 end
 
 function Battle_ritual_skill_list_search(frame, ctrl, str, index)
@@ -744,6 +753,7 @@ function Battle_ritual_buff_list_open(frame, ctrl, ctrl_text, skill_id)
         end
     end
     buff_list:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "Battle_ritual_buff_list")
 end
 
 function Battle_ritual_buff_list_search(frame, ctrl, str, skill_id)

@@ -473,6 +473,7 @@ function Archeology_helper_setting_frame(au_map, display)
     setting:Resize(sta_check:GetWidth() + 40, 120)
     gbox:Resize(setting:GetWidth() - 20, 70)
     setting:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "archeology_helper_setting")
 end
 
 function Archeology_helper_setting_change()

@@ -2320,6 +2320,12 @@ function Market_favorite_rebuild_TOGGLE_FRAME(bool)
     xBtn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_CLOSE")
     y = y + 40
     frame:Resize(frame:GetWidth(), y)
+    -- ESC は × ボタンと同じ「隠す」にする(この窓はマーケットを開いている間だけ使い回すため、
+    -- 破棄すると次に開いたときに作り直しが要る)。閉じた状態でここを通ることもあるので、
+    -- 出ているときだけ積む(出ていない登録は次の同期でその場で捨てられる)。
+    if frame:IsVisible() == 1 then
+        core_g.esc_register_hide(addon_name_lower)
+    end
 end
 
 function Market_favorite_rebuild_toggle_check(frame, ctrl)

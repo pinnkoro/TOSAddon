@@ -90,6 +90,38 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
 
+## ウィンドウを開いたら ESC で閉じられるようにする
+
+**自作ウィンドウを開くコードを書いたら、必ず `g.esc_register` 系でスタックへ積むこと。**
+土台に使っている `notice_on_pc`（`g.create_persistent_frame` も同じ）はゲーム側の ESC では
+消えないので、積み忘れたウィンドウは**ESC が完全に無反応**になる。利用者から見ると
+「閉じるものと閉じないものがある」という一番分かりにくい形で出る（実際に 44 アドオン中
+4 つしか積んでいない時期があり、設定画面のほとんどが ESC で閉じなかった）。
+
+* **どれを使うか**（実装は [core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）
+  * `g.esc_register_destroy(frame_name)` … 閉じ方が `ui.DestroyFrame` だけのとき（大半はこれ）
+  * `g.esc_register_hide(frame_name)` … 破棄せず隠すとき（`chat_memberlist` 由来など
+    `CreateNewFrame` で作り直せない土台、参照を持ち回しているウィンドウ）
+  * `g.esc_register(frame_name, close)` … 後始末が要るとき。`close` はグローバル関数の
+    **名前**（引数無しで呼べること）でも**関数そのもの**でもよい。閉じる処理がフレームを
+    引数に取る作りなら、無名関数で包んで渡す
+* **ESC は × ボタンと同じ挙動にする。** × が保存やインベントリの右クリック割り当ての
+  復帰までやっているなら、ESC からも同じ関数を通すこと。片方だけ後始末が抜けると、
+  「× なら直るのに ESC だと壊れる」という追いにくい差になる。
+* **呼ぶのは `ShowWindow(1)` の後。** まだ出ていない状態で積むと、直後の同期で
+  「閉じ終わった登録」と見なされてその場で捨てられる。
+* **積んではいけないもの**（積むと ESC を常に横取りしてシステムメニューが開けなくなる）
+  * 常時表示の HUD（`indun_panel` / `always_status` / ボタン類、`_nexus_addons_p_update_frames`
+    の `update_check_frames` に載っているフレームは毎フレーム復帰させるので特にだめ）
+  * ツールチップ、マーカーなど利用者が「閉じる」と認識しないもの
+  * **ゲーム側のウィンドウに貼り付いている付属パネル**（`bulk_sales` は shop、
+    `ancient_auto_set` は ancient_card_list、`another_warehouse` の本体は accountwarehouse に
+    連動して開閉する）。ここで ESC を横取りすると、本来閉じるべきゲーム側の窓が
+    開いたまま残る。親のゲーム窓が閉じるときに一緒に畳まれる作りにしておくこと
+* 判定と close の呼び出しは `_nexus_addons_p_ESCAPE_PRESSED`（[core/20_lifecycle.lua](nexus_addons_p/src/core/20_lifecycle.lua)）
+  1 箇所に集約してある。**アドオン側で `ESCAPE_PRESSED` を個別に購読しないこと**
+  （各自が自分のフレームを閉じると、1 回の ESC で開いている自作ウィンドウが全部消える）。
+
 ## CMD(コンソール窓)をなるべく出さない
 
 `os.execute` は **GUI プロセスから呼ぶと必ず cmd.exe のコンソール窓を作る**。ゲーム画面が

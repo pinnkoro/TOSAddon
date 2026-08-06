@@ -476,6 +476,7 @@ function Quickslot_operate_choice_potion(frame, slot, str, num)
         SET_SLOT_ITEM_CLS(slot, class)
     end
     quickslot_operate:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "quickslot_operate", "Quickslot_operate_frame_close")
 end
 
 function Quickslot_operate_set_potion(parent, slot, str, pot_id)

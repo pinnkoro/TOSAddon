@@ -111,6 +111,7 @@ function Save_quest_settings()
     setting:Resize(300, 130)
     gbox:Resize(setting:GetWidth() - 20, setting:GetHeight() - 50)
     setting:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "save_quest_setting")
 end
 
 function Save_quest_skin_select()
