@@ -524,9 +524,9 @@ g._nexus_addons_p_trans = {
         kr = "{ol}meldavy님 제작{nl}성역에서 레릭 포인트를 자동으로 보충"
     },
     ["guild_event_warp"] = {
-        ja = "{ol}画面右上の小さいボタンから封鎖戦マップの1チャンネルにワープ",
-        etc = "{ol}Warp to Channel 1 of the Blockade Battle Map{nl}from the button in the upper right corner of the screen",
-        kr = "{ol}화면 오른쪽 상단의 작은 버튼으로 봉쇄전 맵의 1채널로 워프"
+        ja = "{ol}画面右上の小さいボタンから封鎖戦マップの1チャンネルと{nl}ギルドアジトにワープ",
+        etc = "{ol}Warp to Channel 1 of the Blockade Battle Map or to the guild agit{nl}from the button in the upper right corner of the screen",
+        kr = "{ol}화면 오른쪽 상단의 작은 버튼으로 봉쇄전 맵의 1채널과{nl}길드 아지트로 워프"
     },
     ["instant_cc"] = {
         ja = "{ol}ebisukeさん作成{nl}キャラクターチェンジを簡易にします",
