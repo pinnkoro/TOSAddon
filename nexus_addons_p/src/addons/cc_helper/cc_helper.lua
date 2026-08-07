@@ -581,7 +581,19 @@ function Cc_helper_setting_frame_init(frame)
     pet_select:SetEventScript(ui.LBUTTONUP, "Cc_helper_context_pet")
     gbox:Resize(cch_setting:GetWidth() - 20, cch_setting:GetHeight() - 50)
     cch_setting:ShowWindow(1)
-    g.esc_register_destroy(addon_name_lower .. "cch_setting")
+    -- ESC は × ボタンと同じ閉じ方にする。**破棄だけにしないこと。**
+    -- Cc_helper_setting_frame_close はインベントリの右クリック割り当ても状況に応じて
+    -- 戻している(倉庫が開いていれば元の担当へ、そうでなければ None)。ここを破棄だけに
+    -- すると、ESC で閉じた後もインベントリの右クリックが CC Helper のままになる。
+    -- この関数はチェックや保存のたびに呼び直されるので esc_register_keep を使う
+    -- (積み直すと、後から開いた他の窓より手前に戻ってしまう)。
+    local setting_name = addon_name_lower .. "cch_setting"
+    g.esc_register_keep(setting_name, function()
+        local frame = ui.GetFrame(setting_name)
+        if frame then
+            Cc_helper_setting_frame_close(frame)
+        end
+    end)
     Cc_helper_slot_create_reserve(cch_setting, gbox)
 end
 

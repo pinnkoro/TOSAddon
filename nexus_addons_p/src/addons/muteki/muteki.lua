@@ -1017,8 +1017,11 @@ function Muteki_setting_frame_init()
     -- ESC は × ボタンと同じ閉じ方にする(設定を閉じたらバフ/スキル一覧も畳む)。
     -- Muteki_setting_frame_close は押されたコントロールから GetTopParentFrame で辿る作りなので、
     -- フレームしか手元に無いここからは呼べない。同じ後始末をここで行う。
+    -- この関数はバフ/スキルを足すたびに呼び直されるので esc_register_keep を使う。
+    -- 積み直すと、開いたままのバフ/スキル一覧より設定画面が手前になり、
+    -- ESC 1 回で 3 枚まとめて消える。
     local settings_name = addon_name_lower .. "muteki_settings"
-    g.esc_register(settings_name, function()
+    g.esc_register_keep(settings_name, function()
         ui.DestroyFrame(settings_name)
         ui.DestroyFrame(addon_name_lower .. "muteki_buff_list")
         ui.DestroyFrame(addon_name_lower .. "muteki_skill_list")

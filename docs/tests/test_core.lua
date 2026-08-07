@@ -943,6 +943,43 @@ do
     check("破棄はしない", frames["fhide"] ~= nil, true)
 end
 
+-- ===== 18-4-2. 作り直す初期化関数から積むときは位置を動かさない =====
+-- battle_ritual / muteki の設定画面は、スキルやバフを足すたびに初期化関数ごと呼び直される。
+-- そこで esc_register を使うと**子の一覧を開いたまま親が最前面へ積み直され**、
+-- ESC 1 回で親の close が走って子まで道連れになる(スタックが防ぐはずの挙動が出る)。
+print("[18-4-2] esc_register_keep は既にある登録を動かさない")
+esc_setup({"a"}) -- a = 親(設定画面)を先に開いた状態
+do
+    frames["fchild"] = new_frame("fchild", 1)
+    g.esc_register("fchild", "esc_test_close_b") -- 子の一覧をその上に開く
+    -- 親の初期化関数が呼び直された
+    g.esc_register_keep("fa", "esc_test_close_a")
+    esc_press()
+    check("親を積み直さないので子が先に閉じる", table.concat(esc_closed, ","), "b")
+    check("親はスタックに残る", #g.esc_stack, 1)
+    -- 参考: esc_register だと親が手前へ来てしまう(この差が今回の不具合)
+    esc_setup({"a"})
+    frames["fchild"] = new_frame("fchild", 1)
+    g.esc_register("fchild", "esc_test_close_b")
+    g.esc_register("fa", "esc_test_close_a")
+    esc_press()
+    check("esc_register だと親が先に閉じる", table.concat(esc_closed, ","), "a")
+end
+-- 閉じ方だけは最新に差し替える(作り直しで close の中身が変わってもよいように)
+esc_setup({})
+do
+    local which = {}
+    frames["fk"] = new_frame("fk", 1)
+    g.esc_register("fk", function() which[#which + 1] = "old" end)
+    g.esc_register_keep("fk", function()
+        which[#which + 1] = "new"
+        frames["fk"] = nil
+    end)
+    check("積み直さないので 1 件のまま", #g.esc_stack, 1)
+    esc_press()
+    check("閉じ方は新しい方を使う", table.concat(which, ","), "new")
+end
+
 -- ===== 18-5. Addons Menu 側(一覧と設定画面)を畳むのはスタックが空のときだけ =====
 -- 先頭で無条件に呼んでいた頃は、手前の自作ウィンドウを閉じる押下で設定画面まで
 -- 一緒に消えていた(「1 回の ESC でまとめて消える」を防ぐスタックがここだけ素通り)。

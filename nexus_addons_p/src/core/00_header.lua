@@ -1078,6 +1078,26 @@ function g.esc_register(frame_name, close_func)
     g.esc_sync_scp()
 end
 
+-- 既に積んである登録は動かさずに積む。**中身を作り直す初期化関数から積むときはこちら**。
+--
+-- esc_register は「開き直し = 最前面」なので、同じフレームをもう一度積むと一番上へ来る。
+-- 検索し直しのように「その窓自身を開き直した」ときはそれで正しいが、
+-- **子の一覧を開いたまま親の設定画面を組み立て直す**作り(battle_ritual / muteki は
+-- スキルやバフを足すたびに設定画面の初期化関数を呼び直す)でこれを使うと、
+-- 親が子より手前に積み直され、ESC 1 回で親の close が走って子まで道連れになる
+-- = スタックが防ぐはずの「まとめて消える」がそのまま出る。
+function g.esc_register_keep(frame_name, close_func)
+    for _, entry in ipairs(g.esc_stack) do
+        if entry.frame == frame_name then
+            -- 位置は動かさず、閉じ方だけ最新にする
+            entry.close = close_func
+            g.esc_sync_scp()
+            return
+        end
+    end
+    g.esc_register(frame_name, close_func)
+end
+
 -- 「ESC で破棄する」だけの窓のための短縮形。閉じるときに保存などの後始末が要らない、
 -- ui.DestroyFrame するだけの窓はこれで足りる(自作ウィンドウの大半がこれ)。
 function g.esc_register_destroy(frame_name)

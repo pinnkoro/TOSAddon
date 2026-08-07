@@ -659,7 +659,12 @@ function Vakarine_equip_config_frame_open()
         config:SetPos(width / 2 - config:GetWidth() / 2 or 1165, 105)
     end
     config:ShowWindow(1)
-    g.esc_register_destroy(addon_name_lower .. "vakarine_equip_config_frame")
+    -- この関数はチェックボックスを押すたびに呼び直されるので、積み直さない形で積む
+    -- (積み直すと、開いたままのバフ一覧より設定画面が手前になる)。
+    local config_name = addon_name_lower .. "vakarine_equip_config_frame"
+    g.esc_register_keep(config_name, function()
+        ui.DestroyFrame(config_name)
+    end)
 end
 
 function Vakarine_equip_check_switch(config, ctrl, equip_name, num)
