@@ -1086,6 +1086,11 @@ end
 -- スキルやバフを足すたびに設定画面の初期化関数を呼び直す)でこれを使うと、
 -- 親が子より手前に積み直され、ESC 1 回で親の close が走って子まで道連れになる
 -- = スタックが防ぐはずの「まとめて消える」がそのまま出る。
+--
+-- **ここで「その登録が生きているか」を見ても意味が無い。** 呼ばれる時点ではフレームを
+-- 作って ShowWindow(1) した直後なので、開き直した場合でも必ず生きていると出る。
+-- 「閉じた窓の登録が下に残っている」状態を作らせないのは esc_top の掃除の役目
+-- (毎フレームの esc_sync_scp から呼ばれる)。そちらを参照。
 function g.esc_register_keep(frame_name, close_func)
     for _, entry in ipairs(g.esc_stack) do
         if entry.frame == frame_name then
@@ -1121,21 +1126,33 @@ end
 -- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。
 -- × ボタンで閉じた分は登録解除されないまま残るので、ここで一緒に捨てる。
 -- 戻り値の 2 つ目はスタック上の位置(esc_pop_top が外すのに使う)。
+--
+-- **掃除は「一番手前の生きた登録」で打ち切らず、スタック全体に対して行うこと。**
+-- 途中で止めると、下に沈んだ死んだ登録が永久に残る。そうなると esc_register_keep が
+-- それを掴んで位置を据え置き、**閉じた窓を開き直しても手前に来ない**:
+--   一覧を開く → 別の窓を開く(一覧の上) → 一覧を × で閉じる(登録は下に残る)
+--   → 一覧を開き直す → 据え置かれて下のまま → ESC が別の窓を先に閉じる
+-- 全体を見ても、スタックに載るのは開いている自作ウィンドウだけ(実測で数枚)なので、
+-- 毎フレーム呼ばれても走査は数回の ui.GetFrame で済む。
 function g.esc_top()
     for i = #g.esc_stack, 1, -1 do
         local entry = g.esc_stack[i]
         local frame = ui.GetFrame(entry.frame)
-        if frame ~= nil and frame:IsVisible() == 1 then
-            return entry, i
+        if frame == nil or frame:IsVisible() ~= 1 then
+            -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
+            -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
+            -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
+            g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
+                frame and tostring(frame:IsVisible()) or "-")
+            -- 下から順に詰めるので、i より下の位置は動かない(上向きに走査しているため安全)。
+            table.remove(g.esc_stack, i)
         end
-        -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
-        -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
-        -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
-        g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
-            frame and tostring(frame:IsVisible()) or "-")
-        table.remove(g.esc_stack, i)
     end
-    return nil
+    local top = #g.esc_stack
+    if top == 0 then
+        return nil
+    end
+    return g.esc_stack[top], top
 end
 
 -- 一番手前の登録を 1 つ取り出す(閉じた後に開き直せば esc_register で積み直される)。

@@ -965,6 +965,26 @@ do
     esc_press()
     check("esc_register だと親が先に閉じる", table.concat(esc_closed, ","), "a")
 end
+-- 死んだ登録が下に沈んだまま残ると、esc_register_keep がそれを掴んで位置を据え置き、
+-- **閉じた窓を開き直しても手前に来ない**。掃除は esc_top の役目(毎フレームの同期で走る)。
+esc_setup({"a"}) -- a = 一覧(esc_register_keep で積む側)
+do
+    frames["fother"] = new_frame("fother", 1)
+    g.esc_register("fother", "esc_test_close_b") -- 別の窓をその上に開く
+    frames["fa"] = nil -- 一覧を × で閉じた(登録は fother の下に残る)
+    check("死んだ登録は手前の生きた登録の下でも掃除する", (function()
+        _nexus_addons_p_update_frames() -- 1 フレーム経過(esc_sync_scp -> esc_top)
+        return #g.esc_stack
+    end)(), 1)
+    -- 一覧を開き直す
+    frames["fa"] = new_frame("fa", 1)
+    g.esc_register_keep("fa", "esc_test_close_a")
+    esc_press()
+    check("開き直した一覧が手前に来る", table.concat(esc_closed, ","), "a")
+    esc_press()
+    check("その下に別の窓が残っている", table.concat(esc_closed, ","), "a,b")
+end
+
 -- 閉じ方だけは最新に差し替える(作り直しで close の中身が変わってもよいように)
 esc_setup({})
 do

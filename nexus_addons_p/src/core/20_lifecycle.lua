@@ -644,7 +644,11 @@ function _nexus_addons_p_frame_init()
     -- 設定画面まで道連れになる。
     --
     -- なお characters_item_serch は位置を読むためだけにここを呼び、戻り値を
-    -- すぐ ShowWindow(0) する。その場合の登録は「出ていない」ので、次の同期で捨てられる。
+    -- すぐ ShowWindow(0) する。この「出ていない登録」は、直後に characters_item_serch 自身が
+    -- 上へ積まれると esc_top の走査がそこで止まるため掃除されず下に残る
+    -- (esc_top は最初に生きている登録で止まる)。後で本当に一覧を開いたときに
+    -- 死んだ登録を掴んで手前に来ない、という形で出るので、
+    -- **esc_register_keep 側で「生きているときだけ据え置く」ことで塞いでいる**。
     g.esc_register_keep(list_frame_name, function()
         local frame = ui.GetFrame(list_frame_name)
         if frame then
