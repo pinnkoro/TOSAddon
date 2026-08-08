@@ -177,10 +177,26 @@ function g.update_paths()
     local active_id = core_g.active_id or session.loginInfo.GetAID()
     g.active_id = active_id
     g.settings_path = string.format("../addons/%s/%s/mini_addons.json", core_addon_name_lower, active_id)
-    g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
+    -- バフ一覧だけ .lua で持つ。**json に戻してはいけない。**
+    -- クライアントの json.decode は 1 つのオブジェクトのキー数に対して二次で、この
+    -- ファイルはバフ ID をキーにした平坦なテーブル = ゲーム内の全バフ数まで育つ。
+    -- 実機で 2806 キー / 26KB のとき **読み込みだけで 5247ms**(同じテーブルの書き戻しは
+    -- 5ms なので、遅いのはデコードだけ)。これが初回ログイン時の数秒フリーズの正体で、
+    -- mini_addons の on_init 5419ms のうち 5254ms を占めていた。
+    -- .lua は loadfile = クライアント同梱の LuaJIT の構文解析器を通るので線形。
+    -- always_status も同じ理由で先に .lua へ移してある(g.load_lua / g.save_lua)。
+    -- 一括 OFF を押すと全バフぶんの 0 が並ぶので、「普通に使うと必ず膨らむ」形。
+    g.buffs_path = string.format("../addons/%s/%s/mini_addons_buffs.lua", core_addon_name_lower, active_id)
+    -- 旧 json。読み込み時に 1 回だけ変換元として見る(Mini_addons_load_buffs)。
+    -- 本家個別版からの引き継ぎ(migrate_individual_addon_settings)も json を置くので、
+    -- この経路は「昔の自分」と「個別版から来た人」の両方の入口になる。
+    g.buffs_json_path = string.format("../addons/%s/%s/mini_addons_buffs.json", core_addon_name_lower, active_id)
     -- バフ一覧の「バックアップ」用。1 世代だけ持つ(まとめ版の設定バックアップとは別で、
     -- バフ一覧だけを一括で切り替える前に自分で控えるためのもの)。
-    g.buffs_backup_path = string.format("../addons/%s/%s/mini_addons_buffs_backup.json", core_addon_name_lower,
+    -- 中身は buffs と同じテーブルなので、こちらも .lua(復元時に同じデコードを通るため)。
+    g.buffs_backup_path = string.format("../addons/%s/%s/mini_addons_buffs_backup.lua", core_addon_name_lower,
+        active_id)
+    g.buffs_backup_json_path = string.format("../addons/%s/%s/mini_addons_buffs_backup.json", core_addon_name_lower,
         active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
     -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
@@ -1374,20 +1390,43 @@ function Mini_addons_save_settings()
     g.save_json(g.settings_path, g.settings)
 end
 
--- 計測を入れる理由は Mini_addons_load_settings と同じ。こちらは実機で 2805 キー
--- (うち値が 1 なのは 8 個だけ)・26KB まで育っていたので、本命の容疑者。
+-- バフ一覧の保存。**必ずここを通すこと**(g.save_json を直接呼ばない)。
+-- 保存先が .lua なのは g.update_paths のコメントを参照。書き込み側が 1 箇所でも
+-- json のまま残ると、次の読み込みが .lua を見つけられずに旧 json へ落ちて、
+-- せっかく直した 5 秒がそのまま戻る。
+function Mini_addons_save_buffs()
+    g.save_lua(g.buffs_path, g.buffs)
+end
+
+-- 計測はそのまま残す。**これが無いと同じ不具合を二度追うことになる**
+-- (5 秒フリーズの切り分けで、この行が無いせいで「ON_INIT のどこか」までしか
+--  絞れなかった)。走るのはセッション中 1 回だけ。
 function Mini_addons_load_buffs()
     local t0 = now_ms()
-    local buffs = g.load_json(g.buffs_path)
+    local buffs = g.load_lua(g.buffs_path)
+    local lua_ok = buffs ~= nil
+    local migrated = false
+    if not buffs then
+        -- 旧 json からの移行。**変換は 1 回だけで、この回だけは従来どおり遅い**
+        -- (2806 キーで約 5 秒)。避けるには生の JSON を自前で舐めることになり、
+        -- 割に合わないので受け入れる。次回以降は .lua だけを読む。
+        -- 本家個別版から引き継いだ人も、初回はここを通る。
+        buffs = g.load_json(g.buffs_json_path)
+        migrated = buffs ~= nil
+    end
     local t_load = now_ms()
     if not buffs then
         buffs = {}
     end
     g.buffs = buffs
-    g.save_json(g.buffs_path, g.buffs)
+    -- 書き戻すのは .lua がまだ無いときだけ(移行の回と、まっさらな初回)。
+    -- .lua を読めたときは読んだ内容と同じものを書くだけなので省く。
+    if not lua_ok then
+        Mini_addons_save_buffs()
+    end
     local t_save = now_ms()
-    core_g.vlog("mini_addons: 計測 load_buffs 読込=%dms 書戻=%dms キー=%d", t_load - t0, t_save - t_load,
-        count_keys(g.buffs))
+    core_g.vlog("mini_addons: 計測 load_buffs 読込=%dms 書戻=%dms キー=%d 旧json移行=%s", t_load - t0,
+        t_save - t_load, count_keys(g.buffs), tostring(migrated))
 end
 
 function Mini_addons_ON_INIT(addon, frame)
@@ -4647,7 +4686,7 @@ function Mini_addons_buff_list_set_all(frame, ctrl, str, num)
             changed = changed + 1
         end
     end)
-    g.save_json(g.buffs_path, g.buffs)
+    Mini_addons_save_buffs()
     core_g.vlog("mini_addons: バフ一覧を一括変更 value=%d 変更 %d 件 filter=%s", value, changed, tostring(filter_text))
     ui.SysMsg(g.lang == "Japanese" and
                   string.format("{ol}{#00BFFF}[Nexus Addons P] バフ表示を %d 件 %s にしました", changed,
@@ -4660,7 +4699,9 @@ end
 -- いまのチェック状態を控える。控えは 1 つだけで、押すたびに上書きする。
 function Mini_addons_buff_list_backup(frame, ctrl, str, num)
     g.buffs = g.buffs or {}
-    g.save_json(g.buffs_backup_path, g.buffs)
+    -- 控えも .lua。json のままにすると、復元のたびに 5 秒の json.decode を通る
+    -- (中身は buffs と同じ、バフ ID をキーにした平坦なテーブルなので条件が同じ)。
+    g.save_lua(g.buffs_backup_path, g.buffs)
     core_g.vlog("mini_addons: バフ一覧をバックアップした (%s)", tostring(g.buffs_backup_path))
     ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧をバックアップしました" or
                   "{ol}{#00BFFF}[Nexus Addons P] Backed up the buff list")
@@ -4668,7 +4709,8 @@ end
 
 -- 控えたチェック状態へ戻す。控えが無いときは何もしない(黙って空で上書きしないこと)。
 function Mini_addons_buff_list_restore(frame, ctrl, str, num)
-    local backup = g.load_json(g.buffs_backup_path)
+    -- .lua を先に見て、無ければ旧 json の控えへ落ちる(移行前に取った控えを失わないため)。
+    local backup = g.load_lua(g.buffs_backup_path) or g.load_json(g.buffs_backup_json_path)
     if type(backup) ~= "table" then
         core_g.vlog("mini_addons: バフ一覧の控えが無い (%s)", tostring(g.buffs_backup_path))
         ui.SysMsg(g.lang == "Japanese" and "{ol}{#FF6347}[Nexus Addons P] バフ一覧のバックアップがありません" or
@@ -4676,7 +4718,7 @@ function Mini_addons_buff_list_restore(frame, ctrl, str, num)
         return
     end
     g.buffs = backup
-    g.save_json(g.buffs_path, g.buffs)
+    Mini_addons_save_buffs()
     core_g.vlog("mini_addons: バフ一覧を復元した")
     ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧を復元しました" or
                   "{ol}{#00BFFF}[Nexus Addons P] Restored the buff list")
@@ -4808,7 +4850,7 @@ function Mini_addons_buff_check(frame, ctrl, str, buff_id)
     local check = ctrl:IsChecked()
     local buff_id_str = tostring(buff_id)
     g.buffs[buff_id_str] = check
-    g.save_json(g.buffs_path, g.buffs)
+    Mini_addons_save_buffs()
 end
 
 function Mini_addons_ON_PARTYINFO_BUFFLIST_UPDATE(partyinfo)
