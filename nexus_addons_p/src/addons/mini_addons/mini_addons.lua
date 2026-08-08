@@ -262,6 +262,19 @@ function g.load_json(path)
     return core_g.load_json(path)
 end
 
+-- .lua 形式の読み書き(バフ一覧の保存先。理由は g.update_paths のコメント)。
+-- **ラッパを置くのを忘れないこと。** ここは個別版由来の自分の g で、まとめ版の g とは
+-- 別物。core_g にしかない関数を g. で呼ぶと nil を呼んで on_init が丸ごと落ち、
+-- mini_addons が何一つ動かなくなる(実機で発生: バフ一覧が出なくなり、初期化が
+-- 最初の load_buffs で中断していたのを「速くなった」と読み違えかけた)。
+function g.save_lua(path, tbl)
+    return core_g.save_lua(path, tbl)
+end
+
+function g.load_lua(path)
+    return core_g.load_lua(path)
+end
+
 function g.get_map_type()
     return core_g.get_map_type()
 end
