@@ -586,6 +586,7 @@ function Indun_panel_challenge_map_display(map_clsname, date_str)
     local height = map_frame:GetHeight()
     indun_panel_map:SetPos(width / 2 - 620, height / 2 - 300)
     indun_panel_map:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "indun_panel_map")
 end
 
 function Indun_panel_challenge_map_close(frame)

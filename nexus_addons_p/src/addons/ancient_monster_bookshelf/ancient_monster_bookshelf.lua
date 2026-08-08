@@ -129,6 +129,7 @@ function Ancient_monster_bookshelf_init_frame()
     slot_prod:SetSkinName('accountwarehouse_slot')
 
     amb:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "amb", "Ancient_monster_bookshelf_close")
     Ancient_monster_bookshelf_update()
 end
 

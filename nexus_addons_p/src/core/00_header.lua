@@ -1057,7 +1057,11 @@ g.esc_stack = g.esc_stack or {}
 
 -- ESC で閉じたいフレームを開いたときに呼ぶ。
 --   frame_name: ui.GetFrame に渡すフレーム名
---   close_func: 閉じるグローバル関数の名前(引数無しで呼べること)
+--   close_func: 閉じ方。次のどちらでもよい
+--     * グローバル関数の**名前**(引数無しで呼べること) … 既存の閉じる処理を使い回すとき
+--     * 関数そのもの(引数無しで呼ばれる)               … その場の無名関数で足りるとき
+--   後者を許すのは、閉じる処理がフレーム名を引数に取る作りのアドオンが多く、
+--   そのたびに引数無しのラッパをグローバルへ足していると名前が増えるだけだから。
 -- 開き直しは積み直し = 最前面扱いにする。
 -- **フレームを作って ShowWindow(1) した後で呼ぶこと**。まだ出ていない状態で呼ぶと、
 -- 直後の同期で「閉じ終わった登録」と見なされてその場で捨てられる。
@@ -1074,24 +1078,81 @@ function g.esc_register(frame_name, close_func)
     g.esc_sync_scp()
 end
 
+-- 既に積んである登録は動かさずに積む。**中身を作り直す初期化関数から積むときはこちら**。
+--
+-- esc_register は「開き直し = 最前面」なので、同じフレームをもう一度積むと一番上へ来る。
+-- 検索し直しのように「その窓自身を開き直した」ときはそれで正しいが、
+-- **子の一覧を開いたまま親の設定画面を組み立て直す**作り(battle_ritual / muteki は
+-- スキルやバフを足すたびに設定画面の初期化関数を呼び直す)でこれを使うと、
+-- 親が子より手前に積み直され、ESC 1 回で親の close が走って子まで道連れになる
+-- = スタックが防ぐはずの「まとめて消える」がそのまま出る。
+--
+-- **ここで「その登録が生きているか」を見ても意味が無い。** 呼ばれる時点ではフレームを
+-- 作って ShowWindow(1) した直後なので、開き直した場合でも必ず生きていると出る。
+-- 「閉じた窓の登録が下に残っている」状態を作らせないのは esc_top の掃除の役目
+-- (毎フレームの esc_sync_scp から呼ばれる)。そちらを参照。
+function g.esc_register_keep(frame_name, close_func)
+    for _, entry in ipairs(g.esc_stack) do
+        if entry.frame == frame_name then
+            -- 位置は動かさず、閉じ方だけ最新にする
+            entry.close = close_func
+            g.esc_sync_scp()
+            return
+        end
+    end
+    g.esc_register(frame_name, close_func)
+end
+
+-- 「ESC で破棄する」だけの窓のための短縮形。閉じるときに保存などの後始末が要らない、
+-- ui.DestroyFrame するだけの窓はこれで足りる(自作ウィンドウの大半がこれ)。
+function g.esc_register_destroy(frame_name)
+    g.esc_register(frame_name, function()
+        ui.DestroyFrame(frame_name)
+    end)
+end
+
+-- 「ESC で隠す」だけの窓のための短縮形。作り直せない土台(chat_memberlist など)や、
+-- 破棄すると持っている参照が無効になる窓はこちらを使う。
+function g.esc_register_hide(frame_name)
+    g.esc_register(frame_name, function()
+        local frame = ui.GetFrame(frame_name)
+        if frame then
+            AUTO_CAST(frame)
+            frame:ShowWindow(0)
+        end
+    end)
+end
+
 -- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。
 -- × ボタンで閉じた分は登録解除されないまま残るので、ここで一緒に捨てる。
 -- 戻り値の 2 つ目はスタック上の位置(esc_pop_top が外すのに使う)。
+--
+-- **掃除は「一番手前の生きた登録」で打ち切らず、スタック全体に対して行うこと。**
+-- 途中で止めると、下に沈んだ死んだ登録が永久に残る。そうなると esc_register_keep が
+-- それを掴んで位置を据え置き、**閉じた窓を開き直しても手前に来ない**:
+--   一覧を開く → 別の窓を開く(一覧の上) → 一覧を × で閉じる(登録は下に残る)
+--   → 一覧を開き直す → 据え置かれて下のまま → ESC が別の窓を先に閉じる
+-- 全体を見ても、スタックに載るのは開いている自作ウィンドウだけ(実測で数枚)なので、
+-- 毎フレーム呼ばれても走査は数回の ui.GetFrame で済む。
 function g.esc_top()
     for i = #g.esc_stack, 1, -1 do
         local entry = g.esc_stack[i]
         local frame = ui.GetFrame(entry.frame)
-        if frame ~= nil and frame:IsVisible() == 1 then
-            return entry, i
+        if frame == nil or frame:IsVisible() ~= 1 then
+            -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
+            -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
+            -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
+            g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
+                frame and tostring(frame:IsVisible()) or "-")
+            -- 下から順に詰めるので、i より下の位置は動かない(上向きに走査しているため安全)。
+            table.remove(g.esc_stack, i)
         end
-        -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
-        -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
-        -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
-        g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
-            frame and tostring(frame:IsVisible()) or "-")
-        table.remove(g.esc_stack, i)
     end
-    return nil
+    local top = #g.esc_stack
+    if top == 0 then
+        return nil
+    end
+    return g.esc_stack[top], top
 end
 
 -- 一番手前の登録を 1 つ取り出す(閉じた後に開き直せば esc_register で積み直される)。

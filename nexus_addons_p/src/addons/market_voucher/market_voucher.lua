@@ -405,6 +405,7 @@ function Market_voucher_print()
     local period_text = market_voucher:CreateOrGetControl("richtext", "date_text", 620, 740, 100, 30)
     period_text:SetText(Market_voucher_ui_text("Period:") .. earliest_date_str .. "～" .. latest_date_str)
     market_voucher:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "market_voucher", "Market_voucher_print_close")
     market_voucher:RunUpdateScript("Market_voucher_auto_close", 0.3)
 end
 

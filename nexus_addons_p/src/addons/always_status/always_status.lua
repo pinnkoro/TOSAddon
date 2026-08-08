@@ -821,6 +821,7 @@ function Always_status_info_setting()
         enable_check:SetCheck(0)
     end
     settings_frame:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "always_status_settings", "Always_status_frame_close")
     Always_status_info_setting_load(use_set)
 end
 

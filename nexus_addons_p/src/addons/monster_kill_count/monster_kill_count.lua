@@ -624,6 +624,7 @@ function Monster_kill_count_map_information(map_id)
     info_box:Resize(map_info:GetWidth() - 20, map_info:GetHeight() - 55)
     map_info:SetLayerLevel(999)
     map_info:ShowWindow(1)
+    g.esc_register_destroy(frame_name)
 end
 
 function Monster_kill_count_map_reset_reserve(frame, ctrl, str, map_id)

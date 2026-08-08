@@ -69,6 +69,14 @@ function No_check_continuous_use_frame(frame, ctrl, str, num)
     no_check_use:Resize(300, 300)
     no_check_use:RemoveAllChild()
     no_check_use:ShowWindow(1)
+    -- ESC は × ボタンと同じ閉じ方にする(インベントリの右クリック割り当ても戻す)。
+    local use_name = addon_name_lower .. "no_check_use"
+    g.esc_register(use_name, function()
+        local frame = ui.GetFrame(use_name)
+        if frame then
+            No_check_frame_close(frame, nil)
+        end
+    end)
     local item_slot = no_check_use:CreateOrGetControl('slot', 'item_slot', 115, 100, 70, 70)
     AUTO_CAST(item_slot)
     item_slot:SetSkinName("slot")
@@ -156,6 +164,13 @@ function No_check_delete_item_frame()
     delete_gb:SetSkinName("test_frame_midle_light")
     delete_gb:Resize(280, 600)
     no_check_delete:ShowWindow(1)
+    local delete_name = addon_name_lower .. "no_check_delete"
+    g.esc_register(delete_name, function()
+        local frame = ui.GetFrame(delete_name)
+        if frame then
+            No_check_frame_close(frame, nil)
+        end
+    end)
     local delete_slotset = delete_gb:CreateOrGetControl('slotset', 'delete_slotset', 0, 0, 0, 0)
     AUTO_CAST(delete_slotset)
     delete_slotset:SetSlotSize(40, 40)

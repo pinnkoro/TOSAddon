@@ -907,6 +907,132 @@ esc_setup({})
 esc_press()
 check("空振りの押下は使ったことにしない", g.esc_taken(), false)
 
+-- ===== 18-4. 閉じ方の指定は「グローバル関数名」でも「関数そのもの」でもよい =====
+-- 閉じる処理がフレームを引数に取るアドオンが多く、そのたびに引数無しのラッパを
+-- グローバルへ足すと名前が増えるだけなので、無名関数を直接渡せるようにしてある。
+print("[18-4] 閉じ方は関数名でも関数そのものでもよい")
+esc_setup({})
+do
+    local called = 0
+    frames["fclosure"] = new_frame("fclosure", 1)
+    g.esc_register("fclosure", function()
+        called = called + 1
+        frames["fclosure"] = nil
+    end)
+    esc_press()
+    check("関数そのものを渡しても閉じる", called, 1)
+    check("閉じたら使った扱いになる", g.esc_taken(), true)
+end
+
+-- 短縮形。破棄するだけ / 隠すだけの窓はこの 2 つで足りる。
+esc_setup({})
+do
+    destroyed = {}
+    frames["fdestroy"] = new_frame("fdestroy", 1)
+    g.esc_register_destroy("fdestroy")
+    esc_press()
+    check("esc_register_destroy は破棄する", destroyed[#destroyed], "fdestroy")
+end
+esc_setup({})
+do
+    local hidden = new_frame("fhide", 1)
+    frames["fhide"] = hidden
+    g.esc_register_hide("fhide")
+    esc_press()
+    check("esc_register_hide は隠す", hidden:IsVisible(), 0)
+    check("破棄はしない", frames["fhide"] ~= nil, true)
+end
+
+-- ===== 18-4-2. 作り直す初期化関数から積むときは位置を動かさない =====
+-- battle_ritual / muteki の設定画面は、スキルやバフを足すたびに初期化関数ごと呼び直される。
+-- そこで esc_register を使うと**子の一覧を開いたまま親が最前面へ積み直され**、
+-- ESC 1 回で親の close が走って子まで道連れになる(スタックが防ぐはずの挙動が出る)。
+print("[18-4-2] esc_register_keep は既にある登録を動かさない")
+esc_setup({"a"}) -- a = 親(設定画面)を先に開いた状態
+do
+    frames["fchild"] = new_frame("fchild", 1)
+    g.esc_register("fchild", "esc_test_close_b") -- 子の一覧をその上に開く
+    -- 親の初期化関数が呼び直された
+    g.esc_register_keep("fa", "esc_test_close_a")
+    esc_press()
+    check("親を積み直さないので子が先に閉じる", table.concat(esc_closed, ","), "b")
+    check("親はスタックに残る", #g.esc_stack, 1)
+    -- 参考: esc_register だと親が手前へ来てしまう(この差が今回の不具合)
+    esc_setup({"a"})
+    frames["fchild"] = new_frame("fchild", 1)
+    g.esc_register("fchild", "esc_test_close_b")
+    g.esc_register("fa", "esc_test_close_a")
+    esc_press()
+    check("esc_register だと親が先に閉じる", table.concat(esc_closed, ","), "a")
+end
+-- 死んだ登録が下に沈んだまま残ると、esc_register_keep がそれを掴んで位置を据え置き、
+-- **閉じた窓を開き直しても手前に来ない**。掃除は esc_top の役目(毎フレームの同期で走る)。
+esc_setup({"a"}) -- a = 一覧(esc_register_keep で積む側)
+do
+    frames["fother"] = new_frame("fother", 1)
+    g.esc_register("fother", "esc_test_close_b") -- 別の窓をその上に開く
+    frames["fa"] = nil -- 一覧を × で閉じた(登録は fother の下に残る)
+    check("死んだ登録は手前の生きた登録の下でも掃除する", (function()
+        _nexus_addons_p_update_frames() -- 1 フレーム経過(esc_sync_scp -> esc_top)
+        return #g.esc_stack
+    end)(), 1)
+    -- 一覧を開き直す
+    frames["fa"] = new_frame("fa", 1)
+    g.esc_register_keep("fa", "esc_test_close_a")
+    esc_press()
+    check("開き直した一覧が手前に来る", table.concat(esc_closed, ","), "a")
+    esc_press()
+    check("その下に別の窓が残っている", table.concat(esc_closed, ","), "a,b")
+end
+
+-- 閉じ方だけは最新に差し替える(作り直しで close の中身が変わってもよいように)
+esc_setup({})
+do
+    local which = {}
+    frames["fk"] = new_frame("fk", 1)
+    g.esc_register("fk", function() which[#which + 1] = "old" end)
+    g.esc_register_keep("fk", function()
+        which[#which + 1] = "new"
+        frames["fk"] = nil
+    end)
+    check("積み直さないので 1 件のまま", #g.esc_stack, 1)
+    esc_press()
+    check("閉じ方は新しい方を使う", table.concat(which, ","), "new")
+end
+
+-- ===== 18-5. Addons Menu 側(一覧と設定画面)を畳むのはスタックが空のときだけ =====
+-- 先頭で無条件に呼んでいた頃は、手前の自作ウィンドウを閉じる押下で設定画面まで
+-- 一緒に消えていた(「1 回の ESC でまとめて消える」を防ぐスタックがここだけ素通り)。
+-- 逆に畳んだときは「使った」印を置かないと、閉じるのと同時にシステムメニューが開く。
+print("[18-5] Addons Menu 側を畳むのはスタックが空のときだけ")
+do
+    local menu_calls, menu_closed = 0, false
+    _G.addons_menu_on_escape = function()
+        menu_calls = menu_calls + 1
+        return menu_closed
+    end
+
+    esc_setup({"a"})
+    menu_calls, menu_closed = 0, true
+    esc_press()
+    check("スタックが残っていれば呼ばない", menu_calls, 0)
+    check("閉じたのは手前の 1 枚だけ", table.concat(esc_closed, ","), "a")
+
+    esc_setup({})
+    menu_calls, menu_closed = 0, true
+    esc_press()
+    check("スタックが空なら呼ぶ", menu_calls, 1)
+    check("畳んだ押下は使った扱いにする", g.esc_taken(), true)
+
+    esc_setup({})
+    menu_calls, menu_closed = 0, false
+    esc_press()
+    check("何も畳めなければ呼びはする", menu_calls, 1)
+    check("畳めなかった押下はゲームへ渡す", g.esc_taken(), false)
+
+    _G.addons_menu_on_escape = nil
+end
+
 -- ===== 19. メッセージの多重配信 =====
 -- addon:RegisterMsg は 1 メッセージ 1 ハンドラしか持てないので、購読を 1 本にまとめて
 -- 配信役から配る。ここが壊れると「後から登録した側だけ動く」形で黙って機能が死ぬ。

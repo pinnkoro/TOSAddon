@@ -88,6 +88,7 @@ function Status_point_check_toggle_frame(frame, ctrl)
     bg:SetSkinName("test_frame_midle")
     Status_point_check_tab_change(big_bg, tab)
     status_point_check:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "status_point_check")
 end
 
 function Status_point_check_tab_change(big_bg, tab, str, num)

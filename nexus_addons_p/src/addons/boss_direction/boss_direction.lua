@@ -111,6 +111,7 @@ function Boss_direction_settings_frame_init()
     boss_direction_settings:Resize(width, 90)
     boss_direction_gb:Resize(boss_direction_settings:GetWidth() - 20, 40)
     boss_direction_settings:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "boss_direction_settings")
 end
 
 function Boss_direction_setting_frame_close(frame)

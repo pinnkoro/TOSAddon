@@ -1756,6 +1756,14 @@ function Another_warehouse_setting_frame_init(frame, ctrl, str, num)
     AUTO_CAST(char_gb)
     Another_warehouse_setting_slot_set(char_gb, 'char_slotset')
     setting:ShowWindow(1)
+    -- ESC は × ボタンと同じ閉じ方にする(倉庫側の閉じ直しまで含めて同じ挙動にする)。
+    local setting_name = addon_name_lower .. "awh_setting"
+    g.esc_register(setting_name, function()
+        local frame = ui.GetFrame(setting_name)
+        if frame then
+            Another_warehouse_setting_close(frame)
+        end
+    end)
 end
 
 function Another_warehouse_setting_close(setting)
@@ -2056,6 +2064,7 @@ function Another_warehouse_set_items_setting(index, name)
     set_gb:SetSkinName("test_frame_midle_light")
     set_gb:Resize(300, 500)
     awh_set_items:ShowWindow(1)
+    g.esc_register(addon_name_lower .. "awh_set_items", "Another_warehouse_set_item_close")
     local name_edit = awh_set_items:CreateOrGetControl("edit", "name_edit", 10, 13, 210, 30)
     AUTO_CAST(name_edit)
     name_edit:SetFontName("white_16_ol")
