@@ -634,6 +634,23 @@ function _nexus_addons_p_frame_init()
     list_gb:Resize(list_frame:GetWidth() - 20, list_frame:GetHeight() - 50)
     g.create_maintenance_buttons(list_frame, total_width)
     list_frame:SetPos(310, 100)
+    -- ESC は × ボタンと同じ閉じ方にする。**破棄だけにしないこと**:
+    -- _nexus_addons_p_list_close は各アドオンの設定画面も畳んでから自分を破棄する
+    -- (一覧を閉じたのに、そこから開いた設定画面だけ残るのを防ぐため)。
+    --
+    -- この関数は ON/OFF の切り替えやバックアップのたびに一覧を作り直す用途でも呼ばれるので
+    -- esc_register_keep を使う。esc_register だと、アドオンの設定画面を開いたまま
+    -- ON/OFF を切り替えた瞬間に一覧が手前へ積み直され、ESC 1 回で一覧の close が走って
+    -- 設定画面まで道連れになる。
+    --
+    -- なお characters_item_serch は位置を読むためだけにここを呼び、戻り値を
+    -- すぐ ShowWindow(0) する。その場合の登録は「出ていない」ので、次の同期で捨てられる。
+    g.esc_register_keep(list_frame_name, function()
+        local frame = ui.GetFrame(list_frame_name)
+        if frame then
+            _nexus_addons_p_list_close(frame)
+        end
+    end)
     return list_frame
 end
 
