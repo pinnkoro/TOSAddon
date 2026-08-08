@@ -2194,7 +2194,9 @@ function Mini_addons_quest_update(frame, msg)
             end
         end
         if _G["indun_panel_on_init"] and type(_G["indun_panel_on_init"]) == "function" then
-            local indun_panel = ui.GetFrame("_nexus_addonsindun_panel")
+            -- 自分側の indun_panel。フレーム名は core の addon_name_lower("_nexus_addons_p")
+            -- が前に付く。ここを直書きにすると P へのリネームで食い違う
+            local indun_panel = ui.GetFrame(core_addon_name_lower .. "indun_panel")
             if indun_panel then
                 Indun_panel_always_init(indun_panel, nil, nil)
             end
@@ -4182,11 +4184,16 @@ function Mini_addons_HIGH_ENCHANT_OPTION_OPEN_BTN(my_frame, my_msg)
         return
     end
     g.need_options = {}
-    function mini_addons_reroll_option_check(gbox, ctrl, str)
+    -- 名前は呼び出し側(SetEventScript)が addon_name_lower から組み立てるので、必ず揃えること。
+    -- 本家から移す際にここだけ "mini_addons_" のままにしてしまい、チェックが一切拾われず
+    -- 「希望のオプションが出ても止まらない」形で出ていた
+    function mini_addons_p_reroll_option_check(gbox, ctrl, str)
         g.need_options[ctrl:GetName()] = {
             is_check = ctrl:IsChecked(),
             text = str
         }
+        core_g.vlog("mini_addons: ヘアエンチャント 希望オプション %s = %s", tostring(str),
+            ctrl:IsChecked() == 1 and "ON" or "OFF")
         local bodyGbox1 = GET_CHILD_RECURSIVELY(high_hairenchant, "bodyGbox1")
         local dest = bodyGbox1:GetUserValue("DESTROY")
         local bodyGbox1_1 = GET_CHILD_RECURSIVELY(high_hairenchant, "bodyGbox1_1")
@@ -4228,7 +4235,8 @@ function Mini_addons_HIGH_ENCHANT_OPTION_OPEN_BTN(my_frame, my_msg)
         end
     end
 
-    function mini_addons_hair_enchant_repeat(gbox, repeat_count)
+    -- 名前の揃え方は mini_addons_p_reroll_option_check のコメントと同じ
+    function mini_addons_p_hair_enchant_repeat(gbox, repeat_count)
         local count = tonumber(repeat_count:GetText())
         if count == nil then
             count = 0
@@ -4299,6 +4307,7 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     local set_repeat_num = tonumber(repeat_count:GetText())
     local count = reroll_option:GetUserIValue("REPERT")
     if count == set_repeat_num then
+        core_g.vlog("mini_addons: ヘアエンチャント 停止(リピート上限 %s 回)", tostring(set_repeat_num))
         repeatCount:SetTextByKey("value", string.format("%s : %d", ClMsg("REPEAT"), set_repeat_num - count))
         reroll_option:SetUserValue("REPERT", "None")
         reroll_option:SetUserValue("STATUS", "None")
@@ -4314,6 +4323,8 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     local rank_up = GET_CHILD_RECURSIVELY(frame, "rank_up")
     local rank_check = rank_up:IsChecked()
     if befor_rank ~= "None" and item_rank ~= befor_rank then
+        core_g.vlog("mini_addons: ヘアエンチャント 停止(ランクアップ %s → %s)", tostring(befor_rank),
+            tostring(item_rank))
         imcAddOn.BroadMsg("NOTICE_Dm_TrapPlus", "{st41b}" .. ClMsg("MagicAutoRankUpMessage"), 5.0)
         imcSound.PlaySoundEvent("sys_transcend_success")
         reroll_option:SetUserValue("REPERT", "None")
@@ -4354,6 +4365,8 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
                                                   "{#FFFFFF}{ol}Do you want to continue? ")
                     if string.find(obj[propName], "ALLSKILL_") == nil then
                         if target_text == ScpArgMsg(obj[propName]) then
+                            core_g.vlog("mini_addons: ヘアエンチャント 停止(希望オプション %s が付いた)",
+                                tostring(target_text))
                             if margin.right == 905 then
                                 reroll_option:SetMargin(margin.left, margin.top, 1150 * retio, margin.bottom)
                             end
@@ -4364,6 +4377,11 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
                             return 0
                         end
                     else
+                        -- 全スキル系は付く名前が ALLSKILL_<職業> で、チェックボックス側の
+                        -- クラス名 ALLSKILL とは一致しない。そのため本家から「チェックの
+                        -- 有無に関わらず止める」挙動をそのまま引き継いでいる
+                        core_g.vlog("mini_addons: ヘアエンチャント 停止(全スキル系 %s が付いた)",
+                            tostring(obj[propName]))
                         if margin.right == 905 then
                             reroll_option:SetMargin(margin.left, margin.top, 1150 * retio, margin.bottom)
                         end
