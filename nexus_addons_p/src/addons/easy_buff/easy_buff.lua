@@ -101,9 +101,14 @@ function Easy_buff_config_frame()
         title_edit:SetSkinName('test_weight_skin')
         title_edit:SetTextAlign('center', 'center')
         title_edit:SetText("{ol}" .. g.easy_buff_settings.food_presets_name[str_i])
-        if str_i == "1" then
-            title_edit:Focus()
-        end
+        -- **ここで Focus() を呼ばないこと。**
+        -- 開いた瞬間にプリセット 1 の名前欄へキーボードフォーカスが入ると、
+        -- ESC の 1 回目がクライアント側の「入力欄から抜ける」処理に使われ、
+        -- ESCAPE_PRESSED がこちらへ届かない(実機の verbose_log に行が 1 つも出ない)。
+        -- 利用者から見ると「ESC を 2 回押さないと閉じない」になる。横取りする手段は無いので、
+        -- フォーカスを取らないことでしか直せない。
+        -- この設定画面はチェックのたびに組み立て直されるため、
+        -- 残しておくと操作のたびにフォーカスを奪い返す点でも都合が悪かった。
         title_edit:SetEventScript(ui.ENTERKEY, "Easy_buff_config_presetname_change")
         local food_check = gbox:CreateOrGetControl('checkbox', "food_check" .. i, 10, y + 35, 30, 30)
         AUTO_CAST(food_check)
