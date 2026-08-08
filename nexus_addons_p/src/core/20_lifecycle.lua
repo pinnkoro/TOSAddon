@@ -162,15 +162,20 @@ function _nexus_addons_p_ESCAPE_PRESSED()
     -- ESC は 2 経路で届きうる: g.esc_sync_scp が仕込む ui.SetEscapeScp と、
     -- ゲームからアドオンへ一斉配信される ESCAPE_PRESSED。どちらが来る(あるいは両方来る)かは
     -- クライアント任せなので、同じ押下で二重に閉じないよう直後の再入は捨てる。
+    -- 押下ごとに 1 行出す。**「ESC がこちらへ届いているか」を切り分けるのに要る。**
+    --
+    -- かつてここを黙らせていたのは、esc_probe(1 回で 30 行以上)を毎押下で回していた頃の
+    -- 話。1 行なら実用上の重さは出ないので戻した。既定は詳細ログ OFF なので普段は黙る。
+    -- この行が無いと「押しても何も起きない」を追えない: 閉じたときしか行が出ないため、
+    -- **こちらへ届いていないのか、届いたが閉じる対象が無かったのかが区別できない**
+    -- (実機で Easy Buff / Market Favorite が「1 回目は空振り、2 回目で閉じる」と報告され、
+    --  ログからは press 1 の行跡が一切拾えなかった)。
     if g.esc_is_reentry() then
+        g.vlog("ESCAPE_PRESSED: 同じ押下の再入として捨てた (stack=%d)", #g.esc_stack)
         return
     end
     g.esc_last_ms = imcTime.GetAppTimeMS()
-    -- 押下ごとのログはここでは出さない。**ESC の反応が悪くなるため**(実機で確認)。
-    -- g.vlog は 1 行ごとに ui.SysMsg とファイルの open/write/close を行うので、
-    -- 押すたびに必ず走る経路に置くと、その分だけ入力の処理が重くなる。
-    -- 実際に閉じたときは下で 1 行出るし、割り込み先の出し入れは esc_scp の行で追える。
-    -- ここを一時的に戻すのは「ESC がこちらへ届いているか」を疑うときだけにすること。
+    g.vlog("ESCAPE_PRESSED: 受けた (stack=%d scp=%s)", #g.esc_stack, tostring(g.esc_scp_set))
     local entry = g.esc_pop_top()
     if not entry then
         -- スタックに閉じるものが無いときだけ、Addons Menu 側(一覧と設定画面)を畳む。
