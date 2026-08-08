@@ -1318,8 +1318,41 @@ function Mini_addons_ISCHECK(frame, ctrl, argStr, argNum)
     Mini_addons_save_settings()
 end
 
+-- 経過時間の物差し。imcTime が無い環境でも落ちないよう pcall で包み、取れなければ
+-- 0 を返す(その場合は計測値が全部 0 になるだけで、本体の処理には影響しない)。
+local function now_ms()
+    local ok, ms = pcall(function()
+        return imcTime.GetAppTimeMS()
+    end)
+    if ok and type(ms) == "number" then
+        return ms
+    end
+    return 0
+end
+
+-- テーブルのキー数。**計測ログの判断材料にしか使わない。** 所要時間だけ出しても
+-- 「そのファイルがどれだけ大きかったか」が分からず、他の環境のログと比べられない。
+local function count_keys(tbl)
+    if type(tbl) ~= "table" then
+        return -1
+    end
+    local n = 0
+    for _ in pairs(tbl) do
+        n = n + 1
+    end
+    return n
+end
+
+-- 初回ログインで mini_addons の on_init だけが 5813ms 掛かる(他 49 本は最大 63ms)
+-- 事象の切り分け用。**読み込みと書き戻しを分けて出すこと。** 合計だけだと
+-- 「json.decode が重いのか、書き戻し(encode + tmp 書き + rename)が重いのか」が
+-- 区別できず、直す先を選べない。
+-- 走るのはセッション中 1 回だけ(呼び元が if not g.settings で囲っている)なので、
+-- 毎フレーム流れる心配はない(CLAUDE.md「出しすぎない」)。
 function Mini_addons_load_settings()
+    local t0 = now_ms()
     local settings = g.load_json(g.settings_path)
+    local t_load = now_ms()
     if not settings then
         settings = DEFAULT_SETTINGS
     else
@@ -1330,20 +1363,31 @@ function Mini_addons_load_settings()
         end
     end
     g.settings = settings
+    local t_merge = now_ms()
     Mini_addons_save_settings()
+    local t_save = now_ms()
+    core_g.vlog("mini_addons: 計測 load_settings 読込=%dms 既定補完=%dms 書戻=%dms キー=%d", t_load - t0,
+        t_merge - t_load, t_save - t_merge, count_keys(g.settings))
 end
 
 function Mini_addons_save_settings()
     g.save_json(g.settings_path, g.settings)
 end
 
+-- 計測を入れる理由は Mini_addons_load_settings と同じ。こちらは実機で 2805 キー
+-- (うち値が 1 なのは 8 個だけ)・26KB まで育っていたので、本命の容疑者。
 function Mini_addons_load_buffs()
+    local t0 = now_ms()
     local buffs = g.load_json(g.buffs_path)
+    local t_load = now_ms()
     if not buffs then
         buffs = {}
     end
     g.buffs = buffs
     g.save_json(g.buffs_path, g.buffs)
+    local t_save = now_ms()
+    core_g.vlog("mini_addons: 計測 load_buffs 読込=%dms 書戻=%dms キー=%d", t_load - t0, t_save - t_load,
+        count_keys(g.buffs))
 end
 
 function Mini_addons_ON_INIT(addon, frame)
@@ -1351,19 +1395,30 @@ function Mini_addons_ON_INIT(addon, frame)
     g.frame = frame
     -- 設定を読む前に保存先を確定させる(AID はここで初めて確実に取れる)
     g.update_paths()
+    -- ここから下の内訳を計測する。**この 4 ステップの間に vlog が 1 行も無かったため、
+    -- 「6 秒がこの範囲のどこか」までしか絞れなかった**(実機ログ 21:47:26 -> 21:47:32)。
+    -- 個々の所要は load_settings / load_buffs 側でも出しているので、ここは
+    -- 「どのステップが支配的か」を 1 行で見るための合計。
+    local t0 = now_ms()
     g.cid = info.GetCID(session.GetMyHandle())
     g.lang = option.GetCurrentCountry()
     g.load_time = os.clock()
     g.last_inventory_open_time = 0
+    local t_session = now_ms()
     if not g.settings then
         Mini_addons_load_settings()
     end
+    local t_settings = now_ms()
     if not g.buffs then -- PTバフの準備
         Mini_addons_load_buffs()
     end
+    local t_buffs = now_ms()
     g.setup_hook(Mini_addons_CHAT_SYSTEM, "CHAT_SYSTEM")
     -- スキル連打音消す
     g.setup_hook(Mini_addons_ICON_USE, "ICON_USE")
+    local t_hooks = now_ms()
+    core_g.vlog("mini_addons: 計測 ON_INIT session=%dms settings=%dms buffs=%dms hooks=%dms 合計=%dms",
+        t_session - t0, t_settings - t_session, t_buffs - t_settings, t_hooks - t_buffs, t_hooks - t0)
     core_g.register_msg("GAME_START", "Mini_addons_GAME_START")
     core_g.register_msg("GAME_START_3SEC", "Mini_addons_GAME_START_3SEC")
 end
