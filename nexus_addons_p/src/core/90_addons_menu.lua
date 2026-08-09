@@ -398,10 +398,40 @@ local function addons_menu_create_item(parent, ctrl_name, entry, x, y, w, h)
     end
     if item_elem then
         item_elem:SetTextTooltip("{ol}" .. data.name)
-        item_elem:SetEventScript(ui.LBUTTONUP, data.func)
+        -- 本来の処理は addons_menu_item_click 経由で呼ぶ(理由はそちらのコメント)。
+        -- 関数名は引数文字列で渡す。ここで data.func を直接入れると一覧が残る。
+        item_elem:SetEventScript(ui.LBUTTONUP, "addons_menu_item_click")
+        item_elem:SetEventScriptArgString(ui.LBUTTONUP, data.func)
         item_elem:ShowWindow(1)
     end
     return item_elem
+end
+
+-- 一覧の項目を押したときの入口。本来の処理を呼んでから、システムメニュー側の一覧を畳む。
+--
+-- 畳まないと、開いたウィンドウの後ろに一覧(アイコン列)が出たまま残る。この一覧は
+-- ESC で閉じる対象なので、**利用者が「開いたウィンドウを閉じよう」と押した ESC が
+-- 先に一覧へ使われ、目的のウィンドウは 2 回目でやっと閉じる**ように見える。
+--
+-- **順番を逆にしないこと。** 呼び元のフレーム(= 一覧)の位置を見て自分の位置を決める
+-- 項目がある(addons_menu_setting_frame は frame:GetX() を読む)ので、先に畳むと
+-- 破棄済みのフレームを触ることになる。
+--
+-- 引数は受け取ったものをそのまま渡す。相乗り側(_G["norisan"]["MENU"])の項目も
+-- イベントスクリプトとして (frame, ctrl, str, num) で呼ばれる前提のため。
+function _G.addons_menu_item_click(frame, ctrl, func_name, num)
+    local func = _G[func_name]
+    if type(func) ~= "function" then
+        g.vlog("addons_menu: 項目の関数が見つからない (%s)", tostring(func_name))
+        pcall(addons_menu_sysmenu_close, true)
+        return
+    end
+    -- 項目側が転んでも一覧は畳む(残ると上記の「ESC が吸われる」が続く)。
+    local ok, err = pcall(func, frame, ctrl, "", num)
+    if not ok then
+        g.vlog("addons_menu: 項目の処理が転んだ (%s) %s", tostring(func_name), tostring(err))
+    end
+    pcall(addons_menu_sysmenu_close, true)
 end
 
 function _G.addons_menu_toggle_items_display(frame, ctrl, open_dir)
@@ -592,18 +622,34 @@ end
 --
 -- ESC は押すたびに必ず通る経路なので、ここは軽い処理だけにすること
 -- (ui.GetFrame 2 回。ログとファイル I/O は置かない。詳細は 20_lifecycle.lua)。
+--
+-- 呼び出し元が「この押下を使ったか」を判断できるよう、
+-- **画面に出ていたものを畳んだときだけ true** を返す。
+--
+-- **存在するかどうかで数えないこと。** 一覧は破棄されるまで残るので、
+-- 「在るが画面には出ていない」状態で数えると、利用者から見て何も起きない押下を
+-- 消費してしまう(実機ログ: stack=0 の押下が消費され、次の 1 回でようやくシステムメニューが
+-- 開いた = 「1 回目が空振り」の正体)。畳む処理自体は残骸の掃除として毎回行い、
+-- 消費するかどうかだけを可視だったかで決める。
 function _G.addons_menu_on_escape()
+    local closed = false
     local list = ui.GetFrame(SYSMENU_LIST_FRAME)
     if list then
+        -- 出ていた分だけ「この押下で閉じた」と数える。残骸は掃除だけして数えない。
+        if list:IsVisible() == 1 then
+            closed = true
+        end
         ui.DestroyFrame(SYSMENU_LIST_FRAME)
     end
     -- 設定画面も同じ土台なので同じことが起きる。こちらは破棄せず隠す
     -- (CreateNewFrame で作り直せないため。addons_menu_setting_frame のコメント参照)。
     local setting = ui.GetFrame("addons_menu_setting")
-    if setting then
+    if setting and setting:IsVisible() == 1 then
         AUTO_CAST(setting)
         setting:ShowWindow(0)
+        closed = true
     end
+    return closed
 end
 
 -- "system" ボタンの左クリック。元の処理(システムメニューの開閉)はそのまま行い、

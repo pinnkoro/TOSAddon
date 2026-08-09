@@ -1806,9 +1806,16 @@ function Market_favorite_rebuild_MARKET_SELL_FILTER_RESET(my_frame, my_msg)
     end
 end
 
+-- マーケットが閉じたらこちらも畳む。**ESC でマーケットごと閉じる経路はここに乗っている**
+-- (この窓は ESC のスタックへ積まない。理由は Market_favorite_rebuild_TOGGLE_FRAME の末尾)。
+-- フレームが無いときに素で ShowWindow を呼ぶと落ち、ゲーム側の MARKET_CLOSE まで
+-- 巻き添えにするので nil を見てから触る。
 function Market_favorite_rebuild_MARKET_CLOSE(my_frame, my_msg)
     local market_favorite_rebuild = ui.GetFrame(addon_name_lower)
-    market_favorite_rebuild:ShowWindow(0)
+    if market_favorite_rebuild then
+        AUTO_CAST(market_favorite_rebuild)
+        market_favorite_rebuild:ShowWindow(0)
+    end
 end
 
 function Market_favorite_rebuild_MARKET_LOAD_CATEGORY_OPTION(parent, ctrl, configKey, left_or_right)
@@ -2320,6 +2327,14 @@ function Market_favorite_rebuild_TOGGLE_FRAME(bool)
     xBtn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_CLOSE")
     y = y + 40
     frame:Resize(frame:GetWidth(), y)
+    -- **この窓は ESC のスタックへ積まない。**
+    --
+    -- マーケット(market)に貼り付いている付属パネルなので、積むとこちらが ESC を横取りし、
+    -- マーケット本体が開いたまま残る(実機で発生: 1 回目は空振り、2 回目でこちらが閉じ、
+    -- 3 回目でようやくマーケットが閉じた)。利用者から見ると閉じるのに 3 回要る。
+    -- 積まなければ ESC はそのままマーケットへ届き、マーケットが閉じるときに
+    -- Market_favorite_rebuild_MARKET_CLOSE がこちらも畳む = 1 回で両方閉じる。
+    -- bulk_sales(shop) / ancient_auto_set(ancient_card_list) と同じ扱い。CLAUDE.md 参照。
 end
 
 function Market_favorite_rebuild_toggle_check(frame, ctrl)

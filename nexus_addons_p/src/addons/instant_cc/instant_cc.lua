@@ -146,6 +146,7 @@ function Instant_cc_settings_frame_init()
     settings:Resize(width, 90)
     gb:Resize(settings:GetWidth() - 20, 40)
     settings:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "instant_cc_settings")
 end
 
 function Instant_cc_settings_frame_close(frame)

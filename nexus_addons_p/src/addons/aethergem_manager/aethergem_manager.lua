@@ -233,6 +233,7 @@ function Aethergem_manager_gem_setting(inventory, btn_pic, str, num)
     Aethergem_manager_save_settings()
     INVENTORY_SET_CUSTOM_RBTNDOWN('Aethergem_manager_INV_RBTN')
     setting_frame:ShowWindow(1)
+    g.esc_register_destroy("Aethergem_manager_setting_frame")
 end
 
 function Aethergem_manager_INV_RBTN(item_obj, slot, guid)

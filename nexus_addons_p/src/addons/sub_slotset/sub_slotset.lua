@@ -718,6 +718,7 @@ function Sub_slotset_setting(sub_slotset_name)
     setting:Resize(210, 255)
     gbox:Resize(setting:GetWidth() - 20, setting:GetHeight() - 50)
     setting:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "sub_slotset_setting")
 end
 
 function Sub_slotset_setting_close(setting)

@@ -162,21 +162,38 @@ function _nexus_addons_p_ESCAPE_PRESSED()
     -- ESC は 2 経路で届きうる: g.esc_sync_scp が仕込む ui.SetEscapeScp と、
     -- ゲームからアドオンへ一斉配信される ESCAPE_PRESSED。どちらが来る(あるいは両方来る)かは
     -- クライアント任せなので、同じ押下で二重に閉じないよう直後の再入は捨てる。
+    -- 押下ごとに 1 行出す。**「ESC がこちらへ届いているか」を切り分けるのに要る。**
+    --
+    -- かつてここを黙らせていたのは、esc_probe(1 回で 30 行以上)を毎押下で回していた頃の
+    -- 話。1 行なら実用上の重さは出ないので戻した。既定は詳細ログ OFF なので普段は黙る。
+    -- この行が無いと「押しても何も起きない」を追えない: 閉じたときしか行が出ないため、
+    -- **こちらへ届いていないのか、届いたが閉じる対象が無かったのかが区別できない**
+    -- (実機で Easy Buff / Market Favorite が「1 回目は空振り、2 回目で閉じる」と報告され、
+    --  ログからは press 1 の行跡が一切拾えなかった)。
     if g.esc_is_reentry() then
+        g.vlog("ESCAPE_PRESSED: 同じ押下の再入として捨てた (stack=%d)", #g.esc_stack)
         return
     end
     g.esc_last_ms = imcTime.GetAppTimeMS()
-    -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
-    -- 出ない。こちらの開閉判定と食い違うので、この押下に合わせて畳んでおく
-    -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
-    pcall(addons_menu_on_escape)
-    -- 押下ごとのログはここでは出さない。**ESC の反応が悪くなるため**(実機で確認)。
-    -- g.vlog は 1 行ごとに ui.SysMsg とファイルの open/write/close を行うので、
-    -- 押すたびに必ず走る経路に置くと、その分だけ入力の処理が重くなる。
-    -- 実際に閉じたときは下で 1 行出るし、割り込み先の出し入れは esc_scp の行で追える。
-    -- ここを一時的に戻すのは「ESC がこちらへ届いているか」を疑うときだけにすること。
+    g.vlog("ESCAPE_PRESSED: 受けた (stack=%d scp=%s)", #g.esc_stack, tostring(g.esc_scp_set))
     local entry = g.esc_pop_top()
     if not entry then
+        -- スタックに閉じるものが無いときだけ、Addons Menu 側(一覧と設定画面)を畳む。
+        -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
+        -- 出ないので、こちらの開閉判定と食い違う分をここで合わせる
+        -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
+        --
+        -- **スタックより先に呼んではいけない。** 以前は無条件に先頭で呼んでいたため、
+        -- 手前の自作ウィンドウを閉じる押下で Addons Menu の設定画面まで一緒に消えていた
+        -- (「1 回の ESC でまとめて消える」を防ぐためのスタックが、ここだけ素通りしていた)。
+        local ok, closed = pcall(addons_menu_on_escape)
+        if ok and closed then
+            -- 実際に畳んだ押下は「使った」扱いにする。そうしないと設定画面が閉じるのと
+            -- 同時にシステムメニューが開き、indun_panel のトグルまで走る。
+            g.esc_closed_ms = imcTime.GetAppTimeMS()
+            g.esc_sync_scp()
+            return
+        end
         -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
         -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
         -- ここは force を付けない。押下のたびに SetEscapeScp("") を撃つと、
@@ -195,7 +212,11 @@ function _nexus_addons_p_ESCAPE_PRESSED()
         -- 定期的な調査は起動後 1 回(GAME_START)だけにする。
         return
     end
-    local close_func = _G[entry.close]
+    -- close は関数そのものか、グローバル関数の名前(g.esc_register 参照)。
+    local close_func = entry.close
+    if type(close_func) ~= "function" then
+        close_func = _G[close_func]
+    end
     if type(close_func) ~= "function" then
         g.vlog("ESCAPE_PRESSED: close func not found frame=%s func=%s", tostring(entry.frame), tostring(entry.close))
         g.esc_sync_scp()
@@ -613,6 +634,27 @@ function _nexus_addons_p_frame_init()
     list_gb:Resize(list_frame:GetWidth() - 20, list_frame:GetHeight() - 50)
     g.create_maintenance_buttons(list_frame, total_width)
     list_frame:SetPos(310, 100)
+    -- ESC は × ボタンと同じ閉じ方にする。**破棄だけにしないこと**:
+    -- _nexus_addons_p_list_close は各アドオンの設定画面も畳んでから自分を破棄する
+    -- (一覧を閉じたのに、そこから開いた設定画面だけ残るのを防ぐため)。
+    --
+    -- この関数は ON/OFF の切り替えやバックアップのたびに一覧を作り直す用途でも呼ばれるので
+    -- esc_register_keep を使う。esc_register だと、アドオンの設定画面を開いたまま
+    -- ON/OFF を切り替えた瞬間に一覧が手前へ積み直され、ESC 1 回で一覧の close が走って
+    -- 設定画面まで道連れになる。
+    --
+    -- なお characters_item_serch は位置を読むためだけにここを呼び、戻り値を
+    -- すぐ ShowWindow(0) する。この「出ていない登録」は、直後に characters_item_serch 自身が
+    -- 上へ積まれると esc_top の走査がそこで止まるため掃除されず下に残る
+    -- (esc_top は最初に生きている登録で止まる)。後で本当に一覧を開いたときに
+    -- 死んだ登録を掴んで手前に来ない、という形で出るので、
+    -- **esc_register_keep 側で「生きているときだけ据え置く」ことで塞いでいる**。
+    g.esc_register_keep(list_frame_name, function()
+        local frame = ui.GetFrame(list_frame_name)
+        if frame then
+            _nexus_addons_p_list_close(frame)
+        end
+    end)
     return list_frame
 end
 

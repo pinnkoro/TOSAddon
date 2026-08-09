@@ -165,6 +165,7 @@ function Revival_timer_setting()
                        "{ol}スタートと非表示は{nl}チャットコマンド{#FFD700}'/rtimer'" or
                        "{ol}Start and hide with the{nl}chat command{#FFD700}'/rtimer'")
     setting:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "revival_timer_setting")
 end
 
 function Revival_timer_edit_save(frame, ctrl)

@@ -161,6 +161,7 @@ function Sub_map_settings()
     config:Resize(challenge_minimap:GetWidth() + 40, y + 60)
     config_gb:Resize(config:GetWidth() - 20, y + 10)
     config:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "sub_map_setting_frame")
 end
 
 function Sub_map_setting_close(config)

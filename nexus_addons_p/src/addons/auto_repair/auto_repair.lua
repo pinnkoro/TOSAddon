@@ -147,6 +147,7 @@ function Auto_repair_settings_frame_init()
     auto_repair_settings:Resize(width + 100, 150)
     auto_repair_gb:Resize(width + 80, 100)
     auto_repair_settings:ShowWindow(1)
+    g.esc_register_destroy(addon_name_lower .. "auto_repair_settings")
 end
 
 function Auto_repair_setting(frame, ctrl)
