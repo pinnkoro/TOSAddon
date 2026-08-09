@@ -1438,6 +1438,22 @@ function Mini_addons_load_buffs()
         Mini_addons_save_buffs()
     end
     local t_save = now_ms()
+    -- 変換できたら旧 json は消す。**残すと恒久的な「古い代替」になる**。
+    -- .lua の読み込みが一度でも失敗した回に変換当日の内容へ巻き戻り、それをそのまま
+    -- .lua へ書き戻すので、以降のバフ設定の変更が黙って消える。
+    -- 消す前に .lua が本当に出来ているかを確かめること(書けていない状態で消すと全部失う)。
+    if migrated then
+        local written = io.open(g.buffs_path, "rb")
+        if written then
+            written:close()
+            local removed = os.remove(g.buffs_json_path)
+            core_g.vlog("mini_addons: バフ一覧を .lua へ変換したので旧 json を%s (%s)",
+                removed and "削除した" or "{#FF6347}削除できなかった{/}", tostring(g.buffs_json_path))
+        else
+            core_g.vlog("{#FF6347}mini_addons: バフ一覧の .lua を書き出せていないので旧 json は残す{/} (%s)",
+                tostring(g.buffs_path))
+        end
+    end
     core_g.vlog("mini_addons: 計測 load_buffs 読込=%dms 書戻=%dms キー=%d 旧json移行=%s", t_load - t0,
         t_save - t_load, count_keys(g.buffs), tostring(migrated))
 end
@@ -4145,10 +4161,21 @@ function Mini_addons_HIGH_ENCHANT_OPTION_OPEN_BTN(my_frame, my_msg)
         -- OFF ならゲーム標準の hairenchant_option に任せる(このフックは元の関数を
         -- 呼ぶ設定なので、ここへ来る前に標準の窓は開いている)。
         -- ただし ON のときに作った自前の窓が残っていると、標準の窓とほぼ同じ位置に
-        -- レイヤー 100 で重なるため「標準の窓が開かない」ように見える。畳んでおくこと
+        -- レイヤー 100 で重なるため「標準の窓が開かない」ように見える。畳んでおくこと。
+        --
+        -- **畳むのは自前の窓と自前の更新スクリプトだけにすること。**
+        -- Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN を丸ごと呼ぶと SET_REPEAT_COUNT_TEXT(0) と
+        -- RESET_HIGH_ENCHANT() まで走る。素の RESET_HIGH_ENCHANT は素材スロットを空にして
+        -- itemIES を "None" へ戻すので、直前に開いたばかりの標準の窓が中身の無い状態になる
+        -- (「開かない」が「開くが空」に変わるだけだった)。bodyGbox1_1 も素の側の持ち物なので
+        -- 触らない(素の AUTO_OPTION_SETTING が組み直す前に自分で消しに行く必要はない)
         local stale = ui.GetFrame(addon_name_lower .. "reroll_option")
         if stale then
-            Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN(nil, "")
+            local high_hairenchant = ui.GetFrame("high_hairenchant")
+            if high_hairenchant then
+                high_hairenchant:StopUpdateScript("Mini_addons_HIGH_HAIRENCHANT_OK_BTN_")
+            end
+            ui.DestroyFrame(stale:GetName())
         end
         core_g.vlog("mini_addons: ヘアエンチャント 機能 OFF のため標準のオプション設定に任せる(自前の窓=%s)",
             stale and "残っていたので畳んだ" or "無し")
@@ -4750,6 +4777,14 @@ function Mini_addons_buff_list_backup(frame, ctrl, str, num)
     -- 控えも .lua。json のままにすると、復元のたびに 5 秒の json.decode を通る
     -- (中身は buffs と同じ、バフ ID をキーにした平坦なテーブルなので条件が同じ)。
     g.save_lua(g.buffs_backup_path, g.buffs)
+    -- 新しい控えを .lua で書けたら、旧 json の控えは消す。Mini_addons_buff_list_restore は
+    -- .lua が読めなかったときだけ json へ落ちるので、残しておくと「今日取った控え」の
+    -- つもりで移行前の控えが戻ってくる経路が恒久的に残る(load_buffs の旧 json と同じ話)。
+    local written = io.open(g.buffs_backup_path, "rb")
+    if written then
+        written:close()
+        os.remove(g.buffs_backup_json_path)
+    end
     core_g.vlog("mini_addons: バフ一覧をバックアップした (%s)", tostring(g.buffs_backup_path))
     ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧をバックアップしました" or
                   "{ol}{#00BFFF}[Nexus Addons P] Backed up the buff list")
