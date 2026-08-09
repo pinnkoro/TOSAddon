@@ -32,6 +32,8 @@
 -- (settings.json のような主要な設定は上書きされる)。消す方向の同期にすると
 -- 対象の取り違えでユーザーのファイルを消しかねないので、意図的に上書きだけにしている。
 -- 復元後は g.* にキャッシュ済みの各アドオン設定までは戻らないため、再起動を案内する。
+-- 唯一の例外が g.drop_superseded_lua(.lua/.json の対)。上書きだけだと復元そのものが
+-- 効かなくなるので、そこだけ消す方向へ回している。理由は g.paired_lua_settings を参照。
 
 -- AID フォルダ直下に置かれるファイル名。ここに無いものはバックアップされない。
 -- mkdir.txt(g.create_folder のマーカー)と filelist_temp.txt(monster_kill_count が
@@ -46,7 +48,7 @@ g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json",
                   "guild_event_warp.json", "indun_list_viewer.json", "indun_list_viewer.lua", "indun_panel.json",
                   "instant_cc.json", "inventory.dat", "lets_go_home.json", "market_favorite_rebuild.json",
                   "market_voucher.json", "market_voucher_log.txt", "mini_addons.json", "mini_addons_buffs.json",
-                  "mini_addons_buffs_backup.json",
+                  "mini_addons_buffs.lua", "mini_addons_buffs_backup.json", "mini_addons_buffs_backup.lua",
                   "monster_card_changer.json", "monster_kill_count.json", "muteki.json",
                   "my_buffs_control.dat", "my_buffs_control.json", "other_character_skill_list.json",
                   "other_character_skill_list.lua", "pick_item_tracker.json", "quickslot_operate.json",
@@ -54,8 +56,51 @@ g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json",
                   "settings_250609.json", "settings_2507.json", "settings_2510.json", "sub_map.json",
                   "sub_slotset.json", "vakarine_equip.json", "warehouse.dat"}
 
+-- 「.lua を先に読み、無ければ旧 .json へ落ちる」形で読んでいる設定の対。
+--
+-- 復元は上書きしかしないので、*移行前*(= .json だけ)のバックアップを戻すと、live 側に
+-- 残ったままの .lua が勝って、書き戻した .json が黙って無視される。利用者から見ると
+-- 「復元しましたと出たのに設定が戻らない」になる。そこで復元の最後に、
+-- 「バックアップに .lua が無く .json だけがある」対に限って live の .lua を消す。
+--
+-- ここだけは消す方向の同期になるが、対象は対になっている .lua 1 ファイルだけで、
+-- しかも「同じ設定の新しい表現」なので、取り違えて別の設定を消すことはない。
+-- 新しく .lua/.json の対を増やしたら、g.backup_files と併せてここにも足すこと
+-- (docs/tests/test_core.lua [17] が両方に載っているかを見る)。
+g.paired_lua_settings = {{
+    json = "always_status.json",
+    lua = "always_status.lua"
+}, {
+    json = "another_warehouse.json",
+    lua = "another_warehouse.lua"
+}, {
+    json = "cc_helper.json",
+    lua = "cc_helper.lua"
+}, {
+    json = "indun_list_viewer.json",
+    lua = "indun_list_viewer.lua"
+}, {
+    json = "mini_addons_buffs.json",
+    lua = "mini_addons_buffs.lua"
+}, {
+    json = "mini_addons_buffs_backup.json",
+    lua = "mini_addons_buffs_backup.lua"
+}, {
+    json = "other_character_skill_list.json",
+    lua = "other_character_skill_list.lua"
+}}
+
 -- 可変名のファイルを置いている唯一のサブフォルダ。コピー先に無ければ作る必要がある。
 local BACKUP_SUBFOLDER = "monster_kill_count"
+
+local function file_exists(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return false
+    end
+    file:close()
+    return true
+end
 
 -- names に可変名のファイル(サブフォルダ付き)が含まれるときだけ、コピー先へその
 -- サブフォルダを作る。普段はアドオン側が作っているが、monster_kill_count を一度も
@@ -164,6 +209,27 @@ function g.backup_settings()
     return true, copied, failed
 end
 
+-- 移行前のバックアップ(= .json だけ)を戻したときに、live に残った .lua が勝って
+-- 復元が無視されるのを防ぐ。消した件数を返す。理由は g.paired_lua_settings の宣言コメント。
+--
+-- 判定に使うのは *書き戻したあとの live 側の .json* が在るかどうか。バックアップ側で
+-- 見ると、.json のコピーに失敗していた場合に .lua だけを消して設定を丸ごと失う。
+function g.drop_superseded_lua(backup_dir, live_dir)
+    local dropped = 0
+    for _, pair in ipairs(g.paired_lua_settings) do
+        if not file_exists(backup_dir .. "/" .. pair.lua) and file_exists(live_dir .. "/" .. pair.json) and
+            file_exists(live_dir .. "/" .. pair.lua) then
+            if os.remove(live_dir .. "/" .. pair.lua) then
+                dropped = dropped + 1
+                g.vlog("restore: 移行前の %s を活かすため %s を消した", pair.json, pair.lua)
+            else
+                g.vlog("{#FF6347}restore: %s を消せなかった(復元した %s が無視される){/}", pair.lua, pair.json)
+            end
+        end
+    end
+    return dropped
+end
+
 -- バックアップから設定を書き戻す。戻り値は ok, copied, failed。
 function g.restore_settings()
     local paths = g.backup_paths()
@@ -179,7 +245,9 @@ function g.restore_settings()
             paths.live, failed)
         return false, 0, failed
     end
-    g.vlog("restore: %s -> %s (%d 件, 失敗 %d 件)", paths.backup, paths.live, copied, failed)
+    local dropped = g.drop_superseded_lua(paths.backup, paths.live)
+    g.vlog("restore: %s -> %s (%d 件, 失敗 %d 件, 旧形式に戻した対 %d 件)", paths.backup, paths.live, copied,
+        failed, dropped)
     return true, copied, failed
 end
 

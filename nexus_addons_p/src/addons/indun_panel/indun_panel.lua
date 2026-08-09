@@ -411,7 +411,7 @@ function Indun_panel_challenge(_nexus_addons_p)
     end
     local now = imcTime.GetAppTimeMS()
     if (now - g.indun_panel_challenge_start_time) >= 3000 then
-        _nexus_addons_p:StopUpdateScript("indun_panel_challenge")
+        _nexus_addons_p:StopUpdateScript("Indun_panel_challenge")
         g.indun_panel_challenge_start_time = nil
         return 0
     end

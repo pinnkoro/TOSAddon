@@ -728,6 +728,55 @@ do
     g.active_id = nil
 end
 
+-- ===== 16-3. 移行前のバックアップを戻したときに .lua が勝たない =====
+-- 復元は上書きだけなので、.json しか無いバックアップを戻しても live に残った .lua が
+-- 勝ち、「復元しました」と出たのに設定が戻らない。対になっている .lua だけを消す
+-- g.drop_superseded_lua がその 1 点を埋めている。消しすぎないことも併せて見る。
+print("[16-3] 移行前のバックアップを復元すると古い .lua を退ける")
+do
+    local backup_dir, live_dir = "../addons/_nexus_addons_p/bk", "../addons/_nexus_addons_p/live"
+    local function reset_pair()
+        for path in pairs(vfs) do
+            if path:find(backup_dir, 1, true) or path:find(live_dir, 1, true) then
+                vfs[path] = nil
+            end
+        end
+    end
+
+    -- 移行前のバックアップ(.json だけ)。復元済みの live の .json は在る
+    reset_pair()
+    vfs[backup_dir .. "/cc_helper.json"] = "OLD"
+    vfs[live_dir .. "/cc_helper.json"] = "OLD"
+    vfs[live_dir .. "/cc_helper.lua"] = "NEW"
+    check("対の .lua を消す", g.drop_superseded_lua(backup_dir, live_dir), 1)
+    check("消えている", vfs[live_dir .. "/cc_helper.lua"], nil)
+    check("復元した .json は残る", vfs[live_dir .. "/cc_helper.json"], "OLD")
+
+    -- 移行後のバックアップ(.lua が在る)。こちらは .lua そのものが復元されているので触らない
+    reset_pair()
+    vfs[backup_dir .. "/cc_helper.lua"] = "BK"
+    vfs[live_dir .. "/cc_helper.lua"] = "BK"
+    vfs[live_dir .. "/cc_helper.json"] = "OLD"
+    check("バックアップに .lua が在れば消さない", g.drop_superseded_lua(backup_dir, live_dir), 0)
+    check("復元した .lua は残る", vfs[live_dir .. "/cc_helper.lua"], "BK")
+
+    -- .json のコピーに失敗して live に届かなかったとき。ここで .lua を消すと設定を丸ごと失う
+    reset_pair()
+    vfs[backup_dir .. "/cc_helper.json"] = "OLD"
+    vfs[live_dir .. "/cc_helper.lua"] = "NEW"
+    check("復元できていなければ消さない", g.drop_superseded_lua(backup_dir, live_dir), 0)
+    check("live の .lua は残る", vfs[live_dir .. "/cc_helper.lua"], "NEW")
+
+    -- 対を持たない設定は対象外(消す方向の同期はここだけに閉じ込める)
+    reset_pair()
+    vfs[backup_dir .. "/muteki.json"] = "OLD"
+    vfs[live_dir .. "/muteki.json"] = "OLD"
+    vfs[live_dir .. "/always_status.lua"] = "KEEP"
+    check("関係ない .lua は消さない", g.drop_superseded_lua(backup_dir, live_dir), 0)
+    check("残っている", vfs[live_dir .. "/always_status.lua"], "KEEP")
+    reset_pair()
+end
+
 io.open = prev_io_open
 os.remove, os.rename = prev_os_remove, prev_os_rename
 g.settings = saved_settings
@@ -795,6 +844,19 @@ check("src にあって一覧に無いファイル", table.concat(missing_names,
 check("扱いを決めていない可変名のパス", table.concat(unknown_names, ", "), "")
 check("src から消えたのに一覧に残っているファイル", table.concat(stale_names, ", "), "")
 check("一覧が空でない", #g.backup_files > 0, true)
+-- .lua/.json の対（g.paired_lua_settings）は、両方が g.backup_files に載っていないと
+-- 復元で片方だけが戻り、g.drop_superseded_lua の前提（live の .json は復元済み）が崩れる。
+local pair_missing = {}
+for _, pair in ipairs(g.paired_lua_settings) do
+    if not listed[pair.json] then
+        pair_missing[#pair_missing + 1] = pair.json
+    end
+    if not listed[pair.lua] then
+        pair_missing[#pair_missing + 1] = pair.lua
+    end
+end
+table.sort(pair_missing)
+check("対になっているのに一覧に無いファイル", table.concat(pair_missing, ", "), "")
 
 -- ===== 18. ESC で閉じるのは一番手前の 1 枚だけ =====
 -- ESCAPE_PRESSED は登録済みハンドラ全部へ一斉に配られるので、各アドオンが素直に自分の

@@ -1816,7 +1816,7 @@ function Cc_helper_equip_card(out_btn)
             end
         end
     end
-    out_btn:StopUpdateScript("cc_helper_equip_card")
+    out_btn:StopUpdateScript("Cc_helper_equip_card")
     Cc_helper_take_item(nil, out_btn, nil, next_step)
     return 0
 end
