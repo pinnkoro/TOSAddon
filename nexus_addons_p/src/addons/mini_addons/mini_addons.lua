@@ -4276,8 +4276,13 @@ end
 
 function Mini_addons_HIGH_HAIRENCHANT_OK_BTN(my_frame, my_msg)
     local frame, ctrl = g.get_event_args(my_msg)
+    -- 掛けたフックが bool=false(元の関数を呼ばない)なので、元の処理はここで自分で呼ぶ。
+    -- **return を忘れないこと。** 素の HIGH_HAIRENCHANT_OK_BTN は確認ダイアログを挟まず
+    -- その場で item.DoPremiumItemEnchantchip() を投げるため、下の else へ抜けると
+    -- 1 回の押下で 2 回付与してしまう(この機能が OFF = 既定のときに必ず通る経路)
     if g.settings.hair_enchant == 0 then
         g.FUNCS["HIGH_HAIRENCHANT_OK_BTN"](frame, ctrl)
+        return
     end
     local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
     if reroll_option and reroll_option:IsVisible() == 1 then
