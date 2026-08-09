@@ -4142,6 +4142,16 @@ end
 
 function Mini_addons_HIGH_ENCHANT_OPTION_OPEN_BTN(my_frame, my_msg)
     if g.settings.hair_enchant == 0 then
+        -- OFF ならゲーム標準の hairenchant_option に任せる(このフックは元の関数を
+        -- 呼ぶ設定なので、ここへ来る前に標準の窓は開いている)。
+        -- ただし ON のときに作った自前の窓が残っていると、標準の窓とほぼ同じ位置に
+        -- レイヤー 100 で重なるため「標準の窓が開かない」ように見える。畳んでおくこと
+        local stale = ui.GetFrame(addon_name_lower .. "reroll_option")
+        if stale then
+            Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN(nil, "")
+        end
+        core_g.vlog("mini_addons: ヘアエンチャント 機能 OFF のため標準のオプション設定に任せる(自前の窓=%s)",
+            stale and "残っていたので畳んだ" or "無し")
         return
     end
     local ctrl, frame = g.get_event_args(my_msg)
@@ -4154,11 +4164,13 @@ function Mini_addons_HIGH_ENCHANT_OPTION_OPEN_BTN(my_frame, my_msg)
     end
     local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
     if reroll_option then
+        core_g.vlog("mini_addons: ヘアエンチャント 自前の窓を畳んで標準のオプション設定へ戻す")
         Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN(nil, "")
 
         ui.OpenFrame("hairenchant_option")
         return
     end
+    core_g.vlog("mini_addons: ヘアエンチャント 自前のオプション窓を開く")
     ui.CloseFrame("hairenchant_option")
     reroll_option = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "reroll_option", 0, 0, 0, 0)
     AUTO_CAST(reroll_option)
