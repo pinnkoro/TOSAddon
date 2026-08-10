@@ -20,12 +20,22 @@ function Auto_repair_load_settings()
             setting_y = 700,
             auto_buy = false
         }
+        Auto_repair_write_purchase_log("initialized")
         changed = true
     end
     g.auto_repair_settings = settings
     if changed then
         Auto_repair_save_settings()
     end
+end
+
+-- 購入した履歴を残しておくと、あとから補充のしすぎに気付けるので記録する
+function Auto_repair_write_purchase_log(text)
+    local dir = string.format("../addons/%s/%s/auto_repair_log", addon_name_lower, g.active_id)
+    os.execute(string.format('mkdir "%s"', dir))
+    local f = io.open(dir .. "/purchase.txt", "a")
+    f:write(text .. "\n")
+    f:close()
 end
 
 function auto_repair_on_init()
@@ -73,7 +83,7 @@ function Auto_repair_buy_item()
     local count = 0
     if auto_repair_item ~= nil then
         local repair_count = auto_repair_item.count
-        count = g.auto_repair_settings.buy_qty - repair_count
+        count = g.auto_repair_settings.buy_qty - repair_count + g.auto_repair_settings.spare_qty
     else
         count = g.auto_repair_settings.buy_qty
     end
@@ -147,7 +157,6 @@ function Auto_repair_settings_frame_init()
     auto_repair_settings:Resize(width + 100, 150)
     auto_repair_gb:Resize(width + 80, 100)
     auto_repair_settings:ShowWindow(1)
-    g.esc_register_destroy(addon_name_lower .. "auto_repair_settings")
 end
 
 function Auto_repair_setting(frame, ctrl)
@@ -185,7 +194,7 @@ function Auto_repair_DURNOTIFY_UPDATE(my_frame, my_msg)
     end
     local slot_set = GET_CHILD_RECURSIVELY(frame, 'slotlist', 'ui::CSlotSet')
     slot_set:ClearIconAll()
-    for i = 0, slot_set:GetSlotCount() - 1 do
+    for i = 0, slot_set:GetSlotCount() do
         local slot = slot_set:GetSlotByIndex(i)
         slot:ShowWindow(0)
     end
@@ -242,7 +251,7 @@ function Auto_repair_item_use(obj, spot)
     session.ResetItemList()
     local repair_kit = session.GetInvItemByType(g.auto_repair.item_cls_id)
     if repair_kit ~= nil and not repair_kit.isLockState then
-        local repeat_count = math.min(repair_kit.count, 4)
+        local repeat_count = math.max(repair_kit.count, 4)
         for i = 0, repeat_count - 1 do
             if obj.Dur / obj.MaxDur < 0.9 then
                 item.UseByGUID(repair_kit:GetIESID())
