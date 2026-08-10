@@ -52,6 +52,13 @@ jobs:
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # prompt にスラッシュコマンドを渡しても、それを実行する Skill ツール自体が
+          # 既定では許可されていない。許可しないと呼び出しが拒否され、レビューが
+          # 一度も走らないまま success で終わる（実際に PR #60 でそうなった）。
+          # スキルが内部で使うツールはスキル側の allowed-tools が持つので、ここは Skill だけでよい。
+          claude_args: |
+            --allowedTools "Skill"
+
           # 既定では Claude の出力がログに一切出ないため、指摘が 0 件で終わったときに
           # 「問題なしと判断した」のか「必要な操作ができず諦めた」のかを外から判別できない。
           # 切り分けが済むまでの間だけ本文と拒否されたツールをログに出す。
