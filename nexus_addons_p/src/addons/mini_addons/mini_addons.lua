@@ -3657,6 +3657,20 @@ function Mini_addons_add_memberinfo_menu(context, target_name)
     end
 end
 
+-- ここから 5 つ(CHAT_RBTN_POPUP / POPUP_GUILD_MEMBER / CONTEXT_PARTY /
+-- SHOW_PC_CONTEXT_MENU / POPUP_DUMMY)と POPUP_FRIEND_COMPLETE_CTRLSET は、
+-- **素の関数を呼ばず中身を書き写して**メンバーインフォ項目を足している。
+-- コンテキストメニューは ui.CreateContextMenu -> ui.OpenContextMenu で完結するため、
+-- 素を呼んだ後から項目を足せず、こう作らざるを得ない(Issue #53)。
+--
+-- **素が変わってもエラーにならず、静かに古い実装のままになる。** 書き写した当時の
+-- 素の実装を docs/client_snapshots/ に控えてあるので、本家(upstream)を取り込むときは
+--     python docs/check_client_copies.py --against upstream/main
+-- を必ず流し、差分が出たらこちら側も追随させること(登録簿は docs/client_copies.json)。
+--
+-- 素にある項目を「memberinfo が ON のとき」だけ差し替えるのはよいが、**OFF のときに
+-- 消してはいけない**。実際に POPUP_DUMMY の「見比べる」と CONTEXT_PARTY の
+-- 「詳細情報を見る」が、既定の OFF で消えていた。
 function Mini_addons_CHAT_RBTN_POPUP(frame, chat_ctrl)
     local top_frame = frame:GetTopParentFrame()
     local parent_frame = frame:GetParent()
@@ -3696,6 +3710,7 @@ function Mini_addons_CHAT_RBTN_POPUP(frame, chat_ctrl)
     ui.OpenContextMenu(context)
 end
 
+-- 素の POPUP_GUILD_MEMBER を書き写している(控え: docs/client_snapshots/POPUP_GUILD_MEMBER.lua)。
 function Mini_addons_POPUP_GUILD_MEMBER(parent, ctrl)
     local aid = parent:GetUserValue("AID")
     if aid == "None" then
@@ -3711,14 +3726,17 @@ function Mini_addons_POPUP_GUILD_MEMBER(parent, ctrl)
     end
     if is_leader == 1 and aid ~= my_aid then
         local map_name = session.GetMapName()
-        if map_name == "guild_agit_1" then
+        -- 素と同じく拡張ギルドアジトも含める。ここを落とすと拡張アジトでだけ
+        -- ギルドマスター委任の項目が出なくなる
+        if map_name == "guild_agit_1" or map_name == "guild_agit_extension" then
             ui.AddContextMenuItem(context, ScpArgMsg("GiveGuildLeaderPermission"),
                 string.format("SEND_REQ_GUILD_MASTER('%s')", name))
         end
     end
     if is_leader == 1 then
-        local list = session.party.GetPartyMemberList(PARTY_GUILD)
-        if list:Count() == 1 then
+        -- 素と同じく在籍者の総数で見る。GetPartyMemberList():Count() は今ロードされている
+        -- 分しか数えないので、オフラインの団員が居ても「解散」が出てしまう
+        if session.party.GetAllMemberCount(PARTY_GUILD) == 1 then
             ui.AddContextMenuItem(context, ScpArgMsg("Disband"), "DESTROY_GUILD()")
         end
     else
@@ -3736,6 +3754,20 @@ function Mini_addons_POPUP_GUILD_MEMBER(parent, ctrl)
     ui.AddContextMenuItem(context, ScpArgMsg("Cancel"), "None")
     Mini_addons_add_memberinfo_menu(context, name)
     ui.OpenContextMenu(context)
+end
+
+-- 素の CONTEXT_PARTY を書き写している(控え: docs/client_snapshots/CONTEXT_PARTY.lua)。
+-- 素と食い違っていないかは python docs/check_client_copies.py --against upstream/main。
+--
+-- 素にある「詳細情報を見る」(OPEN_PARTY_MEMBER_INFO)は、memberinfo が ON のときだけ
+-- 同じ表示名の /memberinfo 項目(Mini_addons_add_memberinfo_menu)へ差し替える。
+-- OFF のときは素のまま出すこと(以前は無条件に消していたため、既定の OFF では
+-- パーティー欄の右クリックから項目が消えていた)。
+local function mini_addons_add_party_member_info(context, member_info)
+    if g.settings.memberinfo ~= 1 then
+        ui.AddContextMenuItem(context, ScpArgMsg("ShowInfomation"),
+            string.format("OPEN_PARTY_MEMBER_INFO(%d)", member_info:GetHandle()))
+    end
 end
 
 function Mini_addons_CONTEXT_PARTY(frame, ctrl, aid)
@@ -3756,6 +3788,7 @@ function Mini_addons_CONTEXT_PARTY(frame, ctrl, aid)
         ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", member_info:GetName()))
         local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", member_info:GetName())
         ui.AddContextMenuItem(context, ScpArgMsg("ReqAddFriend"), str_req_add_friend_scp)
+        mini_addons_add_party_member_info(context, member_info)
         ui.AddContextMenuItem(context, ScpArgMsg("GiveLeaderPermission"),
             string.format("GIVE_PARTY_LEADER('%s')", member_info:GetName()))
         ui.AddContextMenuItem(context, ScpArgMsg("Ban"), string.format("BAN_PARTY_MEMBER('%s')", member_info:GetName()))
@@ -3769,6 +3802,7 @@ function Mini_addons_CONTEXT_PARTY(frame, ctrl, aid)
         ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", member_info:GetName()))
         local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", member_info:GetName())
         ui.AddContextMenuItem(context, ScpArgMsg("ReqAddFriend"), str_req_add_friend_scp)
+        mini_addons_add_party_member_info(context, member_info)
         if session.world.IsDungeon() and session.world.IsIntegrateIndunServer() == true then
             local server_name = GetServerNameByGroupID(GetServerGroupID())
             local scp = string.format("SHOW_INDUN_BADPLAYER_REPORT('%s', '%s', '%s')", member_info:GetAID(),
@@ -3784,13 +3818,24 @@ function Mini_addons_CONTEXT_PARTY(frame, ctrl, aid)
     ui.OpenContextMenu(context)
 end
 
+-- 素の SHOW_PC_CONTEXT_MENU を書き写している(控え: docs/client_snapshots/SHOW_PC_CONTEXT_MENU.lua)。
 function Mini_addons_SHOW_PC_CONTEXT_MENU(handle)
     if world.IsPVPMap() == true or session.colonywar.GetIsColonyWarMap() == true or IS_IN_EVENT_MAP() == true then
         return
     end
     local target_info = info.GetTargetInfo(handle)
     if target_info.IsDummyPC == 1 then
-        if target_info.isSkillObj == 0 then
+        -- 幽体離脱・幻影(Illusion_Buff)をクリックしても反応させない。素にある判定で、
+        -- 書き写したときに落ちていた
+        local is_enable = true
+        local cid = info.GetCID(handle)
+        if cid ~= nil and cid ~= "" and cid ~= "None" then
+            local ies_obj = GetPCObjectByCID(cid)
+            if ies_obj ~= nil and IsBuffApplied(ies_obj, "Illusion_Buff") == "YES" then
+                is_enable = false
+            end
+        end
+        if target_info.isSkillObj == 0 and is_enable == true then
             Mini_addons_POPUP_DUMMY(handle, target_info)
         end
         return
@@ -3904,8 +3949,15 @@ function Mini_addons_SHOW_PC_CONTEXT_MENU(handle)
     end
 end
 
+-- **素の POPUP_DUMMY を書き写している**(控え: docs/client_snapshots/POPUP_DUMMY.lua)。
+-- 素と食い違っていないかは python docs/check_client_copies.py --against upstream/main。
 function Mini_addons_POPUP_DUMMY(handle, target_info)
     local context = ui.CreateContextMenu("DPC_CONTEXT", target_info.name, 0, 0, 100, 100)
+    -- 素と同じ位置で必ず出す。露店キャラには /memberinfo が使えず、この「見比べる」が
+    -- 唯一の装備確認手段なので、memberinfo の ON / OFF で出し分けてはいけない
+    -- (以前は ON のときだけ末尾に出していたため、既定の OFF では項目ごと消えていた)。
+    local str_scp = string.format("PROPERTY_COMPARE(%d)", handle)
+    ui.AddContextMenuItem(context, ScpArgMsg("Auto_SalPyeoBoKi"), str_scp)
     if 1 == session.IsGM() then
         local str_scp = string.format("debug.TestE(%d)", handle)
         ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}NodeBoKi{/}"), str_scp)
@@ -3919,14 +3971,11 @@ function Mini_addons_POPUP_DUMMY(handle, target_info)
         ui.AddContextMenuItem(context, ScpArgMsg("VisitBarrack"), str_scp)
     end
     ui.AddContextMenuItem(context, ScpArgMsg("Auto_DatKi"), "")
-    if g.settings.memberinfo == 1 then
-        ui.AddContextMenuItem(context, "-----", "None")
-        local str_scp = string.format("PROPERTY_COMPARE(%d)", handle)
-        ui.AddContextMenuItem(context, ScpArgMsg("Auto_SalPyeoBoKi"), str_scp)
-    end
     ui.OpenContextMenu(context)
 end
 
+-- 素の POPUP_FRIEND_COMPLETE_CTRLSET を書き写している
+-- (控え: docs/client_snapshots/POPUP_FRIEND_COMPLETE_CTRLSET.lua)。上の Issue #53 の注意書きを参照。
 function Mini_addons_POPUP_FRIEND_COMPLETE_CTRLSET(parent, ctrlset)
     local aid = ctrlset:GetUserValue("AID")
     if aid == "" then
@@ -4042,6 +4091,9 @@ function Mini_addons_NOTICE_ON_MSG(frame, msg, str, num)
     g.FUNCS["NOTICE_ON_MSG"](frame, msg, str, num)
 end
 
+-- 素の CHAT_TEXT_LINKCHAR_FONTSET は「整形した文字列を返す」だけなので、素をそのまま
+-- 呼べる。書き写す必要が無いので持たない(素が変わっても自動で追随する。Issue #53)。
+-- ここでやるのは「消したいメッセージなら nil を返して表示させない」判定だけ。
 function Mini_addons_CHAT_TEXT_LINKCHAR_FONTSET(frame, msg)
     if not msg then
         return
@@ -4051,12 +4103,21 @@ function Mini_addons_CHAT_TEXT_LINKCHAR_FONTSET(frame, msg)
             return
         end
     end
-    local font_style = frame:GetUserConfig("TEXTCHAT_FONTSTYLE_LINK")
-    local result_str = string.gsub(msg, "({#%x+}){img", font_style .. "{img")
-    if config.GetXMLConfig("EnableChatFrameMotionEmoticon") == 0 and string.find(result_str, "{spine motion_") then
-        result_str = string.gsub(msg, "{spine motion_", "{img ")
+    local origin = g.FUNCS["CHAT_TEXT_LINKCHAR_FONTSET"]
+    if origin then
+        return origin(frame, msg)
     end
-    return result_str
+    -- 控えが無い = 素へ戻せない。整形は諦めて元の文字列をそのまま出す(消すよりまし)。
+    -- ここはチャットが 1 行来るたびに通り、origin は setup_hook のときに確定して
+    -- セッション中変わらない。絞らないと同じ 1 行で verbose_log.txt が埋まる
+    -- (CLAUDE.md「出しすぎない」)。状況は変わらないのでセッション中 1 回でよい。
+    -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると
+    -- ログ OFF の間に消費され、後から ON にしてもこの行が出ないままになる。
+    if not g.logged_linkchar_origin_missing and
+        core_g.vlog("mini_addons: CHAT_TEXT_LINKCHAR_FONTSET の素の実装が控えに無い") then
+        g.logged_linkchar_origin_missing = true
+    end
+    return msg
 end
 -- FPS設定を手動入力
 function Mini_addons_SYS_OPTION_OPEN(frame, msg)
