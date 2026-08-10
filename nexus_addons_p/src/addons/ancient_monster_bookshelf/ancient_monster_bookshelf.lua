@@ -172,7 +172,6 @@ function Ancient_monster_bookshelf_refresh_cardslots(is_inv)
             AUTO_CAST(slot)
             -- LBUTTONDOWN から LBUTTONUP に変更、関数名も変更
             slot:SetEventScript(ui.LBUTTONUP, 'Ancient_monster_bookshelf_slot_on_lbtn_up')
-            slot:SetEventScript(ui.MOUSEMOVE, 'Ancient_monster_bookshelf_slotset_on_mousemove')
 
             Ancient_monster_bookshelf_set_slot(slot, v, false)
             slot:Select(0)

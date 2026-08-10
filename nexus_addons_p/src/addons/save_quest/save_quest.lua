@@ -308,9 +308,16 @@ function Save_quest_short_cut_set(save_quest)
                 state_pic:EnableHitTest(1)
                 state_pic:SetEventScript(ui.LBUTTONUP, "QUESTION_QUEST_WARP")
                 state_pic:SetEventScriptArgNumber(ui.LBUTTONUP, quest_id)
-                state_pic:SetTooltipType('texthelp')
-                state_pic:SetTooltipArg("{ol}" .. quest_cls.Name)
-                state_pic:SetEventScript(ui.RBUTTONUP, "SAVEQUEST_OPEN_SHORTCUT_MENU")
+                -- クエスト欄側のアイコン(上の Save_quest_quest_ctrl_set)と同じメニューを開く。
+                -- 元は実体の無い SAVEQUEST_OPEN_SHORTCUT_MENU を指していて無反応だった
+                state_pic:SetEventScript(ui.RBUTTONUP, 'Save_quest_menu')
+                state_pic:SetEventScriptArgString(ui.RBUTTONUP, quest_cls.Name)
+                state_pic:SetEventScriptArgNumber(ui.RBUTTONUP, quest_id)
+                state_pic:SetTextTooltip(g.lang == "Japanese" and
+                                             ("{ol}[Save Quest]{nl}" .. quest_cls.Name ..
+                                                 "{nl}左クリック:ワープ{nl}右クリック:設定") or
+                                             ("{ol}[Save Quest]{nl}" .. quest_cls.Name ..
+                                                 "{nl}Left Click: Warp{nl}Right Click: Settings"))
                 local map_info =
                     save_quest:CreateOrGetControl('richtext', "map_info" .. quest_id_str, 27, y + 10, 0, 30)
                 AUTO_CAST(map_info)
