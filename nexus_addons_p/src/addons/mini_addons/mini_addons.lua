@@ -1563,7 +1563,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     g.setup_hook(Mini_addons_POPUP_GUILD_MEMBER, "POPUP_GUILD_MEMBER")
     g.setup_hook(Mini_addons_CONTEXT_PARTY, "CONTEXT_PARTY")
     g.setup_hook(Mini_addons_SHOW_PC_CONTEXT_MENU, "SHOW_PC_CONTEXT_MENU")
-    g.setup_hook(Mini_addons_POPUP_DUMMY, "POPUP_DUMMY")
+    -- POPUP_DUMMY(露店キャラ)は素のままでよいので掛けない。以前は素を書き写して
+    -- 「見比べる」を memberinfo が ON のときだけ出しており、既定の OFF で消えていた
     g.setup_hook(Mini_addons_POPUP_FRIEND_COMPLETE_CTRLSET, "POPUP_FRIEND_COMPLETE_CTRLSET")
     -- コインショップの数値を拡張
     g.setup_hook(Mini_addons_EARTHTOWERSHOP_CHANGECOUNT_NUM_CHANGE, "EARTHTOWERSHOP_CHANGECOUNT_NUM_CHANGE")
@@ -3649,384 +3650,223 @@ function Mini_addons_TOKEN_WARP_COOLDOWN(worldmap2_minimap)
     return 1
 end
 -- どこでもメンバーインフォ機能
-function Mini_addons_add_memberinfo_menu(context, target_name)
+-- add は素の ui.AddContextMenuItem。横取り中に呼ばれるので、自分が足す項目まで
+-- 差し替え対象(opts.drop)に引っかからないよう、素の方を通す。
+function Mini_addons_add_memberinfo_menu(context, target_name, add)
+    add = add or ui.AddContextMenuItem
     if g.settings.memberinfo == 1 and target_name and target_name ~= "" then
-        ui.AddContextMenuItem(context, "-----", "None")
-        ui.AddContextMenuItem(context, ScpArgMsg("ShowInfomation"),
-            string.format("ui.Chat('/memberinfo %s')", target_name))
+        add(context, "-----", "None")
+        add(context, ScpArgMsg("ShowInfomation"), string.format("ui.Chat('/memberinfo %s')", target_name))
     end
 end
 
--- ここから 5 つ(CHAT_RBTN_POPUP / POPUP_GUILD_MEMBER / CONTEXT_PARTY /
--- SHOW_PC_CONTEXT_MENU / POPUP_DUMMY)と POPUP_FRIEND_COMPLETE_CTRLSET は、
--- **素の関数を呼ばず中身を書き写して**メンバーインフォ項目を足している。
--- コンテキストメニューは ui.CreateContextMenu -> ui.OpenContextMenu で完結するため、
--- 素を呼んだ後から項目を足せず、こう作らざるを得ない(Issue #53)。
+-- ===== 素のコンテキストメニューへ項目を足す仕掛け(Issue #53) =====
 --
--- **素が変わってもエラーにならず、静かに古い実装のままになる。** 書き写した当時の
--- 素の実装を docs/client_snapshots/ に控えてあるので、本家(upstream)を取り込むときは
---     python docs/check_client_copies.py --against upstream/main
--- を必ず流し、差分が出たらこちら側も追随させること(登録簿は docs/client_copies.json)。
+-- 以前はここで **素の関数の中身をそのまま書き写して** メンバーインフォ項目を足していた。
+-- 素が変わってもエラーにならず、静かに古い実装のままになるのが問題だった。
 --
--- 素にある項目を「memberinfo が ON のとき」だけ差し替えるのはよいが、**OFF のときに
--- 消してはいけない**。実際に POPUP_DUMMY の「見比べる」と CONTEXT_PARTY の
--- 「詳細情報を見る」が、既定の OFF で消えていた。
+-- 今は「素を呼び、その最中の ui.AddContextMenuItem / ui.OpenContextMenu を一時的に
+-- 横取りする」形にしてある。差し替えも追加も **メニューが開く前** に済むので、
+-- 「開いた後から項目を足せるか」というクライアント依存の挙動に頼らない。
+--
+-- **横取りは素の関数を呼んでいる同期実行の間だけ**。Lua は単一スレッドなので、
+-- この間に他のメニューが割り込むことはなく、抜けるときは必ず元へ戻す(pcall の失敗時も)。
+-- ui.* を書き換えられないクライアントでは横取りを諦めて素をそのまま呼ぶ。
+-- そのときは追加項目が出ないが、ゲーム標準のメニューは壊れない。可否は verbose_log に出す。
+local mini_addons_ui_patchable = nil
+
+local function mini_addons_can_patch_ui()
+    if mini_addons_ui_patchable == nil then
+        local saved = ui.OpenContextMenu
+        local probe = function()
+        end
+        pcall(function()
+            ui.OpenContextMenu = probe
+        end)
+        mini_addons_ui_patchable = rawequal(ui.OpenContextMenu, probe)
+        pcall(function()
+            ui.OpenContextMenu = saved
+        end)
+        -- 実機で最初にメニューを開いたときに 1 回だけ出る。false なら
+        -- 「どこでもメンバーインフォ」の項目が出ないので、ここを見れば切り分けられる。
+        core_g.vlog("mini_addons: ui.* の差し替え可否 = %s", tostring(mini_addons_ui_patchable))
+    end
+    return mini_addons_ui_patchable
+end
+
+-- 「キャンセル」項目の表示名。素のメニューはどれも最後がキャンセルなので、その手前へ
+-- 自分の項目を差し込む。ClMsg と ScpArgMsg のどちらで引いているかは関数ごとに違う。
+local function mini_addons_cancel_captions()
+    local list = {}
+    local seen = {}
+    for _, f in ipairs({ScpArgMsg, ClMsg}) do
+        local ok, caption = pcall(f, "Cancel")
+        if ok and type(caption) == "string" and caption ~= "" and not seen[caption] then
+            seen[caption] = true
+            table.insert(list, caption)
+        end
+    end
+    return list
+end
+
+-- 素の origin_func_name を呼び、その最中のメニュー組み立てへ割り込む。
+--   opts.drop   … この文字列を含む項目を落とす(素の項目を自分のものへ差し替えるとき)
+--   opts.insert … function(context, add) で項目を足す。add は素の ui.AddContextMenuItem
+--                 (自分が足したものが opts.drop に引っかからないよう、素の方を渡す)。
+--                 キャンセルの手前へ差し込み、見つからなければ開く直前に足す
+-- 戻り値は素の戻り値をそのまま返す(SHOW_PC_CONTEXT_MENU は context を返し、
+-- 呼び元の _SHOW_PC_CONTEXT_MENU が位置合わせに使う)。
+local function mini_addons_menu_hook(origin_func_name, opts, ...)
+    local origin = g.FUNCS[origin_func_name]
+    if not origin then
+        core_g.vlog("mini_addons: %s の素の実装が控えに無い", origin_func_name)
+        return
+    end
+    if not mini_addons_can_patch_ui() then
+        return origin(...)
+    end
+    local saved_add = ui.AddContextMenuItem
+    local saved_open = ui.OpenContextMenu
+    local cancels = mini_addons_cancel_captions()
+    local pending = opts.insert
+    local restored = false
+    local function restore()
+        if not restored then
+            restored = true
+            ui.AddContextMenuItem = saved_add
+            ui.OpenContextMenu = saved_open
+        end
+    end
+    local function flush(context)
+        if pending then
+            local add_items = pending
+            pending = nil
+            local ok, err = pcall(add_items, context, saved_add)
+            if not ok then
+                core_g.vlog("mini_addons: %s への項目追加で失敗: %s", origin_func_name, tostring(err))
+            end
+        end
+    end
+    ui.AddContextMenuItem = function(context, caption, ...)
+        if opts.drop and type(caption) == "string" and string.find(caption, opts.drop, 1, true) then
+            return
+        end
+        if pending and type(caption) == "string" then
+            for _, cancel in ipairs(cancels) do
+                if string.find(caption, cancel, 1, true) then
+                    flush(context)
+                    break
+                end
+            end
+        end
+        return saved_add(context, caption, ...)
+    end
+    ui.OpenContextMenu = function(context)
+        -- 開く前に戻しておく。この先で素が別のメニューを開いても横取りしない
+        -- (SHOW_PC_CONTEXT_MENU が露店キャラで POPUP_DUMMY を呼ぶような経路)。
+        restore()
+        flush(context)
+        return saved_open(context)
+    end
+    local ok, ret = pcall(origin, ...)
+    restore()
+    if not ok then
+        core_g.vlog("mini_addons: 素の %s の呼び出しで失敗: %s", origin_func_name, tostring(ret))
+        return
+    end
+    return ret
+end
+
 function Mini_addons_CHAT_RBTN_POPUP(frame, chat_ctrl)
-    local top_frame = frame:GetTopParentFrame()
-    local parent_frame = frame:GetParent()
-    local top_frame_name = top_frame:GetName()
-    local parent_frame_name = parent_frame:GetName()
-    if session.world.IsIntegrateServer() == true then
-        ui.SysMsg(ScpArgMsg("CantUseThisInIntegrateServer"))
-        return
-    end
     local target_name = chat_ctrl:GetUserValue("TARGET_NAME")
-    local target_txt = chat_ctrl:GetUserValue("SENTENCE")
-    if target_name == "" or GETMYFAMILYNAME() == target_name then
-        return
-    end
-    local context = ui.CreateContextMenu("CONTEXT_CHAT_RBTN", target_name, 0, 0, 350, 100)
-    ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", target_name))
-    local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", target_name)
-    ui.AddContextMenuItem(context, ScpArgMsg("ReqAddFriend"), str_req_add_friend_scp)
-    local party_invite_scp = string.format("PARTY_INVITE('%s')", target_name)
-    ui.AddContextMenuItem(context, ScpArgMsg("PARTY_INVITE"), party_invite_scp)
-    local ctrl_name = frame:GetName()
-    if GET_PRIVATE_CHANNEL_ACTIVE_STATE() == true then
-        local translate_scp = string.format("REQ_TRANSLATE_TEXT('%s','%s','%s')", top_frame_name, parent_frame_name,
-            ctrl_name)
-        ui.AddContextMenuItem(context, ScpArgMsg("TRANSLATE"), translate_scp)
-    end
-    local copy_pc_id = string.format("COPY_PC_ID('%s')", target_name)
-    ui.AddContextMenuItem(context, ScpArgMsg("CopyPcId"), copy_pc_id)
-    local copy_pc_sentence = string.format("COPY_PC_SENTENCE('%s')", target_txt)
-    ui.AddContextMenuItem(context, ScpArgMsg("CopyPcSentence"), copy_pc_sentence)
-    local block_scp = string.format("CHAT_BLOCK_MSG('%s')", target_name)
-    ui.AddContextMenuItem(context, ScpArgMsg("FriendBlock"), block_scp)
-    ui.AddContextMenuItem(context, ScpArgMsg("Report_AutoBot"),
-        string.format("REPORT_AUTOBOT_MSGBOX('%s')", target_name))
-    ui.AddContextMenuItem(context, ScpArgMsg("Cancel"), "None")
-    Mini_addons_add_memberinfo_menu(context, target_name)
-    ui.OpenContextMenu(context)
+    return mini_addons_menu_hook("CHAT_RBTN_POPUP", {
+        insert = function(context, add)
+            Mini_addons_add_memberinfo_menu(context, target_name, add)
+        end
+    }, frame, chat_ctrl)
 end
 
--- 素の POPUP_GUILD_MEMBER を書き写している(控え: docs/client_snapshots/POPUP_GUILD_MEMBER.lua)。
 function Mini_addons_POPUP_GUILD_MEMBER(parent, ctrl)
     local aid = parent:GetUserValue("AID")
     if aid == "None" then
         aid = ctrl:GetUserValue("AID")
     end
     local member_info = session.party.GetPartyMemberInfoByAID(PARTY_GUILD, aid)
-    local is_leader = AM_I_LEADER(PARTY_GUILD)
-    local my_aid = session.loginInfo.GetAID()
-    local name = member_info:GetName()
-    local context = ui.CreateContextMenu("PC_CONTEXT_MENU", name, 0, 0, 170, 100)
-    if is_leader == 1 or HAS_KICK_CLAIM() then
-        ui.AddContextMenuItem(context, ScpArgMsg("Ban"), string.format("GUILD_BAN('%s')", aid))
-    end
-    if is_leader == 1 and aid ~= my_aid then
-        local map_name = session.GetMapName()
-        -- 素と同じく拡張ギルドアジトも含める。ここを落とすと拡張アジトでだけ
-        -- ギルドマスター委任の項目が出なくなる
-        if map_name == "guild_agit_1" or map_name == "guild_agit_extension" then
-            ui.AddContextMenuItem(context, ScpArgMsg("GiveGuildLeaderPermission"),
-                string.format("SEND_REQ_GUILD_MASTER('%s')", name))
+    local name = member_info and member_info:GetName()
+    return mini_addons_menu_hook("POPUP_GUILD_MEMBER", {
+        insert = function(context, add)
+            Mini_addons_add_memberinfo_menu(context, name, add)
         end
-    end
-    if is_leader == 1 then
-        -- 素と同じく在籍者の総数で見る。GetPartyMemberList():Count() は今ロードされている
-        -- 分しか数えないので、オフラインの団員が居ても「解散」が出てしまう
-        if session.party.GetAllMemberCount(PARTY_GUILD) == 1 then
-            ui.AddContextMenuItem(context, ScpArgMsg("Disband"), "DESTROY_GUILD()")
-        end
-    else
-        if aid == my_aid then
-            ui.AddContextMenuItem(context, ScpArgMsg("GULID_OUT"), "OUT_GUILD_CHECK()")
-        end
-    end
-    if is_leader == 1 and aid ~= my_aid then
-        local summon_skl = GetClass("Skill", "Templer_SummonGuildMember")
-        ui.AddContextMenuItem(context, summon_skl.Name, string.format("SUMMON_GUILD_MEMBER('%s')", aid))
-        local go_skl = GetClass("Skill", "Templer_WarpToGuildMember")
-        ui.AddContextMenuItem(context, go_skl.Name, string.format("WARP_GUILD_MEMBER('%s')", aid))
-    end
-    ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", name))
-    ui.AddContextMenuItem(context, ScpArgMsg("Cancel"), "None")
-    Mini_addons_add_memberinfo_menu(context, name)
-    ui.OpenContextMenu(context)
-end
-
--- 素の CONTEXT_PARTY を書き写している(控え: docs/client_snapshots/CONTEXT_PARTY.lua)。
--- 素と食い違っていないかは python docs/check_client_copies.py --against upstream/main。
---
--- 素にある「詳細情報を見る」(OPEN_PARTY_MEMBER_INFO)は、memberinfo が ON のときだけ
--- 同じ表示名の /memberinfo 項目(Mini_addons_add_memberinfo_menu)へ差し替える。
--- OFF のときは素のまま出すこと(以前は無条件に消していたため、既定の OFF では
--- パーティー欄の右クリックから項目が消えていた)。
-local function mini_addons_add_party_member_info(context, member_info)
-    if g.settings.memberinfo ~= 1 then
-        ui.AddContextMenuItem(context, ScpArgMsg("ShowInfomation"),
-            string.format("OPEN_PARTY_MEMBER_INFO(%d)", member_info:GetHandle()))
-    end
+    }, parent, ctrl)
 end
 
 function Mini_addons_CONTEXT_PARTY(frame, ctrl, aid)
-    local my_aid = session.loginInfo.GetAID()
-    local pc_party = session.party.GetPartyInfo()
-    local iam_leader = (pc_party.info:GetLeaderAID() == my_aid)
-    local member_info = session.party.GetPartyMemberInfoByAID(PARTY_NORMAL, aid)
-    local context = ui.CreateContextMenu("CONTEXT_PARTY", "", 0, 0, 170, 100)
+    -- 統合サーバの観戦メニューは、素が項目 1 つを足してその場で開いて終わる。
+    -- キャンセルも無いので、ここへは何も足さずそのまま回す。
     if session.world.IsIntegrateServer() == true and session.world.IsIntegrateIndunServer() == false then
-        local exec_scp = string.format("ui.Chat('/changePVPObserveTarget %d 0')", member_info:GetHandle())
-        ui.AddContextMenuItem(context, ScpArgMsg("Observe{PC}", "PC", member_info:GetName()), exec_scp)
-        ui.OpenContextMenu(context)
+        local origin = g.FUNCS["CONTEXT_PARTY"]
+        if origin then
+            return origin(frame, ctrl, aid)
+        end
         return
     end
-    if aid == my_aid then
-        ui.AddContextMenuItem(context, ScpArgMsg("WithdrawParty"), "OUT_PARTY()")
-    elseif iam_leader == true then
-        ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", member_info:GetName()))
-        local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", member_info:GetName())
-        ui.AddContextMenuItem(context, ScpArgMsg("ReqAddFriend"), str_req_add_friend_scp)
-        mini_addons_add_party_member_info(context, member_info)
-        ui.AddContextMenuItem(context, ScpArgMsg("GiveLeaderPermission"),
-            string.format("GIVE_PARTY_LEADER('%s')", member_info:GetName()))
-        ui.AddContextMenuItem(context, ScpArgMsg("Ban"), string.format("BAN_PARTY_MEMBER('%s')", member_info:GetName()))
-        if session.world.IsDungeon() and session.world.IsIntegrateIndunServer() == true then
-            local server_name = GetServerNameByGroupID(GetServerGroupID())
-            local scp = string.format("SHOW_INDUN_BADPLAYER_REPORT('%s', '%s', '%s')", member_info:GetAID(),
-                server_name, member_info:GetName())
-            ui.AddContextMenuItem(context, ScpArgMsg("IndunBadPlayerReport"), scp)
+    local member_info = session.party.GetPartyMemberInfoByAID(PARTY_NORMAL, aid)
+    local name = member_info and member_info:GetName()
+    local handle = member_info and member_info:GetHandle()
+    return mini_addons_menu_hook("CONTEXT_PARTY", {
+        -- ON のときは素の「詳細情報を見る」を、同じ表示名の /memberinfo 項目へ差し替える。
+        -- **OFF のときは落とさない**(素の項目が消えてしまう)。
+        drop = (g.settings.memberinfo == 1) and ScpArgMsg("ShowInfomation") or nil,
+        insert = function(context, add)
+            if handle then
+                add(context, "----", "None")
+                add(context, ScpArgMsg("RequestFriendlyFight"), string.format("REQUEST_FIGHT(%d)", handle))
+            end
+            Mini_addons_add_memberinfo_menu(context, name, add)
         end
-    else
-        ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), string.format("ui.WhisperTo('%s')", member_info:GetName()))
-        local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", member_info:GetName())
-        ui.AddContextMenuItem(context, ScpArgMsg("ReqAddFriend"), str_req_add_friend_scp)
-        mini_addons_add_party_member_info(context, member_info)
-        if session.world.IsDungeon() and session.world.IsIntegrateIndunServer() == true then
-            local server_name = GetServerNameByGroupID(GetServerGroupID())
-            local scp = string.format("SHOW_INDUN_BADPLAYER_REPORT('%s', '%s', '%s')", member_info:GetAID(),
-                server_name, member_info:GetName())
-            ui.AddContextMenuItem(context, ScpArgMsg("IndunBadPlayerReport"), scp)
-        end
-    end
-    ui.AddContextMenuItem(context, "----", "None")
-    ui.AddContextMenuItem(context, ScpArgMsg("RequestFriendlyFight"),
-        string.format("REQUEST_FIGHT(%d)", member_info:GetHandle()))
-    ui.AddContextMenuItem(context, ScpArgMsg("Cancel"), "None")
-    Mini_addons_add_memberinfo_menu(context, member_info:GetName())
-    ui.OpenContextMenu(context)
+    }, frame, ctrl, aid)
 end
 
--- 素の SHOW_PC_CONTEXT_MENU を書き写している(控え: docs/client_snapshots/SHOW_PC_CONTEXT_MENU.lua)。
 function Mini_addons_SHOW_PC_CONTEXT_MENU(handle)
-    if world.IsPVPMap() == true or session.colonywar.GetIsColonyWarMap() == true or IS_IN_EVENT_MAP() == true then
-        return
-    end
-    local target_info = info.GetTargetInfo(handle)
-    if target_info.IsDummyPC == 1 then
-        -- 幽体離脱・幻影(Illusion_Buff)をクリックしても反応させない。素にある判定で、
-        -- 書き写したときに落ちていた
-        local is_enable = true
-        local cid = info.GetCID(handle)
-        if cid ~= nil and cid ~= "" and cid ~= "None" then
-            local ies_obj = GetPCObjectByCID(cid)
-            if ies_obj ~= nil and IsBuffApplied(ies_obj, "Illusion_Buff") == "YES" then
-                is_enable = false
-            end
-        end
-        if target_info.isSkillObj == 0 and is_enable == true then
-            Mini_addons_POPUP_DUMMY(handle, target_info)
-        end
-        return
-    end
     local pc_obj = world.GetActor(handle)
-    if pc_obj == nil then
+    local target_info = info.GetTargetInfo(handle)
+    -- 足すのは「他人の PC のメニュー」だけ。露店キャラ(素が POPUP_DUMMY へ回す)と
+    -- 自分自身(GM 用のデバッグメニュー)には足さないので、そのまま素へ回す。
+    -- 判定は素と同じものを使う。
+    if pc_obj == nil or target_info == nil or target_info.IsDummyPC == 1 or pc_obj:IsMyPC() == 1 or
+        info.IsPC(pc_obj:GetHandleVal()) ~= 1 then
+        local origin = g.FUNCS["SHOW_PC_CONTEXT_MENU"]
+        if origin then
+            return origin(handle)
+        end
         return
     end
-    if pc_obj:IsMyPC() == 1 then
-        if 1 == session.IsGM() then
-            local context = ui.CreateContextMenu("PC_CONTEXT_MENU", pc_obj:GetPCApc():GetFamilyName(), 0, 0, 100, 100)
-            local strscp = string.format("ui.Chat('//runscp TEST_SERVPOS %d')", handle)
-            ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}SeoBeowiChiBoKi{/}"), strscp)
-            strscp = string.format("debug.TestNode(%d)", handle)
-            ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}NodeBoKi{/}"), strscp)
-            strscp = string.format("debug.CheckModelFilePath(%d)", handle)
-            ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}XACTegSeuChyeoKyeongLo{/}"), strscp)
-            strscp = string.format("debug.TestSnapTexture(%d)", handle)
-            ui.AddContextMenuItem(context, "{@st42b}SnapTexture{/}", strscp)
-            strscp = string.format("debug.TestShowBoundingBox(%d)", handle)
-            ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}BaunDingBagSeuBoKi{/}"), strscp)
-            strscp = string.format("SCR_OPER_RELOAD_HOTKEY(%d)", handle)
-            ui.AddContextMenuItem(context, "ReloadHotKey", strscp)
-            strscp = string.format("SCR_CLIENTTESTSCP(%d)", handle)
-            ui.AddContextMenuItem(context, "ClientTestScp", strscp)
-            ui.OpenContextMenu(context)
-            return context
+    local family_name = pc_obj:GetPCApc():GetFamilyName()
+    return mini_addons_menu_hook("SHOW_PC_CONTEXT_MENU", {
+        -- ON のときは素の「見比べる」を /memberinfo へ差し替える(表示は別物だが役割が同じ)。
+        drop = (g.settings.memberinfo == 1) and ScpArgMsg("Auto_SalPyeoBoKi") or nil,
+        insert = function(context, add)
+            Mini_addons_add_memberinfo_menu(context, family_name, add)
         end
-    end
-    if pc_obj:IsMyPC() == 0 and info.IsPC(pc_obj:GetHandleVal()) == 1 then
-        if target_info.IsDummyPC == 1 then
-            packet.DummyPCDialog(handle)
-            return
-        end
-        local family_name = pc_obj:GetPCApc():GetFamilyName()
-        local context = ui.CreateContextMenu("PC_CONTEXT_MENU", family_name, 0, 0, 170, 100)
-        if session.world.IsIntegrateServer() == false then
-            local str_scp = string.format("exchange.RequestChange(%d)", pc_obj:GetHandleVal())
-            ui.AddContextMenuItem(context, "{img context_transaction 18 18} " .. ClMsg("Exchange"), str_scp)
-            local str_whisper_scp = string.format("ui.WhisperTo('%s')", family_name)
-            ui.AddContextMenuItem(context, "{img context_whisper 18 17} " .. ClMsg("WHISPER"), str_whisper_scp)
-            str_scp = string.format("PARTY_INVITE('%s')", family_name)
-            ui.AddContextMenuItem(context, "{img context_party_invitation 18 17} " .. ClMsg("PARTY_INVITE"), str_scp)
-            if session.party.GetPartyInfo(PARTY_GUILD) ~= nil and target_info.hasGuild == false then
-                str_scp = string.format("GUILD_INVITE('%s')", family_name)
-                ui.AddContextMenuItem(context, "{img context_guild_invitation 18 17} " .. ClMsg("GUILD_INVITE"), str_scp)
-            end
-            str_scp = string.format("barrackNormal.Visit(%d)", handle)
-            ui.AddContextMenuItem(context, "{img context_lodging_visit 16 17} " .. ScpArgMsg("VisitBarrack"), str_scp)
-            str_scp = string.format("ui.ToggleHeaderText(%d)", handle)
-            if pc_obj:GetHeaderText() ~= nil and string.len(pc_obj:GetHeaderText()) ~= 0 then
-                if pc_obj:IsHeaderTextVisible() == true then
-                    ui.AddContextMenuItem(context, "{img context_preface_block 18 17} " .. ClMsg("BlockTitleText"),
-                        str_scp)
-                else
-                    ui.AddContextMenuItem(context, "{img context_preface_remove 18 17} " .. ClMsg("UnblockTitleText"),
-                        str_scp)
-                end
-            end
-        end
-        if g.settings.memberinfo ~= 1 then
-            local str_scp = string.format("PROPERTY_COMPARE(%d)", handle)
-            ui.AddContextMenuItem(context, "{img context_look_into 18 17} " .. ScpArgMsg("Auto_SalPyeoBoKi"), str_scp)
-        end
-        if session.world.IsIntegrateServer() == false then
-            local str_req_add_friend_scp = string.format("friends.RequestRegister('%s')", family_name)
-            ui.AddContextMenuItem(context, "{img context_friend_application 18 13} " .. ScpArgMsg("ReqAddFriend"),
-                str_req_add_friend_scp)
-        end
-        ui.AddContextMenuItem(context, "{img context_friendly_match 18 17} " .. ScpArgMsg("RequestFriendlyFight"),
-            string.format("REQUEST_FIGHT(%d)", pc_obj:GetHandleVal()))
-        local map_prop = session.GetCurrentMapProp()
-        local map_cls = GetClassByType("Map", map_prop.type)
-        if IS_TOWN_MAP(map_cls) == true then
-            ui.AddContextMenuItem(context, "{img context_personal_housing 18 17} " .. ScpArgMsg("PH_SEL_DLG_2"),
-                string.format("REQUEST_PERSONAL_HOUSING_WARP('%s')", pc_obj:GetPCApc():GetAID()))
-        end
-        if session.world.IsIntegrateServer() == false then
-            local str_req_like_it_scp = string.format("SEND_PC_INFO(%d)", handle)
-            if session.likeit.AmILikeYou(family_name) == true then
-                ui.AddContextMenuItem(context, "{img context_like 18 17} " .. ScpArgMsg("ReqUnlikeIt"),
-                    str_req_like_it_scp)
-            else
-                ui.AddContextMenuItem(context, "{img context_like 18 17} " .. ScpArgMsg("ReqLikeIt"),
-                    str_req_like_it_scp)
-            end
-        end
-        ui.AddContextMenuItem(context, "{img context_automatic_suspicion 16 17} " .. ScpArgMsg("Report_AutoBot"),
-            string.format("REPORT_AUTOBOT_MSGBOX('%s')", family_name))
-        if pc_obj:IsGuildExist() == true then
-            ui.AddContextMenuItem(context,
-                "{img context_inappropriate_emblem 17 17} " .. ScpArgMsg("Report_GuildEmblem"),
-                string.format("REPORT_GUILDEMBLEM_MSGBOX('%s')", family_name))
-        end
-        if 1 == session.IsGM() then
-            ui.AddContextMenuItem(context, ScpArgMsg("GM_Order_Protected"),
-                string.format("REQUEST_GM_ORDER_PROTECTED('%s')", family_name))
-            ui.AddContextMenuItem(context, ScpArgMsg("GM_Order_Kick"),
-                string.format("REQUEST_GM_ORDER_KICK('%s')", family_name))
-        end
-        if session.world.IsDungeon() and session.world.IsIntegrateIndunServer() == true then
-            local aid = pc_obj:GetPCApc():GetAID()
-            local server_name = GetServerNameByGroupID(GetServerGroupID())
-            local scp = string.format("SHOW_INDUN_BADPLAYER_REPORT('%s', '%s', '%s')", aid, server_name, family_name)
-            ui.AddContextMenuItem(context, ScpArgMsg("IndunBadPlayerReport"), scp)
-        end
-        ui.AddContextMenuItem(context, ClMsg("Cancel"), "None")
-        Mini_addons_add_memberinfo_menu(context, family_name)
-        ui.OpenContextMenu(context)
-        return context
-    end
+    }, handle)
 end
 
--- **素の POPUP_DUMMY を書き写している**(控え: docs/client_snapshots/POPUP_DUMMY.lua)。
--- 素と食い違っていないかは python docs/check_client_copies.py --against upstream/main。
-function Mini_addons_POPUP_DUMMY(handle, target_info)
-    local context = ui.CreateContextMenu("DPC_CONTEXT", target_info.name, 0, 0, 100, 100)
-    -- 素と同じ位置で必ず出す。露店キャラには /memberinfo が使えず、この「見比べる」が
-    -- 唯一の装備確認手段なので、memberinfo の ON / OFF で出し分けてはいけない
-    -- (以前は ON のときだけ末尾に出していたため、既定の OFF では項目ごと消えていた)。
-    local str_scp = string.format("PROPERTY_COMPARE(%d)", handle)
-    ui.AddContextMenuItem(context, ScpArgMsg("Auto_SalPyeoBoKi"), str_scp)
-    if 1 == session.IsGM() then
-        local str_scp = string.format("debug.TestE(%d)", handle)
-        ui.AddContextMenuItem(context, ScpArgMsg("Auto_{@st42b}NodeBoKi{/}"), str_scp)
-        str_scp = string.format("ui.Chat('//killmon %d')", handle)
-        ui.AddContextMenuItem(context, ScpArgMsg("Auto_JeKeo"), str_scp)
-        ui.AddContextMenuItem(context, ScpArgMsg("GM_Order_Kick"),
-            string.format("REQUEST_ORDER_DUMMY_KICK('%s')", handle))
-    end
-    if session.world.IsIntegrateServer() == false then
-        local str_scp = string.format("barrackNormal.Visit(%d)", handle)
-        ui.AddContextMenuItem(context, ScpArgMsg("VisitBarrack"), str_scp)
-    end
-    ui.AddContextMenuItem(context, ScpArgMsg("Auto_DatKi"), "")
-    ui.OpenContextMenu(context)
-end
-
--- 素の POPUP_FRIEND_COMPLETE_CTRLSET を書き写している
--- (控え: docs/client_snapshots/POPUP_FRIEND_COMPLETE_CTRLSET.lua)。上の Issue #53 の注意書きを参照。
 function Mini_addons_POPUP_FRIEND_COMPLETE_CTRLSET(parent, ctrlset)
     local aid = ctrlset:GetUserValue("AID")
-    if aid == "" then
-        return
-    end
-    local f = session.friends.GetFriendByAID(FRIEND_LIST_COMPLETE, aid)
-    if f == nil then
-        return
-    end
-    local info = f:GetInfo()
-    local context = ui.CreateContextMenu("FRIEND_CONTEXT", "", 0, 0, 0, 0)
-    if f.mapID ~= 0 then
-        local party_invite_scp = string.format("PARTY_INVITE('%s')", info:GetFamilyName())
-        ui.AddContextMenuItem(context, ScpArgMsg("PARTY_INVITE"), party_invite_scp)
-        local memo_scp = string.format("FRIEND_SET_MEMO('%s')", aid)
-        ui.AddContextMenuItem(context, ScpArgMsg("FriendAddMemo"), memo_scp)
-    end
-    local whisper_scp = string.format("ui.WhisperTo('%s')", info:GetFamilyName())
-    ui.AddContextMenuItem(context, ScpArgMsg("WHISPER"), whisper_scp)
-    local group_name_list = {}
-    local cnt = session.friends.GetFriendCount(FRIEND_LIST_COMPLETE)
-    for i = 0, cnt - 1 do
-        local all_friend = session.friends.GetFriendByIndex(FRIEND_LIST_COMPLETE, i)
-        local group_name = all_friend:GetGroupName()
-        if group_name ~= nil and group_name ~= "" and group_name ~= "None" and group_name ~= f:GetGroupName() and
-            group_name_list[group_name] == nil then
-            table.insert(group_name_list, group_name)
+    local name
+    if aid ~= "" then
+        local f = session.friends.GetFriendByAID(FRIEND_LIST_COMPLETE, aid)
+        if f then
+            name = f:GetInfo():GetFamilyName()
         end
     end
-    local sub_context = ui.CreateContextMenu("SUB", "", 0, 0, 0, 0)
-    for k, custom_group_name in pairs(group_name_list) do
-        local group_scp = string.format("FRIEND_SET_GROUPNAME(%d,'%s')", tonumber(aid), custom_group_name)
-        ui.AddContextMenuItem(sub_context, custom_group_name, group_scp)
-    end
-    local now_group_name = f:GetGroupName()
-    if now_group_name ~= nil and now_group_name ~= "" and now_group_name ~= "None" then
-        local group_scp = string.format("FRIEND_SET_GROUPNAME('%s','%s')", aid, "")
-        ui.AddContextMenuItem(sub_context, ScpArgMsg(FRIEND_GET_GROUPNAME(FRIEND_LIST_COMPLETE)), group_scp)
-    end
-    local group_scp = string.format("FRIEND_SET_GROUP('%s')", aid)
-    ui.AddContextMenuItem(sub_context, ScpArgMsg("FriendAddNewGroup"), group_scp)
-    group_scp = string.format("POPUP_FRIEND_GROUP_CONTEXTMENU('%s')", aid)
-    ui.AddContextMenuItem(context, ScpArgMsg("FriendAddGroup"), group_scp, nil, 0, 1, sub_context)
-    local block_scp = string.format("friends.RequestBlock('%s')", info:GetFamilyName())
-    ui.AddContextMenuItem(context, ScpArgMsg("FriendBlock"), block_scp)
-    local delete_scp = string.format("FRIEND_EXEC_DELETE('%s')", aid)
-    ui.AddContextMenuItem(context, ScpArgMsg("FriendDelete"), delete_scp)
-    ui.AddContextMenuItem(context, ScpArgMsg("Cancel"), "None")
-    Mini_addons_add_memberinfo_menu(context, info:GetFamilyName())
-    ui.OpenContextMenu(context)
+    return mini_addons_menu_hook("POPUP_FRIEND_COMPLETE_CTRLSET", {
+        insert = function(context, add)
+            Mini_addons_add_memberinfo_menu(context, name, add)
+        end
+    }, parent, ctrlset)
 end
+
 -- バウバスお知らせ
 function Mini_addons_NOTICE_ON_MSG_baubas(frame, msg)
     local _, _, str, _ = g.get_event_args(msg)

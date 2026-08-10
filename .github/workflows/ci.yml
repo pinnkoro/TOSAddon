@@ -10,8 +10,6 @@ name: CI
 #   3'. core のロジック回帰            … ゲーム API をスタブ化して動かせる範囲のみ
 #   3''. .ipf 暗号化の復号照合         … 自前実装(docs/ipf_crypt.py)が壊れると
 #        クライアントが読めない .ipf を配ることになる
-#   3'''. 書き写し箇所の登録簿         … 素の関数を書き写している箇所の控えが腐ると、
-#        クライアント更新に置き去りにされたことに気付けなくなる
 #
 # version-freeze ジョブ（main への PR で毎回）
 #   6. リリース前の先行採番            … main だけ版数が上がると、アドオンマネージャーが
@@ -67,6 +65,11 @@ jobs:
       - name: monster_kill_count のロジックテスト
         run: luajit docs/tests/test_monster_kill_count.lua
 
+      # コンテキストメニューの横取りは、戻し忘れるとゲーム中の全ての右クリックメニューを
+      # 巻き込む。復帰・素の戻り値・項目の差し替えを機械で見る。
+      - name: mini_addons のメニュー横取りテスト
+        run: luajit docs/tests/test_mini_addons_menu.lua
+
       # .ipf の暗号化は Python 実装（docs/ipf_crypt.py）に置き換えてある。実際に配布した
       # .ipf を復号し、raw deflate 展開してテーブル記載の平文 CRC32 と一致するかを見る
       # （テーブルは暗号化されないので、暗号実装を経由しない独立オラクルになる）。
@@ -76,13 +79,6 @@ jobs:
       # 単体では暗号の検査にならない。検出力はあくまで CRC32 照合の側にある。
       - name: .ipf 暗号化の検証
         run: python3 docs/ipf_crypt.py --self-test
-
-      # mini_addons が「素の関数を書き写して差し替えている」箇所の登録簿が腐っていないか
-      # （控えの sha256 / ハンドラの実在）だけを見る。クライアント実装そのものとの
-      # 突き合わせは本家(upstream)の取り込みが要るので、ここではなく手元で
-      # `--against upstream/main` を流す（CLAUDE.md「本家の修正を取り込みたい場合」）。
-      - name: 書き写し箇所の登録簿を検査
-        run: python3 docs/check_client_copies.py
 
   # main への PR で「バージョン情報を先に上げていないか」だけを見る。
   #
