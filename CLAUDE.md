@@ -15,19 +15,8 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 取り込み後は `nexus_addons_p/src/**` 側にリネームを反映すること
 （`_nexus_addons` → `_nexus_addons_p`、`_NEXUS_ADDONS` → `_NEXUS_ADDONS_P`）。
 
-**取り込むときは併せて次を流すこと**（本家は素のクライアント実装 `_client/jp/**` を同梱しており、
-`mini_addons` にはそれを書き写して差し替えている箇所が 6 つある。素が変わっても
-エラーにならず静かに古い実装のままになるので、機械で見る）:
-
-```
-python docs/check_client_copies.py --against upstream/main
-```
-
-差分が出たら `mini_addons.lua` の該当ハンドラを新しい素の実装で書き直し（自分の追加分は残す）、
-`--bless` を付けて控えを更新する。**控えだけ更新して本体を直さないこと**（アラームを消すだけになる）。
-登録簿は [docs/client_copies.json](docs/client_copies.json)、控えは `docs/client_snapshots/`。
-なお素にある項目を「機能が ON のとき」だけ差し替えるのはよいが、**OFF のときに消してはいけない**
-（実際に既定 OFF で素の項目が消えていた箇所が 2 つあった）。
+本家は素のクライアント実装（`_client/jp/**`）も同梱している。**素の関数の挙動や戻り値を
+推測しないこと**。`git show upstream/main:_client/jp/...` で実物を読めば確かめられる。
 
 ## 本家との共存対策（壊さないこと）
 
@@ -103,6 +92,34 @@ python docs/check_client_copies.py --against upstream/main
 * **調査が終わっても消さない**: その修正の経路を後から追える最低限のログは残すこと。
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
+
+## 素の関数を書き写さない（置換方式フックは必ず素を呼ぶ）
+
+置換方式フック（`g.setup_hook`）で**素の関数の中身を書き写して自分の処理を足すこと**は
+してはいけない。今は素と同じ動きでも、IMC 側が素を変更したとき**設定の ON / OFF に
+関わらず古い実装のまま**になる。エラーにならず静かに古い挙動になるので気付けない。
+
+* 実際に `mini_addons` の 7 箇所がこの作りで、次の食い違いが溜まっていた（Issue #53）。
+  素にある項目を**機能が OFF のときに消していた**のが 2 件、素の判定が落ちていたのが 2 件。
+  * `POPUP_DUMMY` の「見比べる」／`CONTEXT_PARTY` の「詳細情報を見る」が、
+    既定 OFF で消えていた
+  * `SHOW_PC_CONTEXT_MENU` の幻影（`Illusion_Buff`）判定と、
+    `POPUP_GUILD_MEMBER` の拡張ギルドアジト判定が落ちていた
+* **素にある項目を「機能が ON のとき」だけ差し替えるのはよいが、OFF のときに消してはいけない。**
+
+### コンテキストメニューへ項目を足すとき
+
+`ui.CreateContextMenu` → `ui.OpenContextMenu` で完結するので、素を呼んだ後からでは足せない。
+`mini_addons_menu_hook`（[mini_addons.lua](nexus_addons_p/src/addons/mini_addons/mini_addons.lua)）を使う。
+**素を呼び、その同期実行の間だけ `ui.AddContextMenuItem` / `ui.OpenContextMenu` を横取りして**、
+メニューが開く前に項目を足す・落とす。
+
+* 横取りは必ず元へ戻す（`pcall` が失敗した経路も含めて）。戻し忘れると全ての
+  右クリックメニューを巻き込む。
+* 素の戻り値はそのまま返すこと。`SHOW_PC_CONTEXT_MENU` は context を返し、
+  呼び元の `_SHOW_PC_CONTEXT_MENU` が位置合わせに使っている。
+* `ui.*` を差し替えられないクライアントに当たったら横取りを諦め、素をそのまま呼ぶ
+  （追加項目は出ないが標準のメニューは壊れない）。可否は `verbose_log.txt` に 1 回だけ出す。
 
 ## ウィンドウを開いたら ESC で閉じられるようにする
 
