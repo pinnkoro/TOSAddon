@@ -11,6 +11,11 @@ name: Claude Code Review
 #   * 公開リポジトリなので、fork から出た PR には secret が渡らずレビューは走らない。
 #     自分のブランチから出す通常の PR だけが対象になる。
 #
+# 注意: このファイル自身を変更する PR では、レビューは必ずスキップされる。
+#   Action 側に「ワークフローファイルの内容が default branch のものと一致していなければ
+#   本体を動かさない」検証があるため（Workflow validation failed と出て success で終わる）。
+#   ここを直したときは、main へマージした後の次の PR から効き始める。
+#
 # 注意: このジョブを ruleset の必須ステータスチェックに足さないこと。
 #   fork PR では起動しないうえ、レビューはマージの可否を判断する検査ではないため。
 #   （ci.yml 冒頭の `ipf` ジョブを必須にしない理由と同じ）
@@ -47,3 +52,8 @@ jobs:
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # 既定では Claude の出力がログに一切出ないため、指摘が 0 件で終わったときに
+          # 「問題なしと判断した」のか「必要な操作ができず諦めた」のかを外から判別できない。
+          # 切り分けが済むまでの間だけ本文と拒否されたツールをログに出す。
+          # 出るのは公開済みのコードに対するレビュー出力なので、公開リポジトリでも支障はない。
+          show_full_output: true
