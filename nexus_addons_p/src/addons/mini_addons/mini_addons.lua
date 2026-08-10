@@ -3726,7 +3726,9 @@ function Mini_addons_POPUP_GUILD_MEMBER(parent, ctrl)
     end
     if is_leader == 1 and aid ~= my_aid then
         local map_name = session.GetMapName()
-        if map_name == "guild_agit_1" then
+        -- 素と同じく拡張ギルドアジトも含める。ここを落とすと拡張アジトでだけ
+        -- ギルドマスター委任の項目が出なくなる
+        if map_name == "guild_agit_1" or map_name == "guild_agit_extension" then
             ui.AddContextMenuItem(context, ScpArgMsg("GiveGuildLeaderPermission"),
                 string.format("SEND_REQ_GUILD_MASTER('%s')", name))
         end
@@ -4106,7 +4108,15 @@ function Mini_addons_CHAT_TEXT_LINKCHAR_FONTSET(frame, msg)
         return origin(frame, msg)
     end
     -- 控えが無い = 素へ戻せない。整形は諦めて元の文字列をそのまま出す(消すよりまし)。
-    core_g.vlog("mini_addons: CHAT_TEXT_LINKCHAR_FONTSET の素の実装が控えに無い")
+    -- ここはチャットが 1 行来るたびに通り、origin は setup_hook のときに確定して
+    -- セッション中変わらない。絞らないと同じ 1 行で verbose_log.txt が埋まる
+    -- (CLAUDE.md「出しすぎない」)。状況は変わらないのでセッション中 1 回でよい。
+    -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると
+    -- ログ OFF の間に消費され、後から ON にしてもこの行が出ないままになる。
+    if not g.logged_linkchar_origin_missing and
+        core_g.vlog("mini_addons: CHAT_TEXT_LINKCHAR_FONTSET の素の実装が控えに無い") then
+        g.logged_linkchar_origin_missing = true
+    end
     return msg
 end
 -- FPS設定を手動入力
