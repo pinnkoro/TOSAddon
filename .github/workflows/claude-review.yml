@@ -47,6 +47,12 @@ jobs:
           fetch-depth: 0
 
       - uses: anthropics/claude-code-action@v1
+        env:
+          # code-review スキルは既定でレビューをバックグラウンドのサブエージェントに投げる。
+          # CI は 1 回きりの実行なので、投げた側は「完了通知を待つ」と言って turn を終え、
+          # 通知は永遠に来ないまま success で終わる（PR #60 の 2 度目がこれ）。
+          # 前面で走らせて、その場で結果を出させる。
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
