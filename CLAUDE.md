@@ -15,6 +15,20 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 取り込み後は `nexus_addons_p/src/**` 側にリネームを反映すること
 （`_nexus_addons` → `_nexus_addons_p`、`_NEXUS_ADDONS` → `_NEXUS_ADDONS_P`）。
 
+**取り込むときは併せて次を流すこと**（本家は素のクライアント実装 `_client/jp/**` を同梱しており、
+`mini_addons` にはそれを書き写して差し替えている箇所が 6 つある。素が変わっても
+エラーにならず静かに古い実装のままになるので、機械で見る）:
+
+```
+python docs/check_client_copies.py --against upstream/main
+```
+
+差分が出たら `mini_addons.lua` の該当ハンドラを新しい素の実装で書き直し（自分の追加分は残す）、
+`--bless` を付けて控えを更新する。**控えだけ更新して本体を直さないこと**（アラームを消すだけになる）。
+登録簿は [docs/client_copies.json](docs/client_copies.json)、控えは `docs/client_snapshots/`。
+なお素にある項目を「機能が ON のとき」だけ差し替えるのはよいが、**OFF のときに消してはいけない**
+（実際に既定 OFF で素の項目が消えていた箇所が 2 つあった）。
+
 ## 本家との共存対策（壊さないこと）
 
 本家と同名のグローバル関数（`Always_status_*` / `Indun_panel_*` など）は**意図的にリネームしていない**。
