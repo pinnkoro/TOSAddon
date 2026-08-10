@@ -190,6 +190,17 @@ python docs/check_client_copies.py --against upstream/main
 | `core/00_header.lua` `g.create_folder` | `mkdir` | 代替なし。マーカーで初回のみ |
 | `addons/monster_kill_count` | `dir` でファイル列挙 | 可変名のファイルを列挙する唯一の手段 |
 
+## コードレビューの指摘は日本語で書く
+
+このリポジトリはコメント・コミットメッセージ・PR・README をすべて日本語で書いている。
+**コードレビューの指摘も日本語で出すこと**。手元で `/code-review` を流すときも、
+PR で自動的に走る [Claude Code Review](.github/workflows/claude-review.yml) でも同じ。
+
+* 識別子・関数名・ファイルパス・ログやコードの引用は**原文のまま**でよい。
+  訳すと検索できなくなるので、むしろ訳さないこと。
+* 「なぜそれが問題か」「どう直すか」の説明を日本語で書く、という意味。
+* CLAUDE.md 由来の指摘は、根拠にした箇所を引用して示すこと（既にそうなっている）。
+
 ## PR を出すときは README の更新履歴を必ず更新する
 
 アドオンのソースやリリースビルド（`.ipf`）を変更して PR を作成するときは、
