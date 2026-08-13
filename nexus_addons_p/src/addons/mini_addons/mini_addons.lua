@@ -5346,6 +5346,22 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         reroll_option:SetUserValue("STATUS", "None")
         return 0
     end
+    -- **スクロールを使い切ったら、上限に届いていなくてもここで終わり。**
+    -- 素は 1 スタック使い切ると HIGH_HAIRENCHANT_SUCEECD で Enchant を次のスタックへ
+    -- 差し替える。それでも引けない = 本当に在庫が尽きたとき。
+    -- 放っておくと引けない GUID のまま撃ち続け、結果が返らないまま見張りタイマーの
+    -- 「結果が返らない」で止まることになり、何が起きたのか分からない
+    -- (リピート回数に手持ちより多い数を入れたときや、その数を保存したプリセットを
+    --  読み込んだときに必ず通る経路)
+    if session.GetInvItemByGuid(enchantGuid) == nil then
+        core_g.vlog("mini_addons: ヘアエンチャント 停止(魔法付与スクロールを使い切った / %d 回実施)", count)
+        repeatCount:SetTextByKey("value", string.format("%s : %d", ClMsg("REPEAT"), 0))
+        reroll_option:SetUserValue("REPERT", "None")
+        reroll_option:SetUserValue("STATUS", "None")
+        ui.SysMsg(g.lang == "Japanese" and "魔法付与スクロールを使い切ったので連続付与を終了しました" or
+                      "Stopped: you have run out of enchant scrolls")
+        return 0
+    end
     local invItem = session.GetInvItemByGuid(itemIES)
     if nil == invItem then
         return
