@@ -15,6 +15,9 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 取り込み後は `nexus_addons_p/src/**` 側にリネームを反映すること
 （`_nexus_addons` → `_nexus_addons_p`、`_NEXUS_ADDONS` → `_NEXUS_ADDONS_P`）。
 
+本家は素のクライアント実装（`_client/jp/**`）も同梱している。**素の関数の挙動や戻り値を
+推測しないこと**。`git show upstream/main:_client/jp/...` で実物を読めば確かめられる。
+
 ## 本家との共存対策（壊さないこと）
 
 本家と同名のグローバル関数（`Always_status_*` / `Indun_panel_*` など）は**意図的にリネームしていない**。
@@ -89,6 +92,34 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **調査が終わっても消さない**: その修正の経路を後から追える最低限のログは残すこと。
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
+
+## 素の関数を書き写さない（置換方式フックは必ず素を呼ぶ）
+
+置換方式フック（`g.setup_hook`）で**素の関数の中身を書き写して自分の処理を足すこと**は
+してはいけない。今は素と同じ動きでも、IMC 側が素を変更したとき**設定の ON / OFF に
+関わらず古い実装のまま**になる。エラーにならず静かに古い挙動になるので気付けない。
+
+* 実際に `mini_addons` の 7 箇所がこの作りで、次の食い違いが溜まっていた（Issue #53）。
+  素にある項目を**機能が OFF のときに消していた**のが 2 件、素の判定が落ちていたのが 2 件。
+  * `POPUP_DUMMY` の「見比べる」／`CONTEXT_PARTY` の「詳細情報を見る」が、
+    既定 OFF で消えていた
+  * `SHOW_PC_CONTEXT_MENU` の幻影（`Illusion_Buff`）判定と、
+    `POPUP_GUILD_MEMBER` の拡張ギルドアジト判定が落ちていた
+* **素にある項目を「機能が ON のとき」だけ差し替えるのはよいが、OFF のときに消してはいけない。**
+
+### コンテキストメニューへ項目を足すとき
+
+`ui.CreateContextMenu` → `ui.OpenContextMenu` で完結するので、素を呼んだ後からでは足せない。
+`mini_addons_menu_hook`（[mini_addons.lua](nexus_addons_p/src/addons/mini_addons/mini_addons.lua)）を使う。
+**素を呼び、その同期実行の間だけ `ui.AddContextMenuItem` / `ui.OpenContextMenu` を横取りして**、
+メニューが開く前に項目を足す・落とす。
+
+* 横取りは必ず元へ戻す（`pcall` が失敗した経路も含めて）。戻し忘れると全ての
+  右クリックメニューを巻き込む。
+* 素の戻り値はそのまま返すこと。`SHOW_PC_CONTEXT_MENU` は context を返し、
+  呼び元の `_SHOW_PC_CONTEXT_MENU` が位置合わせに使っている。
+* `ui.*` を差し替えられないクライアントに当たったら横取りを諦め、素をそのまま呼ぶ
+  （追加項目は出ないが標準のメニューは壊れない）。可否は `verbose_log.txt` に 1 回だけ出す。
 
 ## ウィンドウを開いたら ESC で閉じられるようにする
 
@@ -175,6 +206,17 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 | --- | --- | --- |
 | `core/00_header.lua` `g.create_folder` | `mkdir` | 代替なし。マーカーで初回のみ |
 | `addons/monster_kill_count` | `dir` でファイル列挙 | 可変名のファイルを列挙する唯一の手段 |
+
+## コードレビューの指摘は日本語で書く
+
+このリポジトリはコメント・コミットメッセージ・PR・README をすべて日本語で書いている。
+**コードレビューの指摘も日本語で出すこと**。手元で `/code-review` を流すときも、
+PR で自動的に走る [Claude Code Review](.github/workflows/claude-review.yml) でも同じ。
+
+* 識別子・関数名・ファイルパス・ログやコードの引用は**原文のまま**でよい。
+  訳すと検索できなくなるので、むしろ訳さないこと。
+* 「なぜそれが問題か」「どう直すか」の説明を日本語で書く、という意味。
+* CLAUDE.md 由来の指摘は、根拠にした箇所を引用して示すこと（既にそうなっている）。
 
 ## PR を出すときは README の更新履歴を必ず更新する
 

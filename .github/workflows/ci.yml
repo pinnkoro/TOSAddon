@@ -65,6 +65,11 @@ jobs:
       - name: monster_kill_count のロジックテスト
         run: luajit docs/tests/test_monster_kill_count.lua
 
+      # コンテキストメニューの横取りは、戻し忘れるとゲーム中の全ての右クリックメニューを
+      # 巻き込む。復帰・素の戻り値・項目の差し替えを機械で見る。
+      - name: mini_addons のメニュー横取りテスト
+        run: luajit docs/tests/test_mini_addons_menu.lua
+
       # .ipf の暗号化は Python 実装（docs/ipf_crypt.py）に置き換えてある。実際に配布した
       # .ipf を復号し、raw deflate 展開してテーブル記載の平文 CRC32 と一致するかを見る
       # （テーブルは暗号化されないので、暗号実装を経由しない独立オラクルになる）。

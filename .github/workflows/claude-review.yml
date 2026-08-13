@@ -1,0 +1,77 @@
+name: Claude Code Review
+
+# PR が開かれたとき / 更新されたときに、Claude Code の code-review スキルを走らせて
+# 指摘をインラインコメントとして貼る。ci.yml が「配布物を壊す事故」を機械的に止めるのに対し、
+# こちらは人間のレビュアーが 1 人しか居ない（ソロ開発）ぶんを補うのが目的。
+#
+# 前提:
+#   * repo secret `CLAUDE_CODE_OAUTH_TOKEN` に、手元で `claude setup-token` して得た
+#     トークンを入れておく。これを使うと API 従量課金ではなくサブスクリプション枠で走る。
+#     （API キー方式にするなら `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` に差し替え）
+#   * 公開リポジトリなので、fork から出た PR には secret が渡らずレビューは走らない。
+#     自分のブランチから出す通常の PR だけが対象になる。
+#
+# 注意: このファイル自身を変更する PR では、レビューは必ずスキップされる。
+#   Action 側に「ワークフローファイルの内容が default branch のものと一致していなければ
+#   本体を動かさない」検証があるため（Workflow validation failed と出て success で終わる）。
+#   ここを直したときは、main へマージした後の次の PR から効き始める。
+#
+# 注意: このジョブを ruleset の必須ステータスチェックに足さないこと。
+#   fork PR では起動しないうえ、レビューはマージの可否を判断する検査ではないため。
+#   （ci.yml 冒頭の `ipf` ジョブを必須にしない理由と同じ）
+#
+# 動かなくなったときの調べ方: 既定では Claude の出力がログに一切出ないため、
+#   「指摘 0 件」が「問題なしと判断した」のか「必要な操作ができず諦めた」のか区別できない。
+#   `show_full_output: true` を一時的に足すと、レビュー本文と permission_denials
+#   （拒否されたツールの一覧）がログに出る。切り分けが済んだら外すこと。
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# 同じ PR に立て続けに push したとき、古いレビューは打ち切る（無駄な消費を減らす）。
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # fork からの PR は secret が空になり、認証エラーで必ず赤くなるだけなので最初から回さない。
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write # --comment でインラインコメントを投稿するため
+      issues: read
+      id-token: write # claude-code-action の GitHub App 認証に必要
+    steps:
+      # CLAUDE.md と src を読ませるため。diff を取るので浅いクローンにはしない。
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          # code-review スキルは既定でレビューをバックグラウンドのサブエージェントに投げる。
+          # CI は 1 回きりの実行なので、投げた側は「完了通知を待つ」と言って turn を終え、
+          # 通知は永遠に来ないまま success で終わる（PR #60 の 2 度目がこれ）。
+          # 前面で走らせて、その場で結果を出させる。
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # prompt にスラッシュコマンドを渡しても、それを実行する Skill ツール自体が
+          # 既定では許可されていない。許可しないと呼び出しが拒否され、レビューが
+          # 一度も走らないまま success で終わる（実際に PR #60 でそうなった）。
+          #
+          # スキル側の allowed-tools は当てにできない。実際 Skill だけ許可した状態では、
+          # レビュー自体は完走して 6 件すべて拾えたのに、diff の取得と指摘の投稿に使う
+          # gh / git がすべて拒否され、結果がどこにも残らなかった。
+          # Bash を絞ろうとしても、実際に打たれるのは `gh pr diff ... > /tmp/x; cat -n ...` の
+          # ような複合コマンドなので、前方一致の細かい許可では弾かれ続ける。
+          # 起動できるのは同一リポジトリの PR、かつ write 権限を持つ人だけなので、ここは広く許す。
+          claude_args: |
+            --allowedTools "Skill,Read,Grep,Glob,Bash"
