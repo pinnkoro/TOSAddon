@@ -4197,6 +4197,20 @@ end
 local hair_enchant_build_reroll_body
 local hair_enchant_open_advanced
 local hair_enchant_presets
+-- 実体は hair_enchant_build_reroll_body の中(ドロップリストの項目から呼ぶ版と
+-- 組み立てから呼ぶ版を分けるため)
+local hair_enchant_apply_rank_until
+
+-- プリセットを読み込んだ後、手で設定を変えたか。**変えていればプリセットの
+-- 入れ直しをしない。** 入れ直しは「低いランクで落ちたチェックを、上のランクへ
+-- 替えたときに戻す」ためのものなので、手で変えた内容まで保存値へ巻き戻すのは行き過ぎ
+-- (ランクアップやスクロールのスタック切り替えでも入れ直しは走る)
+local hair_enchant_preset_dirty = false
+
+local function hair_enchant_mark_dirty()
+    hair_enchant_preset_dirty = true
+end
+
 -- 監視スクリプト(Mini_addons_hair_enchant_watch)から呼ぶが、実体はその下にある。
 -- **前方宣言を忘れるとグローバル参照になって nil。** 0.3 秒ごとに
 -- attempt to call a nil value になり、監視そのものが死ぬ
@@ -4238,12 +4252,17 @@ local function hair_enchant_refresh_if_changed(reroll_option)
     -- 対象が変わるたびにそこから入れ直す
     local presets = hair_enchant_presets()
     local preset = presets[tonumber(reroll_option:GetUserValue("PRESET_SEL")) or 0]
-    if preset ~= nil then
+    if preset ~= nil and not hair_enchant_preset_dirty then
         core_g.vlog("mini_addons: ヘアエンチャント プリセット「%s」を新しい対象に合わせて入れ直す",
             tostring(preset.name))
         -- 自動の入れ直しなのでリピート回数は今の値のまま(false)
         Mini_addons_hair_enchant_preset_load(false)
         return true
+    end
+    if preset ~= nil then
+        -- 読み込んだ後に手で変えている。保存値へ巻き戻さず、今の内容のまま組み直す
+        core_g.vlog("mini_addons: ヘアエンチャント プリセット「%s」は読込後に手で変えられているので入れ直さない",
+            tostring(preset.name))
     end
     hair_enchant_build_reroll_body(reroll_option, item_grade, item_rank)
     return true
@@ -4371,10 +4390,13 @@ local function hair_enchant_close_advanced()
     end
     -- 目標ランク指定で灰色にしていたら戻す(戻し先は素のフレームなので必須)
     hair_enchant_set_rank_up_enabled(true)
-    -- 付与ボタンも「停止」から戻す。窓を畳むと監視スクリプトも止まるので、
-    -- ここで戻さないと「停止」表示のまま取り残される
-    hair_enchant_sync_send_button()
     ui.DestroyFrame(stale:GetName())
+    -- 付与ボタンも「停止」から戻す。窓を畳むと監視スクリプトも止まるので、
+    -- ここで戻さないと「停止」表示のまま取り残される。
+    -- **必ず DestroyFrame の後に呼ぶこと。** 先に呼ぶと、確認ダイアログの返事待ち
+    -- (ASKING == "yes")の最中に閉じたときに「まだ回している」と判定されてしまい、
+    -- 「停止」表示のまま誰も戻せなくなる
+    hair_enchant_sync_send_button()
     return true
 end
 
@@ -4632,6 +4654,8 @@ function Mini_addons_hair_enchant_preset_save_do(frame, ctrl)
     ui.SysMsg(string.format(g.lang == "Japanese" and "プリセット「%s」を保存しました" or "Saved preset \"%s\"",
         name))
     frame:ShowWindow(0)
+    -- 保存した = 今の内容が保存値そのもの
+    hair_enchant_preset_dirty = false
     hair_enchant_rebuild()
 end
 
@@ -4695,6 +4719,8 @@ function Mini_addons_hair_enchant_preset_load(apply_repeat)
         tostring(preset.name), applied, #skipped, tostring(item_rank),
         #skipped > 0 and (": " .. table.concat(skipped, ", ")) or "", tostring(rank),
         apply_repeat and "プリセットの値を反映" or "今の値を維持")
+    -- 今の内容 = 保存値。ここから手で変えられるまでは入れ直してよい
+    hair_enchant_preset_dirty = false
     if #skipped > 0 then
         ui.SysMsg(string.format(g.lang == "Japanese" and
                                     "プリセット「%s」を読み込みました(%d 件は今のランクでは付かないので除外)" or
@@ -4841,6 +4867,7 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
             is_check = ctrl:IsChecked(),
             text = str
         }
+        hair_enchant_mark_dirty()
         core_g.vlog("mini_addons: ヘアエンチャント 希望オプション %s = %s", tostring(str),
             ctrl:IsChecked() == 1 and "ON" or "OFF")
         local bodyGbox1 = GET_CHILD_RECURSIVELY(high_hairenchant, "bodyGbox1")
@@ -5025,6 +5052,7 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
         end
         local on = ctrl:IsChecked() == 1
         reroll_option:SetUserValue("FAST", on and "yes" or "no")
+        hair_enchant_mark_dirty()
         core_g.vlog("mini_addons: ヘアエンチャント 演出を待たずに実行 = %s", on and "ON" or "OFF")
     end
     y = y + 8
@@ -5095,7 +5123,13 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     -- 選択は reroll_option の UserValue "RANK_UNTIL" に入れる。窓を作り直すたび
     -- 消えるので、既定は素の GetUserValue が返す "None" = 指定なし
     -- 名前の揃え方は mini_addons_p_reroll_option_check のコメントと同じ
+    -- ドロップリストの項目から呼ばれる版。**手で選んだときだけ dirty を立てる**
+    -- (組み立て末尾からの呼び直しは hair_enchant_apply_rank_until を直に使う)
     function mini_addons_p_hair_enchant_rank_until(rank)
+        hair_enchant_mark_dirty()
+        hair_enchant_apply_rank_until(rank)
+    end
+    hair_enchant_apply_rank_until = function(rank)
         local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
         if reroll_option == nil then
             return
@@ -5156,8 +5190,10 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     rank_until:SelectItem(keep_index)
     -- 選択に合わせて希望オプションの有効 / 無効(灰色)も揃える。SelectItem が
     -- 項目のスクリプトを走らせるかは土台任せなので、ここで必ず 1 回通しておく。
-    -- 引き継げなかった(選択肢から消えた)ときは "None" に落として指定なしへ戻す
-    mini_addons_p_hair_enchant_rank_until(keep_index == 0 and "None" or keep_rank)
+    -- 引き継げなかった(選択肢から消えた)ときは "None" に落として指定なしへ戻す。
+    -- **組み立ての一部なので dirty は立てない版を呼ぶこと**(立てると、組み直しただけで
+    -- 「手で変えた」扱いになり、プリセットの入れ直しが効かなくなる)
+    hair_enchant_apply_rank_until(keep_index == 0 and "None" or keep_rank)
 
     y = y + 30
     reroll_option:Resize(400, y + 45)
@@ -5315,18 +5351,36 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     -- もう 1 回撃つことになる。以前は 1.0 秒固定で撃っていたため、応答がそれより
     -- 遅い環境では実際にこれが起きうる作りだった。
     -- 合図は Mini_addons__HIGH_HAIRENCHANT_SUCCESS(素の演出が終わる所)が立てる
+    -- 前の結果が届くのを待つ関門。待つ理由は 2 つあり、**どちらも同じ見張りタイマーに
+    -- 掛けること**(片方だけ先に return すると、見張りへ辿り着けず永久に空回りする)。
+    --
+    -- (1) 合図(READY)がまだ来ていない
+    -- (2) 「演出を待たずに実行」で、合図は来たがアイテムの中身が前のまま。
+    --     このモードは素の演出を待たずに合図を受けるぶん、実データの更新より合図が
+    --     先に来る余地がある。そのまま進むと古い状態で「まだ付いていない」と誤判定し、
+    --     当たりを潰してもう 1 回撃つ(実際に報告された)。指紋が変わるまで待てば、
+    --     合図の順序が実際どうであっても成立する
+    local waiting = nil
     if reroll_option:GetUserValue("READY") ~= "yes" then
+        waiting = "結果の合図が来ない"
+    elseif reroll_option:GetUserValue("FAST") == "yes" and
+        hair_enchant_option_fingerprint(itemIES) == reroll_option:GetUserValue("FIRED_FP") then
+        -- 振り直しで偶然まったく同じ 3 つが出たときもここに入るが、下の見張りが
+        -- 止めるので当たりを潰すことはない(止まるだけ)
+        waiting = "オプションが前のまま変わらない"
+    end
+    if waiting ~= nil then
         local fired_at = tonumber(reroll_option:GetUserValue("FIRED_AT")) or 0
         if os.time() - fired_at < HAIR_ENCHANT_WATCHDOG then
             return 1
         end
-        -- 結果が返ってこない。**ここで撃ち直さないこと。**
+        -- **ここで撃ち直さないこと。**
         -- 応答が遅れているだけだと、まだ飛んでいる 1 発と重ねて撃つことになる。
         -- そうなると「希望オプションが付いた結果」が届いて確認ダイアログを出した直後に、
         -- 余分な 1 発の結果が届いて振り直され、当たりが消える(実際に報告された)。
         -- 黙って止まるのを避けるのが目的なので、**撃たずに止めて知らせる**方に倒す。
         -- 続けたければもう一度押せばよく、素材も当たりも失わない
-        core_g.vlog("mini_addons: ヘアエンチャント 停止(結果が %s 秒返らない / 撃ち直しはしない)",
+        core_g.vlog("mini_addons: ヘアエンチャント 停止(%s まま %s 秒経過 / 撃ち直しはしない)", waiting,
             tostring(HAIR_ENCHANT_WATCHDOG))
         ui.SysMsg(g.lang == "Japanese" and
                       "魔法付与の結果が返らないため連続付与を止めました。もう一度お試しください" or
@@ -5334,17 +5388,6 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         reroll_option:SetUserValue("REPERT", "None")
         reroll_option:SetUserValue("STATUS", "None")
         return 0
-    end
-    -- **合図が来ても、アイテムの中身が前のままなら進まない。**
-    -- 「演出を待たずに実行」は素の演出を待たずに合図を受けるぶん、アイテムの実データが
-    -- 更新される前に合図が来る余地がある。そのまま進むと古い状態で判定して
-    -- 「まだ付いていない」と誤り、当たりを潰してもう 1 回撃つ(実際に報告された)。
-    -- 指紋が変わるまで待てば、合図の順序が実際どうであっても成立する。
-    -- 振り直しで偶然まったく同じ 3 つが出た場合はここで待ち続けるが、
-    -- 見張りタイマーが止めるので当たりを潰すことはない(止まるだけ)
-    if reroll_option:GetUserValue("FAST") == "yes" and
-        hair_enchant_option_fingerprint(itemIES) == reroll_option:GetUserValue("FIRED_FP") then
-        return 1
     end
     reroll_option:SetUserValue("READY", "no")
     reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
