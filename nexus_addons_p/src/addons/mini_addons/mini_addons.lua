@@ -3777,7 +3777,12 @@ local function mini_addons_menu_hook(origin_func_name, opts, ...)
         end
     end
     ui.AddContextMenuItem = function(context, caption, ...)
-        if opts.drop and type(caption) == "string" and string.find(caption, opts.drop, 1, true) then
+        -- **opts.drop が空文字でないことを確かめること。** string.find(caption, "", 1, true) は
+        -- 常に 1 を返すので、空文字だと Cancel まで含めて素の項目が全部消える
+        -- (ScpArgMsg が引けずに "" を返した場合に起きる。cancels 側も同じ理由で
+        --  caption ~= "" を見ている)
+        if opts.drop and opts.drop ~= "" and type(caption) == "string" and
+            string.find(caption, opts.drop, 1, true) then
             return
         end
         if pending and type(caption) == "string" then
@@ -5169,6 +5174,12 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     -- (組み立て末尾からの呼び直しは hair_enchant_apply_rank_until を直に使う)
     function mini_addons_p_hair_enchant_rank_until(rank)
         hair_enchant_mark_dirty()
+        -- 手で選び直したときは、回している最中でも目標を差し替える
+        -- (組み直しによる "None" 落ちと違い、これは利用者の意思表示)
+        local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
+        if reroll_option ~= nil then
+            reroll_option:SetUserValue("RANK_GOAL", rank)
+        end
         hair_enchant_apply_rank_until(rank)
     end
     hair_enchant_apply_rank_until = function(rank)
@@ -5325,6 +5336,14 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN(my_frame, my_msg)
             (rank_up ~= nil and rank_up:IsChecked() == 1) and "ON" or "OFF",
             hair_enchant_rank_index(rank_until) == nil and "指定なし" or rank_until,
             reroll_option:GetUserValue("FAST") == "yes" and "ON" or "OFF")
+        -- **回している間の目標ランクはここで控えた値を使う(RANK_GOAL)。**
+        -- 画面側の RANK_UNTIL は、目標へ届いた時点の組み直し(プリセットの入れ直しや
+        -- ドロップリストの作り直し。どちらも「今のランクより上」しか残さない)で
+        -- "None" に落ちる。停止判定がそれを直に読んでいると、
+        -- **ちょうど届いた瞬間に目標が消えて止まらなくなる**
+        -- (素の「ランクアップ時に停止」は目標指定中に灰色にしてあるので、そちらでも
+        --  止まらず、リピート上限か在庫切れまで回り続ける)
+        reroll_option:SetUserValue("RANK_GOAL", rank_until)
         -- 1 回目はすぐ撃つ。以降は結果が返るまで下の関門で待つ。
         -- **前回の FIRED_FP / FIRED_AT も必ず消すこと。** 残っていると、見張りタイマーで
         -- 止まった後に押し直したとき、「指紋が前と同じ」かつ「FIRED_AT が古い」で
@@ -5517,7 +5536,8 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     local rank_check = rank_up ~= nil and rank_up:IsChecked() == 1
     -- 目標ランク(ドロップリスト)。指定があるときはそちらが優先で、素のチェックは見ない。
     -- 「A まで回す」と言っているのに途中の D → C で止まっては指定した意味が無いため
-    local rank_until = reroll_option:GetUserValue("RANK_UNTIL")
+    -- 画面側(RANK_UNTIL)ではなく、回し始めに控えた目標を読む(理由は OK_BTN 側のコメント)
+    local rank_until = reroll_option:GetUserValue("RANK_GOAL")
     local rank_until_index = hair_enchant_rank_index(rank_until)
     local now_index = hair_enchant_rank_index(item_rank)
     local ranked_up = befor_rank ~= "None" and item_rank ~= befor_rank
@@ -5573,15 +5593,18 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         end
         reroll_option:SetUserValue("ASKING", "None")
         if boolean == "YES" then
-            reroll_option:SetUserValue("FIRED_FP", hair_enchant_option_fingerprint(itemIES))
+            local fired_fp = hair_enchant_option_fingerprint(itemIES)
             item.DoPremiumItemEnchantchip(itemIES, enchantGuid)
             reroll_option:SetUserValue("REPERT", reroll_option:GetUserIValue("REPERT") + 1)
             Mini_addons_HIGH_HAIRENCHANT_OK_BTN(nil, "HIGH_HAIRENCHANT_OK_BTN")
             -- ここでは既に 1 回撃っている。OK_BTN が「1 回目はすぐ撃つ」ために立てた
-            -- READY を倒して、この結果が返るまで待たせること(倒さないと結果を待たずに
-            -- 次を撃ち、判定が古いオプションを見る)
+            -- READY / FIRED_AT / FIRED_FP を、撃った後の状態へ立て直すこと。
+            -- **FIRED_FP も忘れないこと。** OK_BTN は "None" を入れるので、
+            -- 立て直さないとこの 1 回だけ指紋の見張りが効かず、結果を待たずに
+            -- 次を撃って当たりを潰す(「演出を待たずに実行」のときに出る)
             reroll_option:SetUserValue("READY", "no")
             reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
+            reroll_option:SetUserValue("FIRED_FP", fired_fp)
         else
             Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN(nil, "")
         end
