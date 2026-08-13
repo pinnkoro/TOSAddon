@@ -1666,9 +1666,9 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     -- 素は結果を受けると HIGH_HAIRENCHANT_UIEFFECT で HoldUI を掛け、EFFECT_DURATION(0.5秒)後に
     -- この関数を ReserveScript して解除する。**演出の終わり**を合図にするので素と重ならない
     g.setup_hook_and_event(g.addon, "_HIGH_HAIRENCHANT_SUCCESS", "Mini_addons__HIGH_HAIRENCHANT_SUCCESS", true)
-    -- 「演出を待たずに実行」を ON にしたときだけ使う、ひとつ手前の合図(結果を受けた時点)
-    g.setup_hook_and_event(g.addon, "HIGH_HAIRENCHANT_SUCEECD_RESULT", "Mini_addons_HIGH_HAIRENCHANT_SUCEECD_RESULT",
-        true)
+    -- 「演出を待たずに実行」を ON にしたときだけ使う、ひとつ手前の合図。
+    -- アイテムの実データが更新される SUCEECD 側を使う(SUCEECD_RESULT ではない。理由は実装側)
+    g.setup_hook_and_event(g.addon, "HIGH_HAIRENCHANT_SUCEECD", "Mini_addons_HIGH_HAIRENCHANT_SUCEECD", true)
     -- チャットフレーム移動のワイドモニター制限解除
     g.setup_hook_and_event(g.addon, "_PROCESS_MOVE_MAIN_POPUPCHAT_FRAME",
         "Mini_addons__PROCESS_MOVE_MAIN_POPUPCHAT_FRAME", false)
@@ -4130,9 +4130,12 @@ local HAIR_ENCHANT_TICK = 0.1
 -- 目標ランク / Cancel / リピート回数の行 + 窓の下余白)の高さ。
 -- 枠の高さを画面から逆算するのに使うので、下の行を増減したらここも合わせること
 local HAIR_ENCHANT_BOTTOM_HEIGHT = 110
--- 結果が返らないまま何秒たったら撃ち直すか。要求が落ちた / サーバに弾かれたときに
--- 黙って止まらないための保険。os.time() は秒単位なので細かい値にしても意味は無い
-local HAIR_ENCHANT_WATCHDOG = 3
+-- 結果が返らないまま何秒たったら諦めて止めるか。要求が落ちた / サーバに弾かれたときに
+-- 黙って止まったように見えるのを避けるための保険で、**撃ち直しはしない**
+-- (理由は使う側のコメント)。撃たずに止めるだけなので、応答が遅い環境で
+-- 早々に打ち切らないよう長めに取る。os.time() は秒単位なので、実際の発動は
+-- ここから最大 1 秒早まりうる
+local HAIR_ENCHANT_WATCHDOG = 10
 
 -- ランクの並び。素の shared_enchant_special_option.get_item_rank が返すのは
 -- EnchantItemRank(0~3) を写した文字列 "D"/"C"/"B"/"A" なので、そのまま比較しても
@@ -5237,10 +5240,14 @@ local function hair_enchant_running_frame()
 end
 
 -- 結果を受けた時点の合図。**「演出を待たずに実行」が ON のときだけ**使う。
--- 素はこの直後に HIGH_HAIRENCHANT_UIEFFECT で HoldUI を掛けて 0.5 秒の演出を流すので、
--- ここで次を撃つと演出が重なる。速さと引き換えなのは見た目だけで、判定に使う
--- アイテムの状態はもう更新されている(素の HIGH_HAIRENCHANT_UPDATE_ITEM_OPTION 後)
-function Mini_addons_HIGH_HAIRENCHANT_SUCEECD_RESULT(my_frame, my_msg)
+--
+-- **HIGH_HAIRENCHANT_SUCEECD_RESULT ではなく SUCEECD の方を使うこと。**
+-- こちらの停止判定はアイテムの実データ(obj["HatPropName_1..3"])を読むので、
+-- それが更新される前に合図を出すと、古い状態を見て「まだ付いていない」と誤判定し、
+-- 当たりを潰してもう 1 回撃つ。SUCEECD は HIGH_HAIRENCHANT_UPDATE_ITEM_OPTION を
+-- 通す側なので、ここまで来ていればアイテムの状態は新しいと分かる。
+-- (SUCEECD_RESULT は表示用の値を引数で受け取るだけで、実データの更新とは別)
+function Mini_addons_HIGH_HAIRENCHANT_SUCEECD(my_frame, my_msg)
     local reroll_option = hair_enchant_running_frame()
     if reroll_option == nil or reroll_option:GetUserValue("FAST") ~= "yes" then
         return
@@ -5287,10 +5294,20 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         if os.time() - fired_at < HAIR_ENCHANT_WATCHDOG then
             return 1
         end
-        -- 結果が返ってこない(要求が落ちた / サーバに弾かれた)。
-        -- 待ち続けると黙って止まったように見えるので、撃ち直して先へ進める
-        core_g.vlog("mini_addons: ヘアエンチャント 結果が %s 秒返らないので撃ち直す",
+        -- 結果が返ってこない。**ここで撃ち直さないこと。**
+        -- 応答が遅れているだけだと、まだ飛んでいる 1 発と重ねて撃つことになる。
+        -- そうなると「希望オプションが付いた結果」が届いて確認ダイアログを出した直後に、
+        -- 余分な 1 発の結果が届いて振り直され、当たりが消える(実際に報告された)。
+        -- 黙って止まるのを避けるのが目的なので、**撃たずに止めて知らせる**方に倒す。
+        -- 続けたければもう一度押せばよく、素材も当たりも失わない
+        core_g.vlog("mini_addons: ヘアエンチャント 停止(結果が %s 秒返らない / 撃ち直しはしない)",
             tostring(HAIR_ENCHANT_WATCHDOG))
+        ui.SysMsg(g.lang == "Japanese" and
+                      "魔法付与の結果が返らないため連続付与を止めました。もう一度お試しください" or
+                      "Stopped: no result came back from the server. Please try again")
+        reroll_option:SetUserValue("REPERT", "None")
+        reroll_option:SetUserValue("STATUS", "None")
+        return 0
     end
     reroll_option:SetUserValue("READY", "no")
     reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
