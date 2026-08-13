@@ -38,7 +38,15 @@ jobs:
   review:
     runs-on: ubuntu-latest
     # fork からの PR は secret が空になり、認証エラーで必ず赤くなるだけなので最初から回さない。
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    #
+    # release 向けの PR（main -> release の公開 PR）でも回さない。中身は main へ入る前に
+    # レビュー済みで、ここで出るのは同じ指摘の焼き直しにしかならない。そのうえ
+    # 20 分ほど掛かるため、「main だけ採番済みで Release が旧版のまま」という
+    # 利用者がインストール／更新できない時間を延ばす方に働く（CLAUDE.md の
+    # 「バージョン情報はリリース時にだけ上げる」を参照）。
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref != 'release'
     timeout-minutes: 30
     permissions:
       contents: read
