@@ -1366,6 +1366,155 @@ check("INSTANTCC: 自分が居なければ個別版とみなす", _nexus_addons_
 _G["instant_cc_on_init"] = function() end
 check("INSTANTCC: 自分が居れば誤検出しない", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), false)
 
+-- ===== 25. mini_addons の断片が manifest に期待どおりの順で並んでいる =====
+-- mini_addons は機能ごとの断片に分かれていて、**実行順を決めるのは manifest だけ**
+-- (ファイル名に数字を振っていないので、並びを目視で確かめられない)。
+-- 断片をまたいで共有しているトップレベルの local は、宣言より前へ利用側を動かすと
+-- グローバル読み(= nil)に化ける。**エラーにならず静かに壊れる**ので、ここで並びを固定する。
+-- 意図して並べ替えたときは、この一覧も一緒に直すこと。
+print("[25] mini_addons 断片の並び")
+local MINI_PREFIX = "addons/mini_addons/"
+local MINI_EXPECTED = {
+    "mini_addons.lua",
+    "settings/definitions.lua",
+    "settings/ui.lua",
+    "settings/storage.lua",
+    "lifecycle/init.lua",
+    "misc/ui_tweaks.lua",
+    "lifecycle/update.lua",
+    "chat/chat_system.lua",
+    "misc/frame_tweaks.lua",
+    "quest/quest.lua",
+    "event_notice/reward_token.lua",
+    "chat/chat_frame.lua",
+    "inventory/inventory_op_pop.lua",
+    "weekly_boss/reward_partial.lua",
+    "misc/skill_enchant_tooltip.lua",
+    "chat/group_chat.lua",
+    "weekly_boss/ranking.lua",
+    "misc/craft.lua",
+    "party/member_map.lua",
+    "chat/death_notice.lua",
+    "quest/token_warp.lua",
+    "context_menu/context_menu.lua",
+    "event_notice/notice_msg.lua",
+    "misc/fps_option.lua",
+    "weekly_boss/rank_memberinfo.lua",
+    "hair_enchant/core.lua",
+    "hair_enchant/window.lua",
+    "hair_enchant/run.lua",
+    "chat/chat_move.lua",
+    "misc/vakarine_notice.lua",
+    "sound/skill_sound.lua",
+    "misc/coin_shop.lua",
+    "misc/indun_enter.lua",
+    "buff_list/buff_list.lua",
+    "channel/channel_traffic.lua",
+    "inventory/ikor_search.lua",
+    "event_notice/event_shout.lua",
+    "misc/equip_upgrade.lua",
+    "misc/market_sell.lua",
+    "misc/raid_record.lua",
+    "misc/effect_settings.lua",
+    "misc/indun_dialog.lua",
+    "misc/duel_and_restart.lua",
+    "misc/dialog.lua",
+    "misc/pc_name.lua",
+    "misc/auto_casting.lua",
+    "channel/channel_frame.lua",
+    "misc/pet_and_relic.lua",
+    "party/party_info.lua",
+    "misc/reputation_shop.lua",
+    "weekly_boss/reward_auto.lua",
+    "misc/ragana.lua",
+    "misc/rp_check.lua",
+    "misc/market_button.lua",
+    "inventory/coin_auto_use.lua",
+    "misc/skill_enchant_auto.lua",
+    "misc/goddess_gacha.lua",
+    "sound/bgm.lua",
+    "misc/minimized_close.lua",
+    "sound/toggle.lua",
+    "misc/reroll_option.lua",
+    "inventory/inventory_open.lua",
+    "footer.lua"
+}
+
+local manifest_f = assert(io.open("nexus_addons_p/src/build_manifest.json", "rb"),
+    "読めない（リポジトリルートから実行すること）: nexus_addons_p/src/build_manifest.json")
+local manifest_src = manifest_f:read("*a")
+manifest_f:close()
+
+-- JSON パーサを持ち込まずに、引用符で囲まれた .lua の相対パスを出現順に拾う
+-- （targets の配列は文字列の並びしか持たない）。
+--
+-- **拾う範囲は targets 配列の中だけに絞ること。** manifest 全体を舐めると、将来
+-- targets が 2 つ以上になったときに別ターゲットの分まで混ざり、件数も「連続して
+-- いるか」も実体と無関係に落ちる。%b{} / %b[] で対応する括弧まで切り出す。
+local targets_obj = manifest_src:match('"targets"%s*:%s*(%b{})')
+check("targets を切り出せる", targets_obj ~= nil, true)
+local mini_parts, first_at, last_at, arrays_with_mini = {}, nil, nil, 0
+for array in (targets_obj or ""):gmatch("%b[]") do
+    local found, f_at, l_at = {}, nil, nil
+    local i = 0
+    for rel in array:gmatch('"([^"]+%.lua)"') do
+        i = i + 1
+        if rel:sub(1, #MINI_PREFIX) == MINI_PREFIX then
+            table.insert(found, rel:sub(#MINI_PREFIX + 1))
+            f_at = f_at or i
+            l_at = i
+        end
+    end
+    if #found > 0 then
+        arrays_with_mini = arrays_with_mini + 1
+        mini_parts, first_at, last_at = found, f_at, l_at
+    end
+end
+-- 断片が複数のターゲットへ散ると、どちらの並びを見ているのか分からなくなる。
+check("断片を含む targets は 1 つ", arrays_with_mini, 1)
+check("断片の数", #mini_parts, #MINI_EXPECTED)
+-- 間に他アドオンが挟まると、共有している local の見え方が変わる。連続していること。
+check("連続して並んでいる", (last_at or 0) - (first_at or 0) + 1, #mini_parts)
+local order_ng = nil
+for i, want in ipairs(MINI_EXPECTED) do
+    if mini_parts[i] ~= want then
+        order_ng = string.format("%d 番目: got=%s want=%s", i, tostring(mini_parts[i]), want)
+        break
+    end
+end
+check("並びが期待どおり", order_ng, nil)
+-- 先頭と末尾は入れ替えてはいけない（先頭が do と共有 local、末尾が end）。
+check("先頭はヘッダ", mini_parts[1], "mini_addons.lua")
+check("末尾は footer", mini_parts[#mini_parts], "footer.lua")
+-- 一覧に載っているだけで実体が無いと、bundle 生成が落ちるまで気付けない。
+local missing = nil
+for _, rel in ipairs(MINI_EXPECTED) do
+    local path = "nexus_addons_p/src/" .. MINI_PREFIX .. rel
+    local fh = io.open(path, "rb")
+    if fh then
+        fh:close()
+    else
+        missing = rel
+        break
+    end
+end
+check("全ての断片が実在する", missing, nil)
+-- 断片のあるフォルダには README を置く（Issue #69）。増やしたときの置き忘れを止める。
+local no_readme = nil
+for _, rel in ipairs(MINI_EXPECTED) do
+    local dir = rel:match("^(.*)/[^/]+$")
+    if dir then
+        local fh = io.open("nexus_addons_p/src/" .. MINI_PREFIX .. dir .. "/README.md", "rb")
+        if fh then
+            fh:close()
+        else
+            no_readme = dir
+            break
+        end
+    end
+end
+check("各フォルダに README がある", no_readme, nil)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

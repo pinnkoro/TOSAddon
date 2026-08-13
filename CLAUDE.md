@@ -110,7 +110,7 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 ### コンテキストメニューへ項目を足すとき
 
 `ui.CreateContextMenu` → `ui.OpenContextMenu` で完結するので、素を呼んだ後からでは足せない。
-`mini_addons_menu_hook`（[mini_addons.lua](nexus_addons_p/src/addons/mini_addons/mini_addons.lua)）を使う。
+`mini_addons_menu_hook`（[context_menu.lua](nexus_addons_p/src/addons/mini_addons/context_menu/context_menu.lua)）を使う。
 **素を呼び、その同期実行の間だけ `ui.AddContextMenuItem` / `ui.OpenContextMenu` を横取りして**、
 メニューが開く前に項目を足す・落とす。
 
