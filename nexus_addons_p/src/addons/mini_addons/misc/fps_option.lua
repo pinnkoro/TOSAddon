@@ -1,0 +1,25 @@
+-- FPS設定を手動入力
+function Mini_addons_SYS_OPTION_OPEN(frame, msg)
+    local systemoption = ui.GetFrame("systemoption")
+    local perfBox = GET_CHILD_RECURSIVELY(systemoption, "perfBox")
+    local fps_edit = perfBox:CreateOrGetControl("edit", "fps_edit", 20, 200, 60, 25)
+    AUTO_CAST(fps_edit)
+    fps_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_fps_edit")
+    fps_edit:SetTextTooltip("{ol}1~240")
+    fps_edit:SetFontName("white_16_ol")
+    fps_edit:SetTextAlign("center", "center")
+    fps_edit:SetNumberMode(1)
+    local fps_config_lv = config.GetPerformanceLimit()
+    fps_edit:SetText("{ol}" .. fps_config_lv)
+end
+
+function Mini_addons_fps_edit(parent, ctrl)
+    local fps_num = tonumber(ctrl:GetText())
+    local performance_limit_text = GET_CHILD(parent, "performance_limit_text")
+    AUTO_CAST(performance_limit_text)
+    performance_limit_text:SetTextByKey("opValue", fps_num)
+    local performance_limit_slide = GET_CHILD(parent, "performance_limit_slide")
+    AUTO_CAST(performance_limit_slide)
+    config.SetPerformanceLimit(fps_num)
+    performance_limit_slide:SetLevel(fps_num)
+end

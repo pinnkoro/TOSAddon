@@ -93,6 +93,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 
 | アドオン | 概要 |
 | --- | --- |
+| [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
 | [Sub Slotset](src/addons/sub_slotset/README.md) | 追加のクイックスロットを好きな大きさ・位置に何枚でも作る |
 | [Easy Buff](src/addons/easy_buff/README.md) | メシ屋・バフ屋・修理屋での操作を自動化 |
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
