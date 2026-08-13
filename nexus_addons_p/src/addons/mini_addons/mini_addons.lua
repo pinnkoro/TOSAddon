@@ -4126,6 +4126,12 @@ end
 -- 実際に次を撃つのは素の結果が返ってからなので、ここを小さくしても撃つ速さは
 -- サーバの応答より速くならない(＝空撃ちしない)。上限の待ち時間だけが縮む
 local HAIR_ENCHANT_TICK = 0.1
+-- リピート回数の上限。**素の入力欄と同じ値に揃えてある**
+-- (hairenchant_option の INI_REPEAT_COUNT が SetMaxNumber(9999) / SetMinNumber(0))。
+-- 桁数を制限しないと、極端な値を入れたときに停止判定の表示
+-- (string.format("%d", set_repeat_num - count))が扱えない大きさになって止まる
+local HAIR_ENCHANT_REPEAT_MAX = 9999
+
 -- 希望オプションのスクロール枠より下に置くもの(「演出を待たずに実行」の行 +
 -- 目標ランク / Cancel / リピート回数の行 + 窓の下余白)の高さ。
 -- 枠の高さを画面から逆算するのに使うので、下の行を増減したらここも合わせること
@@ -4732,7 +4738,11 @@ function Mini_addons_hair_enchant_preset_load(apply_repeat)
     if apply_repeat and preset.repeat_count ~= nil then
         local repeat_count = GET_CHILD_RECURSIVELY(reroll_option, "repeat_count")
         if repeat_count ~= nil then
-            repeat_count:SetText(tostring(preset.repeat_count))
+            local want = preset.repeat_count
+            if want > HAIR_ENCHANT_REPEAT_MAX then
+                want = HAIR_ENCHANT_REPEAT_MAX
+            end
+            repeat_count:SetText(tostring(want))
         end
     end
     core_g.vlog(
@@ -5100,16 +5110,27 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
         if count < 0 then
             count = 0
         end
+        if count > HAIR_ENCHANT_REPEAT_MAX then
+            count = HAIR_ENCHANT_REPEAT_MAX
+            repeat_count:SetText(tostring(count))
+        end
         SET_REPEAT_COUNT_TEXT(count)
     end
     local repeat_count = gbox:CreateOrGetControl("edit", "repeat_count", 330, y, 60, 30)
     AUTO_CAST(repeat_count)
     repeat_count:SetTypingScp((addon_name_lower .. "_hair_enchant_repeat"))
-    repeat_count:SetTextTooltip(g.lang == "Japanese" and "{ol}リピート回数を入力" or
-                                    "{ol}Enter the repeat count")
+    repeat_count:SetTextTooltip(g.lang == "Japanese" and
+                                    string.format("{ol}リピート回数を入力(0〜%d){nl}0 は 1 回だけ",
+            HAIR_ENCHANT_REPEAT_MAX) or
+                                    string.format("{ol}Enter the repeat count (0-%d){nl}0 means once",
+            HAIR_ENCHANT_REPEAT_MAX))
     repeat_count:SetFontName("white_16_ol")
     repeat_count:SetTextAlign("center", "center")
     repeat_count:SetNumberMode(1)
+    -- 素の入力欄と同じ上限。入力の時点で止めるのが一番確実(下の判定でも念のため丸める)
+    repeat_count:SetMinNumber(0)
+    repeat_count:SetMaxNumber(HAIR_ENCHANT_REPEAT_MAX)
+    repeat_count:SetMaxLen(string.len(tostring(HAIR_ENCHANT_REPEAT_MAX)))
     if prev_repeat_text ~= nil then
         -- 組み直し。停止判定が読む上限値なので、初期値へ戻さず入力済みの値を引き継ぐ
         repeat_count:SetText(prev_repeat_text)
@@ -5253,6 +5274,9 @@ function Mini_addons_hair_enchant_repeat_all(parent, ctrl)
     end
     local scroll = session.GetInvItemByGuid(high_hairenchant:GetUserValue("Enchant"))
     local count = (scroll ~= nil and scroll.count and scroll.count > 0) and scroll.count or 1
+    if count > HAIR_ENCHANT_REPEAT_MAX then
+        count = HAIR_ENCHANT_REPEAT_MAX
+    end
     repeat_count:SetText(tostring(count))
     -- 手で打ったときと同じく、素のリピート表示も合わせる
     SET_REPEAT_COUNT_TEXT(count)
@@ -5442,6 +5466,13 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     end
     if set_repeat_num == nil or set_repeat_num < 1 then
         set_repeat_num = 1
+    end
+    -- 上限を掛ける前に入れた値や、古いプリセットに入っている値への保険
+    if set_repeat_num > HAIR_ENCHANT_REPEAT_MAX then
+        set_repeat_num = HAIR_ENCHANT_REPEAT_MAX
+        repeat_count:SetText(tostring(set_repeat_num))
+        core_g.vlog("mini_addons: ヘアエンチャント リピート回数が上限を超えていたので %d に丸めた",
+            HAIR_ENCHANT_REPEAT_MAX)
     end
     local count = reroll_option:GetUserIValue("REPERT")
     -- == ではなく >=。回している最中に入力欄の数字を今の回数より小さくされると、
