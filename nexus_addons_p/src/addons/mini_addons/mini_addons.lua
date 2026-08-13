@@ -4151,6 +4151,25 @@ local function hair_enchant_rank_index(rank)
     return nil
 end
 
+-- アイテムに今付いているオプションの指紋。付与するたびに必ず振り直されるので、
+-- これが変わっていなければ「まだ前の結果のまま」と判断できる。
+-- 合図(READY)がアイテムの更新より先に来る可能性への歯止めに使う
+local function hair_enchant_option_fingerprint(itemIES)
+    local invItem = session.GetInvItemByGuid(itemIES)
+    if invItem == nil then
+        return "none"
+    end
+    local obj = GetIES(invItem:GetObject())
+    if obj == nil then
+        return "none"
+    end
+    local parts = {}
+    for i = 1, 3 do
+        table.insert(parts, tostring(obj["HatPropName_" .. i]) .. "=" .. tostring(obj["HatPropValue_" .. i]))
+    end
+    return table.concat(parts, ";")
+end
+
 local function get_current_enchant_item_grade_and_rank()
     local hairenchant = ui.GetFrame("high_hairenchant")
     if hairenchant == nil then
@@ -5316,6 +5335,17 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         reroll_option:SetUserValue("STATUS", "None")
         return 0
     end
+    -- **合図が来ても、アイテムの中身が前のままなら進まない。**
+    -- 「演出を待たずに実行」は素の演出を待たずに合図を受けるぶん、アイテムの実データが
+    -- 更新される前に合図が来る余地がある。そのまま進むと古い状態で判定して
+    -- 「まだ付いていない」と誤り、当たりを潰してもう 1 回撃つ(実際に報告された)。
+    -- 指紋が変わるまで待てば、合図の順序が実際どうであっても成立する。
+    -- 振り直しで偶然まったく同じ 3 つが出た場合はここで待ち続けるが、
+    -- 見張りタイマーが止めるので当たりを潰すことはない(止まるだけ)
+    if reroll_option:GetUserValue("FAST") == "yes" and
+        hair_enchant_option_fingerprint(itemIES) == reroll_option:GetUserValue("FIRED_FP") then
+        return 1
+    end
     reroll_option:SetUserValue("READY", "no")
     reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
     local repeatCount = GET_CHILD_RECURSIVELY(frame, "repeatCount")
@@ -5435,6 +5465,7 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         end
         reroll_option:SetUserValue("ASKING", "None")
         if boolean == "YES" then
+            reroll_option:SetUserValue("FIRED_FP", hair_enchant_option_fingerprint(itemIES))
             item.DoPremiumItemEnchantchip(itemIES, enchantGuid)
             reroll_option:SetUserValue("REPERT", reroll_option:GetUserIValue("REPERT") + 1)
             Mini_addons_HIGH_HAIRENCHANT_OK_BTN(nil, "HIGH_HAIRENCHANT_OK_BTN")
@@ -5504,6 +5535,8 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     local margin = reroll_option:GetMargin()
     reroll_option:SetMargin(margin.left, margin.top, 905, margin.bottom)
     reroll_option:SetPos(reroll_option:GetX(), frame:GetY())
+    -- 撃つ前の中身を控える。次の回でこれと同じなら結果がまだ届いていない
+    reroll_option:SetUserValue("FIRED_FP", hair_enchant_option_fingerprint(itemIES))
     item.DoPremiumItemEnchantchip(itemIES, enchantGuid)
     repeatCount:SetTextByKey("value", string.format("%s : %d", ClMsg("REPEAT"), set_repeat_num - count))
     reroll_option:SetUserValue("REPERT", reroll_option:GetUserIValue("REPERT") + 1)
