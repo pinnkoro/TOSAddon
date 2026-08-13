@@ -4207,7 +4207,13 @@ local hair_enchant_apply_rank_until
 -- (ランクアップやスクロールのスタック切り替えでも入れ直しは走る)
 local hair_enchant_preset_dirty = false
 
+-- 組み立て中の SelectItem など、利用者の操作でない経路から印が立つのを抑えるための札
+local hair_enchant_suppress_dirty = false
+
 local function hair_enchant_mark_dirty()
+    if hair_enchant_suppress_dirty then
+        return
+    end
     hair_enchant_preset_dirty = true
 end
 
@@ -4473,6 +4479,21 @@ hair_enchant_open_advanced = function()
     g.need_options = {}
     hair_enchant_build_reroll_body(reroll_option, item_grade, item_rank)
     reroll_option:ShowWindow(1)
+    -- **この窓は g.esc_register で積まないこと。** CLAUDE.md の
+    -- 「ウィンドウを開いたら ESC で閉じられるようにする」には
+    -- 「ゲーム側のウィンドウに貼り付いている付属パネルは積んではいけない」という例外があり、
+    -- これはそれに当たる(high_hairenchant に位置を合わせ、あちらが閉じれば一緒に畳まれる)。
+    --
+    -- ここで積むと実害が出る。素は魔法付与を始めるときに
+    -- ui.SetEscapeScp("CANCEL_ENCHANTCHIP()") で ESC を握っている(enchantchip.lua)。
+    -- g.esc_sync_scp は積むと "_nexus_addons_p_ESCAPE_PRESSED()" で上書きし、
+    -- スタックが空になると **"" に戻す**(元の値を覚えていない)。つまり畳んだ後に
+    -- CANCEL_ENCHANTCHIP が呼ばれなくなり、その中の SET_SLOT_APPLY_FUNC(inv,"None") /
+    -- INVENTORY_SET_CUSTOM_RBTNDOWN("None") / RESET_MOUSE_CURSOR() が走らないまま、
+    -- インベントリが素材選択モードのまま取り残される
+    -- (cc_helper で実際に起きた「ESC で閉じると右クリックが割り当てられたまま残る」と同型)。
+    -- 窓を閉じる手段は × と「高度な設定」ボタン、素の付与ウィンドウを閉じる操作で足りる
+    --
     -- 窓を開いたままヘアアクセやスクロールを差し替えられても追随できるようにする。
     -- 窓を畳めば一緒に止まる(フレームごと破棄するため)
     reroll_option:RunUpdateScript("Mini_addons_hair_enchant_watch", 0.3)
@@ -5187,7 +5208,13 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
             end
         end
     end
+    -- **preset_list と同じく、SelectItem が項目のスクリプトを走らせうる。**
+    -- rank_until の項目スクリプトは先頭で dirty を立てるので、抑えずに呼ぶと
+    -- 組み直すたびに「手で変えた」扱いになり、プリセットの入れ直し
+    -- (低いランクで落ちたチェックを上のランクで戻す)が二度と効かなくなる
+    hair_enchant_suppress_dirty = true
     rank_until:SelectItem(keep_index)
+    hair_enchant_suppress_dirty = false
     -- 選択に合わせて希望オプションの有効 / 無効(灰色)も揃える。SelectItem が
     -- 項目のスクリプトを走らせるかは土台任せなので、ここで必ず 1 回通しておく。
     -- 引き継げなかった(選択肢から消えた)ときは "None" に落として指定なしへ戻す。
@@ -5274,8 +5301,15 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN(my_frame, my_msg)
             (rank_up ~= nil and rank_up:IsChecked() == 1) and "ON" or "OFF",
             hair_enchant_rank_index(rank_until) == nil and "指定なし" or rank_until,
             reroll_option:GetUserValue("FAST") == "yes" and "ON" or "OFF")
-        -- 1 回目はすぐ撃つ。以降は結果が返るまで下の関門で待つ
+        -- 1 回目はすぐ撃つ。以降は結果が返るまで下の関門で待つ。
+        -- **前回の FIRED_FP / FIRED_AT も必ず消すこと。** 残っていると、見張りタイマーで
+        -- 止まった後に押し直したとき、「指紋が前と同じ」かつ「FIRED_AT が古い」で
+        -- 1 発も撃たないまま同じ停止メッセージを出す無限ループになる。
+        -- 指紋の未設定値は "None"(大文字始まり)にする
+        -- (hair_enchant_option_fingerprint が返しうる "none" と衝突させないため)
         reroll_option:SetUserValue("READY", "yes")
+        reroll_option:SetUserValue("FIRED_FP", "None")
+        reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
         frame:RunUpdateScript("Mini_addons_HIGH_HAIRENCHANT_OK_BTN_", HAIR_ENCHANT_TICK)
         -- 素の付与ボタンを「停止」に変える(押されたら止められるように)
         hair_enchant_sync_send_button()
