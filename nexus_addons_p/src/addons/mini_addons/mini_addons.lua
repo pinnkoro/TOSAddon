@@ -4222,7 +4222,8 @@ local function hair_enchant_refresh_if_changed(reroll_option)
     if preset ~= nil then
         core_g.vlog("mini_addons: ヘアエンチャント プリセット「%s」を新しい対象に合わせて入れ直す",
             tostring(preset.name))
-        Mini_addons_hair_enchant_preset_load()
+        -- 自動の入れ直しなのでリピート回数は今の値のまま(false)
+        Mini_addons_hair_enchant_preset_load(false)
         return true
     end
     hair_enchant_build_reroll_body(reroll_option, item_grade, item_rank)
@@ -4523,7 +4524,8 @@ function mini_addons_p_hair_enchant_preset_sel(index)
 end
 
 function mini_addons_p_hair_enchant_preset_load_deferred()
-    Mini_addons_hair_enchant_preset_load()
+    -- ドロップリストで選んだ = 明示的な読込。リピート回数もプリセットの値にする
+    Mini_addons_hair_enchant_preset_load(true)
 end
 
 -- 保存。名前を訊くポップアップ(素の inputstring)を出す。
@@ -4616,7 +4618,12 @@ end
 
 -- 読込。今のランクで出ないオプションは飛ばす(保存したときよりランクが低いと、
 -- B・A でしか出ないものが一覧に無い)
-function Mini_addons_hair_enchant_preset_load(parent, ctrl)
+-- apply_repeat: リピート回数まで反映するか。
+-- **ドロップリストで選んだときだけ true。** アクセの差し替え・ランクアップ・
+-- 確認ダイアログを挟んだ入れ直しといった「自動の入れ直し」では今の値を維持する。
+-- 回している最中に上限が勝手に書き換わると、いつ止まるのか読めなくなるため。
+-- 「自分で選んだときだけ変わる」と覚えれば済むよう、回している最中かどうかでは分けない
+function Mini_addons_hair_enchant_preset_load(apply_repeat)
     local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
     if reroll_option == nil then
         return
@@ -4657,19 +4664,18 @@ function Mini_addons_hair_enchant_preset_load(parent, ctrl)
     reroll_option:SetUserValue("RANK_UNTIL", rank)
     reroll_option:SetUserValue("FAST", preset.fast == 1 and "yes" or "no")
     hair_enchant_build_reroll_body(reroll_option, item_grade, item_rank)
-    -- リピート回数は組み直しが前の値を引き継ぐので、後から上書きする。
-    -- ただし連続付与を回している最中(ランクアップで入れ直したときなど)は触らない。
-    -- 手で入れ直した上限が勝手に戻ると、いつ止まるのか読めなくなる
-    if preset.repeat_count ~= nil and reroll_option:GetUserValue("STATUS") ~= "is_repeat" then
+    -- リピート回数は組み直しが前の値を引き継ぐので、反映するときだけ後から上書きする
+    if apply_repeat and preset.repeat_count ~= nil then
         local repeat_count = GET_CHILD_RECURSIVELY(reroll_option, "repeat_count")
         if repeat_count ~= nil then
             repeat_count:SetText(tostring(preset.repeat_count))
         end
     end
     core_g.vlog(
-        "mini_addons: ヘアエンチャント プリセット「%s」を読込(オプション %d 件適用 / %d 件は %s ランクで出ないので飛ばした%s / 目標ランク %s)",
+        "mini_addons: ヘアエンチャント プリセット「%s」を読込(オプション %d 件適用 / %d 件は %s ランクで出ないので飛ばした%s / 目標ランク %s / リピート回数は%s)",
         tostring(preset.name), applied, #skipped, tostring(item_rank),
-        #skipped > 0 and (": " .. table.concat(skipped, ", ")) or "", tostring(rank))
+        #skipped > 0 and (": " .. table.concat(skipped, ", ")) or "", tostring(rank),
+        apply_repeat and "プリセットの値を反映" or "今の値を維持")
     if #skipped > 0 then
         ui.SysMsg(string.format(g.lang == "Japanese" and
                                     "プリセット「%s」を読み込みました(%d 件は今のランクでは付かないので除外)" or
@@ -4857,8 +4863,9 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     preset_list:SetSkinName("droplist_normal")
     preset_list:EnableHitTest(1)
     preset_list:SetTextAlign("center", "center")
-    preset_list:SetTextTooltip(g.lang == "Japanese" and "{ol}選ぶとその場で読み込みます" or
-                                   "{ol}Selecting one loads it right away")
+    preset_list:SetTextTooltip(g.lang == "Japanese" and
+                                   "{ol}選ぶとその場で読み込みます{nl}リピート回数が変わるのはここで選んだときだけです{nl}(アクセの差し替えなどで入れ直すときは今の値のまま)" or
+                                   "{ol}Selecting one loads it right away{nl}The repeat count only changes when you pick one here{nl}(automatic reloads keep the current value)")
     -- **先頭は常に「--」(未選択)。** プリセットは 1 番目以降。
     -- 先頭を 1 件目のプリセットにすると、窓を開いた直後に「プリセット名が出ているのに
     -- チェックは入っていない」という食い違った見え方になる。読み込んだとき / 保存した
