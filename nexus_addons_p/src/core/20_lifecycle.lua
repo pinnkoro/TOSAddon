@@ -642,6 +642,17 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
             end
         end
     end
+    -- カテゴリの中はアドオン名のアルファベット順にする。
+    --
+    -- **g._nexus_addons_p の並び順そのものは触らないこと。** あれは読み込み順で、
+    -- 同梱した個別配布版(mini_addons / market_favorite_rebuild)を意図的に末尾へ置いてある
+    -- (market_favorite_rebuild は自分が最後に初期化される前提でマーケットのボタンを
+    -- 付け直す作りになっている)。並べ替えるのは表示のときだけにする。
+    for _, section in ipairs(g._nexus_addons_p_sections) do
+        table.sort(buckets[section.name], function(a, b)
+            return string.lower(a.data.name) < string.lower(b.data.name)
+        end)
+    end
     -- 2) 見出しと行を作る。行の中の操作列(ON/OFF・設定・?)は名前の幅が出揃うまで
     --    x が決まらないので、ここでは名前だけ置いて参照を溜め、下でまとめて足す。
     local rows = {}
