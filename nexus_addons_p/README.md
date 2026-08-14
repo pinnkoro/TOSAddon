@@ -98,18 +98,18 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
 | [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
 | [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
+| [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
 | [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
 | [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
 | [Sub Slotset](src/addons/sub_slotset/README.md) | 追加のクイックスロットを好きな大きさ・位置に何枚でも作る |
 | [Vakarine Equip](src/addons/vakarine_equip/README.md) | ヴァカリネの恩恵の判定をやり直すため、指定部位を着け直す |
-| [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
 
 ### 強化・装備
 
 | アドオン | 概要 |
 | --- | --- |
-| [Aethergem Manager](src/addons/aethergem_manager/README.md) | エーテルジェム 4 個の付け替えを自動化（6 セット） |
 | [Acquire Relic Reward](src/addons/acquire_relic_reward/README.md) | 主要都市でレリッククエストの報酬を自動受領 |
+| [Aethergem Manager](src/addons/aethergem_manager/README.md) | エーテルジェム 4 個の付け替えを自動化（6 セット） |
 | [Ancient Auto Set](src/addons/ancient_auto_set/README.md) | アシスターセットをキャラ毎に自動で付け替え（10 プリセット） |
 | [Continue Reinforce](src/addons/continue_reinforce/README.md) | ゴッデス装備を成功するまで連続強化（回数制限・補助剤の自動選択つき） |
 | [Cupole Manager](src/addons/cupole_manager/README.md) | クポル未登録キャラでも街に入ると自動で 3 体呼び出す |
@@ -167,9 +167,9 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 
 | アドオン | 概要 |
 | --- | --- |
-| [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
-| [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
+| [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
+| [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
 ---
 
 ## ⚠️ 本家 Nexus Addons とは同時に使えません
@@ -204,8 +204,9 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 * **（次回リリース）**
   * アドオンの **ON/OFF 一覧を作り直しました**。**検索窓**（アドオン名や説明文で絞り込み）と
-    **カテゴリごとの折りたたみ**を追加し、縦スクロールに対応しました。従来は 2 列 25 行の
-    固定表示で、画面の大部分を覆ううえ 50 個までしか並べられませんでした
+    **カテゴリごとの折りたたみ**を追加し、縦スクロールに対応しました。カテゴリの中は
+    アドオン名のアルファベット順に並びます。従来は 2 列 25 行の固定表示で、
+    画面の大部分を覆ううえ 50 個までしか並べられませんでした
   * ON/OFF ボタンにカーソルを合わせたとき、どのアドオンのものか名前が出るようにしました
   * 一括操作（全て OFF / バックアップ / 復元）を**ウィンドウの下段へ移しました**。
     この 3 つがウィンドウの幅を決めてしまい、一覧の右側に大きな余白ができていたためです

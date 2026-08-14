@@ -1574,7 +1574,7 @@ readme:close()
 local list_body = readme_text:match("\n## アドオン一覧\n(.-)\n## ")
 check("アドオン一覧の節を切り出せる", list_body ~= nil, true)
 
-local rd_section_order, rd_of = {}, {}
+local rd_section_order, rd_of, rd_rows = {}, {}, {}
 if list_body then
     local cur = nil
     for line in list_body:gmatch("[^\n]+") do
@@ -1582,10 +1582,14 @@ if list_body then
         if heading then
             cur = heading
             rd_section_order[#rd_section_order + 1] = heading
+            rd_rows[heading] = {}
         else
-            local key = line:match("^| %[[^%]]+%]%(src/addons/([a-z_]+)/README%.md%)")
+            local label, key = line:match("^| %[([^%]]+)%]%(src/addons/([a-z_]+)/README%.md%)")
             if key then
                 rd_of[key] = cur
+                if cur then
+                    table.insert(rd_rows[cur], {key = key, label = label})
+                end
             end
         end
     end
@@ -1639,6 +1643,24 @@ for key, section in pairs(rd_of) do
     end
 end
 check("未登録のアドオンが紛れていない", stray, nil)
+
+-- 並び順。README には「並び順はゲーム内のアドオン一覧ウィンドウと同じ」と書いてあり、
+-- ゲーム内は _nexus_addons_p_list_build がカテゴリ内をアドオン名で並べ替えている。
+-- 表示名は README のリンク文字列と同じなので、そこを名前順に見るだけで突き合わせられる。
+local order_ng = nil
+for _, heading in ipairs(rd_section_order) do
+    local rows = rd_rows[heading] or {}
+    for i = 2, #rows do
+        if string.lower(rows[i - 1].label) > string.lower(rows[i].label) then
+            order_ng = string.format("%s: %s の後に %s", heading, rows[i - 1].label, rows[i].label)
+            break
+        end
+    end
+    if order_ng then
+        break
+    end
+end
+check("カテゴリの中がアドオン名順に並んでいる", order_ng, nil)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
