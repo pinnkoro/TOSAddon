@@ -176,17 +176,12 @@ function Mini_addons_setting_build(setting, filter_text, keep_pos)
     local gbox = setting:CreateOrGetControl("groupbox", "gbox", 10, 80, 0, 0)
     AUTO_CAST(gbox)
     gbox:SetSkinName("bg")
-    -- 折りたたみの開閉でも作り直すので、スクロール位置を引き継げるなら引き継ぐ。
-    -- GetScrollPos があるかはクライアント側の実装次第なので pcall で試すだけにする
-    -- (取れなくても先頭に戻るだけで、機能は壊れない)。RemoveAllChild より前に読むこと。
+    -- 折りたたみの開閉でも作り直すので、スクロール位置を引き継ぐ。RemoveAllChild より前に読むこと。
+    -- 取得は core_g.scroll_cur_pos 経由(**GetScrollPos はクライアントに無い**。
+    -- 詳細は core/00_header.lua のそちらのコメント)。
     local prev_scroll = 0
     if keep_pos then
-        local ok, pos = pcall(function()
-            return gbox:GetScrollPos()
-        end)
-        if ok and type(pos) == "number" then
-            prev_scroll = pos
-        end
+        prev_scroll = core_g.scroll_cur_pos(gbox)
     end
     gbox:RemoveAllChild()
     g.settings.section_collapsed = g.settings.section_collapsed or {}
@@ -320,8 +315,12 @@ function Mini_addons_setting_build(setting, filter_text, keep_pos)
     if prev_scroll > scroll_max then
         prev_scroll = scroll_max
     end
-    -- GetScrollPos と同じ理由で、SetScrollPos も無い可能性を見て pcall で呼ぶ。
-    -- 片方だけ素で呼ぶと、無かったときにここで一覧の構築ごと落ちる
+    -- 中身を全部作り直したので、**先にスクロールバーの範囲を計算し直させてから**位置を戻す。
+    -- 順番が逆だと、作り直す前の範囲で丸められて先頭に貼り付く。
+    -- 素のクライアントも作り直しの後は InvalidateScrollBar を呼んでいる。
+    pcall(function()
+        gbox:InvalidateScrollBar()
+    end)
     pcall(function()
         gbox:SetScrollPos(prev_scroll)
     end)

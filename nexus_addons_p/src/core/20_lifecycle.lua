@@ -15,6 +15,7 @@ function _nexus_addons_p_load_settings()
     -- アドオン登録キー以外のトップレベル設定はここに列挙する。書き忘れると
     -- すぐ下のプルーニングで毎回消され、設定を保存しても復元できない。
     valid_keys.verbose_log = true
+    valid_keys.list_collapsed = true -- 一覧のカテゴリ見出しを畳んでいるか（_nexus_addons_p_list_build）
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -531,8 +532,402 @@ function _nexus_addons_p_chat_system(_nexus_addons_p)
     return 0
 end
 
+-- ===== アドオン一覧(ON/OFF 画面) =====
+--
+-- 作りは mini_addons の設定画面(addons/mini_addons/settings/ui.lua)へ合わせてある。
+-- あちらも「トグルが大量に並ぶ画面」で、検索中は折りたたみを無視して開く・
+-- RemoveAllChild より前にスクロール位置を読む、といった実機で踏んだ配慮が既に入っている。
+-- **同じ問題を二度解かないこと**。ここを触るときは先にあちらの実装とコメントを読む。
+--
+-- 以前は固定 2 列 × 25 行(base_num = 25)の決め打ちだった。登録が 50 件でちょうど埋まって
+-- おり、51 件目からは枠の外に置かれて見えなくなる(list_gb はスクロールもしない)ため、
+-- 縦スクロール + カテゴリ分けに作り替えた。**件数の上限はもう無い**。
+
+-- 行の高さと ON/OFF トグルの幅。行の中の座標計算が両方を見るので定数にしてある。
+local LIST_ROW_H = 34
+local LIST_TOGGLE_W = 60
+-- 操作列(ON/OFF・設定)を横に並べたときの幅。内訳は
+--   トグル 0..LIST_TOGGLE_W / 設定 +8 から 25
+-- で、末尾は LIST_TOGGLE_W + 8 + 25。**行を作る側の座標とここが食い違うと
+-- 右詰めがずれる**ので、片方だけ直さないこと。
+local LIST_CTRL_W = LIST_TOGGLE_W + 33
+-- 下段(一括操作ボタン)に空ける高さ。ボタンは高さ 28 なので、上下に少し余白が残る。
+local LIST_FOOTER_H = 40
+
+-- 表示言語に合わせた文言を返す。定義側は ja / kr / etc を持つ
+-- (g._nexus_addons_p_trans と g._nexus_addons_p_sections で形を揃えてある)。
+local function list_localized(def)
+    if not def then
+        return nil
+    end
+    if g.lang == "Japanese" then
+        return def.ja
+    elseif g.lang == "kr" then
+        return def.kr
+    end
+    return def.etc
+end
+
+-- 検索の一致判定。表示言語の説明文だけでなく、英語名・登録キー・他言語の説明文まで見る
+-- (英語名で覚えている人と、日本語で「倉庫」と打つ人の両方を拾うため)。
+--
+-- 説明文に含まれる {ol} や {nl} は書式指定なので落としてから当てること。
+-- 落とさないと "ol" の 2 文字で全件が引っかかる。
+-- string.find は第 4 引数 true でプレーン検索にする(記号を打たれてもパターンとして
+-- 解釈されて落ちないようにするため)。
+local function list_matches(entry, needle)
+    if needle == "" then
+        return true
+    end
+    local trans = g._nexus_addons_p_trans[entry.key] or {}
+    local haystack = (entry.data.name or "") .. " " .. entry.key .. " " .. (trans.ja or "") .. " " ..
+                         (trans.kr or "") .. " " .. (trans.etc or "")
+    haystack = string.lower(string.gsub(haystack, "%b{}", " "))
+    return string.find(haystack, needle, 1, true) ~= nil
+end
+
+-- 一覧の中身(list_gb の中)だけを組み立て直す。フレーム側の枠(タイトル・検索窓・
+-- 一括操作ボタン)は触らないので、検索と折りたたみのたびにここだけを呼べばよい。
+function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
+    local needle = string.lower(filter_text or "")
+    local list_gb = list_frame:CreateOrGetControl("groupbox", "list_gb", 10, 85, 0, 0)
+    AUTO_CAST(list_gb)
+    list_gb:SetSkinName("bg")
+    -- 折りたたみの開閉でも作り直すので、スクロール位置を引き継げるなら引き継ぐ。
+    -- **RemoveAllChild より前に読むこと。**
+    local prev_scroll = 0
+    if keep_pos then
+        if type(g.list_scroll_keep) == "number" then
+            -- 呼び元が frame_init のとき。あちらは RemoveAllChild で list_gb ごと壊してから
+            -- ここへ来るので、**この時点の list_gb は作りたてで必ず 0 を返す**。
+            -- 壊す前に控えた値をあちらから受け取る(ここから読み直しても取り戻せない)。
+            prev_scroll = g.list_scroll_keep
+        else
+            prev_scroll = g.scroll_cur_pos(list_gb)
+        end
+    end
+    -- 使い終わったら必ず捨てる。残すと次の(枠を作り直さない)組み立てで古い位置へ飛ぶ。
+    g.list_scroll_keep = nil
+    list_gb:RemoveAllChild()
+    list_gb:EnableHitTest(1)
+    g.settings.list_collapsed = g.settings.list_collapsed or {}
+    -- 検索中は折りたたみを無視して開く。絞り込んだ結果が畳まれた中に隠れていると
+    -- 「ヒットしたのに何も出ない」ように見えるため。あわせて検索中は開閉そのものを
+    -- 受け付けない(押しても見た目が変わらないのに保存だけ進む、という分かりにくい挙動になる)。
+    local searching = needle ~= ""
+    -- 1) 絞り込んだ結果をカテゴリごとに分ける。見出しの並びは g._nexus_addons_p_sections の順、
+    --    カテゴリの中は登録順(= g._nexus_addons_p の順)。
+    local buckets = {}
+    for _, section in ipairs(g._nexus_addons_p_sections) do
+        buckets[section.name] = {}
+    end
+    local hit = 0
+    for _, entry in ipairs(g._nexus_addons_p) do
+        if list_matches(entry, needle) then
+            local bucket = buckets[entry.category or ""]
+            if not bucket then
+                -- category の書き忘れや綴り違い。黙って消すと気付けないので その他 へ入れ、
+                -- どのアドオンで起きたかを 1 回だけ残す(一覧は作り直すたびにここを通る)。
+                bucket = buckets["misc"]
+                g.list_unknown_category = g.list_unknown_category or {}
+                if not g.list_unknown_category[entry.key] then
+                    g.list_unknown_category[entry.key] = true
+                    g.vlog("一覧: %s の category(%s)が見出しに無いので その他 へ入れた", entry.key,
+                        tostring(entry.category))
+                end
+            end
+            if bucket then
+                bucket[#bucket + 1] = entry
+                hit = hit + 1
+            end
+        end
+    end
+    -- 2) 見出しと行を作る。行の中の操作列(ON/OFF・設定・?)は名前の幅が出揃うまで
+    --    x が決まらないので、ここでは名前だけ置いて参照を溜め、下でまとめて足す。
+    local rows = {}
+    local section_boxes = {}
+    local y = 10
+    local max_name_w = 0
+    for _, section in ipairs(g._nexus_addons_p_sections) do
+        local items = buckets[section.name]
+        if #items > 0 then
+            local collapsed = (not searching) and g.settings.list_collapsed[section.name] == 1
+            local on_count = 0
+            for _, entry in ipairs(items) do
+                if g.settings[entry.key] and g.settings[entry.key].use == 1 then
+                    on_count = on_count + 1
+                end
+            end
+            -- 開閉マークは幅を固定した別コントロールに分ける。見出しの文字列に
+            -- "+" / "-" を含めると、字幅の差だけ見出しが左右にズレる(mini_addons で踏んだ)。
+            local marker = list_gb:CreateOrGetControl("button", "sec_mark_" .. section.name, 12, y, 20, 26)
+            AUTO_CAST(marker)
+            marker:SetSkinName("None")
+            marker:SetTextAlign("center", "center")
+            marker:SetText(searching and "" or ("{ol}{s18}{#FFCC33}" .. (collapsed and "+" or "-")))
+            -- 見出しはクリックで開閉できるよう button にする(枠なしなので見た目は文字のまま)。
+            -- 暗い背景(groupbox "bg")に埋もれないよう縁取り付きの黄色。右の "n / m" は
+            -- そのカテゴリで ON にしている数で、畳んだままでも状態が分かるように出す。
+            local header = list_gb:CreateOrGetControl("button", "sec_" .. section.name, 34, y, 0, 26)
+            AUTO_CAST(header)
+            header:SetSkinName("None")
+            header:SetTextAlign("left", "center")
+            header:SetText(string.format("{ol}{s18}{#FFCC33}%s   {s16}{#CCCCCC}%d / %d",
+                list_localized(section) or section.name, on_count, #items))
+            if searching then
+                local tip = g.lang == "Japanese" and "{ol}検索中は折りたたみできません" or g.lang == "kr" and
+                                "{ol}검색 중에는 접을 수 없습니다" or "{ol}Cannot collapse while filtering"
+                marker:SetTextTooltip(tip)
+                header:SetTextTooltip(tip)
+            else
+                local tip = g.lang == "Japanese" and "{ol}クリックで折りたたみ" or g.lang == "kr" and
+                                "{ol}클릭하면 접기/펼치기" or "{ol}Click to collapse or expand"
+                for _, btn in ipairs({marker, header}) do
+                    btn:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_list_section_toggle")
+                    btn:SetEventScriptArgString(ui.LBUTTONUP, section.name)
+                    btn:SetTextTooltip(tip)
+                end
+            end
+            y = y + 26
+            if collapsed then
+                y = y + 8
+            else
+                local box = list_gb:CreateOrGetControl("groupbox", "sec_box_" .. section.name, 10, y, 100, 100)
+                AUTO_CAST(box)
+                box:SetSkinName("test_frame_midle_light")
+                box:EnableScrollBar(0)
+                box:RemoveAllChild()
+                local by = 8
+                for _, entry in ipairs(items) do
+                    local name_text = box:CreateOrGetControl("richtext", "name_" .. entry.key, 12, by + 6, 10, 26)
+                    AUTO_CAST(name_text)
+                    name_text:SetText("{ol}{s20}" .. entry.data.name)
+                    -- 説明は名前に乗せる。以前は行の右端に ? ボタンを置いていたが、
+                    -- 名前を読んでいる場所とカーソルを合わせる場所が離れていた。
+                    -- richtext は hit test が既定で有効(この repo にも EnableHitTest(0) で
+                    -- 明示的に切っている例がある)が、依存しているので明示しておく。
+                    --
+                    -- 登録リストに追加したのに翻訳を書き忘れても、説明が名前になるだけで
+                    -- 一覧は開ける(この関数は pcall の外なので落とさないこと)。
+                    name_text:EnableHitTest(1)
+                    name_text:SetTextTooltip(
+                        list_localized(g._nexus_addons_p_trans[entry.key]) or ("{ol}" .. entry.data.name))
+                    if max_name_w < name_text:GetWidth() then
+                        max_name_w = name_text:GetWidth()
+                    end
+                    rows[#rows + 1] = {
+                        box = box,
+                        entry = entry,
+                        y = by
+                    }
+                    by = by + LIST_ROW_H
+                end
+                local box_height = by + 4
+                box:Resize(box:GetWidth(), box_height)
+                section_boxes[#section_boxes + 1] = box
+                y = y + box_height + 14
+            end
+        end
+    end
+    -- 3) 先にフレームの幅を決める。**幅はたいてい行の中身ではなくタイトル行で決まる**
+    --    (一括操作ボタン 3 つが右詰めで並ぶため)ので、幅を確定させてから操作列の x を出す。
+    --
+    --    名前の幅は「一度広げたら狭めない」。そのときに出ている行だけで決め直すと、
+    --    検索で長い名前が消えた瞬間や見出しを畳んだ瞬間に列とフレームの幅が動き、
+    --    窓が伸び縮みする。名前は実行中に変わらないので、セッション中の最大値を持ち回る。
+    if max_name_w > (g.list_name_width or 0) then
+        g.list_name_width = max_name_w
+    end
+    -- 名前と操作列がぶつからない最小の x。操作列はここより左へは寄せない。
+    local min_ctrl_x = 12 + (g.list_name_width or 0) + 25
+    -- 行だけで要る幅。スクロールバーの分(25)を足さないと右端の ? ボタンが隠れる。
+    local width = 10 + min_ctrl_x + LIST_CTRL_W + 10 + 25 + 20
+    -- タイトル行(タイトル + 右上の ✕)と下段のボタン列も収まる幅にする。翻訳やフォントで
+    -- 変わりうるため実測から出す。
+    --
+    -- **一括操作ボタンをタイトル行に置かないこと。** 置くとこの 3 つが幅を決めてしまい、
+    -- 行の中身に必要な幅より 200px ほど広い窓になって右側が空く(実機で確認。だから下段へ移した)。
+    local title = GET_CHILD(list_frame, "title")
+    local min_width = (title and (title:GetWidth() + 40 + 35) or 0)
+    if min_width < g.maintenance_buttons_width() + 10 then
+        min_width = g.maintenance_buttons_width() + 10
+    end
+    if width < min_width then
+        width = min_width
+    end
+    if width < 460 then -- タイトルと検索窓が収まる最低幅
+        width = 460
+    end
+    -- 4) 操作列を右詰めで足す。**名前の右へ詰めないこと。** 上のとおり幅はタイトル行で
+    --    決まることが多く、名前に合わせて左へ寄せると右側が大きく空いて見える(実機で確認)。
+    --    枠(width - 55)の右端から操作列の幅ぶん戻した位置に置き、長い名前とぶつかるときだけ
+    --    min_ctrl_x で止める。
+    local ctrl_x = (width - 55) - 10 - LIST_CTRL_W
+    if ctrl_x < min_ctrl_x then
+        ctrl_x = min_ctrl_x
+    end
+    for _, row in ipairs(rows) do
+        local entry, box, by = row.entry, row.box, row.y
+        local use = g.settings[entry.key] and g.settings[entry.key].use or 0
+        local use_toggle = box:CreateOrGetControl("picture", "use_" .. entry.key, ctrl_x, by + 8, LIST_TOGGLE_W, 25)
+        AUTO_CAST(use_toggle)
+        use_toggle:SetImage(use == 1 and "test_com_ability_on" or "test_com_ability_off")
+        use_toggle:SetEnableStretch(1)
+        use_toggle:EnableHitTest(1)
+        -- どの行のトグルかを出す。以前は全行 "{ol}ON/OFF" 固定で、狙った行を押せているのか
+        -- ツールチップからは確かめられなかった。
+        use_toggle:SetTextTooltip("{ol}" .. entry.data.name ..
+                                      (g.lang == "Japanese" and "{nl}クリックで ON / OFF" or
+                                          "{nl}Click to turn ON / OFF"))
+        use_toggle:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_toggle_addons")
+        use_toggle:SetEventScriptArgString(ui.LBUTTONUP, entry.key)
+        if entry.data.frame_use then
+            local config_btn = box:CreateOrGetControl("button", "config_" .. entry.key,
+                ctrl_x + LIST_TOGGLE_W + 8, by + 8, 25, 25)
+            AUTO_CAST(config_btn)
+            config_btn:SetSkinName("None")
+            config_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}設定フレーム呼出し" or "Call Settings Frame")
+            config_btn:SetText("{img config_button_normal 25 25}")
+            if entry.data.config_func and entry.data.config_func ~= "" then
+                config_btn:SetEventScript(ui.LBUTTONUP, entry.data.config_func)
+            end
+        end
+    end
+    if hit == 0 then
+        local empty = list_gb:CreateOrGetControl("richtext", "empty", 12, y)
+        AUTO_CAST(empty)
+        empty:SetText(g.lang == "Japanese" and "{ol}{#FFA500}該当するアドオンはありません" or g.lang == "kr" and
+                          "{ol}{#FFA500}해당하는 애드온이 없습니다" or "{ol}{#FFA500}No matching addons")
+        y = y + 34
+    end
+    -- 5) 高さを決めて位置を合わせる(幅は 3) で確定済み)。
+    local screen_w = ui.GetClientInitialWidth()
+    local screen_h = ui.GetClientInitialHeight()
+    -- 全件を開くと画面に収まらない高さになるので、画面の 8 割で頭打ちにしてスクロールさせる。
+    local max_height = math.floor(screen_h * 0.8)
+    local height = y + 100 + LIST_FOOTER_H
+    if height > max_height then
+        height = max_height
+    end
+    if height < 260 then -- 検索が 1 件も当たらないときに枠だけ潰れないように
+        height = 260
+    end
+    list_frame:Resize(width, height)
+    -- 上の 85(タイトル + 検索窓)と下の LIST_FOOTER_H(ボタン列)を除いた分が一覧の領域。
+    list_gb:Resize(width - 20, height - 95 - LIST_FOOTER_H)
+    list_gb:EnableScrollBar(1)
+    -- セクションの枠を最終的な幅へ揃える(高さは各枠が既に持っている)。
+    -- width から左右の余白(list_gb の 10 + 枠の 10 = 計 30)とスクロールバー(25)を引いた分。
+    for _, box in ipairs(section_boxes) do
+        box:Resize(width - 55, box:GetHeight())
+    end
+    -- 一括操作ボタン(全て OFF / バックアップ / 復元)は下段へ右詰めで並ぶので、
+    -- 幅と高さが決まってからでないと位置が出せない。**frame_init 側ではなくここで置くこと。**
+    -- どちらも折りたたみや検索で変わる。作るのは CreateOrGetControl なので、
+    -- 作り直しでは位置の付け直しになる。
+    g.create_maintenance_buttons(list_frame, width, height - LIST_FOOTER_H + 5)
+    -- 畳んで中身が縮んだときに、縮む前の位置をそのまま戻すと末尾より下へ飛ぶ。
+    -- 新しい中身の高さ(y)と表示領域の差を上限にする。
+    local scroll_max = y - list_gb:GetHeight()
+    if scroll_max < 0 then
+        scroll_max = 0
+    end
+    if prev_scroll > scroll_max then
+        prev_scroll = scroll_max
+    end
+    -- 中身を全部作り直したので、**先にスクロールバーの範囲を計算し直させてから**位置を戻す。
+    -- 順番が逆だと、作り直す前の範囲(この時点では中身が空だったときのもの)で丸められて
+    -- 先頭に貼り付く。素のクライアントも作り直しの後は InvalidateScrollBar を呼んでいる。
+    pcall(function()
+        list_gb:InvalidateScrollBar()
+    end)
+    pcall(function()
+        list_gb:SetScrollPos(prev_scroll)
+    end)
+    if keep_pos then
+        -- 開いたままの位置を保つ。ただし折りたたみを開いて背が伸びると画面外へはみ出すので、
+        -- 画面内へ押し戻しておく(この窓はタイトルバーが無く掴み直しづらい)。
+        local pos_x, pos_y = list_frame:GetX(), list_frame:GetY()
+        if pos_x > screen_w - width then
+            pos_x = screen_w - width
+        end
+        if pos_y > screen_h - height then
+            pos_y = screen_h - height
+        end
+        list_frame:SetPos(math.max(pos_x, 0), math.max(pos_y, 0))
+    else
+        list_frame:SetPos(310, 100)
+    end
+    -- 実際にこの一覧を作ったときの絞り込み。折りたたみの可否は検索窓の「今の文字」ではなく
+    -- こちらで判定する(未確定の入力で見出しが無反応になるのを防ぐ)。
+    g.list_applied_filter = filter_text or ""
+    -- 操作列の x も出す。右詰めが効いているか(= 名前に引きずられて左へ寄っていないか)は
+    -- ctrl_x と min_ctrl_x の関係でしか分からない。等しければ長い名前に押されて左詰め。
+    g.vlog("一覧を構築 filter=%s hit=%d 幅=%d 高さ=%d 操作列=%d(最小 %d) スクロール=%d", tostring(filter_text or ""),
+        hit, width, height, ctrl_x, min_ctrl_x, prev_scroll)
+end
+
+-- 見出しのクリック。そのカテゴリの枠を畳む / 開く。状態は settings.json に持たせて
+-- 開き直しても保つ(トップレベルのキーなので _nexus_addons_p_load_settings の
+-- valid_keys にも list_collapsed を足してある。書き忘れると毎回プルーニングで消える)。
+function _nexus_addons_p_list_section_toggle(frame, ctrl, section_name, num)
+    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
+    if not list_frame or not section_name or not g.settings then
+        return
+    end
+    -- 見るのは検索窓の「今の文字」ではなく、今出ている一覧を作ったときの絞り込み。
+    -- 打っただけで確定していない文字で弾くと、全件表示のまま見出しを押しても
+    -- 何の反応も無い(押せない理由も出ない)状態になる。
+    if (g.list_applied_filter or "") ~= "" then
+        return
+    end
+    g.settings.list_collapsed = g.settings.list_collapsed or {}
+    g.settings.list_collapsed[section_name] = (g.settings.list_collapsed[section_name] == 1) and 0 or 1
+    _nexus_addons_p_save_settings()
+    g.vlog("一覧: 見出しを開閉 %s collapsed=%s", section_name, tostring(g.settings.list_collapsed[section_name]))
+    _nexus_addons_p_list_build(list_frame, "", true)
+end
+
+-- 検索窓の入口。ENTERKEY と虫眼鏡ボタンの両方から来る。
+function _nexus_addons_p_list_search(frame, ctrl, str, num)
+    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
+    if not list_frame then
+        return
+    end
+    local search_edit = GET_CHILD_RECURSIVELY(list_frame, "search_edit")
+    _nexus_addons_p_list_build(list_frame, search_edit and search_edit:GetText() or "", true)
+end
+
 function _nexus_addons_p_frame_init()
+    -- 本家検出で初期化を止めたときは g.settings が無い。一覧はメニューから開けてしまう
+    -- (core/90_addons_menu.lua は読み込み時ガードの外に居る)ので、ここで受け止めないと
+    -- 下の g.settings[...] で落ちる。
+    if not g.settings then
+        ui.SysMsg(g.lang == "Japanese" and "{ol}[Nexus Addons P] まだ初期化されていません" or
+                      "{ol}[Nexus Addons P] Not initialized yet")
+        g.vlog("一覧を開こうとしたが g.settings がまだ無い")
+        return nil
+    end
     local list_frame_name = addon_name_lower .. "list_frame"
+    -- この関数は ON/OFF の切り替え・全 OFF・バックアップ / 復元でも「作り直し」として
+    -- 呼ばれる。そのとき今の絞り込みを捨てると、1 件切り替えるたびに検索が消えて
+    -- 打ち直しになるので、下の RemoveAllChild より前に読んでおく。
+    local existing = ui.GetFrame(list_frame_name)
+    local keep_pos = existing ~= nil
+    local filter_text = ""
+    if existing then
+        local prev_edit = GET_CHILD_RECURSIVELY(existing, "search_edit")
+        if prev_edit then
+            filter_text = prev_edit:GetText() or ""
+        end
+        -- スクロール位置も同じ理由でここで控える。下の RemoveAllChild で list_gb ごと
+        -- 消えるため、_nexus_addons_p_list_build 側から読み直すことはできない
+        -- (あちらが見るのは作り直された後の list_gb で、必ず 0 を返す)。
+        local prev_gb = GET_CHILD_RECURSIVELY(existing, "list_gb")
+        if prev_gb then
+            g.list_scroll_keep = g.scroll_cur_pos(prev_gb)
+        end
+    end
     local list_frame = ui.CreateNewFrame("notice_on_pc", list_frame_name, 0, 0, 10, 10)
     AUTO_CAST(list_frame)
     list_frame:RemoveAllChild()
@@ -548,92 +943,29 @@ function _nexus_addons_p_frame_init()
     close_button:SetImage("testclose_button")
     close_button:SetGravity(ui.RIGHT, ui.TOP)
     close_button:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_list_close")
-    local list_gb = list_frame:CreateOrGetControl("groupbox", "list_gb", 10, 40, 0, 0)
-    AUTO_CAST(list_gb)
-    list_gb:SetSkinName("bg")
-    list_gb:RemoveAllChild()
-    list_gb:EnableHitTest(1)
+    -- 検索窓。中身の組み立て(_nexus_addons_p_list_build)とは分けてあるので、
+    -- 検索や折りたたみで作り直されず、打った文字が消えない。
+    local search_edit = list_frame:CreateOrGetControl("edit", "search_edit", 20, 45, 300, 32)
+    AUTO_CAST(search_edit)
+    search_edit:SetFontName("white_16_ol")
+    search_edit:SetTextAlign("left", "center")
+    search_edit:SetSkinName("inventory_serch")
+    search_edit:SetEventScript(ui.ENTERKEY, "_nexus_addons_p_list_search")
+    search_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}アドオン名や説明で絞り込み(空で全件)" or g.lang == "kr" and
+                                   "{ol}애드온 이름으로 검색(비우면 전체)" or
+                                   "{ol}Filter addons by text (empty shows all)")
+    search_edit:SetText(filter_text)
+    local search_btn = search_edit:CreateOrGetControl("button", "search_btn", 0, 0, 32, 32)
+    AUTO_CAST(search_btn)
+    search_btn:SetImage("inven_s")
+    search_btn:SetGravity(ui.RIGHT, ui.TOP)
+    search_btn:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_list_search")
+    -- **開いた直後に search_edit へ Focus() しないこと。** 入力欄にキーボードフォーカスが
+    -- あると ESC の 1 回目がクライアント側の「入力欄から抜ける」に使われ、
+    -- ESCAPE_PRESSED がこちらへ届かない(利用者から見ると「2 回押さないと閉じない」)。
     list_frame:ShowWindow(1)
-    local base_num = 25
-    local col1_x = 20
-    local row_height = 35
-    local max_width1 = 0
-    local max_width2 = 0
-    for i, entry in ipairs(g._nexus_addons_p) do
-        local name = entry.data.name
-        local current_y = (i <= base_num) and (i - 1) * row_height or (i - (base_num + 1)) * row_height
-        local name_text = list_gb:CreateOrGetControl('richtext', 'name_text' .. i, col1_x, current_y + 10, 10, 30)
-        AUTO_CAST(name_text)
-        name_text:SetText("{ol}{s20}" .. name)
-        if i <= base_num then
-            max_width1 = math.max(max_width1, name_text:GetWidth())
-        else
-            max_width2 = math.max(max_width2, name_text:GetWidth())
-        end
-    end
-    local col2_x = col1_x + max_width1 + 180
-    for i, entry in ipairs(g._nexus_addons_p) do
-        local child_addon_name = entry.key
-        local data = entry.data
-        local use = g.settings[child_addon_name].use
-        local buttons_x, current_y
-        if i <= base_num then
-            buttons_x = col1_x + max_width1 + 25
-            current_y = (i - 1) * row_height
-        else
-            local name_text = GET_CHILD(list_gb, 'name_text' .. i)
-            name_text:SetPos(col2_x, name_text:GetY())
-            buttons_x = col2_x + max_width2 + 25
-            current_y = (i - (base_num + 1)) * row_height
-        end
-        local use_toggle = list_gb:CreateOrGetControl('picture', "use_toggle" .. i, buttons_x, current_y + 10, 60, 25)
-        AUTO_CAST(use_toggle)
-        use_toggle:SetImage(use == 1 and "test_com_ability_on" or "test_com_ability_off")
-        use_toggle:SetEnableStretch(1)
-        use_toggle:EnableHitTest(1)
-        use_toggle:SetTextTooltip("{ol}ON/OFF")
-        use_toggle:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_toggle_addons")
-        use_toggle:SetEventScriptArgString(ui.LBUTTONUP, child_addon_name)
-        if data.frame_use then
-            local config_btn = list_gb:CreateOrGetControl('button', 'config_btn' .. i, buttons_x + 65, current_y + 10,
-                25, 25)
-            AUTO_CAST(config_btn)
-            config_btn:SetSkinName("None")
-            config_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}設定フレーム呼出し" or
-                                          "Call Settings Frame")
-            config_btn:SetText("{img config_button_normal 25 25}")
-            if data.config_func and data.config_func ~= "" then
-                config_btn:SetEventScript(ui.LBUTTONUP, data.config_func)
-            end
-        end
-        local help_btn = list_gb:CreateOrGetControl('button', 'help_btn' .. i, buttons_x + 100, current_y + 5, 40, 30)
-        AUTO_CAST(help_btn)
-        help_btn:SetText("{ol}{img question_mark 20 15}")
-        -- 登録リストに追加したのに翻訳を書き忘れると、ここの index で一覧フレームごと
-        -- 落ちる(この関数は pcall の外)。説明が無いだけで一覧は開けるようにしておく。
-        local trans = g._nexus_addons_p_trans[child_addon_name] or {}
-        local tooltip_text
-        if g.lang == "Japanese" then
-            tooltip_text = trans.ja
-        elseif g.lang == "kr" then
-            tooltip_text = trans.kr
-        else
-            tooltip_text = trans.etc
-        end
-        tooltip_text = tooltip_text or ("{ol}" .. data.name)
-        help_btn:SetTextTooltip(tooltip_text)
-        help_btn:SetSkinName("test_pvp_btn")
-    end
-    local total_width = col2_x + max_width2 + 200
-    -- タイトル行の右側に一括操作ボタン(全て OFF / バックアップ / 復元)を並べるので、
-    -- タイトルと重ならない幅を確保する。幅はアドオン名の長さで決まり、翻訳やフォントで
-    -- 変わりうるため、固定値ではなく実際のタイトル幅から計算する。
-    total_width = math.max(total_width, title:GetWidth() + 40 + g.maintenance_buttons_width())
-    local total_height = base_num * row_height + 70
-    list_frame:Resize(total_width, total_height)
-    list_gb:Resize(list_frame:GetWidth() - 20, list_frame:GetHeight() - 50)
-    g.create_maintenance_buttons(list_frame, total_width)
-    list_frame:SetPos(310, 100)
+    -- 一括操作ボタンもこの中で置き直す(幅が決まる場所がそこなので)。
+    _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
     -- ESC は × ボタンと同じ閉じ方にする。**破棄だけにしないこと**:
     -- _nexus_addons_p_list_close は各アドオンの設定画面も畳んでから自分を破棄する
     -- (一覧を閉じたのに、そこから開いた設定画面だけ残るのを防ぐため)。
@@ -727,7 +1059,20 @@ function _nexus_addons_p_toggle_addons(list_gb, use_toggle, child_addon_name, nu
     end
     _nexus_addons_p_init_addons(true, child_addon_name)
     _nexus_addons_p_save_settings()
-    _nexus_addons_p_frame_init()
+    -- 一覧は**中身だけ**作り直す。ON/OFF では枠(タイトル・検索窓・下段のボタン)は
+    -- 何も変わらないので、frame_init まで呼ぶ必要が無い。
+    --
+    -- あちらを呼ぶと RemoveAllChild でフレームごと組み立て直すぶん、切り替えのたびに
+    -- 検索窓やボタンまで作り直すことになる。スクロール位置は frame_init 側でも
+    -- 引き継ぐようにしてあるが、余計な作り直しを挟まないほうが素直。
+    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
+    if list_frame then
+        -- 見るのは検索窓の「今の文字」ではなく、今出ている一覧を作ったときの絞り込み
+        -- (打っただけで確定していない文字で一覧が入れ替わらないようにするため)。
+        _nexus_addons_p_list_build(list_frame, g.list_applied_filter or "", true)
+    else
+        _nexus_addons_p_frame_init()
+    end
 end
 
 function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
