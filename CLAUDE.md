@@ -110,7 +110,7 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 ### コンテキストメニューへ項目を足すとき
 
 `ui.CreateContextMenu` → `ui.OpenContextMenu` で完結するので、素を呼んだ後からでは足せない。
-`mini_addons_menu_hook`（[mini_addons.lua](nexus_addons_p/src/addons/mini_addons/mini_addons.lua)）を使う。
+`mini_addons_menu_hook`（[context_menu.lua](nexus_addons_p/src/addons/mini_addons/context_menu/context_menu.lua)）を使う。
 **素を呼び、その同期実行の間だけ `ui.AddContextMenuItem` / `ui.OpenContextMenu` を横取りして**、
 メニューが開く前に項目を足す・落とす。
 
@@ -227,8 +227,16 @@ PR で自動的に走る [Claude Code Review](.github/workflows/claude-review.ym
   `<summary>更新履歴 (Nexus Addons P)</summary>` ブロック内、
   既存エントリの**先頭**（最新版が一番上）。
   ※ ルートの README.md はリポジトリ全体の説明で、アドオンの更新履歴は置かない。
-* **例外**: 挙動が変わらないコメントのみの変更は追記しなくてよい
-  （利用者向けの履歴なので、ノイズになる）。
+* **例外**: **利用者から見て何も変わらない変更**は追記しなくてよい
+  （利用者向けの履歴なので、ノイズになる）。次のどちらかに当たるもの:
+  * コメント / ドキュメントのみの変更
+  * **配布物が変わらないリファクタ**。`python docs/bundle_from_src.py --check` が
+    **golden sha を更新せずに通る**（= 連結後の bundle が従来とバイト一致）ことで示せるもの。
+    ソースファイルの分割・移動がこれに当たる（実例: Issue #69 の mini_addons 分割）。
+    **バイト一致を示せないなら例外にはならない**。「動作は変えていないつもり」は理由にならず、
+    その場合は追記すること。
+  * 例外で通すときは、**その判断と根拠を PR 本文に書く**こと（レビューが同じ指摘を
+    繰り返さずに済む）。
 * **書式**:
   ```
   * **v1.0.1**

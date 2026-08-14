@@ -1366,6 +1366,302 @@ check("INSTANTCC: 自分が居なければ個別版とみなす", _nexus_addons_
 _G["instant_cc_on_init"] = function() end
 check("INSTANTCC: 自分が居れば誤検出しない", _nexus_addons_p_origin_addon_present("INSTANTCC_ON_INIT"), false)
 
+-- ===== 25. mini_addons の断片が manifest に期待どおりの順で並んでいる =====
+-- mini_addons は機能ごとの断片に分かれていて、**実行順を決めるのは manifest だけ**
+-- (ファイル名に数字を振っていないので、並びを目視で確かめられない)。
+-- 断片をまたいで共有しているトップレベルの local は、宣言より前へ利用側を動かすと
+-- グローバル読み(= nil)に化ける。**エラーにならず静かに壊れる**ので、ここで並びを固定する。
+-- 意図して並べ替えたときは、この一覧も一緒に直すこと。
+print("[25] mini_addons 断片の並び")
+local MINI_PREFIX = "addons/mini_addons/"
+local MINI_EXPECTED = {
+    "mini_addons.lua",
+    "settings/definitions.lua",
+    "settings/ui.lua",
+    "settings/storage.lua",
+    "lifecycle/init.lua",
+    "misc/ui_tweaks.lua",
+    "lifecycle/update.lua",
+    "chat/chat_system.lua",
+    "misc/frame_tweaks.lua",
+    "quest/quest.lua",
+    "event_notice/reward_token.lua",
+    "chat/chat_frame.lua",
+    "inventory/inventory_op_pop.lua",
+    "weekly_boss/reward_partial.lua",
+    "misc/skill_enchant_tooltip.lua",
+    "chat/group_chat.lua",
+    "weekly_boss/ranking.lua",
+    "misc/craft.lua",
+    "party/member_map.lua",
+    "chat/death_notice.lua",
+    "quest/token_warp.lua",
+    "context_menu/context_menu.lua",
+    "event_notice/notice_msg.lua",
+    "misc/fps_option.lua",
+    "weekly_boss/rank_memberinfo.lua",
+    "hair_enchant/core.lua",
+    "hair_enchant/window.lua",
+    "hair_enchant/run.lua",
+    "chat/chat_move.lua",
+    "misc/vakarine_notice.lua",
+    "sound/skill_sound.lua",
+    "misc/coin_shop.lua",
+    "misc/indun_enter.lua",
+    "buff_list/buff_list.lua",
+    "channel/channel_traffic.lua",
+    "inventory/ikor_search.lua",
+    "event_notice/event_shout.lua",
+    "misc/equip_upgrade.lua",
+    "misc/market_sell.lua",
+    "misc/raid_record.lua",
+    "misc/effect_settings.lua",
+    "misc/indun_dialog.lua",
+    "misc/duel_and_restart.lua",
+    "misc/dialog.lua",
+    "misc/pc_name.lua",
+    "misc/auto_casting.lua",
+    "channel/channel_frame.lua",
+    "misc/pet_and_relic.lua",
+    "party/party_info.lua",
+    "misc/reputation_shop.lua",
+    "weekly_boss/reward_auto.lua",
+    "misc/ragana.lua",
+    "misc/rp_check.lua",
+    "misc/market_button.lua",
+    "inventory/coin_auto_use.lua",
+    "misc/skill_enchant_auto.lua",
+    "misc/goddess_gacha.lua",
+    "sound/bgm.lua",
+    "misc/minimized_close.lua",
+    "sound/toggle.lua",
+    "misc/reroll_option.lua",
+    "inventory/inventory_open.lua",
+    "footer.lua"
+}
+
+local manifest_f = assert(io.open("nexus_addons_p/src/build_manifest.json", "rb"),
+    "読めない（リポジトリルートから実行すること）: nexus_addons_p/src/build_manifest.json")
+local manifest_src = manifest_f:read("*a")
+manifest_f:close()
+
+-- JSON パーサを持ち込まずに、引用符で囲まれた .lua の相対パスを出現順に拾う
+-- （targets の配列は文字列の並びしか持たない）。
+--
+-- **拾う範囲は targets 配列の中だけに絞ること。** manifest 全体を舐めると、将来
+-- targets が 2 つ以上になったときに別ターゲットの分まで混ざり、件数も「連続して
+-- いるか」も実体と無関係に落ちる。%b{} / %b[] で対応する括弧まで切り出す。
+local targets_obj = manifest_src:match('"targets"%s*:%s*(%b{})')
+check("targets を切り出せる", targets_obj ~= nil, true)
+local mini_parts, first_at, last_at, arrays_with_mini = {}, nil, nil, 0
+for array in (targets_obj or ""):gmatch("%b[]") do
+    local found, f_at, l_at = {}, nil, nil
+    local i = 0
+    for rel in array:gmatch('"([^"]+%.lua)"') do
+        i = i + 1
+        if rel:sub(1, #MINI_PREFIX) == MINI_PREFIX then
+            table.insert(found, rel:sub(#MINI_PREFIX + 1))
+            f_at = f_at or i
+            l_at = i
+        end
+    end
+    if #found > 0 then
+        arrays_with_mini = arrays_with_mini + 1
+        mini_parts, first_at, last_at = found, f_at, l_at
+    end
+end
+-- 断片が複数のターゲットへ散ると、どちらの並びを見ているのか分からなくなる。
+check("断片を含む targets は 1 つ", arrays_with_mini, 1)
+check("断片の数", #mini_parts, #MINI_EXPECTED)
+-- 間に他アドオンが挟まると、共有している local の見え方が変わる。連続していること。
+check("連続して並んでいる", (last_at or 0) - (first_at or 0) + 1, #mini_parts)
+local order_ng = nil
+for i, want in ipairs(MINI_EXPECTED) do
+    if mini_parts[i] ~= want then
+        order_ng = string.format("%d 番目: got=%s want=%s", i, tostring(mini_parts[i]), want)
+        break
+    end
+end
+check("並びが期待どおり", order_ng, nil)
+-- 先頭と末尾は入れ替えてはいけない（先頭が do と共有 local、末尾が end）。
+check("先頭はヘッダ", mini_parts[1], "mini_addons.lua")
+check("末尾は footer", mini_parts[#mini_parts], "footer.lua")
+-- 一覧に載っているだけで実体が無いと、bundle 生成が落ちるまで気付けない。
+local missing = nil
+for _, rel in ipairs(MINI_EXPECTED) do
+    local path = "nexus_addons_p/src/" .. MINI_PREFIX .. rel
+    local fh = io.open(path, "rb")
+    if fh then
+        fh:close()
+    else
+        missing = rel
+        break
+    end
+end
+check("全ての断片が実在する", missing, nil)
+-- 断片のあるフォルダには README を置く（Issue #69）。増やしたときの置き忘れを止める。
+local no_readme = nil
+for _, rel in ipairs(MINI_EXPECTED) do
+    local dir = rel:match("^(.*)/[^/]+$")
+    if dir then
+        local fh = io.open("nexus_addons_p/src/" .. MINI_PREFIX .. dir .. "/README.md", "rb")
+        if fh then
+            fh:close()
+        else
+            no_readme = dir
+            break
+        end
+    end
+end
+check("各フォルダに README がある", no_readme, nil)
+
+-- ===== 26. 一覧のカテゴリ =====
+-- 各エントリの category は g._nexus_addons_p_sections の見出しを指す。指していないと
+-- そのアドオンは末尾の その他 へ落ちる（_nexus_addons_p_list_build がそう作ってある）。
+-- 実機では「なぜかその他に居る」という形でしか出ず気付けないので、ここで落とす。
+print("[26] 一覧のカテゴリが見出しと対応している")
+local section_names = {}
+local section_order = {}
+for _, section in ipairs(g._nexus_addons_p_sections) do
+    check("見出しに name がある: " .. tostring(section.name), type(section.name), "string")
+    -- 表示言語ごとの文言。1 つでも欠けるとその言語だけ見出しが nil になる
+    -- （list_localized は素の nil を返し、呼び元が section.name で代替する）。
+    for _, lang_key in ipairs({"ja", "kr", "etc"}) do
+        check("  " .. section.name .. " の " .. lang_key, type(section[lang_key]), "string")
+    end
+    section_names[section.name] = true
+    section_order[#section_order + 1] = section.name
+end
+-- その他 は「category を書き忘れたエントリ」の受け皿でもあるので必ず要る。
+check("受け皿の misc がある", section_names["misc"], true)
+check("misc は末尾に置く", section_order[#section_order], "misc")
+
+local no_category, bad_category = nil, nil
+local per_section = {}
+for _, entry in ipairs(g._nexus_addons_p) do
+    if type(entry.category) ~= "string" then
+        no_category = no_category or entry.key
+    elseif not section_names[entry.category] then
+        bad_category = bad_category or (entry.key .. " -> " .. entry.category)
+    else
+        per_section[entry.category] = (per_section[entry.category] or 0) + 1
+    end
+end
+check("category を書き忘れたエントリが無い", no_category, nil)
+check("見出しに無い category を指すエントリが無い", bad_category, nil)
+-- 使われていない見出しは、見出しだけが出て中身が空になる…のではなく
+-- （#items > 0 のときだけ描くので）静かに消える。綴り違いの取り違えを拾うために見る。
+local unused_section = nil
+for _, name in ipairs(section_order) do
+    if not per_section[name] then
+        unused_section = name
+        break
+    end
+end
+check("どの見出しにも 1 件以上ある", unused_section, nil)
+
+-- ===== 27. README のアドオン一覧が registry と一致している =====
+-- 利用者向けの README とゲーム内の一覧で分類が食い違っていたので、registry 側へ揃えた。
+-- 手で並べ直す限り必ずまた離れる（実際に Market Favorite Rebuild が README から
+-- 丸ごと抜けていた）ので、ここで突き合わせる。README を直すか registry を直すかは
+-- そのときの判断だが、**片方だけ変えた状態はここで落ちる**。
+print("[27] README のアドオン一覧が registry と一致する")
+local readme = assert(io.open("nexus_addons_p/README.md", "rb"), "README.md が開けない")
+local readme_text = readme:read("*a")
+readme:close()
+
+-- 「## アドオン一覧」から次の「## 」までを切り出す（使い方側の ### を拾わないため）
+local list_body = readme_text:match("\n## アドオン一覧\n(.-)\n## ")
+check("アドオン一覧の節を切り出せる", list_body ~= nil, true)
+
+local rd_section_order, rd_of, rd_rows = {}, {}, {}
+if list_body then
+    local cur = nil
+    for line in list_body:gmatch("[^\n]+") do
+        local heading = line:match("^### (.+)$")
+        if heading then
+            cur = heading
+            rd_section_order[#rd_section_order + 1] = heading
+            rd_rows[heading] = {}
+        else
+            local label, key = line:match("^| %[([^%]]+)%]%(src/addons/([a-z_]+)/README%.md%)")
+            if key then
+                rd_of[key] = cur
+                if cur then
+                    table.insert(rd_rows[cur], {key = key, label = label})
+                end
+            end
+        end
+    end
+end
+
+-- 見出しの並びと文言が g._nexus_addons_p_sections と揃っているか
+local ja_of, expected_headings = {}, {}
+for _, section in ipairs(g._nexus_addons_p_sections) do
+    ja_of[section.name] = section.ja
+    expected_headings[#expected_headings + 1] = section.ja
+end
+check("見出しの数が同じ", #rd_section_order, #expected_headings)
+local heading_ng = nil
+for i, want in ipairs(expected_headings) do
+    if rd_section_order[i] ~= want then
+        heading_ng = string.format("%d 番目: README=%s registry=%s", i, tostring(rd_section_order[i]), want)
+        break
+    end
+end
+check("見出しの文言と並びが同じ", heading_ng, nil)
+
+-- 登録済みのアドオンが、自分の category の見出しの下に居るか
+local not_listed, wrong_section = nil, nil
+local listed_keys = {}
+for _, entry in ipairs(g._nexus_addons_p) do
+    listed_keys[entry.key] = true
+    local want = ja_of[entry.category]
+    if not rd_of[entry.key] then
+        not_listed = not_listed or entry.key
+    elseif rd_of[entry.key] ~= want then
+        wrong_section = wrong_section or
+                            string.format("%s: README=%s registry=%s", entry.key, rd_of[entry.key], tostring(want))
+    end
+end
+check("README に載っていない登録が無い", not_listed, nil)
+check("README の節が category と食い違わない", wrong_section, nil)
+
+-- 逆向き。登録していないのに載っているものは、無効と分かる形で その他 に置く。
+-- 増やすときはここへ足すこと（黙って通すと「一覧に在るのに ON にできない」になる）。
+local UNREGISTERED_OK = {
+    ancient_monster_bookshelf = "未完成のため登録をコメントアウトしてある"
+}
+local stray = nil
+for key, section in pairs(rd_of) do
+    if not listed_keys[key] then
+        if not UNREGISTERED_OK[key] then
+            stray = key
+        elseif section ~= ja_of["misc"] then
+            stray = key .. "(未登録なので " .. tostring(ja_of["misc"]) .. " へ置くこと)"
+        end
+    end
+end
+check("未登録のアドオンが紛れていない", stray, nil)
+
+-- 並び順。README には「並び順はゲーム内のアドオン一覧ウィンドウと同じ」と書いてあり、
+-- ゲーム内は _nexus_addons_p_list_build がカテゴリ内をアドオン名で並べ替えている。
+-- 表示名は README のリンク文字列と同じなので、そこを名前順に見るだけで突き合わせられる。
+local order_ng = nil
+for _, heading in ipairs(rd_section_order) do
+    local rows = rd_rows[heading] or {}
+    for i = 2, #rows do
+        if string.lower(rows[i - 1].label) > string.lower(rows[i].label) then
+            order_ng = string.format("%s: %s の後に %s", heading, rows[i - 1].label, rows[i].label)
+            break
+        end
+    end
+    if order_ng then
+        break
+    end
+end
+check("カテゴリの中がアドオン名順に並んでいる", order_ng, nil)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

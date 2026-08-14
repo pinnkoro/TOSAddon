@@ -10,7 +10,46 @@
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_mini_addons_menu.lua
 
-local SRC = "nexus_addons_p/src/addons/mini_addons/mini_addons.lua"
+-- mini_addons は機能ごとの断片に分かれている。**ファイル名を直書きしないこと。**
+-- 断片を足したり並べ替えたりしたときにここが置き去りになると、テストだけ古い並びを
+-- 読んで通ってしまう。並びの正は manifest なので、そこから引いて連結する
+-- （syntax_check.sh が targets を manifest から引いているのと同じ手）。
+local MANIFEST = "nexus_addons_p/src/build_manifest.json"
+local SRC_DIR = "nexus_addons_p/src/"
+local SRC_PREFIX = "addons/mini_addons/"
+local SRC = SRC_PREFIX .. "**（manifest 順に連結）"
+
+local function read_file(path)
+    local f = assert(io.open(path, "r"), "読めない（リポジトリルートから実行すること）: " .. path)
+    local data = f:read("*a")
+    f:close()
+    return data
+end
+
+-- manifest から mini_addons の断片を出現順に拾う。JSON パーサを持ち込まずに済むよう、
+-- 引用符で囲まれた相対パスをそのまま拾う（targets の配列は文字列の並びしか持たない）。
+--
+-- **拾う範囲は targets 配列の中だけに絞ること。** manifest 全体を舐めると、将来
+-- targets が 2 つ以上になったときに別ターゲットの分まで混ざり、並びも件数も実体と
+-- 食い違う。%b{} / %b[] で対応する括弧まで切り出してから拾う。
+local function mini_addons_parts()
+    local targets = assert(read_file(MANIFEST):match('"targets"%s*:%s*(%b{})'),
+        "manifest の targets を切り出せない: " .. MANIFEST)
+    local parts = nil
+    for array in targets:gmatch("%b[]") do
+        local found = {}
+        for rel in array:gmatch('"(' .. SRC_PREFIX .. '[^"]+%.lua)"') do
+            table.insert(found, rel)
+        end
+        if #found > 0 then
+            assert(parts == nil, "mini_addons の断片が複数の targets に散っている: " .. MANIFEST)
+            parts = found
+        end
+    end
+    -- 0 件で素通りするのが一番危ない（何も検査せず ALL OK になる）ので明示的に落とす。
+    assert(parts and #parts > 0, "manifest から mini_addons の断片を拾えない: " .. MANIFEST)
+    return parts
+end
 
 -- ===== ゲーム API のスタブ =====
 package.preload["json"] = function()
@@ -124,9 +163,19 @@ _G.__core_g_stub = {
     setup_hook_and_event = function() end
 }
 
-local f = assert(io.open(SRC, "r"), "読めない（リポジトリルートから実行すること）: " .. SRC)
-local src = f:read("*a")
-f:close()
+-- 連結の仕方は bundle_from_src.py の build() に合わせる。**素の concat にしないこと。**
+-- あちらは part 間に必ず改行境界を入れる（末尾 LF を欠く src があっても、直前の最終
+-- トークンと次の先頭トークンが結合しないようにするため）。ここを揃えておかないと、
+-- 配布される bundle は健全なのにこのテストだけが偽の構文エラーで落ちる。
+local src_parts = {}
+for _, rel in ipairs(mini_addons_parts()) do
+    local data = read_file(SRC_DIR .. rel)
+    if #src_parts > 0 and src_parts[#src_parts]:sub(-1) ~= "\n" then
+        table.insert(src_parts, "\n")
+    end
+    table.insert(src_parts, data)
+end
+local src = table.concat(src_parts)
 local chunk = assert(loadstring(PRELUDE .. src, "@" .. SRC))
 chunk()
 

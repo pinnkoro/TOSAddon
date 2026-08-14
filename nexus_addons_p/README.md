@@ -8,95 +8,168 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 バージョンは本家と独立して採番します。
 
 40種類以上のアドオンの詰合せです。**各アドオンの詳しい使い方は、下の一覧から個別の README** を参照してください
-（ゲーム内のヘルプ（`?` ボタン）にも要約があります）。
+（ゲーム内のアドオン一覧ウィンドウの `?` ボタンにも要約があります）。
+
+ゲーム内でのメニューの開き方・アドオンの ON/OFF・設定のバックアップについては
+[使い方（メニューの開き方と全体設定）](#使い方メニューの開き方と全体設定)を参照してください。
 
 インストール方法はリポジトリ全体の [README](../README.md) を参照してください。
+
+---
+
+## 使い方（メニューの開き方と全体設定）
+
+各アドオンの ON/OFF や設定は、**Addons Menu**（アドオンメニュー）から開く
+**アドオン一覧ウィンドウ**でまとめて操作します。
+
+### 1. アドオン一覧を開く
+
+導線は 2 つあり、どちらからでも同じ一覧が開きます。
+
+| 導線 | 左クリック | 右クリック |
+| --- | --- | --- |
+| **フローティングボタン**（既定は画面右上。ドラッグで移動できます） | メニューを開く | **Addons Menu の設定**を開く |
+| **システムメニューボタン**（アイコン列の「system」。ESC で開くシステムメニューと同じもの。既定はコレクション（F11）の右隣ですが、UI の配置によって画面上部にも下部にもあります） | ゲーム標準のシステムメニュー（変更なし） | メニューを開く |
+
+* 開いたメニューの中の **「Nexus Addons P」** を押すとアドオン一覧ウィンドウが開きます。
+  もう一度押すと閉じます。
+* システムメニュー側から開いたメニューには、末尾に **「Addons Menu の設定」** が並びます
+  （こちらは右クリックが「メニューを開く」に使われているため、項目として用意しています）。
+* 右上のフローティングボタンは、下記の設定で**消してシステムメニューの右クリックだけにする**
+  こともできます。
+* 開いたウィンドウは **ESC でも閉じられます**（× ボタンと同じ後始末を行います）。
+
+### 2. アドオン一覧ウィンドウでできること
+
+アドオンは「倉庫・アイテム」「強化・装備」「戦闘支援」「ダンジョン・コンテンツ」
+「キャラクター・移動」「その他」の**カテゴリごと**に並びます。各行に、アドオン名と
+次の 3 つが並びます。
+
+| 表示 | 内容 |
+| --- | --- |
+| **アドオン名** | カーソルを乗せると、そのアドオンの説明がツールチップで出ます |
+| **ON / OFF トグル** | そのアドオンの有効・無効を切り替えます。切り替えは即座に反映され、保存されます |
+| **⚙（設定フレーム呼出し）** | 設定画面を持つアドオンだけに表示されます。押すとそのアドオンの設定画面が開きます |
+
+目当てのアドオンは、次の 2 つで探せます。
+
+| 操作 | 内容 |
+| --- | --- |
+| **検索窓**（タイトルの下） | アドオン名・`?` の説明文で絞り込みます。日本語でも英語名でも当たります（例: 「倉庫」「buff」「ダンジョン」）。Enter か虫眼鏡ボタンで実行し、空にして実行すると全件へ戻ります |
+| **カテゴリ見出しのクリック** | そのカテゴリを折りたたみます。畳んだ状態は保存され、次に開いたときも保たれます。見出しの右の `n / m` は、そのカテゴリで ON にしている数です。**検索中は折りたたみできません**（絞り込んだ結果が畳まれた中に隠れないようにするため） |
+
+ウィンドウの**下段**には、**全アドオンに対する一括操作**が並びます。
+
+| ボタン | 内容 |
+| --- | --- |
+| **全て OFF** | すべてのアドオンを OFF にします（確認あり）。押す前に「バックアップ」を取っておくと、元の ON/OFF に戻せます |
+| **バックアップ** | 現在の設定を `../addons/_nexus_addons_p/backup/<アカウントID>/` へ退避します。保存先は 1 つだけで、既にあるときは上書きの確認が出ます。ツールチップに最終バックアップ日時が出ます |
+| **復元** | バックアップから設定を書き戻します（確認あり）。**上書きであって巻き戻しではない**ため、バックアップ後に増えたファイルは残ります。すべて反映するにはゲームの再起動が必要です |
+
+### 3. Addons Menu の設定
+
+右上のフローティングボタンを**右クリック**（またはシステムメニュー側のメニューの
+「Addons Menu の設定」）で開きます。
+
+| 項目 | 内容 |
+| --- | --- |
+| **デフォルトに戻す** | 位置・レイヤーなどを初期値へ戻します |
+| **チェックするとフレーム固定** | フローティングボタンをドラッグで動かせないようにします |
+| **チェックすると上開き** | メニューをボタンの上方向へ開きます |
+| **詳細なログをシステムに出力する** | 動作の詳細をチャットのシステムメッセージと `../addons/_nexus_addons_p/verbose_log.txt` に出します。**不具合を報告するときは、これを ON にして再現し、`verbose_log.txt` を添えていただけると調査が早く進みます**（既定は OFF） |
+| **システムメニューの右クリックのみにする(右上のボタンを消す)** | 右上のフローティングボタンを消します。システムメニューの右クリックは常に使えるので、これだけで運用できます |
+| **レイヤー設定** | 他のウィンドウとの重なり順を数値で指定します（既定 79） |
+
+これらの設定は `../addons/_nexus_addons_p/<アカウントID>/addons_menu.json` に保存されます
+（「詳細なログ」だけは全体設定のため `settings.json` 側に保存されます）。
 
 ---
 
 ## アドオン一覧
 
 各行の名前をクリックすると、そのアドオンの使い方・設定項目・保存先をまとめた README が開きます。
+**分類と並び順は、ゲーム内のアドオン一覧ウィンドウと同じ**です。
 
-### 倉庫・アイテム管理
+### 倉庫・アイテム
 
 | アドオン | 概要 |
 | --- | --- |
 | [Another Warehouse](src/addons/another_warehouse/README.md) | チーム倉庫を見やすい一覧に差し替え、自動搬出入・自動入出金・セット取り出しを追加 |
-| [Character Change Helper](src/addons/cc_helper/README.md) | ボルタエンブレム・カード・髪飾り・エーテルジェムなどをボタン 1 つで倉庫と出し入れして着脱（3 セット） |
-| [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
-| [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
-| [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
-| [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
-
-### 装備・強化
-
-| アドオン | 概要 |
-| --- | --- |
-| [Goddess Icor Manager](src/addons/goddess_icor_manager/README.md) | 刻印ページ × 8 部位のイコルを一覧表示し、セット単位で付け替え |
-| [Continue Reinforce](src/addons/continue_reinforce/README.md) | ゴッデス装備を成功するまで連続強化（回数制限・補助剤の自動選択つき） |
-| [Aethergem Manager](src/addons/aethergem_manager/README.md) | エーテルジェム 4 個の付け替えを自動化（6 セット） |
-| [Monster Card Changer](src/addons/monster_card_changer/README.md) | モンスターカードのプリセットを 10 個に拡張し、倉庫との出し入れも自動化 |
-| [Ancient Auto Set](src/addons/ancient_auto_set/README.md) | アシスターセットをキャラ毎に自動で付け替え（10 プリセット） |
-| [Relic Change](src/addons/relic_change/README.md) | レリックのシアンジェム付け替えをボタン 1 つで |
-| [Vakarine Equip](src/addons/vakarine_equip/README.md) | ヴァカリネの恩恵の判定をやり直すため、指定部位を着け直す |
-| [Cupole Manager](src/addons/cupole_manager/README.md) | クポル未登録キャラでも街に入ると自動で 3 体呼び出す |
 | [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
-| [Job Change Helper](src/addons/job_change_helper/README.md) | 転職前の装備全解除と、脱いだ装備の着け直し |
+| [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
+| [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
+| [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
+| [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
+| [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
+| [Sub Slotset](src/addons/sub_slotset/README.md) | 追加のクイックスロットを好きな大きさ・位置に何枚でも作る |
+| [Vakarine Equip](src/addons/vakarine_equip/README.md) | ヴァカリネの恩恵の判定をやり直すため、指定部位を着け直す |
 
-### レイド・コンテンツ
+### 強化・装備
 
 | アドオン | 概要 |
 | --- | --- |
-| [Indun Panel](src/addons/indun_panel/README.md) | レイド・チャレンジ等の入場を 1 枚のパネルに集約（表示セット 3 つ） |
-| [Indun List Viewer](src/addons/indun_list_viewer/README.md) | 全キャラのレイド入場回数・掃討回数を一覧表示。掃討バフの期限も警告 |
-| [Quickslot Operate](src/addons/quickslot_operate/README.md) | 女神ポーションをレイドの種族に合わせて自動で差し替え。スロット保存／読込 |
+| [Acquire Relic Reward](src/addons/acquire_relic_reward/README.md) | 主要都市でレリッククエストの報酬を自動受領 |
+| [Aethergem Manager](src/addons/aethergem_manager/README.md) | エーテルジェム 4 個の付け替えを自動化（6 セット） |
+| [Ancient Auto Set](src/addons/ancient_auto_set/README.md) | アシスターセットをキャラ毎に自動で付け替え（10 プリセット） |
+| [Continue Reinforce](src/addons/continue_reinforce/README.md) | ゴッデス装備を成功するまで連続強化（回数制限・補助剤の自動選択つき） |
+| [Cupole Manager](src/addons/cupole_manager/README.md) | クポル未登録キャラでも街に入ると自動で 3 体呼び出す |
+| [Goddess Icor Manager](src/addons/goddess_icor_manager/README.md) | 刻印ページ × 8 部位のイコルを一覧表示し、セット単位で付け替え |
+| [Monster Card Changer](src/addons/monster_card_changer/README.md) | モンスターカードのプリセットを 10 個に拡張し、倉庫との出し入れも自動化 |
+| [Relic Change](src/addons/relic_change/README.md) | レリックのシアンジェム付け替えをボタン 1 つで |
+| [Skill Gem Tooltip](src/addons/skill_gem_tooltip/README.md) | スキルジェムに対象スキルのツールチップを併記 |
+
+### 戦闘支援
+
+| アドオン | 概要 |
+| --- | --- |
 | [Battle Ritual](src/addons/battle_ritual/README.md) | レイド入場時に自己バフを優先度順で自動使用（ソロ限定） |
+| [Boss Direction](src/addons/boss_direction/README.md) | ボスが向いている方向を足元の矢印で表示 |
+| [Boss Gauge](src/addons/boss_gauge/README.md) | ボスゲージにスタン値とシールド値を追加 |
+| [Debuff Notice](src/addons/debuff_notice/README.md) | 自分がボスへ与えたデバフを大きく表示 |
+| [Easy Buff](src/addons/easy_buff/README.md) | メシ屋・バフ屋・修理屋での操作を自動化 |
+| [Muteki](src/addons/muteki/README.md) | 切らしたくないバフだけを大きなゲージ／アイコンで表示 |
+| [My Buffs Control](src/addons/my_buffs_control/README.md) | バフ欄を移動可能にして、選んだバフを非表示にする |
+| [Party Marker](src/addons/party_marker/README.md) | パーティーメンバーの頭上にアイコンを表示 |
+| [Quickslot Operate](src/addons/quickslot_operate/README.md) | 女神ポーションをレイドの種族に合わせて自動で差し替え。スロット保存／読込 |
+| [Revival Timer](src/addons/revival_timer/README.md) | 繰り返しカウントダウンするタイマー（PT チャット通知つき） |
+| [Separate Buff Custom](src/addons/separate_buff_custom/README.md) | セパレートバフフレームに好きなバフを追加。スタック数と追従表示 |
+
+### ダンジョン・コンテンツ
+
+| アドオン | 概要 |
+| --- | --- |
 | [Archeology Helper](src/addons/archeology_helper/README.md) | アーキオロジーで調べた位置をミニマップに記録。スタミナ錠の自動使用も |
 | [Dungeon RP Charger](src/addons/dungeon_rp_charger/README.md) | 未知の聖域 3F でレリックポイントを自動補充 |
-| [Acquire Relic Reward](src/addons/acquire_relic_reward/README.md) | 主要都市でレリッククエストの報酬を自動受領 |
 | [Guild Event Warp](src/addons/guild_event_warp/README.md) | 画面右上のボタンからギルドイベントのボスマップへワープ |
+| [Indun List Viewer](src/addons/indun_list_viewer/README.md) | 全キャラのレイド入場回数・掃討回数を一覧表示。掃討バフの期限も警告 |
+| [Indun Panel](src/addons/indun_panel/README.md) | レイド・チャレンジ等の入場を 1 枚のパネルに集約（表示セット 3 つ） |
+| [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
+| [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
 | [Silent Velnice Ranking](src/addons/silent_velnice_ranking/README.md) | ヴェルニケで勝手に開くランキングを抑止（TAB で表示） |
+| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
 
 ### キャラクター・移動
 
 | アドオン | 概要 |
 | --- | --- |
-| [Instant CC](src/addons/instant_cc/README.md) | バラック画面を経由せずキャラクターチェンジ |
-| [Other Character Skill List](src/addons/other_character_skill_list/README.md) | 全キャラの錬成スキル・強化値・GearScore を一覧表示 |
-| [Lets Go Home](src/addons/lets_go_home/README.md) | 登録したホームタウンのホームチャンネルへワープ |
+| [Always Status](src/addons/always_status/README.md) | 選んだステータスを常時表示（10 セット・色と表示名をカスタマイズ可） |
 | [Auto Map Change](src/addons/auto_map_change/README.md) | 高レベルマップへ入るときの確認ダイアログを自動で通す |
 | [Auto Pet Summon](src/addons/auto_pet_summon/README.md) | キャラ毎に最後に連れていたペットを街で自動召喚 |
-| [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
-
-### 画面表示・情報
-
-| アドオン | 概要 |
-| --- | --- |
-| [Always Status](src/addons/always_status/README.md) | 選んだステータスを常時表示（10 セット・色と表示名をカスタマイズ可） |
-| [Muteki](src/addons/muteki/README.md) | 切らしたくないバフだけを大きなゲージ／アイコンで表示 |
-| [My Buffs Control](src/addons/my_buffs_control/README.md) | バフ欄を移動可能にして、選んだバフを非表示にする |
-| [Separate Buff Custom](src/addons/separate_buff_custom/README.md) | セパレートバフフレームに好きなバフを追加。スタック数と追従表示 |
-| [Debuff Notice](src/addons/debuff_notice/README.md) | 自分がボスへ与えたデバフを大きく表示 |
-| [Sub Map](src/addons/sub_map/README.md) | メンバー・ボス・宝箱・未探索エリアを重ねた小さなマップを常時表示 |
-| [Boss Direction](src/addons/boss_direction/README.md) | ボスが向いている方向を足元の矢印で表示 |
-| [Boss Gauge](src/addons/boss_gauge/README.md) | ボスゲージにスタン値とシールド値を追加 |
-| [Party Marker](src/addons/party_marker/README.md) | パーティーメンバーの頭上にアイコンを表示 |
-| [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
-| [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
+| [Character Change Helper](src/addons/cc_helper/README.md) | ボルタエンブレム・カード・髪飾り・エーテルジェムなどをボタン 1 つで倉庫と出し入れして着脱（3 セット） |
+| [Instant CC](src/addons/instant_cc/README.md) | バラック画面を経由せずキャラクターチェンジ |
+| [Job Change Helper](src/addons/job_change_helper/README.md) | 転職前の装備全解除と、脱いだ装備の着け直し |
+| [Lets Go Home](src/addons/lets_go_home/README.md) | 登録したホームタウンのホームチャンネルへワープ |
+| [Other Character Skill List](src/addons/other_character_skill_list/README.md) | 全キャラの錬成スキル・強化値・GearScore を一覧表示 |
 | [Status Point Check](src/addons/status_point_check/README.md) | ステータスポイントがもらえるクエストの達成状況を一覧 |
-| [Skill Gem Tooltip](src/addons/skill_gem_tooltip/README.md) | スキルジェムに対象スキルのツールチップを併記 |
-| [Revival Timer](src/addons/revival_timer/README.md) | 繰り返しカウントダウンするタイマー（PT チャット通知つき） |
-| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
+| [Sub Map](src/addons/sub_map/README.md) | メンバー・ボス・宝箱・未探索エリアを重ねた小さなマップを常時表示 |
 
 ### その他
 
 | アドオン | 概要 |
 | --- | --- |
-| [Sub Slotset](src/addons/sub_slotset/README.md) | 追加のクイックスロットを好きな大きさ・位置に何枚でも作る |
-| [Easy Buff](src/addons/easy_buff/README.md) | メシ屋・バフ屋・修理屋での操作を自動化 |
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
-
+| [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
+| [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
 ---
 
 ## ⚠️ 本家 Nexus Addons とは同時に使えません
@@ -128,6 +201,21 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
+
+* **v2.0.0**
+  * アドオンの **ON/OFF 一覧を作り直しました**。**検索窓**（アドオン名や説明文で絞り込み）と
+    **カテゴリごとの折りたたみ**を追加し、縦スクロールに対応しました。カテゴリの中は
+    アドオン名のアルファベット順に並びます。従来は 2 列 25 行の固定表示で、
+    画面の大部分を覆ううえ 50 個までしか並べられませんでした
+  * ON/OFF ボタンにカーソルを合わせたとき、どのアドオンのものか名前が出るようにしました
+  * 一括操作（全て OFF / バックアップ / 復元）を**ウィンドウの下段へ移しました**。
+    この 3 つがウィンドウの幅を決めてしまい、一覧の右側に大きな余白ができていたためです
+  * アドオンの説明を、右端の `?` ボタンではなく**アドオン名にカーソルを乗せる**と
+    出るようにしました（`?` ボタンは廃止）。読んでいる場所とカーソルを合わせる場所が
+    離れていたためです
+  * Mini Addons: **設定画面で折りたたみや検索をすると、一覧が毎回先頭までスクロールして
+    戻ってしまっていたのを修正しました**。スクロール位置の取得に、クライアントに存在しない
+    関数を使っていたためです
 
 * **v1.7.1**
   * Mini Addons: **「魔法付与をしやすくする」で、目標ランクを指定していても、その
