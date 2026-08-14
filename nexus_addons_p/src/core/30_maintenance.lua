@@ -419,11 +419,16 @@ function _nexus_addons_p_restore_settings_exec()
     _nexus_addons_p_frame_init()
 end
 
--- ===== 一覧フレームのタイトル行に載せるボタン =====
-local MAINTENANCE_BTN_Y = 5
+-- ===== 一覧フレームの下段に載せるボタン =====
+--
+-- 元はタイトル行の右側に並べていたが、**この 3 つがフレームの幅を決めてしまう**のをやめた。
+-- 行の中身に要る幅は 500px 前後なのに、タイトル + ボタン 3 つで 700px 近くを要求するため、
+-- 一覧の右側に 200px ほどの空白が残っていた(実機で確認)。下段へ移すと幅は行の中身で
+-- 決まるようになり、ラベルを削らずに窓が狭くなる。
+-- 併せて、押し間違いの怖い「全て OFF」が、頻繁に押す ON/OFF トグルから離れる。
 local MAINTENANCE_BTN_H = 28
 local MAINTENANCE_BTN_GAP = 6
-local MAINTENANCE_CLOSE_W = 35 -- 右上の閉じるボタンの分だけ空ける
+local MAINTENANCE_RIGHT_PAD = 10 -- 右端に残す余白
 
 local function maintenance_button_defs()
     local ja = (g.lang == "Japanese")
@@ -465,24 +470,26 @@ local function maintenance_button_defs()
     }}
 end
 
--- ボタン列(と閉じるボタン)が占める幅。一覧の幅はアドオン名の長さで決まるので、
--- タイトルとボタンが重なっていないかを呼び出し側が判断できるように公開する。
+-- ボタン列が右詰めで占める幅(右端の余白を含む)。一覧の幅がこれを下回るとボタンが
+-- 左へはみ出すので、呼び出し側が最低幅の判断に使えるよう公開する。
+-- 末尾の GAP は数えない(最後のボタンの右は MAINTENANCE_RIGHT_PAD が受け持つ)。
 function g.maintenance_buttons_width()
-    local total = MAINTENANCE_CLOSE_W
-    for _, btn in ipairs(maintenance_button_defs()) do
-        total = total + btn.width + MAINTENANCE_BTN_GAP
+    local total = MAINTENANCE_RIGHT_PAD
+    for i, btn in ipairs(maintenance_button_defs()) do
+        total = total + btn.width
+        if i > 1 then
+            total = total + MAINTENANCE_BTN_GAP
+        end
     end
     return total
 end
 
--- タイトル行へ右詰めで並べる。frame_width は _nexus_addons_p_frame_init が Resize に
--- 使った値をそのまま受け取る(この時点では GetWidth() でも同じだが、呼び出し側の計算と
--- 食い違わせないため)。
-function g.create_maintenance_buttons(list_frame, frame_width)
+-- 下段へ右詰めで並べる。frame_width / y は _nexus_addons_p_list_build が Resize に
+-- 使った値をそのまま受け取る(GetWidth() でも同じだが、呼び出し側の計算と食い違わせないため)。
+function g.create_maintenance_buttons(list_frame, frame_width, y)
     local x = frame_width - g.maintenance_buttons_width()
     for _, btn in ipairs(maintenance_button_defs()) do
-        local ctrl = list_frame:CreateOrGetControl('button', btn.name, x, MAINTENANCE_BTN_Y, btn.width,
-            MAINTENANCE_BTN_H)
+        local ctrl = list_frame:CreateOrGetControl('button', btn.name, x, y, btn.width, MAINTENANCE_BTN_H)
         AUTO_CAST(ctrl)
         ctrl:SetText(btn.text)
         ctrl:SetTextTooltip(btn.tooltip)

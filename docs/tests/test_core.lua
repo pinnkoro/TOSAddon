@@ -1515,6 +1515,131 @@ for _, rel in ipairs(MINI_EXPECTED) do
 end
 check("各フォルダに README がある", no_readme, nil)
 
+-- ===== 26. 一覧のカテゴリ =====
+-- 各エントリの category は g._nexus_addons_p_sections の見出しを指す。指していないと
+-- そのアドオンは末尾の その他 へ落ちる（_nexus_addons_p_list_build がそう作ってある）。
+-- 実機では「なぜかその他に居る」という形でしか出ず気付けないので、ここで落とす。
+print("[26] 一覧のカテゴリが見出しと対応している")
+local section_names = {}
+local section_order = {}
+for _, section in ipairs(g._nexus_addons_p_sections) do
+    check("見出しに name がある: " .. tostring(section.name), type(section.name), "string")
+    -- 表示言語ごとの文言。1 つでも欠けるとその言語だけ見出しが nil になる
+    -- （list_localized は素の nil を返し、呼び元が section.name で代替する）。
+    for _, lang_key in ipairs({"ja", "kr", "etc"}) do
+        check("  " .. section.name .. " の " .. lang_key, type(section[lang_key]), "string")
+    end
+    section_names[section.name] = true
+    section_order[#section_order + 1] = section.name
+end
+-- その他 は「category を書き忘れたエントリ」の受け皿でもあるので必ず要る。
+check("受け皿の misc がある", section_names["misc"], true)
+check("misc は末尾に置く", section_order[#section_order], "misc")
+
+local no_category, bad_category = nil, nil
+local per_section = {}
+for _, entry in ipairs(g._nexus_addons_p) do
+    if type(entry.category) ~= "string" then
+        no_category = no_category or entry.key
+    elseif not section_names[entry.category] then
+        bad_category = bad_category or (entry.key .. " -> " .. entry.category)
+    else
+        per_section[entry.category] = (per_section[entry.category] or 0) + 1
+    end
+end
+check("category を書き忘れたエントリが無い", no_category, nil)
+check("見出しに無い category を指すエントリが無い", bad_category, nil)
+-- 使われていない見出しは、見出しだけが出て中身が空になる…のではなく
+-- （#items > 0 のときだけ描くので）静かに消える。綴り違いの取り違えを拾うために見る。
+local unused_section = nil
+for _, name in ipairs(section_order) do
+    if not per_section[name] then
+        unused_section = name
+        break
+    end
+end
+check("どの見出しにも 1 件以上ある", unused_section, nil)
+
+-- ===== 27. README のアドオン一覧が registry と一致している =====
+-- 利用者向けの README とゲーム内の一覧で分類が食い違っていたので、registry 側へ揃えた。
+-- 手で並べ直す限り必ずまた離れる（実際に Market Favorite Rebuild が README から
+-- 丸ごと抜けていた）ので、ここで突き合わせる。README を直すか registry を直すかは
+-- そのときの判断だが、**片方だけ変えた状態はここで落ちる**。
+print("[27] README のアドオン一覧が registry と一致する")
+local readme = assert(io.open("nexus_addons_p/README.md", "rb"), "README.md が開けない")
+local readme_text = readme:read("*a")
+readme:close()
+
+-- 「## アドオン一覧」から次の「## 」までを切り出す（使い方側の ### を拾わないため）
+local list_body = readme_text:match("\n## アドオン一覧\n(.-)\n## ")
+check("アドオン一覧の節を切り出せる", list_body ~= nil, true)
+
+local rd_section_order, rd_of = {}, {}
+if list_body then
+    local cur = nil
+    for line in list_body:gmatch("[^\n]+") do
+        local heading = line:match("^### (.+)$")
+        if heading then
+            cur = heading
+            rd_section_order[#rd_section_order + 1] = heading
+        else
+            local key = line:match("^| %[[^%]]+%]%(src/addons/([a-z_]+)/README%.md%)")
+            if key then
+                rd_of[key] = cur
+            end
+        end
+    end
+end
+
+-- 見出しの並びと文言が g._nexus_addons_p_sections と揃っているか
+local ja_of, expected_headings = {}, {}
+for _, section in ipairs(g._nexus_addons_p_sections) do
+    ja_of[section.name] = section.ja
+    expected_headings[#expected_headings + 1] = section.ja
+end
+check("見出しの数が同じ", #rd_section_order, #expected_headings)
+local heading_ng = nil
+for i, want in ipairs(expected_headings) do
+    if rd_section_order[i] ~= want then
+        heading_ng = string.format("%d 番目: README=%s registry=%s", i, tostring(rd_section_order[i]), want)
+        break
+    end
+end
+check("見出しの文言と並びが同じ", heading_ng, nil)
+
+-- 登録済みのアドオンが、自分の category の見出しの下に居るか
+local not_listed, wrong_section = nil, nil
+local listed_keys = {}
+for _, entry in ipairs(g._nexus_addons_p) do
+    listed_keys[entry.key] = true
+    local want = ja_of[entry.category]
+    if not rd_of[entry.key] then
+        not_listed = not_listed or entry.key
+    elseif rd_of[entry.key] ~= want then
+        wrong_section = wrong_section or
+                            string.format("%s: README=%s registry=%s", entry.key, rd_of[entry.key], tostring(want))
+    end
+end
+check("README に載っていない登録が無い", not_listed, nil)
+check("README の節が category と食い違わない", wrong_section, nil)
+
+-- 逆向き。登録していないのに載っているものは、無効と分かる形で その他 に置く。
+-- 増やすときはここへ足すこと（黙って通すと「一覧に在るのに ON にできない」になる）。
+local UNREGISTERED_OK = {
+    ancient_monster_bookshelf = "未完成のため登録をコメントアウトしてある"
+}
+local stray = nil
+for key, section in pairs(rd_of) do
+    if not listed_keys[key] then
+        if not UNREGISTERED_OK[key] then
+            stray = key
+        elseif section ~= ja_of["misc"] then
+            stray = key .. "(未登録なので " .. tostring(ja_of["misc"]) .. " へ置くこと)"
+        end
+    end
+end
+check("未登録のアドオンが紛れていない", stray, nil)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

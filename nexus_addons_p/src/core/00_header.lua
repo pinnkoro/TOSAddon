@@ -1042,6 +1042,33 @@ function g.create_persistent_frame(frame_name)
     return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end
 
+-- スクロールできる groupbox の、今のスクロール位置を返す。
+--
+-- **GetScrollPos ではない。あれはクライアントに無い。**
+-- 素のクライアント(`_client/jp/**`)での使用は GetScrollPos が 0 件、SetScrollPos が 71 件。
+-- 対になっていると思い込みやすく、しかも無い関数を pcall で握ると黙って 0 が返るので、
+-- 「作り直すたびに一覧の先頭へ戻る」という形でしか表に出ない(実際に一度踏んだ)。
+-- 正しくは GetScrollCurPos(素のクライアントも another_warehouse もこちらを使う)。
+--
+-- pcall で包むのは残すが、**黙って 0 を返さない**。使えなかったことを verbose_log へ
+-- 1 回だけ出して、次に同じ症状が出たときログから切り分けられるようにする。
+--
+-- 中身を作り直した後に位置を戻すときは、**先に InvalidateScrollBar() を呼ぶこと**。
+-- 順番が逆だと、作り直す前の範囲で丸められて先頭に貼り付く。
+function g.scroll_cur_pos(gbox)
+    local ok, pos = pcall(function()
+        return gbox:GetScrollCurPos()
+    end)
+    if ok and type(pos) == "number" then
+        return pos
+    end
+    if not g.scroll_api_failed then
+        g.scroll_api_failed = true
+        g.vlog("GetScrollCurPos が使えない(%s)。スクロール位置は引き継げない", tostring(pos))
+    end
+    return 0
+end
+
 -- ESC で閉じる自作フレームの重なり(開いた順)スタック。
 --
 -- 土台が notice_on_pc のフレームはゲーム側の ESC では消えない(上のコメント参照)ので、

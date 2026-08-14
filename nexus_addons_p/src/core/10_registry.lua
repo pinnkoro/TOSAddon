@@ -1,5 +1,47 @@
+-- 一覧のカテゴリ見出し。**並び順がそのまま画面の並び順**になる。
+--
+-- 各エントリの category がここの name のどれかを指す。指していない(綴り違い・書き忘れ)と
+-- そのアドオンは末尾の "misc" へ落ちる。**黙って落ちると気付けない**ので、
+-- docs/tests/test_core.lua の [18] が「全エントリの category がここに在るか」を検査する。
+-- カテゴリを増やすときは、ここへ足してからエントリ側の category を書くこと。
+--
+-- misc は受け皿でもあるので消さないこと(上記の検査を通していても、将来 category を
+-- 書き忘れたエントリが実機で無言のまま消えるより、その他へ出るほうがまだよい)。
+g._nexus_addons_p_sections = {{
+    name = "storage",
+    ja = "倉庫・アイテム",
+    kr = "창고・아이템",
+    etc = "Storage & Items"
+}, {
+    name = "gear",
+    ja = "強化・装備",
+    kr = "강화・장비",
+    etc = "Gear & Enhancement"
+}, {
+    name = "battle",
+    ja = "戦闘支援",
+    kr = "전투 지원",
+    etc = "Combat"
+}, {
+    name = "content",
+    ja = "ダンジョン・コンテンツ",
+    kr = "던전・콘텐츠",
+    etc = "Dungeons & Content"
+}, {
+    name = "char",
+    ja = "キャラクター・移動",
+    kr = "캐릭터・이동",
+    etc = "Character & Travel"
+}, {
+    name = "misc",
+    ja = "その他",
+    kr = "기타",
+    etc = "Other"
+}}
+
 g._nexus_addons_p = {{
     key = "aethergem_manager",
+    category = "gear",
     data = {
         use = 0,
         name = "Aethergem Manager",
@@ -9,6 +51,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "acquire_relic_reward",
+    category = "gear",
     data = {
         use = 0,
         name = "Acquire Relic Reward",
@@ -18,6 +61,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "ancient_auto_set",
+    category = "gear",
     data = {
         use = 0,
         name = "Ancient Auto Set",
@@ -27,6 +71,7 @@ g._nexus_addons_p = {{
     }
 }, --[[{
     key = "ancient_monster_bookshelf",
+    category = "content",
     data = {
         use = 0,
         name = "Ancient Monster Bookshelf",
@@ -36,6 +81,7 @@ g._nexus_addons_p = {{
     }
 },]] {
     key = "another_warehouse",
+    category = "storage",
     data = {
         use = 0,
         name = "Another Warehouse",
@@ -45,6 +91,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "always_status",
+    category = "char",
     data = {
         use = 0,
         name = "Always Status",
@@ -54,6 +101,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "archeology_helper",
+    category = "content",
     data = {
         use = 0,
         name = "Archeology Helper",
@@ -63,6 +111,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "auto_map_change", --
+    category = "char",
     data = {
         use = 0,
         name = "Auto Map Change",
@@ -72,6 +121,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "auto_pet_summon",
+    category = "char",
     data = {
         use = 0,
         name = "Auto Pet Summon",
@@ -81,6 +131,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "auto_repair",
+    category = "storage",
     data = {
         use = 0,
         name = "Auto Repair",
@@ -90,6 +141,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "battle_ritual",
+    category = "battle",
     data = {
         use = 0,
         name = "Battle Ritual",
@@ -99,6 +151,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "boss_direction",
+    category = "battle",
     data = {
         use = 0,
         name = "Boss Direction",
@@ -108,6 +161,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "boss_gauge",
+    category = "battle",
     data = {
         use = 0,
         name = "Boss Gauge",
@@ -117,6 +171,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "bulk_sales",
+    category = "storage",
     data = {
         use = 0,
         name = "Bulk Sales",
@@ -126,6 +181,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "cc_helper",
+    category = "char",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -135,6 +191,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "characters_item_serch",
+    category = "storage",
     data = {
         use = 0,
         name = "Characters Item Serch",
@@ -144,6 +201,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "continue_reinforce",
+    category = "gear",
     data = {
         use = 0,
         name = "Continue Reinforce",
@@ -153,6 +211,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "cupole_manager",
+    category = "gear",
     data = {
         use = 0,
         name = "Cupole Manager",
@@ -162,6 +221,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "debuff_notice",
+    category = "battle",
     data = {
         use = 0,
         name = "Debuff Notice",
@@ -171,6 +231,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "dungeon_rp_charger",
+    category = "content",
     data = {
         use = 0,
         name = "Dungeon RP Charger",
@@ -180,6 +241,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "easy_buff",
+    category = "battle",
     data = {
         use = 0,
         name = "Easy Buff",
@@ -189,6 +251,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "goddess_icor_manager",
+    category = "gear",
     data = {
         use = 0,
         name = "Goddess Icor Manager",
@@ -198,6 +261,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "guild_event_warp",
+    category = "content",
     data = {
         use = 0,
         name = "Guild Event Warp",
@@ -207,6 +271,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "indun_list_viewer",
+    category = "content",
     data = {
         use = 0,
         name = "Indun List Viewer",
@@ -216,6 +281,7 @@ g._nexus_addons_p = {{
     } --
 }, {
     key = "indun_panel",
+    category = "content",
     data = {
         use = 0,
         name = "Indun Panel",
@@ -225,6 +291,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "instant_cc",
+    category = "char",
     data = {
         use = 0,
         name = "Instant CC",
@@ -234,6 +301,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "job_change_helper",
+    category = "char",
     data = {
         use = 0,
         name = "Job Change Helper",
@@ -243,6 +311,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "lets_go_home",
+    category = "char",
     data = {
         use = 0,
         name = "Lets Go Home",
@@ -252,6 +321,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "market_voucher",
+    category = "storage",
     data = {
         use = 0,
         name = "Market Voucher",
@@ -261,6 +331,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "monster_card_changer",
+    category = "gear",
     data = {
         use = 0,
         name = "Monster Card Changer",
@@ -270,6 +341,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "monster_kill_count",
+    category = "content",
     data = {
         use = 0,
         name = "Monster Kill Count",
@@ -279,6 +351,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "muteki",
+    category = "battle",
     data = {
         use = 0,
         name = "Muteki",
@@ -288,6 +361,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "my_buffs_control",
+    category = "battle",
     data = {
         use = 0,
         name = "My Buffs Control",
@@ -297,6 +371,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "no_check",
+    category = "misc",
     data = {
         use = 0,
         name = "No Check",
@@ -306,6 +381,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "other_character_skill_list",
+    category = "char",
     data = {
         use = 0,
         name = "Other Character Skill List",
@@ -315,6 +391,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "party_marker",
+    category = "battle",
     data = {
         use = 0,
         name = "Party Marker",
@@ -324,6 +401,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "pick_item_tracker",
+    category = "storage",
     data = {
         use = 0,
         name = "Pick Item Tracker",
@@ -333,6 +411,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "quickslot_operate",
+    category = "battle",
     data = {
         use = 0,
         name = "Quickslot Operate",
@@ -345,6 +424,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "relic_change",
+    category = "gear",
     data = {
         use = 0,
         name = "Relic Change",
@@ -354,6 +434,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "revival_timer",
+    category = "battle",
     data = {
         use = 0,
         name = "Revival Timer",
@@ -363,6 +444,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "save_quest",
+    category = "content",
     data = {
         use = 0,
         name = "Save Quest",
@@ -372,6 +454,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "separate_buff_custom",
+    category = "battle",
     data = {
         use = 0,
         name = "Separate Buff Custom",
@@ -381,6 +464,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "silent_velnice_ranking",
+    category = "content",
     data = {
         use = 0,
         name = "Silent Velnice Ranking",
@@ -390,6 +474,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "skill_gem_tooltip",
+    category = "gear",
     data = {
         use = 0,
         name = "Skill Gem Tooltip",
@@ -399,6 +484,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "status_point_check",
+    category = "char",
     data = {
         use = 0,
         name = "Status Point Check",
@@ -408,6 +494,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "sub_map",
+    category = "char",
     data = {
         use = 0,
         name = "Sub Map",
@@ -417,6 +504,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "sub_slotset",
+    category = "storage",
     data = {
         use = 0,
         name = "Sub Slotset",
@@ -426,6 +514,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "tavern_of_soul",
+    category = "content",
     data = {
         use = 0,
         name = "Tavern of Soul",
@@ -435,6 +524,7 @@ g._nexus_addons_p = {{
     } --
 }, {
     key = "vakarine_equip",
+    category = "storage",
     data = {
         use = 0,
         name = "Vakarine Equip",
@@ -448,6 +538,7 @@ g._nexus_addons_p = {{
     -- 既存の経路に自動で乗る。同梱版側は大文字の *_ON_INIT を定義していないので、
     -- ここで自分自身を誤検出することはない。
     key = "mini_addons",
+    category = "misc",
     data = {
         use = 0,
         name = "Mini Addons",
@@ -458,6 +549,7 @@ g._nexus_addons_p = {{
 }, {
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
+    category = "storage",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",
