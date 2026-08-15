@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | ソース | [definitions.lua](definitions.lua) / [ui.lua](ui.lua) / [storage.lua](storage.lua) |
-| 設定画面 | ミニマップ左下のボタン（`Mini_addons_SETTING_FRAME_INIT`） |
+| 設定画面 | アドオン一覧の歯車ボタン（`Mini_addons_SETTING_FRAME_INIT`） |
 | 保存先 | `../addons/_nexus_addons_p/<アカウントID>/mini_addons.json` |
 
 ## ファイル
