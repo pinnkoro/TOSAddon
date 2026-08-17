@@ -159,7 +159,6 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
 | [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
 | [Silent Velnice Ranking](src/addons/silent_velnice_ranking/README.md) | ヴェルニケで勝手に開くランキングを抑止（TAB で表示） |
-| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
 
 ### キャラクター・移動
 
@@ -183,6 +182,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
 | [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
 | [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
+| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
 ---
 
 ## ⚠️ 本家 Nexus Addons とは同時に使えません
@@ -219,6 +219,8 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
   * Sub Map: **ボスやモンスターのアイコンが表示されなくなっていたのを修正しました**
     （チャレンジモードのボス位置を含む）。内部のメッセージ配信が、クライアントから
     渡される 5 個目の引数（モンスターの位置情報）を落としていたためです
+  * ON/OFF 一覧で **Tavern of Soul のカテゴリを「ダンジョン・コンテンツ」から「その他」へ
+    移しました**（データベース検索のアドオンなので）
 
 * **v2.0.0**
   * アドオンの **ON/OFF 一覧を作り直しました**。**検索窓**（アドオン名や説明文で絞り込み）と
