@@ -1125,6 +1125,20 @@ do
     g.register_msg("TEST_MSG", "Test_handler_1")
     check("同じハンドラは二重に足さない", #g.msg_handlers["TEST_MSG"], 2)
 
+    -- 受けた引数は数を決め打ちせず、そのまま流す。ゲーム側には 5 個目以降を渡す
+    -- メッセージがある(MON_MINIMAP の info など)。ここを 4 個で決め打ちすると、
+    -- そこを使うハンドラが nil 参照で転び、pcall が握るので黙って機能だけ死ぬ。
+    local got
+    _G["Test_handler_1"] = function(...) got = {n = select("#", ...), ...} end
+    _G["Test_handler_2"] = function() end
+    local info = {handle = 7}
+    _G["_nexus_addons_p_msg_TEST_MSG"]("FRAME", "TEST_MSG", "str", 3, info, "extra")
+    check("引数の数を削らない", got.n, 6)
+    check("5 個目(info)が届く", got[5] == info, true)
+    check("6 個目も届く", got[6], "extra")
+    _G["Test_handler_1"] = function() called[#called + 1] = "1" end
+    _G["Test_handler_2"] = function() called[#called + 1] = "2" end
+
     -- 1 本が転んでも後続へ配る。報告は debug_log.txt にも出すが、毎フレーム来る経路
     -- (FPS_UPDATE)があるので同じ組では 1 回だけ。
     local logged = {}
