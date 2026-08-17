@@ -514,7 +514,7 @@ g._nexus_addons_p = {{
     }
 }, {
     key = "tavern_of_soul",
-    category = "content",
+    category = "misc",
     data = {
         use = 0,
         name = "Tavern of Soul",
