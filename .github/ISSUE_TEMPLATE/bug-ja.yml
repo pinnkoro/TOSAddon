@@ -1,0 +1,64 @@
+name: 🐛 バグ報告（日本語）
+description: アドオンが動かない・表示が崩れる・ゲームが落ちるなどの不具合
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本家 [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) と**同時にインストールしていると動作しません**。
+        両方入っている場合は、どちらか一方を削除してから再度お試しください。
+  - type: input
+    id: addon
+    attributes:
+      label: 対象のアドオン
+      description: 設定画面（メニューボタンを右クリック）に出ている名前で書いてください。分からなければ「不明」で構いません。
+      placeholder: another_warehouse / 倉庫拡張
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 何が起きたか
+      description: 見たままを書いてください。スクリーンショットがあると助かります。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1. 街でアカウント倉庫を開く
+        2. 「別キャラの倉庫」タブを押す
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: アドオンのバージョン
+      description: 設定画面（メニューボタンを右クリック）の見出しに「Nexus Addons P ver X.Y.Z」と出ています。アドオンマネージャーの一覧でも確認できます。
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ
+      description: |
+        `<ToSインストール先>/addons/_nexus_addons_p/` にある `debug_log.txt` と、
+        できれば `verbose_log.txt` の中身を貼ってください。
+        `verbose_log.txt` は設定画面の「詳細なログをシステムに出力する」を ON にして、
+        不具合が起きる操作をもう一度行うと記録されます（クライアント起動ごとに作り直されます）。
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: 環境
+      description: サーバー（JP / IToS など）と、アドオンの導入方法（アドオンマネージャー / 手動）
+      placeholder: JP / アドオンマネージャー
