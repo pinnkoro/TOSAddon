@@ -922,10 +922,12 @@ function Sub_map_MAP_MON_MINIMAP(frame, msg, str, num, info)
     -- 配信役が 5 個目の info を落としていて、ボスのアイコンが出なくなっていた(Issue #92)。
     -- 再発したときに「届いていない」ことがログだけで分かるよう、最初の 1 回だけ残す。
     -- モンスターが視界に入るたび来る経路なので、絞らないと肝心の行が埋もれる。
-    if not g.sub_map_mon_minimap_logged then
-        g.sub_map_mon_minimap_logged = true
+    -- 印は g.vlog の戻り値で立てる。先に立てると詳細ログ OFF の間に印だけ消費され、
+    -- 後から ON にしても再起動するまで二度と出ない。
+    if not g.sub_map_mon_minimap_logged and
         g.vlog("sub_map: MON_MINIMAP info=%s handle=%s type=%s", tostring(info), tostring(info and info.handle),
-            tostring(info and info.type))
+            tostring(info and info.type)) then
+        g.sub_map_mon_minimap_logged = true
     end
     local handle = info.handle
     g.sub_map_handles = g.sub_map_handles or {}
