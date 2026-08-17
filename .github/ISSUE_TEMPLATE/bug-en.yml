@@ -52,7 +52,7 @@ body:
       label: Logs
       description: |
         Paste `debug_log.txt` from `<ToS install dir>/addons/_nexus_addons_p/`, and `verbose_log.txt` if you can.
-        `verbose_log.txt` is written when you turn on "詳細なログをシステムに出力する" (verbose logging)
+        `verbose_log.txt` is written when you turn on "Output verbose logs to system messages"
         in the settings window and then reproduce the problem once more. It is recreated on every client start.
       render: text
   - type: input
