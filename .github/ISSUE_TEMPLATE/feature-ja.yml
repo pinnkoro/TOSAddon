@@ -1,0 +1,28 @@
+name: ✨ 機能の要望（日本語）
+description: 追加してほしい機能・使いにくい点の改善案
+labels: [enhancement]
+body:
+  - type: input
+    id: addon
+    attributes:
+      label: 対象のアドオン
+      description: 既存アドオンへの要望ならその名前を。新しいアドオンの提案なら「新規」と書いてください。
+      placeholder: mini_addons / 新規
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: 「何をしたいのに、今はどうなって困るか」を書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: どうなってほしいか
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 代替案・補足
+      description: 他のアドオンでの実現方法など、参考があれば

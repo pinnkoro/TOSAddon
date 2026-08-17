@@ -1,0 +1,63 @@
+name: 🐛 Bug report (English)
+description: An addon does not work, the UI is broken, or the game crashes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This fork **does not run while the original [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) is also installed**.
+        If you have both, remove one of them and try again.
+  - type: input
+    id: addon
+    attributes:
+      label: Which addon
+      description: Use the name shown in the settings window (right-click the menu button). "Not sure" is fine.
+      placeholder: another_warehouse
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Describe what you saw. A screenshot helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the account warehouse in town
+        2. Click the tab for another character's warehouse
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Addon version
+      description: The settings window (right-click the menu button) shows "Nexus Addons P ver X.Y.Z" in its header. The Addon Manager list shows it too.
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Paste `debug_log.txt` from `<ToS install dir>/addons/_nexus_addons_p/`, and `verbose_log.txt` if you can.
+        `verbose_log.txt` is written when you turn on "詳細なログをシステムに出力する" (verbose logging)
+        in the settings window and then reproduce the problem once more. It is recreated on every client start.
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Server (JP / IToS / …) and how you installed the addon (Addon Manager / manually)
+      placeholder: IToS / Addon Manager

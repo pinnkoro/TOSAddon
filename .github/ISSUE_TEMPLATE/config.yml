@@ -1,0 +1,6 @@
+# テンプレートに当てはまらない話題もあるので、白紙 issue は残しておく。
+blank_issues_enabled: true
+contact_links:
+  - name: 更新履歴 / Changelog
+    url: https://github.com/pinnkoro/TOSAddon/blob/main/nexus_addons_p/README.md
+    about: 報告の前に、既に修正済みでないか確認できます / Check whether it is already fixed
