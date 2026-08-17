@@ -31,10 +31,15 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | **フローティングボタン**（既定は画面右上。ドラッグで移動できます） | メニューを開く | **Addons Menu の設定**を開く |
 | **システムメニューボタン**（アイコン列の「system」。ESC で開くシステムメニューと同じもの。既定はコレクション（F11）の右隣ですが、UI の配置によって画面上部にも下部にもあります） | ゲーム標準のシステムメニュー（変更なし） | メニューを開く |
 
+![画面右上（ミニマップの左）の既定位置にあるフローティングボタン。カーソルを乗せると「クリック: 一覧を開く / 右クリック: 設定」のツールチップが出る](images/01-menu-button.png)
+
 * 開いたメニューの中の **「Nexus Addons P」** を押すとアドオン一覧ウィンドウが開きます。
   もう一度押すと閉じます。
 * システムメニュー側から開いたメニューには、末尾に **「Addons Menu の設定」** が並びます
   （こちらは右クリックが「メニューを開く」に使われているため、項目として用意しています）。
+
+  ![アイコン列右端のシステムメニューボタン（≡）を右クリックして上に開いたメニュー。末尾に歯車の「Addons Menu の設定」が並ぶ](images/02-sysmenu-right-click.png)
+
 * 右上のフローティングボタンは、下記の設定で**消してシステムメニューの右クリックだけにする**
   こともできます。
 * 開いたウィンドウは **ESC でも閉じられます**（× ボタンと同じ後始末を行います）。
@@ -45,11 +50,15 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 「キャラクター・移動」「その他」の**カテゴリごと**に並びます。各行に、アドオン名と
 次の 3 つが並びます。
 
+![アドオン一覧ウィンドウ。カテゴリごとにアドオン名・ON/OFF トグル・⚙ が並び、下段に一括操作のボタンがある](images/03-addon-list.png)
+
 | 表示 | 内容 |
 | --- | --- |
 | **アドオン名** | カーソルを乗せると、そのアドオンの説明がツールチップで出ます |
 | **ON / OFF トグル** | そのアドオンの有効・無効を切り替えます。切り替えは即座に反映され、保存されます |
 | **⚙（設定フレーム呼出し）** | 設定画面を持つアドオンだけに表示されます。押すとそのアドオンの設定画面が開きます |
+
+![アドオン名にカーソルを乗せて説明のツールチップが出たところ](images/05-addon-tooltip.png)
 
 目当てのアドオンは、次の 2 つで探せます。
 
@@ -66,10 +75,14 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | **バックアップ** | 現在の設定を `../addons/_nexus_addons_p/backup/<アカウントID>/` へ退避します。保存先は 1 つだけで、既にあるときは上書きの確認が出ます。ツールチップに最終バックアップ日時が出ます |
 | **復元** | バックアップから設定を書き戻します（確認あり）。**上書きであって巻き戻しではない**ため、バックアップ後に増えたファイルは残ります。すべて反映するにはゲームの再起動が必要です |
 
+![バックアップボタンのツールチップに最終バックアップ日時が出たところ](images/06-backup-tooltip.png)
+
 ### 3. Addons Menu の設定
 
 右上のフローティングボタンを**右クリック**（またはシステムメニュー側のメニューの
 「Addons Menu の設定」）で開きます。
+
+![Addons Menu の設定画面。デフォルトに戻す・フレーム固定・上開き・詳細なログ・システムメニューのみ・レイヤー設定が並ぶ](images/04-addons-menu-settings.png)
 
 | 項目 | 内容 |
 | --- | --- |
@@ -146,7 +159,6 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
 | [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
 | [Silent Velnice Ranking](src/addons/silent_velnice_ranking/README.md) | ヴェルニケで勝手に開くランキングを抑止（TAB で表示） |
-| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
 
 ### キャラクター・移動
 
@@ -170,6 +182,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
 | [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
 | [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
+| [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
 ---
 
 ## ⚠️ 本家 Nexus Addons とは同時に使えません
@@ -201,6 +214,13 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
+
+* **v2.0.1**
+  * Sub Map: **ボスやモンスターのアイコンが表示されなくなっていたのを修正しました**
+    （チャレンジモードのボス位置を含む）。内部のメッセージ配信が、クライアントから
+    渡される 5 個目の引数（モンスターの位置情報）を落としていたためです
+  * ON/OFF 一覧で **Tavern of Soul のカテゴリを「ダンジョン・コンテンツ」から「その他」へ
+    移しました**（データベース検索のアドオンなので）
 
 * **v2.0.0**
   * アドオンの **ON/OFF 一覧を作り直しました**。**検索窓**（アドオン名や説明文で絞り込み）と

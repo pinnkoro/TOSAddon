@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.0.0"
+local ver = "2.0.1"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -348,14 +348,19 @@ function g.register_msg(msg, func_name)
     if not list then
         list = {}
         g.msg_handlers[msg] = list
-        _G[dispatch_name] = function(frame, recv_msg, str, num)
+        -- 受けた引数は数を決め打ちせず、そのまま流す。ゲーム側には 5 個目以降を渡す
+        -- メッセージがある(MON_MINIMAP は 5 個目に info を渡し、素の
+        -- MAP_MON_MINIMAP(frame, msg, argStr, argNum, info) が info.handle / info.x を使う)。
+        -- 4 個で決め打ちすると、そこを使うハンドラが nil 参照で転び、下の pcall が握るので
+        -- 「静かに機能だけ死ぬ」形になる(sub_map のボス表示がこれで出なくなった)。
+        _G[dispatch_name] = function(...)
             -- 実行中に register_msg が呼ばれても壊れないよう、その都度引き直す。
             for _, name in ipairs(g.msg_handlers[msg] or {}) do
                 local func = _G[name]
                 if type(func) == "function" then
                     -- 1 つが転んでも後続へ配り続ける。潰し合いを直すのが目的なので、
                     -- ここで巻き添えにしては元も子もない。
-                    local ok, err = pcall(func, frame, recv_msg, str, num)
+                    local ok, err = pcall(func, ...)
                     if not ok then
                         -- 報告は on_init の safe_call と同じ 3 経路。vlog だけだと既定 OFF の
                         -- 利用者には無音で、不具合報告用の debug_log.txt にも残らない。
