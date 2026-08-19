@@ -566,6 +566,18 @@ function Characters_item_serch_item_search(my_frame, ctrl, str, num)
     local search_text = search_edit:GetText()
     if search_text == "" then
         Characters_item_serch_frame_init(nil, nil, g.login_name, 0)
+        -- frame_init は RemoveAllChild で検索欄ごと作り直すので、打鍵で空へ戻したときは
+        -- 入力位置が外れて次の 1 文字がどこにも入らない。作り直した側へ戻しておく。
+        -- (窓を開いた直後の Focus() は ESC の 1 回目を食うので禁じているが、ここは
+        --  既に開いていて利用者が入力中の窓 = 元から入力位置がある状態を保つだけ)
+        local new_frame = ui.GetFrame(addon_name_lower .. "characters_item_serch")
+        if new_frame then
+            local new_edit = GET_CHILD(new_frame, "search_edit")
+            if new_edit then
+                AUTO_CAST(new_edit)
+                new_edit:Focus()
+            end
+        end
         return
     end
     local gb = GET_CHILD(characters_item_serch, "gb")
@@ -691,6 +703,7 @@ function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
     search_edit:SetEventScript(ui.ENTERKEY, "Characters_item_serch_item_search")
+    g.setup_incremental_search(search_edit, "Characters_item_serch_item_search")
     local search_btn = search_edit:CreateOrGetControl("button", "search_btn", 0, 0, 60, 38)
     AUTO_CAST(search_btn)
     search_btn:SetImage("inven_s")

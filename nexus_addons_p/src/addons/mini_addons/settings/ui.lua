@@ -435,6 +435,7 @@ function Mini_addons_SETTING_FRAME_INIT(frame_arg, ctrl_arg, str_arg, num_arg)
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
     search_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_setting_search")
+    core_g.setup_incremental_search(search_edit, "Mini_addons_setting_search")
     search_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}設定名や説明で絞り込み(空で全件)" or g.lang == "kr" and
                                    "{ol}설정 이름으로 검색(비우면 전체)" or
                                    "{ol}Filter settings by text (empty shows all)")

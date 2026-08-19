@@ -175,6 +175,114 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   1 箇所に集約してある。**アドオン側で `ESCAPE_PRESSED` を個別に購読しないこと**
   （各自が自分のフレームを閉じると、1 回の ESC で開いている自作ウィンドウが全部消える）。
 
+## 検索欄は 2 つの共通部品のどちらかを使う
+
+**検索欄を作ったら、必ず次のどちらかを呼ぶこと**（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）。
+`ui.ENTERKEY` の割り当ての直後に置く。どちらを使っても、
+**入力があるときだけ虫眼鏡ボタンの左隣に「×」が出る**（登録すれば自動で付くので、
+アドオン側でボタンを作らないこと）。ENTERKEY と虫眼鏡ボタンはどちらの場合も残す。
+
+| | `g.setup_incremental_search` | `g.setup_enter_search` |
+| --- | --- | --- |
+| 検索するきっかけ | **打鍵のたび**（+ Enter / 虫眼鏡） | **Enter / 虫眼鏡だけ** |
+| 「×」を押したとき | 検索関数を**空文字で呼ぶ**（= 全件へ戻す） | 渡した**初期化関数**を呼ぶ（= 検索前の姿へ畳む） |
+| 使う場面 | **既に手元にある一覧を絞る**検索 | **全件を走査して当たったぶんだけ作る**検索 |
+
+### 選び方
+
+判断の基準はひとつだけ。**空文字で検索関数を呼んだときに何が起きるか**を見る。
+
+* **空文字 = 元の一覧が出るだけ**なら `g.setup_incremental_search`。
+  絞り込みなので 1 文字ごとに走らせても作る量は増えず、消せば戻る。
+* **空文字 = 全件に当たってしまう**なら `g.setup_enter_search`。
+  `string.find(name, "", 1, true)` は必ず真なので、`GetClassList` の全件を回して
+  一致したぶんだけコントロールを作る作りだと、**空でも 1 文字でも数千〜数万件を組み立てる**。
+  打鍵検索も「×で空文字検索」も成立しないので、こちらを使う。
+  * 実例: `tavern_of_soul` の `Tavern_of_soul_get_data`。件数の上限も無い。
+
+### 使い方
+
+```lua
+-- (1) 一覧を絞る検索
+search_edit:SetEventScript(ui.ENTERKEY, "Xxx_search")
+search_edit:SetEventScriptArgNumber(ui.ENTERKEY, index)   -- 無ければ省略
+g.setup_incremental_search(search_edit, "Xxx_search", index)
+--   第 4 引数で打鍵から検索までの秒数を伸ばせる（既定 0.3 秒。`another_warehouse` は 0.5 秒）
+
+-- (2) 全件を走査する検索
+search_edit:SetEventScript(ui.ENTERKEY, "Xxx_search")
+g.setup_enter_search(search_edit, "Xxx_clear")
+--   Xxx_clear は **空文字で検索し直す処理ではなく**、検索前の姿へ戻す処理にすること
+--   （入力を消す・結果を捨てる・窓の大きさを戻す）。呼び出しの並びは検索関数と同じ
+```
+
+### 共通の注意
+
+* **検索欄の文字をコードから変えたら `g.search_clear_sync(edit)` を呼ぶこと。** 理由は 2 つある。
+  1. 「×」の出し入れは打鍵でしか起きないので、呼ばないと空なのに「×」が残る／文字があるのに出ない
+  2. 「前回この語で検索した」の記録を捨てる。打鍵検索は同じ語なら検索を飛ばすので、捨てないと
+     **コードで空へ戻した後に利用者が同じ語を打ち直しても検索が走らない**
+  タブ切り替えで空へ戻す `another_warehouse`、組み立て直しで入れ直す `separate_buff_custom`、
+  一覧を作り直す `_nexus_addons_p_frame_init` がこれに当たる。
+* **今と同じ文字列を `SetText` で入れ直さないこと。** 同じ文字列でも入力位置が戻るので、
+  打っている最中にカーソルが飛び、日本語変換も壊れる。Lua では `""` も真なので
+  `if ctrl_text then SetText(ctrl_text) end` は常に成立する点に注意
+  （`separate_buff_custom` が実際にこの形で、打鍵のたびにカーソルが飛んでいた）。
+* **一覧を畳む／初期化する処理に窓の位置戻しを混ぜないこと。** 「×」からも呼ばれるので、
+  利用者が動かした窓が押すたびに初期位置へ飛ぶ（`tavern_of_soul` で実際にそうなっていた）。
+* **「×」から `Focus()` を戻さないこと。** 入力欄にキーボードフォーカスがあると ESC の
+  1 回目が「入力欄から抜ける」に使われ、窓が閉じなくなる（下記 ESC の節と同じ理由）。
+* **検索語は `ctrl:GetText()` ではなく検索欄を名前で引いて読むこと。** 同じ関数を虫眼鏡ボタンにも
+  割り当てているので、`ctrl` がボタンのときは空文字を検索語にしてしまう
+  （`another_warehouse` が実際にこの形で「押すと検索が解除される」不具合になっていた）。
+* **一覧の作り直しで検索欄そのものを壊さないこと。** 検索欄は `if not frame` の中で 1 回だけ作り、
+  検索のたびに作り直すのは中身の groupbox だけにする。検索欄ごと作り直すと、打鍵の途中で
+  入力位置と文字が消えて打ち直しになる。やむを得ず作り直す経路（`characters_item_serch` は
+  空に戻したとき `frame_init` を通る）では、作り直した検索欄へ `Focus()` を戻すこと。
+
+### 素のクライアントはどうなっているか（調査済み・繰り返さないこと）
+
+`_client/jp/addon.ipf/**/*.xml` の `<edit>` を全部数えた結果。**素は Enter 方式が多数派**で、
+打鍵のたびに検索するのは一部だけ。「素がそうだから」を理由に一方へ寄せないこと。
+
+* **打鍵のたびに検索（`typingscp` あり）… 9 個** — inventory / item_cabinet の `ItemSearch`、
+  worldmap2_mainmap・worldmap2_submap の `search_edit`、guildinfo の `memberSearch`、
+  housing_shop、bgmplayer、party_search_board、colony_tax_distribute
+* **Enter だけ … 32 個** — adventure_book（8 個）/ quest / collection / friend / tpitem（5 個）/
+  cheatlist / worldmap（旧）/ guild_dress_room / halloffame / status の名声検索 など
+
+**素には「検索欄をクリアするボタン」が無い。**「×」はこちらで足したもので、素に倣ったものではない
+（一般的な検索窓の作法に寄せている）。`market_reset*_btn` というリセット用のアイコンは在るが、
+使われているのは一覧の再取得と `inventoryoption` のフィルタ条件のリセットで、検索文字列のクリアではない。
+
+**虫眼鏡ボタンの意味は場所による。**
+
+* inventory では、ボタン・Enter・打鍵が**同じ `SEARCH_ITEM_INVENTORY` を呼ぶ**。中で数えている
+  `searchEnterCount`（同じ語で押した回数）は**クライアント全体のどこからも読まれていない**ので、
+  現行では死んだコード＝ボタンは打鍵と同じことをするだけ。
+* worldmap2 では**別物**。打鍵の `WORLDMAP2_SEARCH_UPDATE` は候補一覧を出すだけ、
+  Enter の `WORLDMAP2_SEARCH` は最初に一致したマップへ実際に飛ぶ（3 文字以下は無視）。
+  「絞り込み」と「決定」で役割が分かれている作りが要るときは、こちらを参考にする。
+
+実物は次で読める。**同じ調査を繰り返さないこと。**
+
+```
+git show upstream/main:_client/jp/addon.ipf/inventory/inventory.xml     # typingscp="SEARCH_ITEM_INVENTORY_KEY"
+git show upstream/main:_client/jp/addon.ipf/inventory/inventory.lua     # CancelReserveScript / ReserveScript(0.3)
+git show upstream/main:_client/jp/ui.ipf/uiscp/worldmap2_uiscp_search.lua
+```
+
+### 実装側のメモ
+
+* グローバルの `ReserveScript(式文字列, 秒)` には**取り消しが無い**（素は `frame:CancelReserveScript`
+  を使うが、フレーム側の予約は「フレームごとに関数名 1 つ」なので、同じフレームに検索欄が
+  複数ある作り（`battle_ritual`）だと打ち消し合う）。そのため検索欄ごとに世代番号を持ち、
+  最後の打鍵の分だけ実行して残りは捨てている。
+* 打鍵から実行までの間に × ボタンで窓を閉じられることがあるので、**検索欄の参照を持ち回さず**
+  フレーム名とコントロール名から引き直す。
+* 「×」の位置決めは**作成時ではなく最初に表示するとき**に行う。虫眼鏡ボタン（`search_btn`）は
+  どのアドオンでも検索欄より後に作られ、登録時点では幅を読めないため。
+
 ## CMD(コンソール窓)をなるべく出さない
 
 `os.execute` は **GUI プロセスから呼ぶと必ず cmd.exe のコンソール窓を作る**。ゲーム画面が

@@ -319,6 +319,8 @@ function Another_warehouse_OPEN_DLG_ACCOUNTWAREHOUSE()
     local margin = search_edit:GetMargin()
     search_edit:SetMargin(margin.left + 115, margin.top + 20, margin.right, margin.bottom)
     search_edit:SetEventScript(ui.ENTERKEY, "Another_warehouse_search")
+    -- 倉庫の一覧は作り直しが重いので、素の 0.3 秒より少し伸ばす
+    g.setup_incremental_search(search_edit, "Another_warehouse_search", nil, 0.5)
     local search_btn = search_edit:CreateOrGetControl("button", "search_btn", 0, 0, 60, 38)
     AUTO_CAST(search_btn)
     search_btn:SetImage("inven_s")
@@ -525,10 +527,16 @@ end
 
 function Another_warehouse_tab_change(awh, ctrl, search_text, index)
     local tab_index = awh:GetUserIValue("TAB_INDEX")
-    if tab_index ~= index then
+    -- タブを切り替えたときは検索欄を空へ戻す。ただし **検索から来たときは戻さない**。
+    -- ここへは Another_warehouse_search からも来る(タブ 1 固定で呼ぶ)ので、無条件に
+    -- 空にすると、打鍵のたびに検索し直すインクリメンタル検索で入力が 1 文字目で消える。
+    -- タブのクリック経由では search_text は常に空(SetEventScriptArgString を付けていない)、
+    -- 検索経由では入力文字列が入るので、これで両者を見分けられる。
+    if tab_index ~= index and (search_text == nil or search_text == "") then
         local accountwarehouse = ui.GetFrame("accountwarehouse")
         local search_edit = GET_CHILD_RECURSIVELY(accountwarehouse, "awh_search_edit")
         search_edit:SetText("")
+        g.search_clear_sync(search_edit)
     end
     local tab_tbl = {"inventory_main", "inventory_equip", "inventory_supplies", "inventory_recipe", "inventory_card",
                      "inventory_material", "inventory_gem", "inventory_premium", "inventory_housing", "alchemy_item_tab"}
@@ -1047,7 +1055,16 @@ function Another_warehouse_search(frame, ctrl, str, num)
     local awh = ui.GetFrame(addon_name_lower .. "awh")
     local gb = GET_CHILD(awh, "gb")
     AUTO_CAST(gb)
-    local search_text = ctrl:GetText()
+    -- **ctrl:GetText() で読まないこと。** ここへは検索欄の Enter だけでなく虫眼鏡ボタンの
+    -- クリックからも来る(どちらも同じ関数を割り当てている)ので、ctrl がボタンのときは
+    -- ボタンの文字列(画像だけなので空)を検索語にしてしまい、押すたびに検索が解除される。
+    local accountwarehouse = ui.GetFrame("accountwarehouse")
+    local search_edit = GET_CHILD_RECURSIVELY(accountwarehouse, "awh_search_edit")
+    if not search_edit then
+        return
+    end
+    AUTO_CAST(search_edit)
+    local search_text = search_edit:GetText()
     local tab = GET_CHILD(awh, "tab" .. "inventory_main")
     Another_warehouse_tab_change(awh, tab, search_text, 1)
 end
