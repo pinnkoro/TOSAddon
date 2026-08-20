@@ -710,6 +710,23 @@ local function addons_menu_setting_build_shortcut(body, w, h)
         icon_btn:SetEventScriptArgString(ui.RBUTTONUP, entry.shortcut_key)
         y = y + row_h
     end
+    -- 控えておいたスクロール位置へ戻す。**先に InvalidateScrollBar を呼ぶこと。**
+    -- 順番が逆だと、作り直す前(中身が空だったとき)の範囲で丸められて先頭に貼り付く
+    -- (アドオン一覧の組み立てと同じ理由。core/20_lifecycle.lua のコメント参照)。
+    local prev_scroll = g.addons_menu_shortcut_scroll or 0
+    local scroll_max = y - gb:GetHeight()
+    if scroll_max < 0 then
+        scroll_max = 0
+    end
+    if prev_scroll > scroll_max then
+        prev_scroll = scroll_max
+    end
+    pcall(function()
+        gb:InvalidateScrollBar()
+    end)
+    pcall(function()
+        gb:SetScrollPos(prev_scroll)
+    end)
     if #rows == 0 then
         local empty = gb:CreateOrGetControl("richtext", "sc_empty", 12, 10, 10, 20)
         AUTO_CAST(empty)
@@ -719,9 +736,6 @@ local function addons_menu_setting_build_shortcut(body, w, h)
                           addons_menu_ml("{ol}{#FFA500}出せる項目がありません",
                 "{ol}{#FFA500}Nothing can be added yet"))
     end
-    pcall(function()
-        gb:InvalidateScrollBar()
-    end)
 end
 
 -- タブとその中身を作る。**開き直しでもタブ切り替えでもここを通る**ので、
@@ -749,6 +763,13 @@ local function addons_menu_setting_build(setting)
     AUTO_CAST(body)
     body:SetSkinName("None")
     body:EnableScrollBar(0)
+    -- **中身を壊す前にスクロール位置を控える。** ここを飛ばすと、☆を押して組み立て直した
+    -- 瞬間に一覧の先頭へ戻る(下のほうの行を触れない。実機で指摘)。
+    -- 控えるのは body:RemoveAllChild() より前でなければならない(壊した後の枠は必ず 0 を返す)。
+    local sc_gb = GET_CHILD_RECURSIVELY(setting, "sc_gb")
+    if sc_gb then
+        g.addons_menu_shortcut_scroll = g.scroll_cur_pos(sc_gb)
+    end
     body:RemoveAllChild()
     body:Resize(w, h - ADDONS_MENU_SETTING_TAB_H)
     if tab == "layout" then
