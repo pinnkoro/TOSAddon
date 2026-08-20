@@ -385,8 +385,8 @@ local ADDONS_MENU_SETTING_TABS = {{
 }}
 -- タブごとの窓の大きさ。**中身(行数)を足したらここも直すこと。**
 local ADDONS_MENU_SETTING_SIZE = {
-    common = {460, 300},
-    layout = {430, 230},
+    common = {460, 330},
+    layout = {460, 240},
     shortcut = {470, 430}
 }
 local ADDONS_MENU_SETTING_TAB_H = 40
@@ -1042,11 +1042,11 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     setting:SetLayerLevel(999)
     setting:EnableHitTest(1)
     setting:EnableMove(1)
-    -- 呼び元の右隣に出すが、画面からはみ出す位置には置かない。
-    -- 画面右端から開いた場合(システムメニュー側の一覧は x=1830 付近)、素直に +200 すると
-    -- 2000 超えの画面外に出て「押しても何も出ない」ように見える(実機で発生)。
-    -- 画面幅は addons_menu_create_frame と同じく map フレームから取り、
-    -- 取れないときだけ 1920 とみなす。
+    -- **画面の中央に出す。** 以前は呼び元(右上のボタン / システムメニューの一覧)の
+    -- 右隣に出していたが、導線が画面の端に居るぶん窓も端へ寄り、はみ出しの手当てが要った。
+    -- タブで大きさが変わる窓でもあるので、中央固定のほうが位置が動かず落ち着く。
+    -- 画面の大きさは addons_menu_create_frame と同じく map フレームから取り、
+    -- 取れないときだけ 1920x1080 とみなす。
     -- 可視かどうかは見ないこと。"map" は全画面のワールドマップで普段は閉じており、
     -- IsVisible() == 1 で絞ると実質いつも 1920x1080 の決め打ちに落ちて、
     -- 下のはみ出し防止が 1920x1080 以外のクライアントで一度も効かなくなる。
@@ -1054,24 +1054,16 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     local map_ui = ui.GetFrame("map")
     local screen_w = (map_ui and map_ui:GetWidth()) or 1920
     local screen_h = (map_ui and map_ui:GetHeight()) or 1080
-    local pos_x = frame:GetX() + 200
-    if pos_x + setting_w > screen_w then
-        -- 右に置けないなら左へ回す。それでも収まらなければ画面内へ寄せる。
-        pos_x = frame:GetX() - setting_w - 10
-    end
+    local pos_x = math.floor((screen_w - setting_w) / 2)
+    local pos_y = math.floor((screen_h - setting_h) / 2)
     if pos_x < 0 then
         pos_x = 0
-    end
-    local pos_y = frame:GetY()
-    if pos_y + setting_h > screen_h then
-        pos_y = screen_h - setting_h
     end
     if pos_y < 0 then
         pos_y = 0
     end
     setting:SetPos(pos_x, pos_y)
-    g.vlog("addons_menu: 設定画面の位置 %d,%d (呼び元 %d,%d 画面 %dx%d)", pos_x, pos_y, frame:GetX(), frame:GetY(),
-        screen_w, screen_h)
+    g.vlog("addons_menu: 設定画面の位置 %d,%d (中央 / 画面 %dx%d)", pos_x, pos_y, screen_w, screen_h)
     setting:ShowWindow(1)
     addons_menu_setting_build(setting)
 end
@@ -1123,9 +1115,9 @@ end
 -- ESC で閉じる対象なので、**利用者が「開いたウィンドウを閉じよう」と押した ESC が
 -- 先に一覧へ使われ、目的のウィンドウは 2 回目でやっと閉じる**ように見える。
 --
--- **順番を逆にしないこと。** 呼び元のフレーム(= 一覧)の位置を見て自分の位置を決める
--- 項目がある(addons_menu_setting_frame は frame:GetX() を読む)ので、先に畳むと
--- 破棄済みのフレームを触ることになる。
+-- **順番を逆にしないこと。** 呼び元のフレーム(= 一覧)を見る項目があると、先に畳むと
+-- 破棄済みのフレームを触ることになる。こちらの設定画面は中央固定にしたので
+-- 呼び元を見なくなったが、相乗り側の項目が何を見ているかはこちらでは分からない。
 --
 -- 引数は受け取ったものをそのまま渡す。相乗り側(_G["norisan"]["MENU"])の項目も
 -- イベントスクリプトとして (frame, ctrl, str, num) で呼ばれる前提のため。

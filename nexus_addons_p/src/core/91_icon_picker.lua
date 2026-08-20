@@ -3,13 +3,12 @@
 -- **クライアントにある UI 画像の一覧は Lua から列挙できない**(画像名は ui.ipf の xml に
 -- 定義されていて、実行時に舐める手段が無い)。そのため選び方をタブで 3 つ用意する。
 --
---   定型     … こちらで用意した候補。**このリポジトリのどこかで実際に使っている名前**だけを
---              並べてある。実在しない名前を書いてもエラーにはならず空白になるだけなので、
---              候補を足すときは必ず使用実績のある名前にすること
---   スキル   … GetClassList("Skill") の Icon から選ぶ。数千種類あるので事実上何でも選べる。
---              **全件走査なので打鍵検索にはしない**(CLAUDE.md の検索欄の節。空文字で
+--   定型     … よく使う候補を並べたもの(素のクライアントの sysmenu_* と *_button_normal 全部 + 手で足した分)
+--   検索     … 「UI アイコン」と「スキルアイコン」の 2 セクション。前者は同梱した名前の表
+--              (core/92_icon_names.lua)を画像名で、後者は GetClassList("Skill") をスキル名で引く。
+--              **どちらも全件走査なので打鍵検索にはしない**(CLAUDE.md の検索欄の節。空文字で
 --              全件に当たる検索は g.setup_enter_search を使う)
---   直接入力 … 画像名を直接打つ。実在しない名前は空白になるだけなので、プレビューで
+--   直接入力 … 表に無い画像名を直接打つ。実在しない名前は空白になるだけなので、プレビューで
 --              確かめられるようにしてある
 --
 -- 選んだ結果は g.menu_shortcut_set(key, "icon", name) へ書く。反映は
@@ -23,31 +22,18 @@ local ICON_PICKER_TABS = {{
     ja = "定型",
     etc = "Presets"
 }, {
-    key = "skill",
-    ja = "スキル",
-    etc = "Skills"
+    key = "search",
+    ja = "検索",
+    etc = "Search"
 }, {
     key = "manual",
     ja = "直接入力",
     etc = "By name"
 }}
 
--- 定型タブの候補。**実在を確かめてある名前だけ**を並べること(冒頭のコメント参照)。
-local ICON_PICKER_PRESETS = {"sysmenu_sys", "sysmenu_inv", "sysmenu_skill", "sysmenu_coll", "sysmenu_jal",
-                             "config_button_normal", "calendar_button_normal", "barrack_button_normal",
-                             "market_shortcut_btn02", "compen_btn", "friend_party", "btn_partyshare", "chat_color",
-                             "questmap", "questinfo_return", "quest_detail_pic2", "indun_season_tap",
-                             "worldmap2_token_gold", "inven_s", "inven_lock2", "icon_item_silver",
-                             "icon_item_ancient_card", "icon_item_box", "icon_fullscreen_menu_letica",
-                             "icon_fullscreen_menu_equipment_processing", "equipment_info_btn_mark2", "monsterbtn_image",
-                             "monster_card_starmark", "mon_legendstar", "star_mark", "question_mark", "unique_card",
-                             "legend_card", "rare_card", "normal_card", "goddess_shop_btn", "goddess2_shop_btn",
-                             "goddess3_shop_btn", "goddess4_shop_btn", "goddess5_shop_btn", "pvpmine_shop_btn_total",
-                             "alch_gemlos_arrow"}
-
--- スキルタブで一度に作るアイコンの上限。**上限を黙って切らないこと**なので、
+-- 検索タブで 1 セクションに作るアイコンの上限。**上限を黙って切らないこと**なので、
 -- 打ち切ったときは画面にもその旨を出す。
-local ICON_PICKER_SKILL_LIMIT = 200
+local ICON_PICKER_SECTION_LIMIT = 200
 
 local ICON_PICKER_W = 470
 local ICON_PICKER_H = 430
@@ -80,16 +66,46 @@ local function icon_picker_cell(parent, name, image, x, y, size)
     return btn
 end
 
--- 候補を格子に並べる。定型タブとスキルタブで同じ見た目にしたいので共通化する。
-local function icon_picker_fill_grid(gb, images, prefix, width)
+-- 候補を格子に並べる。定型タブと検索タブで同じ見た目にしたいので共通化する。
+-- y0 から下へ並べ、使った行数を返す(検索タブはセクションを縦に積むので、次の y を出すのに要る)。
+local function icon_picker_fill_grid(gb, images, prefix, width, y0)
     local size, pitch = 40, 46
     local per_row = math.max(1, math.floor((width - 20) / pitch))
     for idx, image in ipairs(images) do
         local col = (idx - 1) % per_row
         local row = math.floor((idx - 1) / per_row)
-        icon_picker_cell(gb, prefix .. idx, image, 10 + col * pitch, 8 + row * pitch, size)
+        icon_picker_cell(gb, prefix .. idx, image, 10 + col * pitch, (y0 or 8) + row * pitch, size)
     end
     return math.ceil(#images / per_row)
+end
+
+-- 定型タブに並べる候補。
+--
+-- 前半は**素のクライアントから抜いた `sysmenu_*` と `*_button_normal` の全部**
+-- (core/92_icon_names.lua の g.ICON_PRESET_NAMES。docs/gen_icon_names.py が生成する)。
+-- 後半はそれ以外で見栄えのする絵を手で足した分で、**このリポジトリのどこかで実際に
+-- 使っている名前**だけを並べてある(実在しない名前を書いてもエラーにはならず空白に
+-- なるだけなので、候補を足すときは必ず使用実績のある名前にすること)。
+local ICON_PICKER_EXTRA_PRESETS = {"market_shortcut_btn02", "compen_btn", "friend_party", "btn_partyshare",
+                                   "chat_color", "questmap", "questinfo_return", "quest_detail_pic2",
+                                   "indun_season_tap", "worldmap2_token_gold", "inven_s", "inven_lock2",
+                                   "icon_item_silver", "icon_item_ancient_card", "icon_item_box",
+                                   "icon_fullscreen_menu_letica", "icon_fullscreen_menu_equipment_processing",
+                                   "equipment_info_btn_mark2", "monsterbtn_image", "monster_card_starmark",
+                                   "mon_legendstar", "star_mark", "question_mark", "unique_card", "legend_card",
+                                   "rare_card", "normal_card", "goddess_shop_btn", "goddess2_shop_btn",
+                                   "goddess3_shop_btn", "goddess4_shop_btn", "goddess5_shop_btn",
+                                   "pvpmine_shop_btn_total", "alch_gemlos_arrow"}
+
+local function icon_picker_presets()
+    local list = {}
+    for _, name in ipairs(g.ICON_PRESET_NAMES or {}) do
+        list[#list + 1] = name
+    end
+    for _, name in ipairs(ICON_PICKER_EXTRA_PRESETS) do
+        list[#list + 1] = name
+    end
+    return list
 end
 
 local function icon_picker_build_preset(body, w, h)
@@ -98,13 +114,13 @@ local function icon_picker_build_preset(body, w, h)
     gb:SetSkinName("bg")
     gb:RemoveAllChild()
     gb:EnableScrollBar(1)
-    icon_picker_fill_grid(gb, ICON_PICKER_PRESETS, "preset_", w - 10)
+    icon_picker_fill_grid(gb, icon_picker_presets(), "preset_", w - 10, 8)
     pcall(function()
         gb:InvalidateScrollBar()
     end)
 end
 
--- スキルアイコンの検索。**全件走査なので Enter / 虫眼鏡でだけ走らせる**
+-- 検索。**全件走査なので Enter / 虫眼鏡でだけ走らせる**
 -- (空文字だと string.find が必ず真になり、数千件を毎打鍵で組み立てることになる)。
 -- 検索語は ctrl:GetText() ではなく検索欄を名前で引いて読む(虫眼鏡ボタンからも来るため)。
 function _G.addons_menu_icon_search(frame, ctrl, str, num)
@@ -129,7 +145,25 @@ function _G.addons_menu_icon_search_clear(frame, ctrl, str, num)
     end
 end
 
--- 検索語に当たるスキルのアイコン名を集める。同じ絵が何度も並ばないよう名前で重複を落とす。
+-- UI アイコンの検索。同梱した名前の表(core/92_icon_names.lua)を名前の一部で引く。
+-- 大文字小文字は無視する(sysmenu_Fishing のように混ざっているため)。
+local function icon_picker_ui_images(query)
+    local images = {}
+    local needle = string.lower(query)
+    local truncated = false
+    for _, name in ipairs(g.ICON_NAMES or {}) do
+        if needle == "" or string.find(string.lower(name), needle, 1, true) then
+            if #images >= ICON_PICKER_SECTION_LIMIT then
+                truncated = true
+                break
+            end
+            images[#images + 1] = name
+        end
+    end
+    return images, truncated
+end
+
+-- スキルアイコンの検索。同じ絵が何度も並ばないよう名前で重複を落とす。
 local function icon_picker_skill_images(query)
     local images = {}
     local seen = {}
@@ -147,7 +181,7 @@ local function icon_picker_skill_images(query)
                 local image = "icon_" .. icon
                 if not seen[image] then
                     seen[image] = true
-                    if #images >= ICON_PICKER_SKILL_LIMIT then
+                    if #images >= ICON_PICKER_SECTION_LIMIT then
                         truncated = true
                         break
                     end
@@ -159,7 +193,36 @@ local function icon_picker_skill_images(query)
     return images, truncated
 end
 
+-- 見出し + 格子を 1 セクションぶん置く。次のセクションを置く y を返す。
+local function icon_picker_section(gb, y, width, title, images, truncated, prefix, empty_text)
+    local head = gb:CreateOrGetControl("richtext", prefix .. "head", 10, y, 10, 20)
+    AUTO_CAST(head)
+    head:SetText(string.format("{ol}{s16}{#FFCC33}%s{#FFFFFF}  {s14}%d%s", title, #images,
+        truncated and icon_picker_ml(" 件(上限)", "+ (capped)") or icon_picker_ml(" 件", "")))
+    y = y + 24
+    if #images == 0 then
+        local empty = gb:CreateOrGetControl("richtext", prefix .. "empty", 20, y, 10, 20)
+        AUTO_CAST(empty)
+        empty:SetText("{ol}{s14}{#AAAAAA}" .. empty_text)
+        return y + 26
+    end
+    local rows = icon_picker_fill_grid(gb, images, prefix, width, y)
+    y = y + rows * 46 + 6
+    if truncated then
+        -- 打ち切ったことを黙らない(全部出たと誤解させない)。
+        local note = gb:CreateOrGetControl("richtext", prefix .. "trunc", 20, y, 10, 20)
+        AUTO_CAST(note)
+        note:SetText(string.format(icon_picker_ml("{ol}{s14}{#FF9933}上限 %d 件まで。絞り込んでください",
+            "{ol}{s14}{#FF9933}Showing the first %d. Narrow the search"), ICON_PICKER_SECTION_LIMIT))
+        y = y + 22
+    end
+    return y + 8
+end
+
 -- 検索結果の枠だけを作り直す。**検索欄には触らない**(上のコメント参照)。
+--
+-- 出どころが違う 2 つを**セクションに分けて**出す。混ぜて並べると、
+-- 同じ絵でも「UI の画像」なのか「スキルのアイコン」なのか分からなくなる。
 function _G.addons_menu_icon_fill_results(picker)
     local gb = GET_CHILD_RECURSIVELY(picker, "icon_gb")
     if not gb then
@@ -168,41 +231,36 @@ function _G.addons_menu_icon_fill_results(picker)
     AUTO_CAST(gb)
     gb:RemoveAllChild()
     local width = gb:GetWidth()
-    if g.icon_picker_query == nil then
+    if g.icon_picker_query == nil or g.icon_picker_query == "" then
         local hint = gb:CreateOrGetControl("richtext", "hint", 12, 10, 10, 20)
         AUTO_CAST(hint)
-        hint:SetText(icon_picker_ml("{ol}{#CCCCCC}スキル名を入れて Enter を押すと候補が出ます",
-            "{ol}{#CCCCCC}Type a skill name and press Enter"))
+        hint:SetText(icon_picker_ml(
+            "{ol}{#CCCCCC}探したい言葉を入れて Enter を押してください{nl}{ol}{#CCCCCC}UI アイコンは画像名で、スキルアイコンはスキル名で探します",
+            "{ol}{#CCCCCC}Type something and press Enter{nl}{ol}{#CCCCCC}UI icons match the image name, skill icons match the skill name"))
         return
     end
-    local images, truncated = icon_picker_skill_images(g.icon_picker_query)
-    local rows = icon_picker_fill_grid(gb, images, "skill_", width)
-    if #images == 0 then
-        local empty = gb:CreateOrGetControl("richtext", "empty", 12, 10, 10, 20)
-        AUTO_CAST(empty)
-        empty:SetText(icon_picker_ml("{ol}{#FFA500}見つかりませんでした", "{ol}{#FFA500}No matching skills"))
-    elseif truncated then
-        -- 打ち切ったことを黙らない(全部出たと誤解させない)。
-        local note = gb:CreateOrGetControl("richtext", "trunc", 12, 8 + rows * 46, 10, 20)
-        AUTO_CAST(note)
-        note:SetText(string.format(icon_picker_ml("{ol}{#FF9933}上限 %d 件まで表示しています。絞り込んでください",
-            "{ol}{#FF9933}Showing the first %d icons. Narrow the search"), ICON_PICKER_SKILL_LIMIT))
-    end
-    g.vlog("icon_picker: スキル検索 %q 件数=%d 打ち切り=%s", tostring(g.icon_picker_query), #images,
-        tostring(truncated))
+    local ui_images, ui_truncated = icon_picker_ui_images(g.icon_picker_query)
+    local skill_images, skill_truncated = icon_picker_skill_images(g.icon_picker_query)
+    local y = 8
+    y = icon_picker_section(gb, y, width, icon_picker_ml("UI アイコン", "UI icons"), ui_images, ui_truncated, "uiimg_",
+        icon_picker_ml("画像名に一致するものがありません", "No image name matched"))
+    y = icon_picker_section(gb, y, width, icon_picker_ml("スキルアイコン", "Skill icons"), skill_images,
+        skill_truncated, "skill_", icon_picker_ml("スキル名に一致するものがありません", "No skill name matched"))
+    g.vlog("icon_picker: 検索 %q UI=%d(打ち切り %s) スキル=%d(打ち切り %s)", tostring(g.icon_picker_query),
+        #ui_images, tostring(ui_truncated), #skill_images, tostring(skill_truncated))
     pcall(function()
         gb:InvalidateScrollBar()
     end)
 end
 
-local function icon_picker_build_skill(body, w, h)
+local function icon_picker_build_search(body, w, h)
     local search_edit = body:CreateOrGetControl("edit", "icon_search_edit", 10, 6, w - 60, 30)
     AUTO_CAST(search_edit)
     search_edit:SetFontName("white_16_ol")
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
-    search_edit:SetTextTooltip(icon_picker_ml("{ol}スキル名で検索(Enter で実行)",
-        "{ol}Search skills by name (press Enter)"))
+    search_edit:SetTextTooltip(icon_picker_ml("{ol}画像名 / スキル名で検索(Enter で実行)",
+        "{ol}Search by image or skill name (press Enter)"))
     search_edit:SetEventScript(ui.ENTERKEY, "addons_menu_icon_search")
     -- 全件を走査して当たったぶんだけ作る検索なので Enter 方式(CLAUDE.md の検索欄の節)。
     g.setup_enter_search(search_edit, "addons_menu_icon_search_clear")
@@ -222,8 +280,7 @@ local function icon_picker_build_skill(body, w, h)
     _G.addons_menu_icon_fill_results(ui.GetFrame(ICON_PICKER_FRAME))
 end
 
--- 直接入力タブ。入れた名前をその場で描いて、実在するかを目で確かめられるようにする
--- (存在しない名前でもエラーにはならず空白になるだけなので、これしか確かめる手段が無い)。
+-- 直接入力タブの入力欄(Enter)。プレビューだけ描き直す。
 function _G.addons_menu_icon_manual_preview(frame, ctrl, str, num)
     local picker = ui.GetFrame(ICON_PICKER_FRAME)
     if not picker then
@@ -231,7 +288,7 @@ function _G.addons_menu_icon_manual_preview(frame, ctrl, str, num)
     end
     local edit = GET_CHILD_RECURSIVELY(picker, "icon_manual_edit")
     g.icon_picker_manual = edit and edit:GetText() or ""
-    -- ここも入力欄は作り直さない。プレビューの中身だけ入れ替える。
+    -- **入力欄は作り直さないこと**(検索タブと同じ理由。入力位置と文字が消える)。
     local box = GET_CHILD_RECURSIVELY(picker, "manual_box")
     if box then
         AUTO_CAST(box)
@@ -251,6 +308,7 @@ function _G.addons_menu_icon_manual_fill(box)
     end
 end
 
+-- 「このアイコンにする」。入力欄の中身をそのまま決定する。
 function _G.addons_menu_icon_manual_apply(frame, ctrl, str, num)
     local picker = ui.GetFrame(ICON_PICKER_FRAME)
     if not picker then
@@ -324,8 +382,8 @@ function _G.addons_menu_icon_picker_build()
     body:EnableScrollBar(0)
     body:RemoveAllChild()
     local bw, bh = ICON_PICKER_W, ICON_PICKER_H - ICON_PICKER_TAB_H
-    if tab == "skill" then
-        icon_picker_build_skill(body, bw, bh)
+    if tab == "search" then
+        icon_picker_build_search(body, bw, bh)
     elseif tab == "manual" then
         icon_picker_build_manual(body, bw, bh)
     else

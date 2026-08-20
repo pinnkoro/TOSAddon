@@ -69,6 +69,11 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   列挙している**ので、設定を足したらそこと「デフォルトに戻す」（`def_setting`）の両方に書く。
   読むより先に保存する経路があると設定が消えるので、`addons_menu_create_frame` は
   `addons_menu_load_layout()` を保存より前に呼んでいる。
+* アイコン選択（[core/91_icon_picker.lua](nexus_addons_p/src/core/91_icon_picker.lua)）の「検索」タブが引く
+  画像名の表は **生成物**。[core/92_icon_names.lua](nexus_addons_p/src/core/92_icon_names.lua) を手で編集せず、
+  `git fetch upstream` してから `python docs/gen_icon_names.py` で作り直すこと
+  （素のクライアント `_client/jp/**` の `image="..."` / `SetImage("...")` / `{img ...}` から抜いている）。
+  **Lua には画像名を列挙する手段が無い**ので、同梱する以外に「名前で探す」を実現する方法は無い。
 * 収集の結果は [docs/tests/test_addons_menu.lua](docs/tests/test_addons_menu.lua) が検査する
   （並び順・既定・アイコンの上書きが共有テーブルを汚さないこと）。
 

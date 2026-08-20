@@ -57,6 +57,7 @@
       "guard_close.lua",
       "core/90_addons_menu.lua",
       "core/91_icon_picker.lua",
+      "core/92_icon_names.lua",
       "conclude_scope_open.lua",
       "conclude_header.lua",
       "guard_open.lua",
@@ -130,6 +131,6 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "8d3fac1d9cf0cfbe8485aa951a50a7380d424f3ce1c27c9ea5d70f4e00ccc759"
+    "_nexus_addons_p.lua": "f98727f67d088d0a38838ea2e484266341f6169b978252ebef7edd1e3da75076"
   }
 }
