@@ -53,6 +53,10 @@ function Tavern_of_soul_main_frame_init()
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
     search_edit:SetEventScript(ui.ENTERKEY, "Tavern_of_soul_search_enter")
+    -- **打鍵では検索しない側(g.setup_enter_search)を使う。** Tavern_of_soul_get_data は
+    -- GetClassList の全件を走査して一致したぶんだけコントロールを作る作りで、件数の上限も
+    -- 無い。1 文字目で数千〜数万件に当たるので、打鍵のたびに走らせてはいけない。
+    g.setup_enter_search(search_edit, "Tavern_of_soul_clear")
     search_edit:Focus()
     local modes = {"Item", "Buff", "Skill", "Monster"}
     local btn_w = 65
@@ -99,15 +103,39 @@ function Tavern_of_soul_mode_click(parent, ctrl, mode, num)
             end
         end
     end
-    search_edit:SetText("")
-    local gbox = GET_CHILD(tos_main, "gbox")
-    gbox:RemoveAllChild()
-    gbox:ShowWindow(0)
-    tos_main:Resize(300, 120)
-    local map_frame = ui.GetFrame("map")
-    local width = map_frame:GetWidth()
+    Tavern_of_soul_reset(tos_main)
     tos_main:SetPos(500, 100)
     search_edit:Focus()
+end
+
+-- 検索前の姿へ畳む。モード切り替えと「×」で共有する。
+-- (Tavern_of_soul_get_data の「1 件も当たらなかったとき」と同じ形にしている)
+function Tavern_of_soul_reset(tos_main)
+    local search_edit = GET_CHILD(tos_main, "search_edit")
+    if search_edit then
+        AUTO_CAST(search_edit)
+        search_edit:SetText("")
+        g.search_clear_sync(search_edit)
+    end
+    local gbox = GET_CHILD(tos_main, "gbox")
+    if gbox then
+        AUTO_CAST(gbox)
+        gbox:RemoveAllChild()
+        gbox:ShowWindow(0)
+    end
+    -- **位置は戻さないこと。** ここは「×」からも呼ばれるので、SetPos を入れると
+    -- 利用者が動かした窓が押すたびに初期位置へ飛ぶ。位置戻しはモード切り替え側に置く。
+    tos_main:Resize(300, 120)
+end
+
+-- 「×」を押したとき。**空文字で検索し直してはいけない**(全件に当たる)ので、
+-- 検索前の姿へ畳むだけにする。
+function Tavern_of_soul_clear(frame, ctrl, str, num)
+    local tos_main = ui.GetFrame(addon_name_lower .. "tos_main")
+    if tos_main then
+        AUTO_CAST(tos_main)
+        Tavern_of_soul_reset(tos_main)
+    end
 end
 
 function Tavern_of_soul_get_data(tos_main, search_edit, mode)

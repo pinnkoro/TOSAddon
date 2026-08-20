@@ -1386,6 +1386,286 @@ function g.probe_esc_menu()
     pcall(esc_probe_dump_sysmenu)
 end
 
+-- ===== 検索欄のインクリメンタル検索と「×」 =====
+--
+-- 素のクライアントの検索欄は、打鍵のたびに 0.3 秒遅らせて検索し直す作りになっている。
+--   inventory.xml : <edit name="ItemSearch" ... typingscp="SEARCH_ITEM_INVENTORY_KEY"/>
+--   inventory.lua : SEARCH_ITEM_INVENTORY_KEY が CancelReserveScript / ReserveScript(0.3) で先送りする
+-- ワールドマップの検索欄(worldmap2_mainmap.xml)も同じ。**素には検索欄をクリアするボタンが
+-- どこにも無い**が、これは「文字を消せばその場で戻るので要らない」というだけで、
+-- 消す手段そのものを否定しているわけではない。こちらは素に合わせて打鍵で検索し直す
+-- ようにしたうえで、入力があるときだけ「×」を出す(一般的な検索窓と同じ)。
+--
+-- 素は frame:CancelReserveScript で前の予約を取り消すが、**グローバルの ReserveScript には
+-- 取り消しが無い**(素もフレーム側でしか呼んでいない)。フレーム側の予約は「フレームごとに
+-- 関数名 1 つ」なので、同じフレームに検索欄が複数ある作り(battle_ritual など)だと
+-- 打ち消し合ってしまう。そこで検索欄ごとに世代番号を持ち、**最後の打鍵の分だけ実行して
+-- 残りは捨てる**。捨てる側は数値比較で戻るだけなので、余分に起きても実害が無い。
+g.search_typing_delay = 0.3
+
+-- 「×」ボタンの名前。検索欄の子として作るので、検索欄ごとに 1 つ。
+g.search_clear_name = "nap_search_clear"
+
+-- 打鍵から検索関数を呼んでいる間だけ真。**その検索がキーボード操作から来たのかを
+-- アドオン側で見分けるためのもの。** 見分けが要るのは Focus() の扱いで、一覧の作り直しで
+-- 検索欄ごと作り直す作り(characters_item_serch)が、入力位置を戻してよいかの判断に使う。
+--
+-- **「打鍵以外を弾く」向きにすること。** 検索関数には打鍵のほかに Enter・虫眼鏡ボタン・
+-- 「×」から入ってくる。マウス操作(虫眼鏡 /「×」)では入力位置がそもそも無いので、
+-- 戻すと ESC の 1 回目を食って窓が閉じなくなる。「×から来たか」だけを見る作りにすると
+-- 虫眼鏡ボタン経由を取りこぼす(レビューで実際に指摘された)。
+g.search_typing_running = false
+
+-- [key] = {frame=, name=, handler=, arg_num=, delay=, seq=, last=, incremental=}
+-- key は handler 名と引数の組。**検索欄そのものを持たない**のは、打鍵から実行までの
+-- 0.3 秒の間に × ボタンで窓を閉じられると、破棄済みのコントロールを掴んだままになるため。
+-- 実行時に名前から引き直す(素も esc_top も同じやり方)。
+g.search_typing = g.search_typing or {}
+
+-- 検索欄の入力を消す「×」の出し入れだけを行う。**打鍵のたびに呼ばれる**ので、
+-- ここでは表示以外の状態を触らないこと(g.search_clear_sync の注意書きを参照)。
+--
+-- **位置決めを作成時ではなく最初に出すときに行う。** 虫眼鏡ボタン(search_btn)は
+-- どのアドオンでも検索欄より後に作られる = 登録を呼ぶ時点ではまだ幅を読めないため。
+-- 出すのは利用者が 1 文字打った後なので、そのときには必ず在る。
+local function search_clear_btn_sync(edit)
+    if edit == nil then
+        return
+    end
+    local ok, err = pcall(function()
+        local btn = GET_CHILD_RECURSIVELY(edit, g.search_clear_name)
+        if btn == nil then
+            return
+        end
+        AUTO_CAST(btn)
+        local text = edit:GetText() or ""
+        if text == "" then
+            btn:ShowWindow(0)
+            return
+        end
+        if btn:GetUserValue("NAP_PLACED") ~= "1" then
+            -- **虫眼鏡ボタンがまだ無いうちは位置を確定させない。** ここは検索欄の文字を
+            -- コードから入れた直後(まだ虫眼鏡ボタンを作っていない)にも通るので、
+            -- 確定させてしまうと左隣ではなく右端に置いたまま固定される。
+            local search_btn = GET_CHILD_RECURSIVELY(edit, "search_btn")
+            if search_btn ~= nil then
+                btn:SetMargin(0, 0, search_btn:GetWidth() + 4, 0)
+                btn:SetUserValue("NAP_PLACED", "1")
+            end
+        end
+        btn:ShowWindow(1)
+    end)
+    if not ok then
+        -- 打鍵のたびに通るが、log_error_once が同じ内容を 1 回だけに絞るので流れない。
+        g.log_error_once("search_clear_btn_sync",
+            string.format("incremental_search: 「×」の出し入れに失敗(%s)", tostring(err)))
+    end
+end
+
+-- **検索欄の文字をコードから変えたときに呼ぶ。**「×」の出し入れを合わせ、あわせて
+-- 「前回この語で検索した」の記録(entry.last)を捨てる。
+--
+-- **記録を捨てるのを忘れないこと。** _nexus_addons_p_search_fire は entry.last と同じ語なら
+-- 検索を飛ばすので、捨てないと「コードで空へ戻す → 利用者が同じ語を打ち直す」経路で
+-- 検索が一度も走らなくなる(another_warehouse でタブを切り替えてから同じ語を入れると再現した)。
+-- 打鍵のたびに走る側から呼ぶのは search_clear_btn_sync のほう。こちらを毎打鍵で呼ぶと
+-- 重複除外が常に無効になる。
+function g.search_clear_sync(edit)
+    if edit == nil then
+        return
+    end
+    search_clear_btn_sync(edit)
+    pcall(function()
+        local key = edit:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry ~= nil then
+            entry.last = nil
+            -- **世代番号も進めること。** 予約済みの検索を無効にする手段はこれしかない
+            -- (グローバルの ReserveScript に取り消しが無い)。進めないと、打鍵から
+            -- 実行までの間にコードが検索欄を空へ戻した場合でも古い予約がそのまま発火する。
+            -- 実例: another_warehouse は打鍵の 0.5 秒以内にタブを切り替えると、後から
+            -- 発火した検索が Another_warehouse_tab_change をタブ 1 固定で呼び直し、
+            -- 利用者が選んだタブを無言で巻き戻していた。
+            entry.seq = entry.seq + 1
+        end
+    end)
+end
+
+-- 検索欄に打鍵の受け取りと「×」を仕込む共通処理。
+--   incremental が true なら打鍵のたびに検索し直す。false のときは「×」を出すためだけに
+--   打鍵を受け取り、検索は Enter と虫眼鏡ボタンのままにする(tavern_of_soul のように
+--   全件を走査する検索は 1 文字ごとに走らせられないため)。
+local function setup_search_edit(edit, handler, arg_num, delay, incremental)
+    if edit == nil or handler == nil or handler == "" then
+        return
+    end
+    local key = string.format("%s#%s", handler, tostring(arg_num or 0))
+    local ok, err = pcall(function()
+        local frame = edit:GetTopParentFrame()
+        local entry = g.search_typing[key] or {}
+        entry.frame = frame:GetName()
+        entry.name = edit:GetName()
+        entry.handler = handler
+        entry.arg_num = arg_num or 0
+        entry.delay = delay or g.search_typing_delay
+        entry.incremental = incremental and true or false
+        entry.seq = entry.seq or 0
+        -- 窓を開き直したときに前回の検索語を引きずらない(引きずると、同じ語を打ち直しても
+        -- 「変わっていない」と見なして検索が走らない)。
+        entry.last = nil
+        g.search_typing[key] = entry
+        edit:SetUserValue("NAP_SEARCH_KEY", key)
+        edit:SetTypingScp("_nexus_addons_p_search_typing")
+
+        local clear_btn = edit:CreateOrGetControl("button", g.search_clear_name, 0, 0, 22, 22)
+        AUTO_CAST(clear_btn)
+        clear_btn:SetImage("testclose_button")
+        clear_btn:SetGravity(ui.RIGHT, ui.CENTER_VERT)
+        clear_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}入力を消して元の一覧に戻す" or g.lang == "kr" and
+                                     "{ol}입력을 지우고 원래 목록으로" or "{ol}Clear the search box")
+        clear_btn:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_search_clear")
+        -- 作り直した窓では「置いた」印も作り直させる(虫眼鏡ボタンの幅を測り直すため)。
+        clear_btn:SetUserValue("NAP_PLACED", "0")
+        clear_btn:ShowWindow(0)
+        g.search_clear_sync(edit)
+    end)
+    if not ok then
+        -- 打鍵を受け取れないクライアントに当たっても、ENTERKEY と虫眼鏡ボタンは
+        -- そのまま残るので検索自体は使える。1 回だけ残して以後は黙る。
+        g.log_error_once("search_typing:" .. key,
+            string.format("incremental_search: %s の打鍵登録に失敗(%s)", key, tostring(err)))
+    end
+end
+
+-- 検索欄を素と同じインクリメンタル検索にし、入力中は「×」を出す。
+-- **ui.ENTERKEY の割り当ての直後に呼ぶこと。**
+--   edit    : 検索欄(AUTO_CAST 済みの ui::CEditControl)
+--   handler : ui.ENTERKEY に割り当てたのと同じグローバル関数名
+--   arg_num : ui.ENTERKEY へ SetEventScriptArgNumber で渡しているのと同じ値(無ければ省略)
+--   delay   : 打鍵から検索までの秒数(省略時 g.search_typing_delay)。一覧の作り直しが
+--             重いものはここを伸ばす
+-- ENTERKEY と虫眼鏡ボタンは**そのまま残すこと**。押しても同じ検索がもう一度走るだけで
+-- 害が無く、「Enter で検索する」と思っている利用者の手を止めないため。
+function g.setup_incremental_search(edit, handler, arg_num, delay)
+    setup_search_edit(edit, handler, arg_num, delay, true)
+end
+
+-- 検索は Enter と虫眼鏡ボタンのままにし、「×」だけを付ける。
+-- **全件を走査して一致したぶんだけコントロールを作る検索**は 1 文字ごとに走らせられない
+-- (空文字や 1 文字で数千〜数万件に当たる)ので、そういう検索はこちらを使う。
+--   reset_handler : 「×」を押したときに呼ぶグローバル関数名。**空文字で検索し直す処理では
+--                   なく、検索前の姿へ戻す(中身を捨てて畳む)処理を渡すこと。**
+--                   呼び出しの並びは検索関数と同じ (frame, ctrl, argStr, argNum)。
+function g.setup_enter_search(edit, reset_handler, arg_num)
+    setup_search_edit(edit, reset_handler, arg_num, nil, false)
+end
+
+-- 打鍵のたびに呼ばれる(SetTypingScp の呼び出し規約は素の CHECK_EDIT_LENGTH と同じ (parent, ctrl))。
+-- 「×」の出し入れはここで即座に行い、検索そのものは _nexus_addons_p_search_fire へ先送りする。
+function _nexus_addons_p_search_typing(parent, ctrl)
+    local ok, err = pcall(function()
+        local key = ctrl:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry == nil then
+            return
+        end
+        search_clear_btn_sync(ctrl)
+        if not entry.incremental then
+            return
+        end
+        entry.seq = entry.seq + 1
+        ReserveScript(string.format("_nexus_addons_p_search_fire(%q, %d)", key, entry.seq), entry.delay)
+    end)
+    if not ok then
+        g.log_error_once("search_typing_reserve",
+            string.format("incremental_search: 打鍵の予約に失敗(%s)", tostring(err)))
+    end
+end
+
+-- 検索欄と登録を名前から引き直す。**参照を持ち回さない**理由は g.search_typing のコメント参照。
+-- 窓が閉じていれば nil を返す(ここで作り直すと、閉じたはずの窓が打鍵の残りで開き直る)。
+local function search_edit_of(entry)
+    local frame = ui.GetFrame(entry.frame)
+    if frame == nil or frame:IsVisible() ~= 1 then
+        return nil, nil
+    end
+    local edit = GET_CHILD_RECURSIVELY(frame, entry.name)
+    if edit == nil then
+        return nil, nil
+    end
+    AUTO_CAST(edit)
+    return frame, edit
+end
+
+-- 登録した検索関数を、ui.ENTERKEY から呼ばれるときと同じ並び (frame, ctrl, argStr, argNum) で呼ぶ。
+local function search_run(entry, frame, edit, text)
+    local func = _G[entry.handler]
+    if type(func) ~= "function" then
+        g.log_error_once("search_typing_func:" .. tostring(entry.handler),
+            string.format("incremental_search: %s が見つからない", tostring(entry.handler)))
+        return
+    end
+    entry.last = text
+    func(frame, edit, text, entry.arg_num)
+    g.vlog("incremental_search: %s(frame=%s text=%q arg=%s)", entry.handler, entry.frame, text,
+        tostring(entry.arg_num))
+end
+
+-- 予約した検索を実行する。seq が最新でなければ、続けて打鍵された分なので捨てる。
+function _nexus_addons_p_search_fire(key, seq)
+    local entry = g.search_typing[key]
+    if entry == nil or entry.seq ~= seq then
+        return
+    end
+    local ok, err = pcall(function()
+        local frame, edit = search_edit_of(entry)
+        if edit == nil then
+            return
+        end
+        local text = edit:GetText() or ""
+        if entry.last == text then
+            return
+        end
+        g.search_typing_running = true
+        search_run(entry, frame, edit, text)
+    end)
+    -- pcall が失敗した経路でも必ず戻す(戻し忘れると以後ずっと「打鍵から来た」扱いになる)。
+    g.search_typing_running = false
+    if not ok then
+        g.log_error_once("search_typing_fire:" .. key,
+            string.format("incremental_search: %s の実行に失敗(%s)", key, tostring(err)))
+    end
+end
+
+-- 「×」を押したとき。入力を消して、登録した検索関数を空文字で呼ぶ = 元の一覧へ戻す。
+-- **入力欄へ Focus() は戻さない。** キーボードフォーカスが入力欄にあると ESC の 1 回目が
+-- 「入力欄から抜ける」に使われて窓が閉じなくなるため(CLAUDE.md の ESC の節を参照)。
+function _nexus_addons_p_search_clear(parent, ctrl)
+    local ok, err = pcall(function()
+        local edit = ctrl:GetParent()
+        if edit == nil then
+            return
+        end
+        AUTO_CAST(edit)
+        local key = edit:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry == nil then
+            return
+        end
+        edit:SetText("")
+        -- 打鍵で予約済みの検索の無効化(世代番号を進める)も search_clear_sync が行う。
+        g.search_clear_sync(edit)
+        local frame, live_edit = search_edit_of(entry)
+        if live_edit == nil then
+            return
+        end
+        search_run(entry, frame, live_edit, "")
+    end)
+    if not ok then
+        g.log_error_once("search_clear", string.format("incremental_search: × の処理に失敗(%s)", tostring(err)))
+    end
+end
+
 function g.debug_print_table(tbl, indent)
     indent = indent or ""
     for key, value in pairs(tbl) do

@@ -962,6 +962,7 @@ function _nexus_addons_p_frame_init()
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
     search_edit:SetEventScript(ui.ENTERKEY, "_nexus_addons_p_list_search")
+    g.setup_incremental_search(search_edit, "_nexus_addons_p_list_search")
     search_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}アドオン名や説明で絞り込み(空で全件)" or g.lang == "kr" and
                                    "{ol}애드온 이름으로 검색(비우면 전체)" or
                                    "{ol}Filter addons by text (empty shows all)")
@@ -971,6 +972,9 @@ function _nexus_addons_p_frame_init()
     search_btn:SetImage("inven_s")
     search_btn:SetGravity(ui.RIGHT, ui.TOP)
     search_btn:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_list_search")
+    -- 検索したまま一覧を組み立て直す経路(ON/OFF の切り替えなど)があるので、
+    -- 文字をコードから戻した後に「×」の出し入れを合わせる。
+    g.search_clear_sync(search_edit)
     -- **開いた直後に search_edit へ Focus() しないこと。** 入力欄にキーボードフォーカスが
     -- あると ESC の 1 回目がクライアント側の「入力欄から抜ける」に使われ、
     -- ESCAPE_PRESSED がこちらへ届かない(利用者から見ると「2 回押さないと閉じない」)。

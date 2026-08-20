@@ -236,6 +236,7 @@ function Separate_buff_custom_settings(buff_list, ctrl, ctrl_text)
         search_edit:SetTextAlign("left", "center")
         search_edit:SetSkinName("inventory_serch")
         search_edit:SetEventScript(ui.ENTERKEY, "Separate_buff_custom_buff_list_search")
+        g.setup_incremental_search(search_edit, "Separate_buff_custom_buff_list_search")
         local search_btn = search_edit:CreateOrGetControl("button", "search_btn", 0, 0, 40, 38)
         AUTO_CAST(search_btn)
         search_btn:SetImage("inven_s")
@@ -270,8 +271,13 @@ function Separate_buff_custom_settings(buff_list, ctrl, ctrl_text)
     else
         search_edit = GET_CHILD_RECURSIVELY(buff_list, "search_edit")
     end
-    if ctrl_text then
+    -- **今と同じ文字列なら入れ直さないこと。** Lua では "" も真なので `if ctrl_text then` は
+    -- 常に成立し、打鍵のたびに検索し直す作りだと 1 文字ごとに SetText が走る。同じ文字列でも
+    -- SetText は入力位置を戻すので、打っている最中にカーソルが飛び、日本語変換も壊れる
+    -- (この関数は検索ハンドラから、まさに検索欄の中身をそのまま渡されて呼ばれる)。
+    if ctrl_text and search_edit:GetText() ~= ctrl_text then
         search_edit:SetText(ctrl_text)
+        g.search_clear_sync(search_edit)
     end
     local buff_list_gb = buff_list:CreateOrGetControl("groupbox", "buff_list_gb", 10, 50, 480,
         buff_list:GetHeight() - 60)
