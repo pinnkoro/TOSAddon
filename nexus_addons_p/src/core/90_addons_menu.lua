@@ -1013,7 +1013,14 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
     elseif ctrl_name == "open_toggle" then
         _G["norisan"]["MENU"].open = is_check
         addons_menu_save_json(_G["norisan"]["MENU"])
+        -- 作り直すと畳んだ姿で保存済みの位置に戻る。ここで位置がずれていないかを
+        -- 追えるよう、判断材料(上開きか / 右上を出す設定か / 作り直した後の位置)を残す。
         _G.addons_menu_create_frame()
+        local frame_after = ui.GetFrame(_G["norisan"]["MENU"].frame_name or "norisan_menu_frame")
+        g.vlog("addons_menu: 上開き=%s 右クリックのみ=%s 作り直し後の位置=%s", tostring(is_check),
+            tostring(_G["norisan"]["MENU"].sysmenu_only), frame_after and
+                string.format("%d,%d %dx%d 表示=%d", frame_after:GetX(), frame_after:GetY(), frame_after:GetWidth(),
+                    frame_after:GetHeight(), frame_after:IsVisible()) or "フレーム無し")
         return
     elseif ctrl_name == "sysmenu_only_toggle" then
         -- ON にすると右上のフローティングボタンを出さず、システムメニュー
@@ -1277,6 +1284,36 @@ local function addons_menu_play_se(name)
     pcall(imcSound.PlaySoundEvent, name)
 end
 
+-- 一覧を開いた姿(背が高い / 上開きなら y が上へずれている)から、本体ボタンだけの姿へ畳む。
+--
+-- **出し入れの前に必ず畳むこと。** 開いたまま隠して後で出し直すと、上開きのときは
+-- 本体ボタンが「y - 項目の高さ」に居るままなので、画面の上へ抜けて
+-- **アイコンが消えたように見える**(実機で発生)。畳めば必ず保存してある y へ戻る。
+local function addons_menu_collapse_frame(frame)
+    if frame == nil or frame:GetHeight() <= 40 then
+        return
+    end
+    AUTO_CAST(frame)
+    local children = {}
+    for i = 0, frame:GetChildCount() - 1 do
+        local child_obj = frame:GetChildByIndex(i)
+        if child_obj then
+            table.insert(children, child_obj)
+        end
+    end
+    for _, child_obj in ipairs(children) do
+        if child_obj:GetName() ~= "addons_menu_pic" then
+            frame:RemoveChild(child_obj:GetName())
+        end
+    end
+    frame:Resize(40, 40)
+    frame:SetPos(frame:GetX(), _G["norisan"]["MENU"].y or 30)
+    local main_pic = GET_CHILD(frame, "addons_menu_pic")
+    if main_pic then
+        main_pic:SetPos(0, 0)
+    end
+end
+
 -- 右上のフローティングボタンを、設定(sysmenu_only)に合わせて出し入れする。
 -- 消す側は破棄ではなく非表示にする。norisan_menu_frame は相乗り側との待ち合わせ名で、
 -- 破棄すると向こうが持っている参照まで無効にしてしまうため。
@@ -1286,8 +1323,10 @@ function _G.addons_menu_apply_visibility()
     if hide then
         if frame then
             AUTO_CAST(frame)
+            addons_menu_collapse_frame(frame)
             frame:ShowWindow(0)
         end
+        g.vlog("addons_menu: 右上のボタンを隠す(frame=%s)", frame and "有" or "無")
         return
     end
     if not frame then
@@ -1295,7 +1334,12 @@ function _G.addons_menu_apply_visibility()
         return
     end
     AUTO_CAST(frame)
+    -- 隠す前に畳んでいるはずだが、他アドオン(mini_addons)が出し直す経路もあるので
+    -- ここでも畳んでから出す。判断材料になるので位置と大きさをログに残す。
+    addons_menu_collapse_frame(frame)
     frame:ShowWindow(1)
+    g.vlog("addons_menu: 右上のボタンを出す 位置=%d,%d 大きさ=%dx%d", frame:GetX(), frame:GetY(), frame:GetWidth(),
+        frame:GetHeight())
 end
 
 -- 右クリックの案内を足したツールチップ。characters_item_serch が inven ボタンへ
@@ -1565,24 +1609,9 @@ function _G.addons_menu_frame_open(frame, ctrl)
         return
     end
     if frame:GetHeight() > 40 then
-        local children = {}
-        for i = 0, frame:GetChildCount() - 1 do
-            local child_obj = frame:GetChildByIndex(i)
-            if child_obj then
-                table.insert(children, child_obj)
-            end
-        end
-        for _, child_obj in ipairs(children) do
-            if child_obj:GetName() ~= "addons_menu_pic" then
-                frame:RemoveChild(child_obj:GetName())
-            end
-        end
-        frame:Resize(40, 40)
-        frame:SetPos(frame:GetX(), _G["norisan"]["MENU"].y or 30)
-        local main_pic = GET_CHILD(frame, "addons_menu_pic")
-        if main_pic then
-            main_pic:SetPos(0, 0)
-        end
+        -- 畳み方は出し入れの経路(addons_menu_apply_visibility)と同じものを使う。
+        -- 片方だけ直すと「× では戻るのに隠して出すと位置がずれる」という差になる。
+        addons_menu_collapse_frame(frame)
         return
     end
     local open_dir_val = _G["norisan"]["MENU"].open or 0
@@ -1643,9 +1672,30 @@ function _G.addons_menu_create_frame()
     -- Lua では 0 も真なので、結局いつも実サイズを読んでいた。挙動は変えていない。
     local map_ui = ui.GetFrame("map")
     local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
     if final_x > 1920 and screen_w <= 1920 then
         final_x = default_x
         final_y = default_y
+    end
+    -- **画面の外へ出さない。** 出てしまうと利用者からは「アイコンが消えた」ように見え、
+    -- 掴んで戻すこともできない(実機で発生)。y は今まで一度も丸めていなかった:
+    -- 上開きのときの「y - 項目の高さ」がそのまま保存に残ると、画面の上へ抜ける。
+    local clamped_x, clamped_y = final_x, final_y
+    if final_x > screen_w - 40 then
+        final_x = screen_w - 40
+    end
+    if final_y > screen_h - 40 then
+        final_y = screen_h - 40
+    end
+    if final_x < 0 then
+        final_x = 0
+    end
+    if final_y < 0 then
+        final_y = 0
+    end
+    if clamped_x ~= final_x or clamped_y ~= final_y then
+        g.vlog("addons_menu: ボタンの位置が画面外だったので戻した %d,%d → %d,%d (画面 %dx%d)", clamped_x, clamped_y,
+            final_x, final_y, screen_w, screen_h)
     end
     _G["norisan"]["MENU"].x = final_x
     _G["norisan"]["MENU"].y = final_y
