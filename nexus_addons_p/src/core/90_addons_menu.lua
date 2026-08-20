@@ -385,7 +385,7 @@ local ADDONS_MENU_SETTING_TABS = {{
 }}
 -- タブごとの窓の大きさ。**中身(行数)を足したらここも直すこと。**
 local ADDONS_MENU_SETTING_SIZE = {
-    common = {430, 300},
+    common = {460, 300},
     layout = {430, 230},
     shortcut = {470, 430}
 }
@@ -406,7 +406,7 @@ local function addons_menu_setting_tab()
 end
 
 -- 共通タブ。従来の設定画面の中身がそのまま入る(上開きだけは並びタブへ移した)。
-local function addons_menu_setting_build_common(body)
+local function addons_menu_setting_build_common(body, w)
     local def_setting = body:CreateOrGetControl("button", "def_setting", 10, 5, 150, 30)
     AUTO_CAST(def_setting)
     def_setting:SetText(addons_menu_ml("{ol}デフォルトに戻す", "{ol}Reset to default"))
@@ -430,8 +430,13 @@ local function addons_menu_setting_build_common(body)
     AUTO_CAST(sysmenu_only_toggle)
     sysmenu_only_toggle:SetCheck(_G["norisan"]["MENU"].sysmenu_only == 1 and 1 or 0)
     sysmenu_only_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
-    sysmenu_only_toggle:SetText(addons_menu_ml("{ol}システムメニューの右クリックのみにする(右上のボタンを消す)",
-        "{ol}System menu right click only (hide the floating button)"))
+    -- **チェックの文字を長くしないこと。** コントロールの幅ではなく文字の長さで右へ伸び、
+    -- 窓からはみ出した分は黙って切れる(実機で「…(右上のボタ」まで出て切れていた)。
+    -- 補足はツールチップへ回す。
+    sysmenu_only_toggle:SetText(addons_menu_ml("{ol}システムメニューの右クリックのみにする",
+        "{ol}System menu right click only"))
+    sysmenu_only_toggle:SetTextTooltip(addons_menu_ml("{ol}右上のフローティングボタンを消します",
+        "{ol}Hides the floating button in the top right"))
     local layer_text = body:CreateOrGetControl('richtext', 'layer_text', 10, 148, 50, 20)
     AUTO_CAST(layer_text)
     layer_text:SetText(addons_menu_ml("{ol}レイヤー設定", "{ol}Set Layer"))
@@ -474,11 +479,20 @@ local function addons_menu_setting_build_common(body)
     notes[3] = addons_menu_ml(
         string.format("今の設定なら %d 個で約 %.2f 秒。次のログインから反映されます", addon_count, estimate),
         string.format("About %.2fs for %d addons. Applies from the next login", estimate, addon_count))
+    -- 補足は**枠に入れて「注記」に見せる**。設定そのものと同じ地の上に同じ色で置くと、
+    -- どこまでが操作する項目でどこからが説明なのか見分けが付かない(実機で指摘)。
+    -- 暗い枠("bg")へ載せるので、文字は薄い灰色にして本文より一段落とす。
+    local note_box = body:CreateOrGetControl("groupbox", "init_note_box", 10, 200, w - 20, #notes * 18 + 10)
+    AUTO_CAST(note_box)
+    note_box:SetSkinName("bg")
+    note_box:EnableScrollBar(0)
+    note_box:RemoveAllChild()
     for i, line in ipairs(notes) do
-        local note = body:CreateOrGetControl("richtext", "init_note_" .. i, 10, 200 + (i - 1) * 18, 10, 20)
+        local note = note_box:CreateOrGetControl("richtext", "init_note_" .. i, 8, 4 + (i - 1) * 18, 10, 20)
         AUTO_CAST(note)
-        -- 背景("test_frame_low")が明るいので、薄い灰色にしないこと(沈んで読めない)。
-        note:SetText("{ol}{#FFFFFF}{s14}" .. line)
+        -- 先頭の行にだけ ※ を付ける。全行に付けると箇条書きに見えて、
+        -- 「3 つの注意点」ではなく「1 つの説明」であることが伝わらない。
+        note:SetText("{ol}{#CCCCCC}{s14}" .. (i == 1 and "※ " or "     ") .. line)
     end
 end
 
@@ -717,7 +731,7 @@ local function addons_menu_setting_build(setting)
     elseif tab == "shortcut" then
         addons_menu_setting_build_shortcut(body, w, h - ADDONS_MENU_SETTING_TAB_H)
     else
-        addons_menu_setting_build_common(body)
+        addons_menu_setting_build_common(body, w)
     end
     -- タブによって窓の背が変わるので、画面からはみ出したぶんだけ戻す
     -- (開いたときの位置合わせと同じ理由。addons_menu_setting_frame のコメント参照)。
