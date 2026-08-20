@@ -899,10 +899,10 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             end
             addons_menu_save_json(_G["norisan"]["MENU"])
             ui.SysMsg(addons_menu_ml("{ol}レイヤーを変更", "{ol}Change Layer"))
-            _G.addons_menu_create_frame()
-            -- **設定画面は閉じない。** 作り直すのは右上のフローティングボタンだけで、
-            -- こちらを閉じる理由が無い。閉じると入力欄ごと消えて、行き場を失った Enter が
-            -- ゲーム側へ渡りチャット入力欄が開く(実機で発生)。
+            -- **設定画面は閉じない**(閉じると入力欄ごと消えて、行き場を失った Enter が
+            -- ゲーム側へ渡りチャット入力欄が開く)。フレームも作り直さない
+            -- (addons_menu_apply_frame_settings のコメント参照)。
+            addons_menu_apply_frame_settings()
             return
         end
     end
@@ -986,7 +986,8 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             g.settings.init_batch = g.INIT_BATCH_DEFAULT
             _nexus_addons_p_save_settings()
         end
-        _G.addons_menu_create_frame()
+        addons_menu_apply_frame_settings()
+        addons_menu_apply_visibility()
         if setting_frame then
             setting_frame:ShowWindow(0)
         end
@@ -1013,14 +1014,12 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
     elseif ctrl_name == "open_toggle" then
         _G["norisan"]["MENU"].open = is_check
         addons_menu_save_json(_G["norisan"]["MENU"])
-        -- 作り直すと畳んだ姿で保存済みの位置に戻る。ここで位置がずれていないかを
-        -- 追えるよう、判断材料(上開きか / 右上を出す設定か / 作り直した後の位置)を残す。
-        _G.addons_menu_create_frame()
-        local frame_after = ui.GetFrame(_G["norisan"]["MENU"].frame_name or "norisan_menu_frame")
-        g.vlog("addons_menu: 上開き=%s 右クリックのみ=%s 作り直し後の位置=%s", tostring(is_check),
-            tostring(_G["norisan"]["MENU"].sysmenu_only), frame_after and
-                string.format("%d,%d %dx%d 表示=%d", frame_after:GetX(), frame_after:GetY(), frame_after:GetWidth(),
-                    frame_after:GetHeight(), frame_after:IsVisible()) or "フレーム無し")
+        -- **フレームを作り直さないこと。** この設定は「次に一覧を開くときどちらへ伸ばすか」
+        -- だけなので、今の姿を畳んで位置を当て直せば足りる
+        -- (作り直しでアイコンが消える件は addons_menu_apply_frame_settings のコメント参照)。
+        addons_menu_apply_frame_settings()
+        g.vlog("addons_menu: 上開き=%s 右クリックのみ=%s", tostring(is_check),
+            tostring(_G["norisan"]["MENU"].sysmenu_only))
         return
     elseif ctrl_name == "sysmenu_only_toggle" then
         -- ON にすると右上のフローティングボタンを出さず、システムメニュー
@@ -1312,6 +1311,58 @@ local function addons_menu_collapse_frame(frame)
     if main_pic then
         main_pic:SetPos(0, 0)
     end
+end
+
+-- 位置を画面の中へ丸める。**画面外へ出すと利用者からは「アイコンが消えた」ように見え、
+-- 掴んで戻すこともできない**(実機で発生)。作るときも設定を当てるときもここを通す。
+local function addons_menu_clamp_pos(x, y)
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    local cx, cy = x, y
+    if cx > screen_w - 40 then
+        cx = screen_w - 40
+    end
+    if cy > screen_h - 40 then
+        cy = screen_h - 40
+    end
+    if cx < 0 then
+        cx = 0
+    end
+    if cy < 0 then
+        cy = 0
+    end
+    if cx ~= x or cy ~= y then
+        g.vlog("addons_menu: ボタンの位置が画面外だったので戻した %s,%s → %d,%d (画面 %dx%d)", tostring(x),
+            tostring(y), cx, cy, screen_w, screen_h)
+    end
+    return cx, cy
+end
+
+-- 設定(位置・固定・レイヤー)を、今出ているフレームへその場で当てる。
+--
+-- **設定画面から addons_menu_create_frame を呼ばないこと。** あちらは
+-- ui.DestroyFrame → ui.CreateNewFrame で作り直すが、同じ押下の中で壊してすぐ作ると
+-- 出来上がったフレームが描画されないことがあり、**アイコンが消えたように見える**
+-- (押し直すと今度は出る = 「ON/OFF で出たり消えたり」の正体。実機で発生)。
+-- 作り直しが要るのは初回作成(GAME_START)だけで、設定はどれもその場で当てられる。
+local function addons_menu_apply_frame_settings()
+    local menu = _G["norisan"]["MENU"]
+    local frame = ui.GetFrame(menu.frame_name or "norisan_menu_frame")
+    if not frame then
+        -- まだ無いときだけ作る(初回や、他アドオンに壊された後)。
+        _G.addons_menu_create_frame()
+        return
+    end
+    AUTO_CAST(frame)
+    addons_menu_collapse_frame(frame)
+    frame:SetLayerLevel(menu.layer or 79)
+    frame:EnableMove(menu.move == true and 1 or 0)
+    menu.x, menu.y = addons_menu_clamp_pos(menu.x or 1190, menu.y or 30)
+    frame:SetPos(menu.x, menu.y)
+    frame:Resize(40, 40)
+    g.vlog("addons_menu: 設定をその場で当てた 位置=%d,%d 大きさ=%dx%d 表示=%d レイヤー=%s", frame:GetX(),
+        frame:GetY(), frame:GetWidth(), frame:GetHeight(), frame:IsVisible(), tostring(menu.layer))
 end
 
 -- 右上のフローティングボタンを、設定(sysmenu_only)に合わせて出し入れする。
@@ -1672,31 +1723,14 @@ function _G.addons_menu_create_frame()
     -- Lua では 0 も真なので、結局いつも実サイズを読んでいた。挙動は変えていない。
     local map_ui = ui.GetFrame("map")
     local screen_w = (map_ui and map_ui:GetWidth()) or 1920
-    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
     if final_x > 1920 and screen_w <= 1920 then
         final_x = default_x
         final_y = default_y
     end
-    -- **画面の外へ出さない。** 出てしまうと利用者からは「アイコンが消えた」ように見え、
-    -- 掴んで戻すこともできない(実機で発生)。y は今まで一度も丸めていなかった:
-    -- 上開きのときの「y - 項目の高さ」がそのまま保存に残ると、画面の上へ抜ける。
-    local clamped_x, clamped_y = final_x, final_y
-    if final_x > screen_w - 40 then
-        final_x = screen_w - 40
-    end
-    if final_y > screen_h - 40 then
-        final_y = screen_h - 40
-    end
-    if final_x < 0 then
-        final_x = 0
-    end
-    if final_y < 0 then
-        final_y = 0
-    end
-    if clamped_x ~= final_x or clamped_y ~= final_y then
-        g.vlog("addons_menu: ボタンの位置が画面外だったので戻した %d,%d → %d,%d (画面 %dx%d)", clamped_x, clamped_y,
-            final_x, final_y, screen_w, screen_h)
-    end
+    -- 画面の外へ出さない(理由は addons_menu_clamp_pos のコメント)。
+    -- y は今まで一度も丸めていなかった: 上開きのときの「y - 項目の高さ」が
+    -- そのまま保存に残ると、画面の上へ抜ける。
+    final_x, final_y = addons_menu_clamp_pos(final_x, final_y)
     _G["norisan"]["MENU"].x = final_x
     _G["norisan"]["MENU"].y = final_y
     addons_menu_save_json(_G["norisan"]["MENU"])
