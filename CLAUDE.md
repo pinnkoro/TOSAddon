@@ -46,6 +46,26 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
 * フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
 
+### Addons Menu へ並べる項目（ショートカット）
+
+一覧の行の☆と設定画面の「ショートカット」タブで、**各アドオンの設定画面を Addons Menu へ
+出せる**。集めているのは `addons_menu_collect_items`（[core/90_addons_menu.lua](nexus_addons_p/src/core/90_addons_menu.lua)）
+1 箇所で、出どころは 3 つ（相乗り項目 / registry の `config_func` / 設定を開く歯車）。
+
+* **`_G["norisan"]["MENU"] を書き換えないこと`**。アイコンの上書きは表示用の写しに対して行う。
+  共有テーブルを直接いじると本家側のメニューの見た目まで変わる。
+* **既定は出どころで違う**。相乗り項目は「出す」（既定を非表示にすると他アドオンの項目が
+  黙って消える）、registry の設定画面は「出さない」。
+* **`pairs` の順で並べない**。起動ごとに順番が変わる。相乗りはキー順、registry は登録順。
+* 設定の保存先は `settings.json` の `menu_shortcuts`（`g.menu_shortcut_*`）。
+  **トップレベルなので `valid_keys` への追加が要る**（書き忘れると毎回プルーニングで消える）。
+* 並べ方（向き・折り返す数）は `addons_menu.json`。**`addons_menu_save_json` は書き出すキーを
+  列挙している**ので、設定を足したらそこと「デフォルトに戻す」（`def_setting`）の両方に書く。
+  読むより先に保存する経路があると設定が消えるので、`addons_menu_create_frame` は
+  `addons_menu_load_layout()` を保存より前に呼んでいる。
+* 収集の結果は [docs/tests/test_addons_menu.lua](docs/tests/test_addons_menu.lua) が検査する
+  （並び順・既定・アイコンの上書きが共有テーブルを汚さないこと）。
+
 ## 不具合の話が出たら「誰の環境で起きたか」を最初に確認する
 
 不具合の相談を受けたら、調べ始める前に**開発者本人の手元で再現したものか、

@@ -43,9 +43,16 @@ local function addons_menu_save_json(tbl)
         open = tbl.open,
         layer = tbl.layer,
         -- 1 のとき、右上のフローティングボタンを出さずシステムメニューの右クリックだけにする
-        sysmenu_only = tbl.sysmenu_only
+        sysmenu_only = tbl.sysmenu_only,
+        -- 項目の並べ方。置き場所ごとに別で持つ("h" = 横に並べて折り返す / "v" = 縦に積んで折り返す)。
+        -- 既定は今までの見た目(右上 = 横 5 個、システムメニュー = 縦 12 個)。
+        float_dir = tbl.float_dir,
+        float_wrap = tbl.float_wrap,
+        sys_dir = tbl.sys_dir,
+        sys_wrap = tbl.sys_wrap
     })
 end
+
 
 local function addons_menu_load_json()
     local path = addons_menu_settings_path()
@@ -74,6 +81,92 @@ local function addons_menu_load_json()
     return legacy
 end
 
+-- 並べ方の既定値。**ここを変えると既存利用者の見た目が変わる**ので、
+-- 従来の実装と同じ値(右上は横 5 個で折り返し / システムメニューは縦 12 個で折り返し)にしてある。
+local ADDONS_MENU_LAYOUT_DEFAULT = {
+    float = {
+        dir = "h",
+        wrap = 5
+    },
+    sysmenu = {
+        dir = "v",
+        wrap = 12
+    }
+}
+
+-- 並べ方の設定を読む。**フローティング側を作らない経路でも要る**ので、
+-- addons_menu_create_frame 任せにせずここでも 1 回だけ読む
+-- (システムメニューの右クリックだけを使っている利用者はそちらしか通らない)。
+local function addons_menu_load_layout()
+    if g.addons_menu_layout_loaded then
+        return
+    end
+    local menu = _G["norisan"]["MENU"]
+    local cfg = addons_menu_load_json()
+    if cfg then
+        for _, key in ipairs({"float_dir", "float_wrap", "sys_dir", "sys_wrap"}) do
+            if menu[key] == nil and cfg[key] ~= nil then
+                menu[key] = cfg[key]
+            end
+        end
+    end
+    g.addons_menu_layout_loaded = true
+end
+
+-- 置き場所ごとの「向き」と「折り返す数」を返す。
+-- 壊れた値(手で書き換えた設定ファイル)でも並べられるよう、ここで必ず正す。
+local function addons_menu_layout(variant)
+    addons_menu_load_layout()
+    local menu = _G["norisan"]["MENU"]
+    local def = ADDONS_MENU_LAYOUT_DEFAULT[variant] or ADDONS_MENU_LAYOUT_DEFAULT.float
+    local dir, wrap
+    if variant == "sysmenu" then
+        dir, wrap = menu.sys_dir, menu.sys_wrap
+    else
+        dir, wrap = menu.float_dir, menu.float_wrap
+    end
+    if dir ~= "h" and dir ~= "v" then
+        dir = def.dir
+    end
+    wrap = math.floor(tonumber(wrap) or def.wrap)
+    if wrap < 1 then
+        wrap = 1
+    elseif wrap > 30 then
+        wrap = 30
+    end
+    return dir, wrap
+end
+
+-- 折り返しの計算。dir が "h" なら 1 行あたり wrap 個で下へ折り返し、
+-- "v" なら 1 列あたり wrap 個で横へ折り返す。戻り値は列数・行数と、
+-- **並べる番号(0 始まり)から (列, 行) を出す関数**。
+--
+-- 置き場所によって数える向きが逆(右上は先頭から、システムメニューは末尾から)なので、
+-- 番号の作り方は呼び元に任せ、ここでは「番号 → 位置」だけを持つ。
+local function addons_menu_grid(count, dir, wrap)
+    local cols, rows
+    if dir == "v" then
+        rows = math.min(count, wrap)
+        cols = math.ceil(count / wrap)
+    else
+        cols = math.min(count, wrap)
+        rows = math.ceil(count / wrap)
+    end
+    if cols < 1 then
+        cols = 1
+    end
+    if rows < 1 then
+        rows = 1
+    end
+    local function cell(n)
+        if dir == "v" then
+            return math.floor(n / wrap), n % wrap
+        end
+        return n % wrap, math.floor(n / wrap)
+    end
+    return cols, rows, cell
+end
+
 function _G.addons_menu_move_drag(frame, ctrl)
     if not frame then
         return
@@ -92,12 +185,490 @@ function _G.addons_menu_move_drag(frame, ctrl)
     addons_menu_save_json(_G["norisan"]["MENU"])
 end
 
+-- 並べる項目を集める。フローティングのメニューと apps(ESC のシステムメニュー)側で
+-- 同じ並びにしたいので、収集はここ 1 箇所に集約する。
+--
+-- 出どころは 3 つある。
+--   1. _G["norisan"]["MENU"] … Nexus Addons P 本体 / Mini Addons と、**他アドオンが
+--      相乗りで入れてきた項目**。既定は「出す」(既定を非表示にすると、他アドオンが
+--      登録した項目が黙って消えて「あのボタンが出なくなった」という報告になる)
+--   2. registry(g._nexus_addons_p)の設定画面 … 一覧の行の☆で選んだものだけ。既定は「出さない」
+--   3. Addons Menu の設定を開く歯車 … システムメニュー側だけ、末尾に足す
+--
+-- variant に "sysmenu" を渡すと、項目が icon_sysmenu / icon_inflate_sysmenu を
+-- 持っている場合にそちらへ差し替える。2 つのメニューは周りの見た目が違う
+-- (右上は自前の小さいアイコン、右下はシステムメニューのボタン群の隣)ので、
+-- 置き場所ごとに別の画像を使えるようにしてある。持っていない項目
+-- (他アドオンが登録したもの)は従来どおり icon をそのまま使う。
+--
+-- **_G["norisan"]["MENU"] を書き換えないこと。** あのテーブルは相乗り側と共有していて、
+-- アイコンの上書きを直接書き込むと本家側のメニューの見た目まで変わる。ここで作るのは
+-- 表示用の別テーブルで、共有テーブルからは値を読むだけにする。
+--
+-- list_all = true のときは「出さない」ものも落とさずに返し、各項目へ shown を付ける。
+-- 設定画面のショートカットタブ(出す / 出さないを選ぶ画面)がこれを使う。
+local function addons_menu_collect_items(variant, list_all)
+    local menu_src = _G["norisan"]["MENU"]
+    local items = {}
+    -- 相乗り側と共有しているテーブルから、表示に要るぶんだけを写した新しいテーブルを作る。
+    local function shape(kind, key, data, name, func)
+        local shortcut_key = g.menu_shortcut_key(kind, key)
+        local cfg = g.menu_shortcut_cfg(shortcut_key)
+        local icon = data and data.icon
+        local icon_inflate = data and data.icon_inflate
+        if variant == "sysmenu" and data then
+            icon = data.icon_sysmenu or icon
+            icon_inflate = data.icon_inflate_sysmenu or icon_inflate
+        end
+        -- 利用者が選んだアイコンは、置き場所によらず最優先。画像は引き伸ばして描くので、
+        -- 元の項目が持っていた「一回り大きく描く」指定は引き継がない。
+        if cfg and cfg.icon and cfg.icon ~= "" then
+            icon = cfg.icon
+            icon_inflate = nil
+        end
+        return {
+            key = kind .. "_" .. key,
+            shortcut_key = shortcut_key,
+            kind = kind,
+            name = name,
+            data = {
+                name = name,
+                func = func,
+                -- image は他アドオンが登録する固定文字列({img ...})。利用者がアイコンを
+                -- 選んだ項目は、そちらを優先したいので image を伏せる。
+                image = (cfg and cfg.icon and cfg.icon ~= "") and "" or (data and data.image),
+                icon = icon,
+                icon_inflate = icon_inflate
+            }
+        }
+    end
+    if menu_src then
+        -- **pairs の順で並べないこと。** 起動のたびに順番が変わる。キー順に固定する。
+        local keys = {}
+        for key, data in pairs(menu_src) do
+            if type(data) == "table" and key ~= "x" and key ~= "y" and key ~= "open" and key ~= "move" and data.name and
+                data.func then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            local data = menu_src[key]
+            local entry = shape("menu", key, data, data.name, data.func)
+            -- 相乗り側の既定は「出す」。従来どおりの見え方にするため。
+            entry.shown = g.menu_shortcut_shown(entry.shortcut_key, true)
+            -- 描く絵が無い項目は出せない(アイコンも image も登録していない相乗り項目)。
+            -- 設定画面には出すので、そこでアイコンを選べば出せるようになる。
+            -- **必ず true / false にすること。** `x and x ~= ""` は x が nil のとき nil を返し、
+            -- 設定画面側の「描けない印」の判定(== false)がすり抜ける。
+            entry.drawable = (entry.data.image ~= nil and entry.data.image ~= "") or
+                                 (entry.data.icon ~= nil and entry.data.icon ~= "")
+            if list_all or (entry.shown and entry.drawable) then
+                items[#items + 1] = entry
+            end
+        end
+    end
+    -- registry から、一覧の☆で選ばれた設定画面を足す。並びは registry の順で固定
+    -- (ここも pairs を使わない)。**OFF のアドオンは出さない**。初期化されていないので
+    -- 設定画面を開いても中で使う値が揃っておらず、一覧の☆も押せなくしてある。
+    if g.settings and g._nexus_addons_p then
+        for _, entry in ipairs(g._nexus_addons_p) do
+            local saved = g.settings[entry.key]
+            local config_func = entry.data.config_func
+            if saved and config_func and config_func ~= "" then
+                local shortcut = shape("addon", entry.key, nil, saved.name or entry.data.name, config_func)
+                shortcut.shown = g.menu_shortcut_shown(shortcut.shortcut_key, false)
+                shortcut.enabled = (saved.use == 1)
+                if not shortcut.data.icon or shortcut.data.icon == "" then
+                    shortcut.data.icon = g.MENU_SHORTCUT_DEFAULT_ICON
+                end
+                shortcut.drawable = true
+                if list_all or (shortcut.shown and shortcut.enabled) then
+                    items[#items + 1] = shortcut
+                end
+            end
+        end
+    end
+    -- 設定を開くボタンを最後に並べる。**システムメニュー側だけ**。
+    -- 右上のフローティング側は本体アイコンの右クリックで設定を開けるので、
+    -- 同じ導線を 2 つ並べない。システムメニュー側は右クリックが「一覧を開く」に
+    -- 使われていて設定へ行けないので、こちらにはボタンが要る。
+    --
+    -- ここは _G["norisan"]["MENU"] へは入れない。あのテーブルは相乗り側と共有していて、
+    -- 入れると本家側のメニューにもこちらの設定項目が出てしまうため、表示のときだけ足す。
+    -- 並び順を末尾にしているのは、既存の項目の位置がこの追加でずれないようにするため。
+    -- ショートカットタブの一覧(list_all)にも出さない。出す / 出さないを選べる項目ではない。
+    if variant ~= "sysmenu" or list_all then
+        return items
+    end
+    local setting_label = _G["norisan"]["MENU"].lang == "Japanese" and "Addons Menu の設定" or "Addons Menu settings"
+    table.insert(items, {
+        key = "addons_menu_setting",
+        kind = "builtin",
+        name = setting_label,
+        shown = true,
+        drawable = true,
+        data = {
+            name = setting_label,
+            -- config_button_normal は一覧フレームの設定ボタンと同じ既存アイコン。
+            -- image({img ...} のテキスト描画)ではなく icon(picture + ストレッチ)で持つ。
+            -- テキスト描画はボタンの内側余白が乗るぶん、同じ数値を指定しても他の
+            -- アイコンより小さく見える(実機で確認)。他項目と同じ経路に揃える。
+            icon = "config_button_normal",
+            -- 拡大しない。この項目はシステムメニュー側にしか出さず、そちらのセルは
+            -- apps のボタンと同寸(44)なので実寸で揃う。
+            icon_inflate = 0,
+            func = "addons_menu_setting_frame"
+        }
+    })
+    return items
+end
+
+-- 収集の結果は「並び順」「出す / 出さないの既定」「アイコンの上書き」がぶつかりやすく、
+-- どれも実機でしか出ない不具合になる。docs/tests/test_addons_menu.lua から呼べるよう
+-- g へも載せておく(呼び出し側は上のローカルをそのまま使う)。
+g.addons_menu_collect_items = addons_menu_collect_items
+
+-- ===== Addons Menu の設定画面 =====
+--
+-- 中身はタブで分ける。**タブは tab コントロールではなくボタンで作る。**
+-- この窓は chat_memberlist 土台の小さい窓で、ゲーム標準の tab を載せると skin の
+-- 縦幅に合わせて窓ごと大きくする必要があり、周りと馴染まない(cc_helper が同じ理由で
+-- ボタン式にしている)。
+--
+--   共通           … どこから開いても同じ設定(固定・レイヤー・詳細ログ・右上を出すか)
+--   並び           … 置き場所ごとの並べ方。右上とシステムメニューを左右に並べて見比べられる
+--   ショートカット … Addons Menu へ出す項目とアイコン
+local ADDONS_MENU_SETTING_FRAME = "addons_menu_setting"
+local ADDONS_MENU_SETTING_TABS = {{
+    key = "common",
+    ja = "共通",
+    etc = "General"
+}, {
+    key = "layout",
+    ja = "並び",
+    etc = "Layout"
+}, {
+    key = "shortcut",
+    ja = "ショートカット",
+    etc = "Shortcuts"
+}}
+-- タブごとの窓の大きさ。**中身(行数)を足したらここも直すこと。**
+local ADDONS_MENU_SETTING_SIZE = {
+    common = {400, 240},
+    layout = {430, 230},
+    shortcut = {470, 430}
+}
+local ADDONS_MENU_SETTING_TAB_H = 40
+
+local function addons_menu_ml(ja, etc)
+    return (_G["norisan"]["MENU"].lang == "Japanese") and ja or etc
+end
+
+local function addons_menu_setting_tab()
+    local tab = g.addons_menu_setting_tab
+    for _, def in ipairs(ADDONS_MENU_SETTING_TABS) do
+        if def.key == tab then
+            return tab
+        end
+    end
+    return "common"
+end
+
+-- 共通タブ。従来の設定画面の中身がそのまま入る(上開きだけは並びタブへ移した)。
+local function addons_menu_setting_build_common(body)
+    local def_setting = body:CreateOrGetControl("button", "def_setting", 10, 5, 150, 30)
+    AUTO_CAST(def_setting)
+    def_setting:SetText(addons_menu_ml("{ol}デフォルトに戻す", "{ol}Reset to default"))
+    def_setting:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_frame_ctrl")
+    local move_toggle = body:CreateOrGetControl('checkbox', "move_toggle", 10, 40, 30, 30)
+    AUTO_CAST(move_toggle)
+    move_toggle:SetCheck(_G["norisan"]["MENU"].move == true and 0 or 1)
+    move_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
+    move_toggle:SetText(addons_menu_ml("{ol}チェックするとフレーム固定", "{ol}Check to fix frame"))
+    -- 保存先だけ他項目と違い、Nexus Addons P 側の settings.json を見る(_ctrl 側のコメント参照)。
+    -- 本家検出で初期化を止めているときは g.settings が無いので、その場合は OFF 表示。
+    local verbose_log_toggle = body:CreateOrGetControl('checkbox', "verbose_log_toggle", 10, 75, 30, 30)
+    AUTO_CAST(verbose_log_toggle)
+    verbose_log_toggle:SetCheck((g.settings and g.settings.verbose_log == 1) and 1 or 0)
+    verbose_log_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
+    verbose_log_toggle:SetText(addons_menu_ml("{ol}詳細なログをシステムに出力する",
+        "{ol}Output verbose logs to system messages"))
+    -- 右上のフローティングボタンを消して、システムメニューの右クリックだけにする設定。
+    -- 右クリックの割り当て自体は常に行っているので、これは「右上を出すかどうか」だけ。
+    local sysmenu_only_toggle = body:CreateOrGetControl('checkbox', "sysmenu_only_toggle", 10, 110, 30, 30)
+    AUTO_CAST(sysmenu_only_toggle)
+    sysmenu_only_toggle:SetCheck(_G["norisan"]["MENU"].sysmenu_only == 1 and 1 or 0)
+    sysmenu_only_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
+    sysmenu_only_toggle:SetText(addons_menu_ml("{ol}システムメニューの右クリックのみにする(右上のボタンを消す)",
+        "{ol}System menu right click only (hide the floating button)"))
+    local layer_text = body:CreateOrGetControl('richtext', 'layer_text', 10, 148, 50, 20)
+    AUTO_CAST(layer_text)
+    layer_text:SetText(addons_menu_ml("{ol}レイヤー設定", "{ol}Set Layer"))
+    local layer_edit = body:CreateOrGetControl('edit', 'layer_edit', 130, 148, 70, 20)
+    AUTO_CAST(layer_edit)
+    layer_edit:SetFontName("white_16_ol")
+    layer_edit:SetTextAlign("center", "center")
+    layer_edit:SetText(_G["norisan"]["MENU"].layer or 79)
+    layer_edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
+end
+
+-- 並びタブ。右上とシステムメニューを**左右に並べる**。
+-- 置き場所ごとにタブを分けると、ほぼ同じ画面が 2 枚並んで「今どちらを触っているのか」が
+-- 分からなくなるうえ、別々に設定できること自体が見えない。
+local function addons_menu_setting_build_layout(body)
+    local col_x = {150, 290}
+    local variants = {"float", "sysmenu"}
+    local head = {addons_menu_ml("{ol}{#FFCC33}右上のメニュー", "{ol}{#FFCC33}Floating"),
+                  addons_menu_ml("{ol}{#FFCC33}システムメニュー", "{ol}{#FFCC33}System menu")}
+    for i, x in ipairs(col_x) do
+        local title = body:CreateOrGetControl("richtext", "col_head_" .. i, x, 8, 10, 20)
+        AUTO_CAST(title)
+        title:SetText(head[i])
+    end
+    local dir_label = body:CreateOrGetControl("richtext", "dir_label", 10, 40, 10, 20)
+    AUTO_CAST(dir_label)
+    dir_label:SetText(addons_menu_ml("{ol}並べる向き", "{ol}Direction"))
+    local wrap_label = body:CreateOrGetControl("richtext", "wrap_label", 10, 78, 10, 20)
+    AUTO_CAST(wrap_label)
+    wrap_label:SetText(addons_menu_ml("{ol}折り返す数", "{ol}Wrap after"))
+    for i, variant in ipairs(variants) do
+        local dir, wrap = addons_menu_layout(variant)
+        local x = col_x[i]
+        for j, d in ipairs({"h", "v"}) do
+            local btn = body:CreateOrGetControl("button", variant .. "_dir_" .. d, x + (j - 1) * 62, 36, 58, 26)
+            AUTO_CAST(btn)
+            -- 選んでいるほうを目立つ skin にする(cc_helper のタブと同じ見せ方)。
+            btn:SetSkinName(dir == d and "test_pvp_btn" or "test_gray_button")
+            btn:SetText(d == "h" and addons_menu_ml("{ol}横", "{ol}Rows") or addons_menu_ml("{ol}縦", "{ol}Cols"))
+            btn:SetTextTooltip(d == "h" and
+                                   addons_menu_ml("{ol}横に並べて、指定した数で下へ折り返す",
+                    "{ol}Fill rows, wrap downward") or
+                                   addons_menu_ml("{ol}縦に積んで、指定した数で横へ折り返す",
+                    "{ol}Stack in columns, wrap sideways"))
+            btn:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_frame_ctrl")
+        end
+        local edit = body:CreateOrGetControl("edit", variant .. "_wrap_edit", x, 76, 58, 24)
+        AUTO_CAST(edit)
+        edit:SetFontName("white_16_ol")
+        edit:SetTextAlign("center", "center")
+        edit:SetText(wrap)
+        edit:SetTextTooltip(addons_menu_ml("{ol}Enter で確定(1〜30)", "{ol}Press Enter to apply (1-30)"))
+        edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
+    end
+    -- 上開きは右上のメニューだけの設定(システムメニュー側は画面の端に合わせて自動で上下する)。
+    local open_label = body:CreateOrGetControl("richtext", "open_label", 10, 116, 10, 20)
+    AUTO_CAST(open_label)
+    open_label:SetText(addons_menu_ml("{ol}上へ開く", "{ol}Open upward"))
+    local open_toggle = body:CreateOrGetControl('checkbox', "open_toggle", col_x[1], 112, 30, 30)
+    AUTO_CAST(open_toggle)
+    open_toggle:SetCheck(_G["norisan"]["MENU"].open)
+    open_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
+    open_toggle:SetText("")
+    local none = body:CreateOrGetControl("richtext", "open_none", col_x[2], 116, 10, 20)
+    AUTO_CAST(none)
+    none:SetText(addons_menu_ml("{ol}{#999999}画面に合わせて自動", "{ol}{#999999}Automatic"))
+    local note = body:CreateOrGetControl("richtext", "layout_note", 10, 155, 10, 20)
+    AUTO_CAST(note)
+    note:SetText(addons_menu_ml("{ol}{#CCCCCC}{s14}出す項目はショートカットタブで選びます",
+        "{ol}{#CCCCCC}{s14}Choose the items in the Shortcuts tab"))
+end
+
+-- ショートカットタブ。今 Addons Menu へ並ぶ候補を全部出して、出す / 出さないとアイコンを選ぶ。
+--
+-- **他アドオンが相乗りで入れてきた項目もここに出る。** あちらは一覧の行を持たないので、
+-- ここが唯一の管理場所になる。
+local function addons_menu_setting_build_shortcut(body, w, h)
+    local gb = body:CreateOrGetControl("groupbox", "sc_gb", 5, 5, w - 10, h - 10)
+    AUTO_CAST(gb)
+    gb:SetSkinName("bg")
+    gb:RemoveAllChild()
+    gb:EnableScrollBar(1)
+    local items = addons_menu_collect_items(nil, true)
+    local row_h = 30
+    local y = 5
+    for idx, entry in ipairs(items) do
+        local disabled = (entry.kind == "addon") and (entry.enabled ~= true)
+        local icon_pic = gb:CreateOrGetControl("picture", "sc_pic_" .. idx, 8, y + 2, 24, 24)
+        AUTO_CAST(icon_pic)
+        if entry.data.icon and entry.data.icon ~= "" then
+            icon_pic:SetImage(entry.data.icon)
+            icon_pic:SetEnableStretch(1)
+        end
+        local name = gb:CreateOrGetControl("richtext", "sc_name_" .. idx, 40, y + 6, 10, 20)
+        AUTO_CAST(name)
+        -- 絵を持たない相乗り項目は、アイコンを選ぶまでメニューへ出せない。
+        -- 「☆を入れたのに出てこない」理由がここでしか分からないので、行に書いておく。
+        local label = "{ol}{s16}" .. (disabled and "{#777777}" or "{#FFFFFF}") .. entry.name
+        if not entry.drawable then
+            label = label .. addons_menu_ml("  {s13}{#FF9933}(アイコンを選ぶと出せます)",
+                "  {s13}{#FF9933}(choose an icon to show it)")
+        end
+        name:SetText(label)
+        if disabled then
+            name:EnableHitTest(1)
+            name:SetTextTooltip(addons_menu_ml("{ol}アドオンが OFF です。一覧で ON にすると出せます",
+                "{ol}The addon is OFF. Turn it on in the list first"))
+        end
+        local star = gb:CreateOrGetControl("button", "sc_show_" .. idx, w - 140, y + 2, 26, 26)
+        AUTO_CAST(star)
+        star:SetSkinName("None")
+        star:SetTextAlign("center", "center")
+        if disabled then
+            star:SetText("{ol}{s20}{#555555}" .. (entry.shown and "★" or "☆"))
+            star:SetTextTooltip(addons_menu_ml("{ol}アドオンが OFF の間は出せません",
+                "{ol}Cannot be shown while the addon is OFF"))
+        else
+            star:SetText(entry.shown and "{ol}{s20}{#FFCC33}★" or "{ol}{s20}{#999999}☆")
+            star:SetTextTooltip(addons_menu_ml("{ol}クリックで出す / 出さないを切り替え", "{ol}Click to show or hide"))
+            star:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_show_ctrl")
+            star:SetEventScriptArgString(ui.LBUTTONUP, entry.shortcut_key)
+        end
+        local icon_btn = gb:CreateOrGetControl("button", "sc_icon_" .. idx, w - 110, y + 2, 80, 26)
+        AUTO_CAST(icon_btn)
+        icon_btn:SetSkinName("test_gray_button")
+        icon_btn:SetText(addons_menu_ml("{ol}{s14}アイコン", "{ol}{s14}Icon"))
+        icon_btn:SetTextTooltip(addons_menu_ml("{ol}クリック: アイコンを選ぶ{nl}右クリック: 既定に戻す",
+            "{ol}Click: choose icon{nl}Right click: reset to default"))
+        icon_btn:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_icon_ctrl")
+        icon_btn:SetEventScriptArgString(ui.LBUTTONUP, entry.shortcut_key)
+        icon_btn:SetEventScript(ui.RBUTTONUP, "addons_menu_shortcut_icon_reset")
+        icon_btn:SetEventScriptArgString(ui.RBUTTONUP, entry.shortcut_key)
+        y = y + row_h
+    end
+    if #items == 0 then
+        local empty = gb:CreateOrGetControl("richtext", "sc_empty", 12, 10, 10, 20)
+        AUTO_CAST(empty)
+        empty:SetText(addons_menu_ml("{ol}{#FFA500}出せる項目がありません", "{ol}{#FFA500}Nothing can be added yet"))
+    end
+    pcall(function()
+        gb:InvalidateScrollBar()
+    end)
+end
+
+-- タブとその中身を作る。**開き直しでもタブ切り替えでもここを通る**ので、
+-- 中身(body)は毎回作り直す。窓の大きさもタブごとに違うのでここで合わせる。
+local function addons_menu_setting_build(setting)
+    local tab = addons_menu_setting_tab()
+    local size = ADDONS_MENU_SETTING_SIZE[tab]
+    local w, h = size[1], size[2]
+    setting:Resize(w, h)
+    local close = setting:CreateOrGetControl("button", "close", 0, 0, 30, 30)
+    AUTO_CAST(close)
+    close:SetImage("testclose_button")
+    close:SetGravity(ui.RIGHT, ui.TOP)
+    close:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_frame_ctrl")
+    for i, def in ipairs(ADDONS_MENU_SETTING_TABS) do
+        local btn = setting:CreateOrGetControl("button", "tab_" .. def.key, 10 + (i - 1) * 100, 8, 96, 26)
+        AUTO_CAST(btn)
+        btn:SetSkinName(def.key == tab and "test_pvp_btn" or "test_gray_button")
+        btn:SetText("{ol}{s16}" .. addons_menu_ml(def.ja, def.etc))
+        btn:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_tab_ctrl")
+        btn:SetEventScriptArgString(ui.LBUTTONUP, def.key)
+    end
+    local body = setting:CreateOrGetControl("groupbox", "body", 0, ADDONS_MENU_SETTING_TAB_H, w,
+        h - ADDONS_MENU_SETTING_TAB_H)
+    AUTO_CAST(body)
+    body:SetSkinName("None")
+    body:EnableScrollBar(0)
+    body:RemoveAllChild()
+    body:Resize(w, h - ADDONS_MENU_SETTING_TAB_H)
+    if tab == "layout" then
+        addons_menu_setting_build_layout(body)
+    elseif tab == "shortcut" then
+        addons_menu_setting_build_shortcut(body, w, h - ADDONS_MENU_SETTING_TAB_H)
+    else
+        addons_menu_setting_build_common(body)
+    end
+    -- タブによって窓の背が変わるので、画面からはみ出したぶんだけ戻す
+    -- (開いたときの位置合わせと同じ理由。addons_menu_setting_frame のコメント参照)。
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    local pos_x, pos_y = setting:GetX(), setting:GetY()
+    if pos_x + w > screen_w then
+        pos_x = screen_w - w
+    end
+    if pos_y + h > screen_h then
+        pos_y = screen_h - h
+    end
+    setting:SetPos(math.max(pos_x, 0), math.max(pos_y, 0))
+    g.vlog("addons_menu: 設定画面のタブ %s を組み立てた(%dx%d)", tab, w, h)
+end
+
+-- 設定画面が開いていれば中身を作り直す。開いていなければ何もしない。
+local function addons_menu_setting_rebuild()
+    local frame = ui.GetFrame(ADDONS_MENU_SETTING_FRAME)
+    if frame and frame:IsVisible() == 1 then
+        AUTO_CAST(frame)
+        addons_menu_setting_build(frame)
+    end
+end
+
+-- タブの切り替え。開いている窓の中身だけ作り直す。
+function _G.addons_menu_setting_tab_ctrl(setting, ctrl, tab_key, num)
+    g.addons_menu_setting_tab = tab_key
+    g.vlog("addons_menu: 設定画面のタブを %s にした", tostring(tab_key))
+    addons_menu_setting_rebuild()
+end
+
+-- ショートカットの☆(設定画面側)。一覧の行の☆と同じことをする。
+function _G.addons_menu_shortcut_show_ctrl(setting, ctrl, shortcut_key, num)
+    if not (g.settings and shortcut_key and shortcut_key ~= "") then
+        return
+    end
+    -- 既定は出どころで違う。"menu:"(相乗り)は出す、"addon:"(こちらの設定画面)は出さない。
+    local default_show = string.sub(shortcut_key, 1, 5) == "menu:"
+    local shown = g.menu_shortcut_shown(shortcut_key, default_show)
+    g.menu_shortcut_set(shortcut_key, "show", shown and 0 or 1)
+    _G.addons_menu_refresh_open()
+    addons_menu_setting_rebuild()
+    -- アドオン一覧の☆も同じ設定を見ているので、開いていれば合わせる。
+    if type(_G["_nexus_addons_p_list_build"]) == "function" then
+        local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
+        if list_frame then
+            pcall(_G["_nexus_addons_p_list_build"], list_frame, g.list_applied_filter or "", true)
+        end
+    end
+end
+
+function _G.addons_menu_shortcut_icon_ctrl(setting, ctrl, shortcut_key, num)
+    if not (shortcut_key and shortcut_key ~= "") then
+        return
+    end
+    local label = shortcut_key
+    for _, entry in ipairs(addons_menu_collect_items(nil, true)) do
+        if entry.shortcut_key == shortcut_key then
+            label = entry.name
+            break
+        end
+    end
+    _G.addons_menu_icon_picker_open(shortcut_key, label)
+end
+
+-- アイコンを既定へ戻す。エントリ自体は show を持つので消さず、icon だけ落とす。
+function _G.addons_menu_shortcut_icon_reset(setting, ctrl, shortcut_key, num)
+    if not (g.settings and shortcut_key and shortcut_key ~= "") then
+        return
+    end
+    g.menu_shortcut_set(shortcut_key, "icon", nil)
+    _G.addons_menu_refresh_open()
+    addons_menu_setting_rebuild()
+    ui.SysMsg(addons_menu_ml("{ol}アイコンを既定に戻しました", "{ol}Icon reset to default"))
+end
+
 function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
     local ctrl_name = ctrl:GetName()
     -- frame_name は相乗り側が入れることもあり、まだ誰も入れていない状態で
     -- 設定画面を開ける経路がある。フレーム名は固定なのでフォールバックを置き、
     -- それでも引けなければ frame 無しで進める(下は毎回 nil ガードする)。
     local frame = ui.GetFrame(_G["norisan"]["MENU"].frame_name or "norisan_menu_frame")
+    -- 閉じる / 隠すのは**設定画面そのもの**。第 1 引数はタブ化で groupbox(body)に
+    -- なることがあるので、ここは必ず名前から引き直す。
+    local setting_frame = ui.GetFrame(ADDONS_MENU_SETTING_FRAME)
+    if setting_frame then
+        AUTO_CAST(setting_frame)
+    end
     if ctrl_name == "layer_edit" then
         local layer = tonumber(ctrl:GetText())
         if layer then
@@ -106,14 +677,44 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
                 frame:SetLayerLevel(layer)
             end
             addons_menu_save_json(_G["norisan"]["MENU"])
-
-            local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}レイヤーを変更" or
-                               "{ol}Change Layer"
-            ui.SysMsg(notice)
+            ui.SysMsg(addons_menu_ml("{ol}レイヤーを変更", "{ol}Change Layer"))
             _G.addons_menu_create_frame()
-            setting:ShowWindow(0)
+            if setting_frame then
+                setting_frame:ShowWindow(0)
+            end
             return
         end
+    end
+    -- 折り返す数。Enter で確定する。数字以外や範囲外は addons_menu_layout 側で正すので、
+    -- ここでは読めた数字をそのまま保存し、表示は組み立て直しで正した値に入れ替わる。
+    if ctrl_name == "float_wrap_edit" or ctrl_name == "sysmenu_wrap_edit" then
+        local is_float = (ctrl_name == "float_wrap_edit")
+        local value = tonumber(ctrl:GetText())
+        if value then
+            if is_float then
+                _G["norisan"]["MENU"].float_wrap = value
+            else
+                _G["norisan"]["MENU"].sys_wrap = value
+            end
+            addons_menu_save_json(_G["norisan"]["MENU"])
+            _G.addons_menu_refresh_open()
+            g.vlog("addons_menu: %s の折り返しを %s にした", is_float and "float" or "sysmenu", tostring(value))
+        end
+        addons_menu_setting_rebuild()
+        return
+    end
+    if ctrl_name == "float_dir_h" or ctrl_name == "float_dir_v" or ctrl_name == "sysmenu_dir_h" or ctrl_name ==
+        "sysmenu_dir_v" then
+        local dir = string.sub(ctrl_name, -1)
+        if string.sub(ctrl_name, 1, 5) == "float" then
+            _G["norisan"]["MENU"].float_dir = dir
+        else
+            _G["norisan"]["MENU"].sys_dir = dir
+        end
+        addons_menu_save_json(_G["norisan"]["MENU"])
+        _G.addons_menu_refresh_open()
+        addons_menu_setting_rebuild()
+        return
     end
     if ctrl_name == "def_setting" then
         _G["norisan"]["MENU"].x = 1190
@@ -121,13 +722,23 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
         _G["norisan"]["MENU"].move = true
         _G["norisan"]["MENU"].open = 0
         _G["norisan"]["MENU"].layer = 79
+        -- 並べ方も既定へ戻す。**足した設定をここへ書き忘れると、
+        -- 「デフォルトに戻す」を押しても直らない項目が残る。**
+        _G["norisan"]["MENU"].float_dir = ADDONS_MENU_LAYOUT_DEFAULT.float.dir
+        _G["norisan"]["MENU"].float_wrap = ADDONS_MENU_LAYOUT_DEFAULT.float.wrap
+        _G["norisan"]["MENU"].sys_dir = ADDONS_MENU_LAYOUT_DEFAULT.sysmenu.dir
+        _G["norisan"]["MENU"].sys_wrap = ADDONS_MENU_LAYOUT_DEFAULT.sysmenu.wrap
         addons_menu_save_json(_G["norisan"]["MENU"])
         _G.addons_menu_create_frame()
-        setting:ShowWindow(0)
+        if setting_frame then
+            setting_frame:ShowWindow(0)
+        end
         return
     end
     if ctrl_name == "close" then
-        setting:ShowWindow(0)
+        if setting_frame then
+            setting_frame:ShowWindow(0)
+        end
         return
     end
     local is_check = ctrl:IsChecked()
@@ -165,7 +776,7 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
     elseif ctrl_name == "verbose_log_toggle" then
         -- このチェックはメニューの表示設定ではなくアドオン全体の設定なので、
         -- addons_menu.json ではなく本体の settings.json 側に置く
-        -- (addons_menu_save_json は {x,y,move,open,layer} しか書き出さない)。
+        -- (addons_menu_save_json は決まったキーしか書き出さない)。
         -- g.settings が無いのは本家検出で初期化を止めたときなので、その場合は何もしない。
         if g.settings then
             g.settings.verbose_log = is_check
@@ -185,7 +796,7 @@ end
 function _G.addons_menu_setting_frame(frame, ctrl)
     -- 同じ導線をもう一度押したら閉じる。閉じ方は × ボタンと同じ ShowWindow(0) にする
     -- (このフレームは CreateNewFrame で作り直せないので、破棄せず隠して使い回す)。
-    local opened = ui.GetFrame("addons_menu_setting")
+    local opened = ui.GetFrame(ADDONS_MENU_SETTING_FRAME)
     if opened and opened:IsVisible() == 1 then
         AUTO_CAST(opened)
         opened:ShowWindow(0)
@@ -193,10 +804,10 @@ function _G.addons_menu_setting_frame(frame, ctrl)
         return
     end
     g.vlog("addons_menu: 設定画面を開く(呼び元 %s)", ctrl and ctrl:GetName() or "unknown")
-    -- 中身(チェックボックスの行数)に合わせた大きさ。行を足したらここも直すこと。
-    -- 下の位置決めでも同じ値を使うので、Resize より前に決めておく。
-    local setting_w, setting_h = 380, 205
-    local setting = ui.CreateNewFrame("chat_memberlist", "addons_menu_setting", 0, 0, 0, 0)
+    -- 位置決めでも使うので、今のタブの大きさは Resize より前に読んでおく。
+    local size = ADDONS_MENU_SETTING_SIZE[addons_menu_setting_tab()]
+    local setting_w, setting_h = size[1], size[2]
+    local setting = ui.CreateNewFrame("chat_memberlist", ADDONS_MENU_SETTING_FRAME, 0, 0, 0, 0)
     AUTO_CAST(setting)
     setting:SetTitleBarSkin("None")
     setting:SetSkinName("chat_window")
@@ -235,137 +846,9 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     g.vlog("addons_menu: 設定画面の位置 %d,%d (呼び元 %d,%d 画面 %dx%d)", pos_x, pos_y, frame:GetX(), frame:GetY(),
         screen_w, screen_h)
     setting:ShowWindow(1)
-    local close = setting:CreateOrGetControl("button", "close", 0, 0, 30, 30)
-    AUTO_CAST(close)
-    close:SetImage("testclose_button")
-    close:SetGravity(ui.RIGHT, ui.TOP)
-    close:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_frame_ctrl")
-    local def_setting = setting:CreateOrGetControl("button", "def_setting", 10, 5, 150, 30)
-    AUTO_CAST(def_setting)
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}デフォルトに戻す" or "{ol}Reset to default"
-    def_setting:SetText(notice)
-    def_setting:SetEventScript(ui.LBUTTONUP, "addons_menu_setting_frame_ctrl")
-    local move_toggle = setting:CreateOrGetControl('checkbox', "move_toggle", 10, 35, 30, 30)
-    AUTO_CAST(move_toggle)
-    move_toggle:SetCheck(_G["norisan"]["MENU"].move == true and 0 or 1)
-    move_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}チェックするとフレーム固定" or
-                       "{ol}Check to fix frame"
-    move_toggle:SetText(notice)
-    local open_toggle = setting:CreateOrGetControl('checkbox', "open_toggle", 10, 70, 30, 30)
-    AUTO_CAST(open_toggle)
-    open_toggle:SetCheck(_G["norisan"]["MENU"].open)
-    open_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}チェックすると上開き" or
-                       "{ol}Check to open upward"
-    open_toggle:SetText(notice)
-    -- 保存先だけ他項目と違い、Nexus Addons P 側の settings.json を見る(_ctrl 側のコメント参照)。
-    -- 本家検出で初期化を止めているときは g.settings が無いので、その場合は OFF 表示。
-    local verbose_log_toggle = setting:CreateOrGetControl('checkbox', "verbose_log_toggle", 10, 105, 30, 30)
-    AUTO_CAST(verbose_log_toggle)
-    verbose_log_toggle:SetCheck((g.settings and g.settings.verbose_log == 1) and 1 or 0)
-    verbose_log_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}詳細なログをシステムに出力する" or
-                       "{ol}Output verbose logs to system messages"
-    verbose_log_toggle:SetText(notice)
-    -- 右上のフローティングボタンを消して、システムメニューの右クリックだけにする設定。
-    -- 右クリックの割り当て自体は常に行っているので、これは「右上を出すかどうか」だけ。
-    local sysmenu_only_toggle = setting:CreateOrGetControl('checkbox', "sysmenu_only_toggle", 10, 140, 30, 30)
-    AUTO_CAST(sysmenu_only_toggle)
-    sysmenu_only_toggle:SetCheck(_G["norisan"]["MENU"].sysmenu_only == 1 and 1 or 0)
-    sysmenu_only_toggle:SetEventScript(ui.LBUTTONDOWN, 'addons_menu_setting_frame_ctrl')
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and
-                       "{ol}システムメニューの右クリックのみにする(右上のボタンを消す)" or
-                       "{ol}System menu right click only (hide the floating button)"
-    sysmenu_only_toggle:SetText(notice)
-    local layer_text = setting:CreateOrGetControl('richtext', 'layer_text', 10, 175, 50, 20)
-    AUTO_CAST(layer_text)
-    local notice = _G["norisan"]["MENU"].lang == "Japanese" and "{ol}レイヤー設定" or "{ol}Set Layer"
-    layer_text:SetText(notice)
-    local layer_edit = setting:CreateOrGetControl('edit', 'layer_edit', 130, 175, 70, 20)
-    AUTO_CAST(layer_edit)
-    layer_edit:SetFontName("white_16_ol")
-    layer_edit:SetTextAlign("center", "center")
-    layer_edit:SetText(_G["norisan"]["MENU"].layer or 79)
-    layer_edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
+    addons_menu_setting_build(setting)
 end
 
--- 並べる項目を集める。フローティングのメニューと apps(ESC のシステムメニュー)側で
--- 同じ並びにしたいので、収集はここ 1 箇所に集約する。
---
--- variant に "sysmenu" を渡すと、項目が icon_sysmenu / icon_inflate_sysmenu を
--- 持っている場合にそちらへ差し替える。2 つのメニューは周りの見た目が違う
--- (右上は自前の小さいアイコン、右下はシステムメニューのボタン群の隣)ので、
--- 置き場所ごとに別の画像を使えるようにしてある。持っていない項目
--- (他アドオンが登録したもの)は従来どおり icon をそのまま使う。
-local function addons_menu_collect_items(variant)
-    local menu_src = _G["norisan"]["MENU"]
-    local items = {}
-    -- 差し替えは元のテーブルを書き換えず、表示用の浅いコピーへ行う。
-    -- _G["norisan"]["MENU"] は相乗り側と共有しているので、こちらの都合で
-    -- 中身を書き換えると相手の表示まで変わってしまう。
-    local function shape(key, data)
-        if variant ~= "sysmenu" or not (data.icon_sysmenu or data.icon_inflate_sysmenu) then
-            return {
-                key = key,
-                data = data
-            }
-        end
-        local copy = {}
-        for k, v in pairs(data) do
-            copy[k] = v
-        end
-        copy.icon = data.icon_sysmenu or data.icon
-        copy.icon_inflate = data.icon_inflate_sysmenu or data.icon_inflate
-        return {
-            key = key,
-            data = copy
-        }
-    end
-    if menu_src then
-        for key, data in pairs(menu_src) do
-            if type(data) == "table" then
-                if key ~= "x" and key ~= "y" and key ~= "open" and key ~= "move" and data.name and data.func and
-                    ((data.image and data.image ~= "") or (data.icon and data.icon ~= "")) then
-                    table.insert(items, shape(key, data))
-                end
-            end
-        end
-    end
-    -- 設定を開くボタンを最後に並べる。**システムメニュー側だけ**。
-    -- 右上のフローティング側は本体アイコンの右クリックで設定を開けるので、
-    -- 同じ導線を 2 つ並べない。システムメニュー側は右クリックが「一覧を開く」に
-    -- 使われていて設定へ行けないので、こちらにはボタンが要る。
-    --
-    -- ここは _G["norisan"]["MENU"] へは入れない。あのテーブルは相乗り側と共有していて、
-    -- 入れると本家側のメニューにもこちらの設定項目が出てしまうため、表示のときだけ足す。
-    -- 並び順を末尾にしているのは、既存の項目の位置がこの追加でずれないようにするため。
-    if variant ~= "sysmenu" then
-        return items
-    end
-    local setting_label = _G["norisan"]["MENU"].lang == "Japanese" and "Addons Menu の設定" or "Addons Menu settings"
-    table.insert(items, {
-        key = "addons_menu_setting",
-        data = {
-            name = setting_label,
-            -- config_button_normal は一覧フレームの設定ボタンと同じ既存アイコン。
-            -- image({img ...} のテキスト描画)ではなく icon(picture + ストレッチ)で持つ。
-            -- テキスト描画はボタンの内側余白が乗るぶん、同じ数値を指定しても他の
-            -- アイコンより小さく見える(実機で確認)。他項目と同じ経路に揃える。
-            icon = "config_button_normal",
-            -- それでも小さく見えるのは、この画像が絵の周りに余白を持っているため。
-            -- 引き伸ばしても余白ごと拡大されるので、セルより一回り大きく描いて
-            -- 見た目の大きさを他のアイコンへ合わせる(はみ出す分はフレームの余白で吸収する)。
-            -- 拡大しない。この項目はシステムメニュー側にしか出さず、そちらのセルは
-            -- apps のボタンと同寸(44)なので実寸で揃う。
-            -- ここは下の shape()(置き場所ごとの差し替え)を通らない位置で足しているので、
-            -- icon_inflate_sysmenu を書いても効かない。値は icon_inflate に直接入れること。
-            icon_inflate = 0,
-            func = "addons_menu_setting_frame"
-        }
-    })
-    return items
-end
 
 -- 項目 1 つ分の大きさ。フローティングのメニューとシステムメニュー側の一覧で
 -- 見た目を揃えるため、両方ここを見る(片方だけ 40 にしていて不揃いだった)。
@@ -434,40 +917,51 @@ function _G.addons_menu_item_click(frame, ctrl, func_name, num)
     pcall(addons_menu_sysmenu_close, true)
 end
 
+-- 右上のフローティングメニューの項目を並べる。
+--
+-- 並べ方は設定(向き / 折り返す数)で決まる。**フレームは本体ボタン(40px)の下または上へ
+-- 伸びる**ので、行数が決まらないと高さも上開きの座標も出せない。
+-- 縦積み("v")のときは列が右へ増える。横並び("h")と同じく「下と右へ伸びる」に揃えてある
+-- (このフレームは利用者が好きな位置へ動かせるので、伸びる向きは固定しないと分かりにくい)。
 function _G.addons_menu_toggle_items_display(frame, ctrl, open_dir)
     local open_up = (open_dir == 1)
-    local max_cols = 5
     local item_w = ADDONS_MENU_ITEM_SIZE
     local item_h = ADDONS_MENU_ITEM_SIZE
     local y_off_down = 35
     local items = addons_menu_collect_items()
     local num_items = #items
-    local num_rows = math.ceil(num_items / max_cols)
+    if num_items == 0 then
+        -- 出す項目が 1 つも無いとき(全部「出さない」にした)は、本体ボタンだけの大きさに戻す。
+        -- 空の枠を開くと「押したのに何も出ない」ように見える。
+        frame:Resize(40, 40)
+        frame:SetPos(frame:GetX(), _G["norisan"]["MENU"].y or 30)
+        local only_btn = GET_CHILD(frame, "addons_menu_pic")
+        if only_btn then
+            only_btn:SetPos(0, 0)
+        end
+        g.vlog("addons_menu: 右上の一覧は項目が無いので開かない")
+        return
+    end
+    local dir, wrap = addons_menu_layout("float")
+    local num_cols, num_rows, cell = addons_menu_grid(num_items, dir, wrap)
     local items_h = num_rows * item_h
     local frame_h_new = 40 + items_h
     local frame_y_new = _G["norisan"]["MENU"].y or 30
     if open_up then
         frame_y_new = frame_y_new - items_h
     end
-    local frame_w_new
-    if num_rows == 1 then
-        frame_w_new = math.max(40, num_items * item_w)
-    else
-        frame_w_new = math.max(40, max_cols * item_w)
-    end
+    local frame_w_new = math.max(40, num_cols * item_w)
     frame:SetPos(frame:GetX(), frame_y_new)
     frame:Resize(frame_w_new, frame_h_new)
     for idx, entry in ipairs(items) do
-        local item_sidx = idx - 1
-        local col = item_sidx % max_cols
+        local col, row = cell(idx - 1)
         local x = col * item_w
-        local y = 0
+        local y
         if open_up then
-            local logical_row_from_bottom = math.floor(item_sidx / max_cols)
-            y = (frame_h_new - 40) - ((logical_row_from_bottom + 1) * item_h)
+            -- 上開きは下から数える。row 0 が本体ボタンのすぐ上に来る。
+            y = (frame_h_new - 40) - ((row + 1) * item_h)
         else
-            local row_down = math.floor(item_sidx / max_cols)
-            y = y_off_down + (row_down * item_h)
+            y = y_off_down + (row * item_h)
         end
         addons_menu_create_item(frame, "menu_item_" .. entry.key, entry, x, y, item_w, item_h)
     end
@@ -479,6 +973,8 @@ function _G.addons_menu_toggle_items_display(frame, ctrl, open_dir)
             main_btn:SetPos(0, 0)
         end
     end
+    g.vlog("addons_menu: 右上の一覧を並べた 項目=%d 向き=%s 折り返し=%d 列=%d 行=%d", num_items, dir, wrap, num_cols,
+        num_rows)
 end
 
 -- ===== システムメニュー(sysmenu の "system" ボタン)側の導線 =====
@@ -680,6 +1176,12 @@ function _G.addons_menu_sysmenu_toggle()
         addons_menu_sysmenu_close()
         return
     end
+    _G.addons_menu_sysmenu_open()
+end
+
+-- 一覧を組み立てて出す。**開閉の判断はしない**ので、出したまま中身を作り直したいとき
+-- (☆や並べ方を変えた直後)にも呼べる。開閉の入口は上の toggle。
+function _G.addons_menu_sysmenu_open(silent)
     local sysmenu = ui.GetFrame(SYSMENU_FRAME_NAME)
     local btn = sysmenu and GET_CHILD(sysmenu, SYSMENU_BTN_NAME)
     if not btn then
@@ -694,12 +1196,14 @@ function _G.addons_menu_sysmenu_toggle()
     local items = addons_menu_collect_items("sysmenu")
     local item_w, item_h = SYSMENU_ITEM_SIZE, SYSMENU_ITEM_SIZE
     local pitch = SYSMENU_ITEM_PITCH
-    -- 縦一列に積む。設定(collect_items が末尾に足す歯車)が一番下に来て、
-    -- 他のボタンはその上へ、登録順に下から積み上がる。
-    -- 項目が増えて画面に入らなくなったら、左へ列を足して折り返す。
-    local max_rows = 12
-    local num_rows = math.min(#items, max_rows)
-    local num_cols = math.ceil(#items / max_rows)
+    -- 並べ方は設定(向き / 折り返す数)で決まる。既定は縦一列で、設定(collect_items が
+    -- 末尾に足す歯車)が一番下に来て、他のボタンはその上へ登録順に積み上がる。
+    -- 入らなくなったら左へ列を足して折り返す。
+    --
+    -- **ここは右下(ボタンの側)から数える。** フレームの右下をボタンに合わせて置くので、
+    -- 末尾の項目が角に来るように並べないと、項目が増えたときに既存の項目の位置が動く。
+    local dir, wrap = addons_menu_layout("sysmenu")
+    local num_cols, num_rows = addons_menu_grid(#items, dir, wrap)
     local inner_w, inner_h = num_cols * pitch, num_rows * pitch
     -- 端の余白。ここは apps に合わせた実寸で描くので、はみ出す分の吸収は要らない。
     local pad = 2
@@ -753,22 +1257,55 @@ function _G.addons_menu_sysmenu_toggle()
         pos_y = 0
     end
     frame:SetPos(pos_x, pos_y)
+    -- 位置は「末尾から数えた番号」で決める。addons_menu_grid の cell はこの番号を
+    -- そのまま (列, 行) にするので、右下の角から左と上へ伸びる。
+    local _, _, cell = addons_menu_grid(#items, dir, wrap)
     for idx, entry in ipairs(items) do
-        -- 末尾(= 設定)を一番下に置きたいので、下から数えた位置で配置する。
-        local from_bottom = #items - idx
-        local col = math.floor(from_bottom / max_rows)
-        local row_in_col = from_bottom % max_rows
-        -- 列も右端(ボタン側)から左へ足す。座標は端の余白の内側で、間隔(pitch)で数える。
+        local col, row = cell(#items - idx)
+        -- 座標は端の余白の内側で、間隔(pitch)で数える。
         local x = pad + inner_w - (col + 1) * pitch
-        local y = pad + inner_h - (row_in_col + 1) * pitch
+        local y = pad + inner_h - (row + 1) * pitch
         addons_menu_create_item(frame, "sysmenu_item_" .. entry.key, entry, x, y, item_w, item_h)
     end
     frame:ShowWindow(1)
     -- ui.OpenFrame 経由では音が鳴らなかった(実機で確認)ので、明示的に鳴らす。
-    addons_menu_play_se(SYSMENU_SE_OPEN)
+    -- 出したまま中身を作り直しただけのとき(silent)は鳴らさない。開いた覚えが無いのに
+    -- 音だけ鳴ると、押していないボタンが反応したように聞こえる。
+    if not silent then
+        addons_menu_play_se(SYSMENU_SE_OPEN)
+    end
     -- 位置ずれを追えるよう、判断材料(ボタンの画面座標・画面の高さ・上下どちらに出したか)を出す。
-    g.vlog("addons_menu: システムメニューの一覧を開いた 項目=%d 位置=%d,%d ボタン=%d,%d 画面高=%d %s", #items,
-        frame:GetX(), frame:GetY(), btn_x, btn_y, screen_h, (pos_y == below_y) and "下に表示" or "上に表示")
+    g.vlog("addons_menu: システムメニューの一覧を開いた 項目=%d 向き=%s 折り返し=%d 位置=%d,%d ボタン=%d,%d 画面高=%d %s",
+        #items, dir, wrap, frame:GetX(), frame:GetY(), btn_x, btn_y, screen_h,
+        (pos_y == below_y) and "下に表示" or "上に表示")
+end
+
+-- 開いたままのメニューへ、項目の増減やアイコンの変更を反映する。
+-- どちらも開いていなければ何もしない(閉じている窓を勝手に開かない)。
+--
+-- 一覧の☆や設定画面から呼ばれる。**呼び元は「定義されていれば呼ぶ」形にすること。**
+-- core/20_lifecycle.lua は読み込み時ガードの内側から呼ぶ経路があり、
+-- こちらが読まれる前に呼ばれうる。
+function _G.addons_menu_refresh_open()
+    local list = ui.GetFrame(SYSMENU_LIST_FRAME)
+    if list and list:IsVisible() == 1 then
+        _G.addons_menu_sysmenu_open(true)
+    end
+    local frame = ui.GetFrame(_G["norisan"]["MENU"].frame_name or "norisan_menu_frame")
+    -- フローティング側は「本体ボタン(40px)より背が高い = 項目を出している」で判断する。
+    -- 開いているかどうかを持っている変数は無く、フレームの大きさが唯一の手がかり。
+    if frame and frame:IsVisible() == 1 and frame:GetHeight() > 40 then
+        AUTO_CAST(frame)
+        -- 項目が減ると余ったコントロールが残るので、作り直す前に落とす
+        -- (本体ボタンだけは残す。addons_menu_frame_open が畳むときと同じ扱い)。
+        for i = frame:GetChildCount() - 1, 0, -1 do
+            local child = frame:GetChildByIndex(i)
+            if child and child:GetName() ~= "addons_menu_pic" then
+                frame:RemoveChild(child:GetName())
+            end
+        end
+        _G.addons_menu_toggle_items_display(frame, nil, _G["norisan"]["MENU"].open or 0)
+    end
 end
 
 function _G.addons_menu_frame_open(frame, ctrl)
@@ -806,6 +1343,10 @@ end
 -- 改称で本家とグローバル名がぶつからなくなったので、_G 側に寄せて揃える。
 function _G.addons_menu_create_frame()
     _G["norisan"]["MENU"].lang = option.GetCurrentCountry()
+    -- **並べ方の設定を先に読むこと。** この関数は下で addons_menu_save_json を呼ぶが、
+    -- あれは決まったキーを丸ごと書き出すので、読む前に保存すると float_dir などが
+    -- 未設定のまま上書きされ、**ログインのたびに並べ方の設定が消える**。
+    addons_menu_load_layout()
     local loaded_cfg = addons_menu_load_json()
     if loaded_cfg and loaded_cfg.layer ~= nil then
         _G["norisan"]["MENU"].layer = loaded_cfg.layer

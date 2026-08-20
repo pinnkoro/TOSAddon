@@ -65,6 +65,11 @@ jobs:
       - name: monster_kill_count のロジックテスト
         run: luajit docs/tests/test_monster_kill_count.lua
 
+      # Addons Menu へ並べる項目の集め方(並び順・既定・アイコンの上書き)。実機でしか
+      # 表に出ないが、pairs のまま並べると起動ごとに順番が変わるなど壊れやすい。
+      - name: Addons Menu の項目収集テスト
+        run: luajit docs/tests/test_addons_menu.lua
+
       # コンテキストメニューの横取りは、戻し忘れるとゲーム中の全ての右クリックメニューを
       # 巻き込む。復帰・素の戻り値・項目の差し替えを機械で見る。
       - name: mini_addons のメニュー横取りテスト

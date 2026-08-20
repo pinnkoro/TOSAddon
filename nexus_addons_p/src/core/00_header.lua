@@ -1666,6 +1666,71 @@ function _nexus_addons_p_search_clear(parent, ctrl)
     end
 end
 
+-- ===== Addons Menu のショートカット設定 =====
+--
+-- アドオン一覧の行に置く☆(core/20_lifecycle.lua)と、Addons Menu の一覧
+-- (core/90_addons_menu.lua)の両方が読み書きするので、触り方をここへ集約する。
+-- **90_addons_menu.lua は読み込み時ガードの外に居る**ので、あちらから呼べるように
+-- 置き場所はこのファイル(ガードの外)であること。
+--
+-- 保存先は settings.json のトップレベル menu_shortcuts。
+--   menu_shortcuts = { ["addon:another_warehouse"] = { show = 1, icon = "..." }, ... }
+--
+-- **キーは名前空間を分けること。** Nexus Addons P のアドオン(registry のキー)と、
+-- 他アドオンが相乗りで入れてくる項目(_G["norisan"]["MENU"] のキー)は別の出どころで、
+-- 綴りがぶつかる保証が無い。前者は "addon:"、後者は "menu:" を付けて区別する。
+--
+-- **知らないキーを消さないこと。** 相乗り側は自分の GAME_START で登録するので、
+-- そのアドオンを外している起動ではキーが存在しない。掃除すると入れ直したときに
+-- 設定が失われるので、「今のテーブルに無いものは出さない」だけにする。
+g.MENU_SHORTCUT_DEFAULT_ICON = "config_button_normal"
+
+function g.menu_shortcut_key(kind, key)
+    return tostring(kind) .. ":" .. tostring(key)
+end
+
+-- 設定を読む。無ければ nil(既定値の判断は呼び元が行う。既定は出どころで違う:
+-- registry のアドオンは「出さない」、相乗り項目は「出す」)。
+function g.menu_shortcut_cfg(key)
+    if not (g.settings and g.settings.menu_shortcuts) then
+        return nil
+    end
+    local cfg = g.settings.menu_shortcuts[key]
+    if type(cfg) ~= "table" then
+        return nil
+    end
+    return cfg
+end
+
+-- 出すかどうか。default_show は設定がまだ無いときの既定。
+function g.menu_shortcut_shown(key, default_show)
+    local cfg = g.menu_shortcut_cfg(key)
+    if cfg == nil or cfg.show == nil then
+        return default_show and true or false
+    end
+    return cfg.show == 1
+end
+
+-- 設定を書いて保存する。value が nil のときはその項目だけ消す
+-- (アイコンを既定へ戻すときに使う。エントリ自体は show を持つので残す)。
+function g.menu_shortcut_set(key, field, value)
+    if not g.settings then
+        return false
+    end
+    g.settings.menu_shortcuts = g.settings.menu_shortcuts or {}
+    local cfg = g.settings.menu_shortcuts[key]
+    if type(cfg) ~= "table" then
+        cfg = {}
+        g.settings.menu_shortcuts[key] = cfg
+    end
+    cfg[field] = value
+    if type(_G["_nexus_addons_p_save_settings"]) == "function" then
+        _nexus_addons_p_save_settings()
+    end
+    g.vlog("menu_shortcut: %s の %s を %s にした", tostring(key), tostring(field), tostring(value))
+    return true
+end
+
 function g.debug_print_table(tbl, indent)
     indent = indent or ""
     for key, value in pairs(tbl) do

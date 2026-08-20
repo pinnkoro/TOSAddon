@@ -16,6 +16,7 @@ function _nexus_addons_p_load_settings()
     -- すぐ下のプルーニングで毎回消され、設定を保存しても復元できない。
     valid_keys.verbose_log = true
     valid_keys.list_collapsed = true -- 一覧のカテゴリ見出しを畳んでいるか（_nexus_addons_p_list_build）
+    valid_keys.menu_shortcuts = true -- Addons Menu へ出す項目とアイコン（g.menu_shortcut_*）
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -546,11 +547,11 @@ end
 -- 行の高さと ON/OFF トグルの幅。行の中の座標計算が両方を見るので定数にしてある。
 local LIST_ROW_H = 34
 local LIST_TOGGLE_W = 60
--- 操作列(ON/OFF・設定)を横に並べたときの幅。内訳は
---   トグル 0..LIST_TOGGLE_W / 設定 +8 から 25
--- で、末尾は LIST_TOGGLE_W + 8 + 25。**行を作る側の座標とここが食い違うと
+-- 操作列(ON/OFF・設定・☆)を横に並べたときの幅。内訳は
+--   トグル 0..LIST_TOGGLE_W / 設定 +8 から 25 / ☆ +8 から 25
+-- で、末尾は LIST_TOGGLE_W + 8 + 25 + 8 + 25。**行を作る側の座標とここが食い違うと
 -- 右詰めがずれる**ので、片方だけ直さないこと。
-local LIST_CTRL_W = LIST_TOGGLE_W + 33
+local LIST_CTRL_W = LIST_TOGGLE_W + 66
 -- 下段(一括操作ボタン)に空ける高さ。ボタンは高さ 28 なので、上下に少し余白が残る。
 local LIST_FOOTER_H = 40
 
@@ -801,6 +802,37 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
             config_btn:SetText("{img config_button_normal 25 25}")
             if entry.data.config_func and entry.data.config_func ~= "" then
                 config_btn:SetEventScript(ui.LBUTTONUP, entry.data.config_func)
+            end
+            -- 設定画面を Addons Menu へ出すかどうかの☆。開ける関数(config_func)が無い行には
+            -- 置かない(押しても何も起きない項目をメニューへ足せてしまうため)。
+            --
+            -- **アドオンが OFF のときは押せなくする。** OFF のアドオンは初期化されておらず、
+            -- 設定画面を開くと中で使う値が揃っていない。行から消さずに薄く出すのは、
+            -- 消すと ON / OFF のたびに行の見た目が変わって落ち着かないため。
+            -- 設定の値は残すので、ON に戻せばそのまま復活する。
+            if entry.data.config_func and entry.data.config_func ~= "" then
+                local shortcut_key = g.menu_shortcut_key("addon", entry.key)
+                local shown = g.menu_shortcut_shown(shortcut_key, false)
+                local star = box:CreateOrGetControl("button", "menu_" .. entry.key,
+                    ctrl_x + LIST_TOGGLE_W + 8 + 25 + 8, by + 8, 25, 25)
+                AUTO_CAST(star)
+                star:SetSkinName("None")
+                star:SetTextAlign("center", "center")
+                if use ~= 1 then
+                    star:SetText("{ol}{s20}{#555555}" .. (shown and "★" or "☆"))
+                    star:SetTextTooltip(g.lang == "Japanese" and
+                                            "{ol}アドオンを ON にすると Addons Menu へ出せます" or
+                                            "{ol}Turn the addon ON to add it to the Addons Menu")
+                else
+                    star:SetText((shown and "{ol}{s20}{#FFCC33}★" or "{ol}{s20}{#999999}☆"))
+                    star:SetTextTooltip(g.lang == "Japanese" and
+                                            "{ol}クリック: Addons Menu へ出す / 出さない{nl}右クリック: アイコンを選ぶ" or
+                                            "{ol}Click: show in Addons Menu{nl}Right click: choose icon")
+                    star:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_toggle_menu_shortcut")
+                    star:SetEventScriptArgString(ui.LBUTTONUP, entry.key)
+                    star:SetEventScript(ui.RBUTTONUP, "_nexus_addons_p_menu_shortcut_icon")
+                    star:SetEventScriptArgString(ui.RBUTTONUP, entry.key)
+                end
             end
         end
     end
@@ -1088,6 +1120,49 @@ function _nexus_addons_p_toggle_addons(list_gb, use_toggle, child_addon_name, nu
     else
         _nexus_addons_p_frame_init()
     end
+end
+
+-- 一覧の行の☆。この設定画面を Addons Menu(右上のメニューとシステムメニューの右クリック)へ
+-- 出すかどうかを切り替える。**OFF のアドオンにはこのイベントを張っていない**ので、
+-- ここへ来るのは ON の行だけ。
+function _nexus_addons_p_toggle_menu_shortcut(list_gb, ctrl, addon_key, num)
+    if not (g.settings and addon_key and addon_key ~= "") then
+        return
+    end
+    local shortcut_key = g.menu_shortcut_key("addon", addon_key)
+    local shown = g.menu_shortcut_shown(shortcut_key, false)
+    g.menu_shortcut_set(shortcut_key, "show", shown and 0 or 1)
+    local display = (g.settings[addon_key] and g.settings[addon_key].name) or addon_key
+    local msg
+    if g.lang == "Japanese" then
+        msg = display .. (shown and " を Addons Menu から外しました" or " を Addons Menu へ出しました")
+    else
+        msg = display .. (shown and " removed from the Addons Menu" or " added to the Addons Menu")
+    end
+    ui.SysMsg("{ol}" .. msg)
+    -- 開きっぱなしのメニューにも反映する(閉じているときは何もしない)。
+    if type(_G["addons_menu_refresh_open"]) == "function" then
+        pcall(_G["addons_menu_refresh_open"])
+    end
+    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
+    if list_frame then
+        _nexus_addons_p_list_build(list_frame, g.list_applied_filter or "", true)
+    end
+end
+
+-- 一覧の行の☆の右クリック。アイコン選択ウィンドウを開く。
+-- 実体は core/90_addons_menu.lua 側(読み込み時ガードの外)に置いてあるので、
+-- 定義されているかを見てから呼ぶ。
+function _nexus_addons_p_menu_shortcut_icon(list_gb, ctrl, addon_key, num)
+    if not (g.settings and addon_key and addon_key ~= "") then
+        return
+    end
+    if type(_G["addons_menu_icon_picker_open"]) ~= "function" then
+        g.vlog("menu_shortcut: アイコン選択が定義されていない")
+        return
+    end
+    local display = (g.settings[addon_key] and g.settings[addon_key].name) or addon_key
+    _G["addons_menu_icon_picker_open"](g.menu_shortcut_key("addon", addon_key), display)
 end
 
 function _nexus_addons_p_GAME_START(_nexus_addons_p, msg)
