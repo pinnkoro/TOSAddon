@@ -1406,6 +1406,12 @@ g.search_typing_delay = 0.3
 -- 「×」ボタンの名前。検索欄の子として作るので、検索欄ごとに 1 つ。
 g.search_clear_name = "nap_search_clear"
 
+-- 「×」から検索関数を呼んでいる間だけ真。**打鍵で空になったのか「×」で消されたのかを
+-- アドオン側で見分けるためのもの。** 見分けが要るのは Focus() の扱い:
+-- 打鍵で空になった経路は利用者が入力中 = 元から入力位置があるので戻してよいが、
+-- 「×」はマウス操作なので戻すと ESC の 1 回目を食って窓が閉じなくなる。
+g.search_clear_running = false
+
 -- [key] = {frame=, name=, handler=, arg_num=, delay=, seq=, last=, incremental=}
 -- key は handler 名と引数の組。**検索欄そのものを持たない**のは、打鍵から実行までの
 -- 0.3 秒の間に × ボタンで窓を閉じられると、破棄済みのコントロールを掴んだままになるため。
@@ -1465,6 +1471,13 @@ function g.search_clear_sync(edit)
         local entry = key ~= nil and g.search_typing[key] or nil
         if entry ~= nil then
             entry.last = nil
+            -- **世代番号も進めること。** 予約済みの検索を無効にする手段はこれしかない
+            -- (グローバルの ReserveScript に取り消しが無い)。進めないと、打鍵から
+            -- 実行までの間にコードが検索欄を空へ戻した場合でも古い予約がそのまま発火する。
+            -- 実例: another_warehouse は打鍵の 0.5 秒以内にタブを切り替えると、後から
+            -- 発火した検索が Another_warehouse_tab_change をタブ 1 固定で呼び直し、
+            -- 利用者が選んだタブを無言で巻き戻していた。
+            entry.seq = entry.seq + 1
         end
     end)
 end
@@ -1628,15 +1641,17 @@ function _nexus_addons_p_search_clear(parent, ctrl)
             return
         end
         edit:SetText("")
+        -- 打鍵で予約済みの検索の無効化(世代番号を進める)も search_clear_sync が行う。
         g.search_clear_sync(edit)
-        -- 打鍵で予約済みの検索を無効にする(消した後に古い検索語で上書きされないように)。
-        entry.seq = entry.seq + 1
         local frame, live_edit = search_edit_of(entry)
         if live_edit == nil then
             return
         end
+        g.search_clear_running = true
         search_run(entry, frame, live_edit, "")
     end)
+    -- pcall が失敗した経路でも必ず戻す(戻し忘れると以後ずっと「×から来た」扱いになる)。
+    g.search_clear_running = false
     if not ok then
         g.log_error_once("search_clear", string.format("incremental_search: × の処理に失敗(%s)", tostring(err)))
     end

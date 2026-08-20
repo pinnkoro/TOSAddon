@@ -570,12 +570,18 @@ function Characters_item_serch_item_search(my_frame, ctrl, str, num)
         -- 入力位置が外れて次の 1 文字がどこにも入らない。作り直した側へ戻しておく。
         -- (窓を開いた直後の Focus() は ESC の 1 回目を食うので禁じているが、ここは
         --  既に開いていて利用者が入力中の窓 = 元から入力位置がある状態を保つだけ)
-        local new_frame = ui.GetFrame(addon_name_lower .. "characters_item_serch")
-        if new_frame then
-            local new_edit = GET_CHILD(new_frame, "search_edit")
-            if new_edit then
-                AUTO_CAST(new_edit)
-                new_edit:Focus()
+        --
+        -- **「×」から来たときは戻さないこと。** そちらはマウス操作で入力位置が無い状態
+        -- なので、戻すと ESC の 1 回目を食って窓が閉じなくなる(この窓は
+        -- esc_register_destroy で ESC スタックに積んである)。
+        if not g.search_clear_running then
+            local new_frame = ui.GetFrame(addon_name_lower .. "characters_item_serch")
+            if new_frame then
+                local new_edit = GET_CHILD(new_frame, "search_edit")
+                if new_edit then
+                    AUTO_CAST(new_edit)
+                    new_edit:Focus()
+                end
             end
         end
         return
