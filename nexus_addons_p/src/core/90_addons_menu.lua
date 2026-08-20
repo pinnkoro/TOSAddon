@@ -477,7 +477,8 @@ local function addons_menu_setting_build_common(body)
     for i, line in ipairs(notes) do
         local note = body:CreateOrGetControl("richtext", "init_note_" .. i, 10, 200 + (i - 1) * 18, 10, 20)
         AUTO_CAST(note)
-        note:SetText("{ol}{#CCCCCC}{s14}" .. line)
+        -- 背景("test_frame_low")が明るいので、薄い灰色にしないこと(沈んで読めない)。
+        note:SetText("{ol}{#FFFFFF}{s14}" .. line)
     end
 end
 
@@ -535,11 +536,12 @@ local function addons_menu_setting_build_layout(body)
     open_toggle:SetText("")
     local none = body:CreateOrGetControl("richtext", "open_none", col_x[2], 116, 10, 20)
     AUTO_CAST(none)
-    none:SetText(addons_menu_ml("{ol}{#999999}画面に合わせて自動", "{ol}{#999999}Automatic"))
+    none:SetText(addons_menu_ml("{ol}{#FFFFFF}画面に合わせて自動", "{ol}{#FFFFFF}Automatic"))
     local note = body:CreateOrGetControl("richtext", "layout_note", 10, 155, 10, 20)
     AUTO_CAST(note)
-    note:SetText(addons_menu_ml("{ol}{#CCCCCC}{s14}出す項目はショートカットタブで選びます",
-        "{ol}{#CCCCCC}{s14}Choose the items in the Shortcuts tab"))
+    -- 文字色は白 + 縁取り。**薄い灰色にしないこと。** 背景("test_frame_low")が明るいので沈む。
+    note:SetText(addons_menu_ml("{ol}{#FFFFFF}{s14}出す項目はショートカットタブで選びます",
+        "{ol}{#FFFFFF}{s14}Choose the items in the Shortcuts tab"))
 end
 
 -- ショートカットタブ。今 Addons Menu へ並ぶ候補を全部出して、出す / 出さないとアイコンを選ぶ。
@@ -585,8 +587,8 @@ local function addons_menu_setting_build_shortcut(body, w, h)
     view_btn:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_view_ctrl")
     local count_text = body:CreateOrGetControl("richtext", "sc_count", 205, 8, 10, 20)
     AUTO_CAST(count_text)
-    count_text:SetText(string.format(addons_menu_ml("{ol}{s14}{#CCCCCC}%d / %d 件",
-        "{ol}{s14}{#CCCCCC}%d of %d"), #rows, total))
+    count_text:SetText(string.format(addons_menu_ml("{ol}{s14}{#FFFFFF}%d / %d 件",
+        "{ol}{s14}{#FFFFFF}%d of %d"), #rows, total))
     local gb = body:CreateOrGetControl("groupbox", "sc_gb", 5, 32, w - 10, h - 37)
     AUTO_CAST(gb)
     gb:SetSkinName("bg")
@@ -1018,7 +1020,10 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     local setting = ui.CreateNewFrame("chat_memberlist", ADDONS_MENU_SETTING_FRAME, 0, 0, 0, 0)
     AUTO_CAST(setting)
     setting:SetTitleBarSkin("None")
-    setting:SetSkinName("chat_window")
+    -- 他の設定画面と同じ skin にする。**"chat_window" は半透明**で、後ろの画面が透けて
+    -- 文字が読みにくかった(実機で指摘)。アドオン一覧や各アドオンの設定画面はどれも
+    -- "test_frame_low" なので、見た目をそちらへ揃える。
+    setting:SetSkinName("test_frame_low")
     setting:Resize(setting_w, setting_h)
     setting:SetLayerLevel(999)
     setting:EnableHitTest(1)
