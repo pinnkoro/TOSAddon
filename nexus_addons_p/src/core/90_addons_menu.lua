@@ -187,6 +187,11 @@ function _G.addons_menu_move_drag(frame, ctrl)
     _G["norisan"]["MENU"].x = frame:GetX()
     _G["norisan"]["MENU"].y = y_to_save
     addons_menu_save_json(_G["norisan"]["MENU"])
+    -- 「動かない」「離すと戻る」の切り分けは、押した後の実座標と保存した値を
+    -- 突き合わせないと付かない。掴めているか(移動可否)も併せて出す。
+    g.vlog("addons_menu: ボタンを離した 実位置=%d,%d 高さ=%d 保存=%d,%d 移動可=%s 上開き=%s", frame:GetX(),
+        current_frame_y, current_frame_h, _G["norisan"]["MENU"].x, _G["norisan"]["MENU"].y,
+        tostring(_G["norisan"]["MENU"].move), tostring(_G["norisan"]["MENU"].open))
 end
 
 -- 並べる項目を集める。フローティングのメニューと apps(ESC のシステムメニュー)側で
@@ -1357,6 +1362,8 @@ local function addons_menu_apply_frame_settings()
     AUTO_CAST(frame)
     addons_menu_collapse_frame(frame)
     frame:SetLayerLevel(menu.layer or 79)
+    frame:EnableHitTest(1)
+    frame:EnableHittestFrame(1)
     frame:EnableMove(menu.move == true and 1 or 0)
     menu.x, menu.y = addons_menu_clamp_pos(menu.x or 1190, menu.y or 30)
     frame:SetPos(menu.x, menu.y)
@@ -1757,6 +1764,11 @@ function _G.addons_menu_create_frame()
     frame:SetTitleBarSkin("None")
     frame:Resize(40, 40)
     frame:SetLayerLevel(_G["norisan"]["MENU"].layer)
+    -- **EnableMove(1) だけでは掴めない。** タイトルバーを消しているので、ドラッグは
+    -- フレーム本体で受けるしかなく、本体のヒットテストが無効だとマウスが素通りする
+    -- (market_favorite_rebuild が同じ理由で「動かない」不具合になっていた)。
+    frame:EnableHitTest(1)
+    frame:EnableHittestFrame(1)
     frame:EnableMove(_G["norisan"]["MENU"].move == true and 1 or 0)
     frame:SetPos(_G["norisan"]["MENU"].x, _G["norisan"]["MENU"].y)
     frame:SetEventScript(ui.LBUTTONUP, "addons_menu_move_drag")
