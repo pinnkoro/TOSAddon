@@ -264,6 +264,48 @@ g.settings.menu_shortcuts["menu:zzz_other"] = {
 }
 check("上書きはどちらにも効く", icon_of(g.addons_menu_collect_items("sysmenu"), "menu:zzz_other"), "star_mark")
 
+print("[10] 折り返しの計算（縦積み / 横並び）")
+-- 縦積み: 1 列 wrap 個。番号は列優先で進む。
+local cols, rows, cell = g.addons_menu_grid(5, "v", 3)
+check("縦 5 個 / 折り返し 3 → 列", cols, 2)
+check("縦 5 個 / 折り返し 3 → 行", rows, 3)
+local c0, r0 = cell(0)
+local c2, r2 = cell(2)
+local c3, r3 = cell(3)
+check("0 番は 0 列 0 行", c0 .. "," .. r0, "0,0")
+check("2 番は 0 列 2 行", c2 .. "," .. r2, "0,2")
+check("3 番で列が変わる", c3 .. "," .. r3, "1,0")
+-- 横並び: 1 行 wrap 個。番号は行優先で進む。
+cols, rows, cell = g.addons_menu_grid(5, "h", 3)
+check("横 5 個 / 折り返し 3 → 列", cols, 3)
+check("横 5 個 / 折り返し 3 → 行", rows, 2)
+local c1, r1 = cell(3)
+check("3 番で行が変わる", c1 .. "," .. r1, "0,1")
+
+print("[11] どの番号もセルが重ならず、枠の中に収まる")
+local overlapped, outside = false, false
+for _, dir in ipairs({"h", "v"}) do
+    for _, wrap in ipairs({1, 3, 5, 12}) do
+        for _, count in ipairs({1, 4, 13, 40}) do
+            local w, h, at = g.addons_menu_grid(count, dir, wrap)
+            local seen = {}
+            for n = 0, count - 1 do
+                local col, row = at(n)
+                local key = col .. "," .. row
+                if seen[key] then
+                    overlapped = true
+                end
+                seen[key] = true
+                if col < 0 or col >= w or row < 0 or row >= h then
+                    outside = true
+                end
+            end
+        end
+    end
+end
+check("重なりが無い", overlapped, false)
+check("枠からはみ出さない", outside, false)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

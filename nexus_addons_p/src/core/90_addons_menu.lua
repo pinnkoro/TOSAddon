@@ -167,6 +167,10 @@ local function addons_menu_grid(count, dir, wrap)
     return cols, rows, cell
 end
 
+-- 折り返しの計算は右上とシステムメニューの両方が見ていて、間違えると項目が重なる。
+-- docs/tests/test_addons_menu.lua から呼べるよう g へも載せる(呼び出し側は上のローカル)。
+g.addons_menu_grid = addons_menu_grid
+
 function _G.addons_menu_move_drag(frame, ctrl)
     if not frame then
         return
