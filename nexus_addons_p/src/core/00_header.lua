@@ -1666,6 +1666,77 @@ function _nexus_addons_p_search_clear(parent, ctrl)
     end
 end
 
+-- ===== 初回ロードの分割実行(スロットル) =====
+--
+-- ログイン直後は、登録されている全アドオンの on_init を **1 tick あたり数個ずつ**に
+-- 割って走らせる(core/20_lifecycle.lua の _nexus_addons_p_async_safe_call)。
+-- その「1 回あたりの件数」を利用者が変えられるようにしたのがここ。設定画面
+-- (Addons Menu の設定 → 共通タブ)の「初期化の速さ」から入る。
+--
+-- **待ち時間は処理の重さと無関係に積む。** 従来は 0.1 秒ごとに 2 件だったので、
+-- 51 個なら実際の処理が 0 秒でも 2.5 秒かかる。登録の末尾に来るアドオンほど遅れて
+-- 有効になり、market_favorite_rebuild は実測で GAME_START の 5 秒後だった
+-- (addons/market_favorite_rebuild のコメント参照)。
+-- そこで tick 間隔は 0.05 秒に固定し、**件数だけ**を可変にする。
+-- 件数 1 なら従来と同じ約 2.5 秒、既定の 4 で約 0.65 秒、上限 12 で約 0.2 秒。
+--
+-- **tick 間隔を 0.01 秒(素の作法)まで詰めないこと。** 素のクライアントは「止めずに
+-- できるだけ速く」を 0.01 か 0(毎フレーム)で書く(_PROCESS_MOVE_FRAME /
+-- _PROCESS_RESIZE_FRAME / UPDATE_TABKEY_VISIBLE など 23 箇所)。ただし 0.01 は
+-- フレーム時間(60fps で 16.7ms)で頭打ちになるので、実質「毎フレーム N 件」= fps 依存に
+-- なる。設定画面に所要秒数を出している以上、fps で倍違うのは説明と食い違う。
+-- 0.05 なら 20fps でも表示どおりの wall-clock になる。
+--
+-- **大きくするほど 1 フレームの取り分が増える**ので上限を置く。時間予算(time_limit)も
+-- 件数に連れて上げるが、こちらは **16ms = 60fps の 1 フレーム**で頭打ちにする。
+-- 素のクライアントには「1 フレームの時間予算」という考え方が無く
+-- (imcTime.GetAppTimeMS() は全体で 6 ファイル、どれも経過時間の表示)、意図して
+-- 1 フレーム以上を使う処理も見当たらない。1 フレーム分で切り上げるのが素の感覚に沿う。
+-- 予算を見るのは「次の 1 件へ進む前」だけなので、1 件で 100ms かかるアドオンは
+-- どの設定でもその tick を丸ごと使う。予算は軽い init をどこまで詰め込むかの上限でしかない。
+g.INIT_BATCH_MIN = 1
+g.INIT_BATCH_MAX = 12
+g.INIT_BATCH_DEFAULT = 4
+g.INIT_TICK_SEC = 0.05
+-- 1 tick の時間予算の上限(ms)。60fps の 1 フレーム分。
+g.INIT_TIME_LIMIT_MAX = 16
+
+-- 設定値から、実際に使う (件数, 時間予算 ms) を出す。
+-- **数字でない / 範囲外は既定とクランプで正す。** 設定ファイルは利用者が手で書き
+-- 換えられるので、0 や負数が入ると while が 1 件も進まないまま毎 tick 回り続ける
+-- (初期化が永久に終わらない)。ここを通す限りその形にはならない。
+-- 純ロジックなので docs/tests/test_core.lua から検査できる。
+function g.init_throttle(batch)
+    batch = tonumber(batch)
+    if not batch then
+        batch = g.INIT_BATCH_DEFAULT
+    end
+    batch = math.floor(batch)
+    if batch < g.INIT_BATCH_MIN then
+        batch = g.INIT_BATCH_MIN
+    elseif batch > g.INIT_BATCH_MAX then
+        batch = g.INIT_BATCH_MAX
+    end
+    -- 従来は 2 件 / 6ms = 1 件あたり 3ms。同じ比で伸ばし、16ms(60fps の 1 フレーム)で止める。
+    local time_limit = batch * 3
+    if time_limit < 6 then
+        time_limit = 6
+    elseif time_limit > g.INIT_TIME_LIMIT_MAX then
+        time_limit = g.INIT_TIME_LIMIT_MAX
+    end
+    return batch, time_limit
+end
+
+-- 件数 count のアドオンを初期化し終えるまでの目安(秒)。設定画面の説明文で使う。
+function g.init_estimate_sec(count, batch)
+    local per_tick = (g.init_throttle(batch))
+    count = tonumber(count) or 0
+    if count <= 0 then
+        return 0
+    end
+    return math.ceil(count / per_tick) * g.INIT_TICK_SEC
+end
+
 -- ===== Addons Menu のショートカット設定 =====
 --
 -- アドオン一覧の行に置く☆(core/20_lifecycle.lua)と、Addons Menu の一覧
@@ -1713,7 +1784,11 @@ end
 
 -- 設定を書いて保存する。value が nil のときはその項目だけ消す
 -- (アイコンを既定へ戻すときに使う。エントリ自体は show を持つので残す)。
-function g.menu_shortcut_set(key, field, value)
+--
+-- defer = true のときは保存しない。**まとめて書き換える処理はこれを使うこと**
+-- (並べ替えは一覧全体へ番号を振り直すので、そのまま呼ぶと 1 回の押下で
+--  設定ファイルを項目数ぶん書くことになる)。呼び元が最後に 1 回保存すること。
+function g.menu_shortcut_set(key, field, value, defer)
     if not g.settings then
         return false
     end
@@ -1724,7 +1799,7 @@ function g.menu_shortcut_set(key, field, value)
         g.settings.menu_shortcuts[key] = cfg
     end
     cfg[field] = value
-    if type(_G["_nexus_addons_p_save_settings"]) == "function" then
+    if not defer and type(_G["_nexus_addons_p_save_settings"]) == "function" then
         _nexus_addons_p_save_settings()
     end
     g.vlog("menu_shortcut: %s の %s を %s にした", tostring(key), tostring(field), tostring(value))

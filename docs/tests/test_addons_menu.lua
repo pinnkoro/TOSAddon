@@ -264,7 +264,37 @@ g.settings.menu_shortcuts["menu:zzz_other"] = {
 }
 check("上書きはどちらにも効く", icon_of(g.addons_menu_collect_items("sysmenu"), "menu:zzz_other"), "star_mark")
 
-print("[10] 折り返しの計算（縦積み / 横並び）")
+print("[10] 並べ替え（ショートカットタブの▲▼）")
+reset_settings()
+-- 相乗り 2 件 + registry 2 件を出した状態から、order を入れて並べ替える。
+g.settings.menu_shortcuts["addon:" .. KEY_A] = {
+    show = 1
+}
+g.settings.menu_shortcuts["addon:" .. KEY_B] = {
+    show = 1
+}
+local default_order = names_of(g.addons_menu_collect_items())
+g.settings.menu_shortcuts["menu:zzz_other"] = {
+    order = 1
+}
+check("order を入れた項目が先頭へ来る", names_of(g.addons_menu_collect_items()):find("menu:zzz_other", 1, true), 1)
+-- order を持たない項目は、既定の並びを保ったまま後ろへ回る。
+local rest = names_of(g.addons_menu_collect_items()):gsub("^menu:zzz_other,", "")
+check("残りは既定の並びのまま", rest, (default_order:gsub("menu:zzz_other,", "")))
+-- 同じ番号が並んでも順番が揺れないこと（table.sort は安定ではない）。
+g.settings.menu_shortcuts["menu:aaa_other"] = {
+    order = 1
+}
+local tied = names_of(g.addons_menu_collect_items())
+local stable = true
+for _ = 1, 20 do
+    if names_of(g.addons_menu_collect_items()) ~= tied then
+        stable = false
+    end
+end
+check("同じ番号でも並びが揺れない", stable, true)
+
+print("[11] 折り返しの計算（縦積み / 横並び）")
 -- 縦積み: 1 列 wrap 個。番号は列優先で進む。
 local cols, rows, cell = g.addons_menu_grid(5, "v", 3)
 check("縦 5 個 / 折り返し 3 → 列", cols, 2)
@@ -282,7 +312,7 @@ check("横 5 個 / 折り返し 3 → 行", rows, 2)
 local c1, r1 = cell(3)
 check("3 番で行が変わる", c1 .. "," .. r1, "0,1")
 
-print("[11] どの番号もセルが重ならず、枠の中に収まる")
+print("[12] どの番号もセルが重ならず、枠の中に収まる")
 local overlapped, outside = false, false
 for _, dir in ipairs({"h", "v"}) do
     for _, wrap in ipairs({1, 3, 5, 12}) do

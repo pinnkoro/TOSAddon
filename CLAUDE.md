@@ -57,6 +57,12 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **既定は出どころで違う**。相乗り項目は「出す」（既定を非表示にすると他アドオンの項目が
   黙って消える）、registry の設定画面は「出さない」。
 * **`pairs` の順で並べない**。起動ごとに順番が変わる。相乗りはキー順、registry は登録順。
+  利用者が▲▼で並べ替えた分は `menu_shortcuts` の `order`。**`order` を持たない項目は末尾へ回す**
+  （相乗り項目は起動ごとに顔ぶれが変わるので、知らない項目が並びの真ん中へ割り込まないように）。
+  `table.sort` は安定ではないので、元の位置を最後の決め手にすること。
+  並べ替えは一覧全体へ番号を振り直す（隣と入れ替えるだけだと、番号を持たない項目が混ざったとき
+  「押しても動かない」組み合わせが残る）。まとめ書きは `g.menu_shortcut_set(..., defer)` で
+  溜めて、最後に 1 回だけ保存する。
 * 設定の保存先は `settings.json` の `menu_shortcuts`（`g.menu_shortcut_*`）。
   **トップレベルなので `valid_keys` への追加が要る**（書き忘れると毎回プルーニングで消える）。
 * 並べ方（向き・折り返す数）は `addons_menu.json`。**`addons_menu_save_json` は書き出すキーを

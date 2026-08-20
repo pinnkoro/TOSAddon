@@ -17,6 +17,7 @@ function _nexus_addons_p_load_settings()
     valid_keys.verbose_log = true
     valid_keys.list_collapsed = true -- 一覧のカテゴリ見出しを畳んでいるか（_nexus_addons_p_list_build）
     valid_keys.menu_shortcuts = true -- Addons Menu へ出す項目とアイコン（g.menu_shortcut_*）
+    valid_keys.init_batch = true -- 初回ロードで 1 tick に初期化する件数（g.init_throttle）
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -58,6 +59,14 @@ function _nexus_addons_p_load_settings()
     end
     if settings.verbose_log == nil then
         settings.verbose_log = 0 -- 既定は OFF（普段のチャットを埋めない）
+        changed = true
+    end
+    -- 初回ロードのスロットル。既定は推奨値。**ここで正規化しておくこと。**
+    -- 設定ファイルを手で書き換えて 0 や文字列を入れられると、正さない限り
+    -- 分割実行が 1 件も進まないまま回り続ける（g.init_throttle のコメント参照）。
+    local normalized_batch = (g.init_throttle(settings.init_batch))
+    if settings.init_batch ~= normalized_batch then
+        settings.init_batch = normalized_batch
         changed = true
     end
     g.settings = settings
@@ -437,7 +446,14 @@ function _nexus_addons_p_init_addons(is_toggle, toggled_addon_name, _nexus_addon
     end
     if not g.loaded then
         _nexus_addons_p:SetUserValue("FUNC_INDEX", 1)
-        _nexus_addons_p:RunUpdateScript("_nexus_addons_p_async_safe_call", 0.1)
+        -- tick 間隔は固定で、速さは 1 tick の件数（g.settings.init_batch）で変える。
+        -- 所要時間の目安をログへ残しておくと、「あのアドオンだけ効かない」の報告で
+        -- 何秒後に有効化されるはずだったのかが分かる。
+        g.init_started_ms = imcTime.GetAppTimeMS()
+        local batch = g.settings and g.settings.init_batch
+        g.vlog("非同期の初期化を開始(%d 件 / 1 tick %d 件 / 目安 %.2f 秒)", #g._nexus_addons_p,
+            (g.init_throttle(batch)), g.init_estimate_sec(#g._nexus_addons_p, batch))
+        _nexus_addons_p:RunUpdateScript("_nexus_addons_p_async_safe_call", g.INIT_TICK_SEC)
         return
     else
         for _, entry in ipairs(g._nexus_addons_p) do
@@ -462,9 +478,10 @@ end
 
 function _nexus_addons_p_async_safe_call(_nexus_addons_p)
     local start_time = imcTime.GetAppTimeMS()
-    local time_limit = 6
+    -- 1 tick の件数と時間予算は設定から出す（設定画面の「初期化の速さ」）。
+    -- 毎 tick 読み直すので、g.settings が差し替わっても次の tick から追従する。
+    local max_process_per_frame, time_limit = g.init_throttle(g.settings and g.settings.init_batch)
     local process_count = 0
-    local max_process_per_frame = 2
     while true do
         local func_index = _nexus_addons_p:GetUserIValue("FUNC_INDEX")
         local entry = g._nexus_addons_p[func_index]
@@ -477,10 +494,12 @@ function _nexus_addons_p_async_safe_call(_nexus_addons_p)
             -- 途中で止まっている**(更新スクリプトが外れた / どれかの on_init が返って
             -- こない)。止まると FUNC_INDEX 以降のアドオンは初期化されず、g.loaded も
             -- false のままなので次の GAME_START_3SEC で 1 件目からやり直しになる。
-            -- 分割実行は 0.1 秒ごとに 2 件ずつなので、登録の末尾にあるアドオンほど
-            -- 遅れて有効になる(実測で GAME_START の 5 秒後)。「あのアドオンだけ効かない」
-            -- という報告では、まずこの行と当該アドオンの init 行の有無を見ること。
-            g.vlog("非同期の初期化が完了(%d 件 / 失敗 %d 件)", func_index - 1, g.error_count or 0)
+            -- 分割実行は 0.05 秒ごとに g.settings.init_batch 件ずつなので、登録の末尾に
+            -- あるアドオンほど遅れて有効になる(件数 2 相当だった頃の実測で GAME_START の
+            -- 5 秒後)。「あのアドオンだけ効かない」という報告では、まずこの行と当該
+            -- アドオンの init 行の有無、そして上の「開始」の行が出す目安の秒数を見ること。
+            g.vlog("非同期の初期化が完了(%d 件 / 失敗 %d 件 / %d ms)", func_index - 1, g.error_count or 0,
+                imcTime.GetAppTimeMS() - (g.init_started_ms or imcTime.GetAppTimeMS()))
             if g.error_count == 0 then
                 ts("All add-ons initialized successfully.")
             else

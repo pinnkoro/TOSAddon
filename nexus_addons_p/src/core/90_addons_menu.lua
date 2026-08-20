@@ -235,6 +235,10 @@ local function addons_menu_collect_items(variant, list_all)
             shortcut_key = shortcut_key,
             kind = kind,
             name = name,
+            -- 利用者が並べ替えた順。設定していない項目は nil のままで、下の並べ替えで末尾へ回る
+            -- (相乗り項目はアドオンを入れた / 外した起動で顔ぶれが変わるので、
+            --  知らない項目が既存の並びへ割り込まないようにする)。
+            order = cfg and tonumber(cfg.order) or nil,
             data = {
                 name = name,
                 func = func,
@@ -293,6 +297,28 @@ local function addons_menu_collect_items(variant, list_all)
             end
         end
     end
+    -- 利用者が決めた順(ショートカットタブの▲▼)へ並べ替える。
+    --
+    -- **order を持たない項目は末尾へ回す。** 相乗り項目は後から増減するので、
+    -- 知らない項目が既存の並びの真ん中へ割り込むと、並べ替えた意味が無くなる。
+    -- 同じ order 同士と order 無し同士は、上で決めた既定の並び(相乗りはキー順 /
+    -- registry は登録順)を保つ。**table.sort は安定ではない**ので、
+    -- 元の位置を控えて必ず最後の決め手にすること。
+    for idx, entry in ipairs(items) do
+        entry.natural = idx
+    end
+    table.sort(items, function(a, b)
+        if a.order and b.order then
+            if a.order ~= b.order then
+                return a.order < b.order
+            end
+        elseif a.order then
+            return true
+        elseif b.order then
+            return false
+        end
+        return a.natural < b.natural
+    end)
     -- 設定を開くボタンを最後に並べる。**システムメニュー側だけ**。
     -- 右上のフローティング側は本体アイコンの右クリックで設定を開けるので、
     -- 同じ導線を 2 つ並べない。システムメニュー側は右クリックが「一覧を開く」に
@@ -359,7 +385,7 @@ local ADDONS_MENU_SETTING_TABS = {{
 }}
 -- タブごとの窓の大きさ。**中身(行数)を足したらここも直すこと。**
 local ADDONS_MENU_SETTING_SIZE = {
-    common = {400, 240},
+    common = {430, 300},
     layout = {430, 230},
     shortcut = {470, 430}
 }
@@ -415,6 +441,44 @@ local function addons_menu_setting_build_common(body)
     layer_edit:SetTextAlign("center", "center")
     layer_edit:SetText(_G["norisan"]["MENU"].layer or 79)
     layer_edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
+    -- 初回ロードの分割実行の速さ。詳細ログと同じくアドオン全体の設定なので、
+    -- 保存先は addons_menu.json ではなく本体の settings.json（_ctrl 側のコメント参照）。
+    -- 出す数値は 1 つだけにする。tick 間隔と時間予算は g.init_throttle が連動させるので、
+    -- 3 つ並べても噛み合わせが崩れるだけで利用者が正しく決められない。
+    local init_label = body:CreateOrGetControl("richtext", "init_label", 10, 178, 50, 20)
+    AUTO_CAST(init_label)
+    init_label:SetText(addons_menu_ml("{ol}初期化の速さ", "{ol}Init speed"))
+    local shown_batch = (g.init_throttle(g.settings and g.settings.init_batch))
+    local init_edit = body:CreateOrGetControl("edit", "init_batch_edit", 130, 178, 70, 20)
+    AUTO_CAST(init_edit)
+    init_edit:SetFontName("white_16_ol")
+    init_edit:SetTextAlign("center", "center")
+    init_edit:SetText(shown_batch)
+    init_edit:SetTextTooltip(addons_menu_ml(
+        string.format("{ol}Enter で確定(%d〜%d / 推奨 %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX, g.INIT_BATCH_DEFAULT),
+        string.format("{ol}Press Enter to apply (%d-%d, recommended %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX,
+            g.INIT_BATCH_DEFAULT)))
+    init_edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
+    -- 何の数字なのかと、上げると何を失うのかを添える。数字だけ出しても決められない。
+    -- 所要時間は今の登録数から出す(アドオンを足しても説明文がずれない)。
+    local addon_count = #g._nexus_addons_p
+    local estimate = g.init_estimate_sec(addon_count, shown_batch)
+    local notes = {}
+    notes[1] = addons_menu_ml(
+        string.format("ログイン直後に 1 回で初期化する数(%d〜%d / 推奨 %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX,
+            g.INIT_BATCH_DEFAULT),
+        string.format("Addons initialized per tick right after login (%d-%d, recommended %d)", g.INIT_BATCH_MIN,
+            g.INIT_BATCH_MAX, g.INIT_BATCH_DEFAULT))
+    notes[2] = addons_menu_ml("大きいほど速く終わりますが、そのぶん動作が重くなります",
+        "Higher finishes sooner but makes those frames heavier")
+    notes[3] = addons_menu_ml(
+        string.format("今の設定なら %d 個で約 %.2f 秒。次のログインから反映されます", addon_count, estimate),
+        string.format("About %.2fs for %d addons. Applies from the next login", estimate, addon_count))
+    for i, line in ipairs(notes) do
+        local note = body:CreateOrGetControl("richtext", "init_note_" .. i, 10, 200 + (i - 1) * 18, 10, 20)
+        AUTO_CAST(note)
+        note:SetText("{ol}{#CCCCCC}{s14}" .. line)
+    end
 end
 
 -- 並びタブ。右上とシステムメニューを**左右に並べる**。
@@ -482,16 +546,55 @@ end
 --
 -- **他アドオンが相乗りで入れてきた項目もここに出る。** あちらは一覧の行を持たないので、
 -- ここが唯一の管理場所になる。
+-- ショートカットタブに並べる項目を決める。
+--
+-- **既定は「今 Addons Menu に出ているものだけ」。** 出す / 出さないを選ぶ場所は
+-- アドオン一覧の行の☆で、ここは並べ替えとアイコンを決める場所として使う。
+-- 候補を全部並べると 20 行を超えて、並べ替えたい行を探すのが手間になる。
+--
+-- ただし**それだけだと、いちど外した相乗り項目を戻せなくなる**(相乗り項目は
+-- 一覧の行を持たないので、ここが唯一の管理場所)。ヘッダのボタンで
+-- 「出していないものも表示」へ切り替えられるようにしておく。
+--
+-- 出せない状態(アイコンが無い / アドオンが OFF)の項目は、☆が立っているなら残す。
+-- 「☆を入れたのに出てこない」理由をここでしか伝えられないため。
+local function addons_menu_shortcut_rows()
+    local all = addons_menu_collect_items(nil, true)
+    if g.addons_menu_shortcut_show_all then
+        return all, #all
+    end
+    local rows = {}
+    for _, entry in ipairs(all) do
+        if entry.shown then
+            rows[#rows + 1] = entry
+        end
+    end
+    return rows, #all
+end
+
 local function addons_menu_setting_build_shortcut(body, w, h)
-    local gb = body:CreateOrGetControl("groupbox", "sc_gb", 5, 5, w - 10, h - 10)
+    local rows, total = addons_menu_shortcut_rows()
+    local view_btn = body:CreateOrGetControl("button", "sc_view", 5, 4, 190, 24)
+    AUTO_CAST(view_btn)
+    view_btn:SetSkinName(g.addons_menu_shortcut_show_all and "test_pvp_btn" or "test_gray_button")
+    view_btn:SetText(g.addons_menu_shortcut_show_all and
+                         addons_menu_ml("{ol}{s14}出している項目だけ表示", "{ol}{s14}Show only visible items") or
+                         addons_menu_ml("{ol}{s14}出していない項目も表示", "{ol}{s14}Show hidden items too"))
+    view_btn:SetTextTooltip(addons_menu_ml("{ol}外した項目を戻したいときに切り替えます",
+        "{ol}Switch this to bring back items you removed"))
+    view_btn:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_view_ctrl")
+    local count_text = body:CreateOrGetControl("richtext", "sc_count", 205, 8, 10, 20)
+    AUTO_CAST(count_text)
+    count_text:SetText(string.format(addons_menu_ml("{ol}{s14}{#CCCCCC}%d / %d 件",
+        "{ol}{s14}{#CCCCCC}%d of %d"), #rows, total))
+    local gb = body:CreateOrGetControl("groupbox", "sc_gb", 5, 32, w - 10, h - 37)
     AUTO_CAST(gb)
     gb:SetSkinName("bg")
     gb:RemoveAllChild()
     gb:EnableScrollBar(1)
-    local items = addons_menu_collect_items(nil, true)
     local row_h = 30
     local y = 5
-    for idx, entry in ipairs(items) do
+    for idx, entry in ipairs(rows) do
         local disabled = (entry.kind == "addon") and (entry.enabled ~= true)
         local icon_pic = gb:CreateOrGetControl("picture", "sc_pic_" .. idx, 8, y + 2, 24, 24)
         AUTO_CAST(icon_pic)
@@ -513,6 +616,32 @@ local function addons_menu_setting_build_shortcut(body, w, h)
             name:EnableHitTest(1)
             name:SetTextTooltip(addons_menu_ml("{ol}アドオンが OFF です。一覧で ON にすると出せます",
                 "{ol}The addon is OFF. Turn it on in the list first"))
+        end
+        -- 並べ替え。**動かせるのは今この一覧に出ている範囲だけ**で、押すと
+        -- 一覧全体へ 1 から番号を振り直す(隙間や同番が残ると次の並べ替えで効かなくなる)。
+        local up = gb:CreateOrGetControl("button", "sc_up_" .. idx, w - 200, y + 2, 24, 26)
+        AUTO_CAST(up)
+        up:SetSkinName("None")
+        up:SetTextAlign("center", "center")
+        local can_up = (idx > 1)
+        up:SetText(can_up and "{ol}{s18}{#FFFFFF}▲" or "{ol}{s18}{#555555}▲")
+        if can_up then
+            up:SetTextTooltip(addons_menu_ml("{ol}1 つ前へ", "{ol}Move up"))
+            up:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_move_ctrl")
+            up:SetEventScriptArgString(ui.LBUTTONUP, entry.shortcut_key)
+            up:SetEventScriptArgNumber(ui.LBUTTONUP, -1)
+        end
+        local down = gb:CreateOrGetControl("button", "sc_down_" .. idx, w - 174, y + 2, 24, 26)
+        AUTO_CAST(down)
+        down:SetSkinName("None")
+        down:SetTextAlign("center", "center")
+        local can_down = (idx < #rows)
+        down:SetText(can_down and "{ol}{s18}{#FFFFFF}▼" or "{ol}{s18}{#555555}▼")
+        if can_down then
+            down:SetTextTooltip(addons_menu_ml("{ol}1 つ後ろへ", "{ol}Move down"))
+            down:SetEventScript(ui.LBUTTONUP, "addons_menu_shortcut_move_ctrl")
+            down:SetEventScriptArgString(ui.LBUTTONUP, entry.shortcut_key)
+            down:SetEventScriptArgNumber(ui.LBUTTONUP, 1)
         end
         local star = gb:CreateOrGetControl("button", "sc_show_" .. idx, w - 140, y + 2, 26, 26)
         AUTO_CAST(star)
@@ -540,10 +669,14 @@ local function addons_menu_setting_build_shortcut(body, w, h)
         icon_btn:SetEventScriptArgString(ui.RBUTTONUP, entry.shortcut_key)
         y = y + row_h
     end
-    if #items == 0 then
+    if #rows == 0 then
         local empty = gb:CreateOrGetControl("richtext", "sc_empty", 12, 10, 10, 20)
         AUTO_CAST(empty)
-        empty:SetText(addons_menu_ml("{ol}{#FFA500}出せる項目がありません", "{ol}{#FFA500}Nothing can be added yet"))
+        empty:SetText(total > 0 and
+                          addons_menu_ml("{ol}{#FFA500}出している項目がありません(一覧の☆で選べます)",
+                "{ol}{#FFA500}Nothing is shown yet (pick items with the star in the list)") or
+                          addons_menu_ml("{ol}{#FFA500}出せる項目がありません",
+                "{ol}{#FFA500}Nothing can be added yet"))
     end
     pcall(function()
         gb:InvalidateScrollBar()
@@ -636,6 +769,54 @@ function _G.addons_menu_shortcut_show_ctrl(setting, ctrl, shortcut_key, num)
     end
 end
 
+-- ショートカットタブの表示切り替え(出している項目だけ / 全部)。
+-- 画面の見せ方だけなので保存しない(起動のたびに「出している項目だけ」から始まる)。
+function _G.addons_menu_shortcut_view_ctrl(setting, ctrl, str, num)
+    g.addons_menu_shortcut_show_all = not g.addons_menu_shortcut_show_all
+    addons_menu_setting_rebuild()
+end
+
+-- ▲▼。今この一覧に出ている範囲で 1 つ動かし、**一覧全体へ 1 から番号を振り直す**。
+--
+-- 隣とだけ番号を入れ替える作りにしないこと。番号を持たない項目(まだ並べ替えていない
+-- ものと、後から入ってきた相乗り項目)が混ざるので、入れ替えだけだと「押しても動かない」
+-- 組み合わせが残る。振り直しは対象が数十件なので毎回やっても安い。
+--
+-- 動かせるのは表示中の並びの中だけ。隠している項目は番号を持ったまま据え置き、
+-- 表示へ戻したときにその番号の位置(無ければ末尾)へ入る。
+function _G.addons_menu_shortcut_move_ctrl(setting, ctrl, shortcut_key, delta)
+    if not (g.settings and shortcut_key and shortcut_key ~= "") then
+        return
+    end
+    delta = tonumber(delta) or 0
+    if delta == 0 then
+        return
+    end
+    local rows = addons_menu_shortcut_rows()
+    local at
+    for idx, entry in ipairs(rows) do
+        if entry.shortcut_key == shortcut_key then
+            at = idx
+            break
+        end
+    end
+    local to = at and (at + delta)
+    if not at or to < 1 or to > #rows then
+        return
+    end
+    rows[at], rows[to] = rows[to], rows[at]
+    for idx, entry in ipairs(rows) do
+        if entry.shortcut_key then
+            -- 書き込みは溜めて、下で 1 回だけ保存する(1 押下で項目数ぶん書かない)。
+            g.menu_shortcut_set(entry.shortcut_key, "order", idx, true)
+        end
+    end
+    _nexus_addons_p_save_settings()
+    g.vlog("menu_shortcut: %s を %d 番目から %d 番目へ動かした", tostring(shortcut_key), at, to)
+    _G.addons_menu_refresh_open()
+    addons_menu_setting_rebuild()
+end
+
 function _G.addons_menu_shortcut_icon_ctrl(setting, ctrl, shortcut_key, num)
     if not (shortcut_key and shortcut_key ~= "") then
         return
@@ -689,6 +870,22 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             return
         end
     end
+    -- 初期化の速さ。Enter で確定する。**入力をそのまま保存しないこと。**
+    -- 0 や負数が入ると分割実行が 1 件も進まないまま回り続ける（g.init_throttle 参照）ので、
+    -- 正した値を書き、表示は下の組み立て直しでその値に入れ替える。
+    if ctrl_name == "init_batch_edit" then
+        local value = tonumber(ctrl:GetText())
+        -- g.settings が無いのは本家検出で初期化を止めたときなので、その場合は何もしない
+        -- （verbose_log_toggle と同じ理由）。
+        if value and g.settings then
+            g.settings.init_batch = (g.init_throttle(value))
+            _nexus_addons_p_save_settings()
+            g.vlog("addons_menu: 初期化の件数を %d にした（入力 %s）", g.settings.init_batch, tostring(value))
+            ui.SysMsg(addons_menu_ml("{ol}次のログインから反映されます", "{ol}Applies from the next login"))
+        end
+        addons_menu_setting_rebuild()
+        return
+    end
     -- 折り返す数。Enter で確定する。数字以外や範囲外は addons_menu_layout 側で正すので、
     -- ここでは読めた数字をそのまま保存し、表示は組み立て直しで正した値に入れ替わる。
     if ctrl_name == "float_wrap_edit" or ctrl_name == "sysmenu_wrap_edit" then
@@ -733,6 +930,13 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
         _G["norisan"]["MENU"].sys_dir = ADDONS_MENU_LAYOUT_DEFAULT.sysmenu.dir
         _G["norisan"]["MENU"].sys_wrap = ADDONS_MENU_LAYOUT_DEFAULT.sysmenu.wrap
         addons_menu_save_json(_G["norisan"]["MENU"])
+        -- 初期化の速さも共通タブに出している設定なので、ここで既定へ戻す。
+        -- **詳細ログ(verbose_log)は意図して戻さない。** あちらは調査のために利用者が
+        -- 自分で ON にしている状態で、黙って OFF にすると集めている最中のログが止まる。
+        if g.settings then
+            g.settings.init_batch = g.INIT_BATCH_DEFAULT
+            _nexus_addons_p_save_settings()
+        end
         _G.addons_menu_create_frame()
         if setting_frame then
             setting_frame:ShowWindow(0)
