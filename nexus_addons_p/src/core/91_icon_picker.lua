@@ -269,22 +269,27 @@ local function icon_picker_build_manual(body, w, h)
     AUTO_CAST(label)
     label:SetText(icon_picker_ml("{ol}画像名を入れて Enter(下に出れば実在します)",
         "{ol}Type an image name and press Enter (a preview means it exists)"))
-    local edit = body:CreateOrGetControl("edit", "icon_manual_edit", 10, 36, w - 130, 30)
+    local edit = body:CreateOrGetControl("edit", "icon_manual_edit", 10, 36, w - 40, 30)
     AUTO_CAST(edit)
     edit:SetFontName("white_16_ol")
     edit:SetTextAlign("left", "center")
     edit:SetSkinName("inventory_serch")
     edit:SetEventScript(ui.ENTERKEY, "addons_menu_icon_manual_preview")
     edit:SetText(g.icon_picker_manual or "")
-    local apply = body:CreateOrGetControl("button", "manual_apply", w - 110, 36, 100, 30)
-    AUTO_CAST(apply)
-    apply:SetSkinName("test_pvp_btn")
-    apply:SetText(icon_picker_ml("{ol}このアイコンにする", "{ol}Use this icon"))
-    apply:SetEventScript(ui.LBUTTONUP, "addons_menu_icon_manual_apply")
     local preview_box = body:CreateOrGetControl("groupbox", "manual_box", 10, 80, 120, 120)
     AUTO_CAST(preview_box)
     preview_box:SetSkinName("bg")
     _G.addons_menu_icon_manual_fill(preview_box)
+    -- 決定ボタンは**右端に置かない**。ボタンの文字は枠より広く描かれることがあり、
+    -- 右端に寄せると窓の外へはみ出して読めなくなる(実機で「このアイコンに…」で切れていた)。
+    -- プレビューの下へ左詰めで置けば、窓幅や翻訳の長さに関係なく収まる。
+    local apply = body:CreateOrGetControl("button", "manual_apply", 10, 212, 200, 30)
+    AUTO_CAST(apply)
+    apply:SetSkinName("test_pvp_btn")
+    apply:SetText(icon_picker_ml("{ol}このアイコンにする", "{ol}Use this icon"))
+    apply:SetTextTooltip(icon_picker_ml("{ol}入れた画像名をこの項目のアイコンにします",
+        "{ol}Use the image name above for this item"))
+    apply:SetEventScript(ui.LBUTTONUP, "addons_menu_icon_manual_apply")
 end
 
 -- 中身を作り直す。開いていなければ何もしない(この関数から窓は開かない)。
