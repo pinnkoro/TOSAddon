@@ -1406,11 +1406,15 @@ g.search_typing_delay = 0.3
 -- 「×」ボタンの名前。検索欄の子として作るので、検索欄ごとに 1 つ。
 g.search_clear_name = "nap_search_clear"
 
--- 「×」から検索関数を呼んでいる間だけ真。**打鍵で空になったのか「×」で消されたのかを
--- アドオン側で見分けるためのもの。** 見分けが要るのは Focus() の扱い:
--- 打鍵で空になった経路は利用者が入力中 = 元から入力位置があるので戻してよいが、
--- 「×」はマウス操作なので戻すと ESC の 1 回目を食って窓が閉じなくなる。
-g.search_clear_running = false
+-- 打鍵から検索関数を呼んでいる間だけ真。**その検索がキーボード操作から来たのかを
+-- アドオン側で見分けるためのもの。** 見分けが要るのは Focus() の扱いで、一覧の作り直しで
+-- 検索欄ごと作り直す作り(characters_item_serch)が、入力位置を戻してよいかの判断に使う。
+--
+-- **「打鍵以外を弾く」向きにすること。** 検索関数には打鍵のほかに Enter・虫眼鏡ボタン・
+-- 「×」から入ってくる。マウス操作(虫眼鏡 /「×」)では入力位置がそもそも無いので、
+-- 戻すと ESC の 1 回目を食って窓が閉じなくなる。「×から来たか」だけを見る作りにすると
+-- 虫眼鏡ボタン経由を取りこぼす(レビューで実際に指摘された)。
+g.search_typing_running = false
 
 -- [key] = {frame=, name=, handler=, arg_num=, delay=, seq=, last=, incremental=}
 -- key は handler 名と引数の組。**検索欄そのものを持たない**のは、打鍵から実行までの
@@ -1428,7 +1432,7 @@ local function search_clear_btn_sync(edit)
     if edit == nil then
         return
     end
-    pcall(function()
+    local ok, err = pcall(function()
         local btn = GET_CHILD_RECURSIVELY(edit, g.search_clear_name)
         if btn == nil then
             return
@@ -1451,6 +1455,11 @@ local function search_clear_btn_sync(edit)
         end
         btn:ShowWindow(1)
     end)
+    if not ok then
+        -- 打鍵のたびに通るが、log_error_once が同じ内容を 1 回だけに絞るので流れない。
+        g.log_error_once("search_clear_btn_sync",
+            string.format("incremental_search: 「×」の出し入れに失敗(%s)", tostring(err)))
+    end
 end
 
 -- **検索欄の文字をコードから変えたときに呼ぶ。**「×」の出し入れを合わせ、あわせて
@@ -1617,8 +1626,11 @@ function _nexus_addons_p_search_fire(key, seq)
         if entry.last == text then
             return
         end
+        g.search_typing_running = true
         search_run(entry, frame, edit, text)
     end)
+    -- pcall が失敗した経路でも必ず戻す(戻し忘れると以後ずっと「打鍵から来た」扱いになる)。
+    g.search_typing_running = false
     if not ok then
         g.log_error_once("search_typing_fire:" .. key,
             string.format("incremental_search: %s の実行に失敗(%s)", key, tostring(err)))
@@ -1647,11 +1659,8 @@ function _nexus_addons_p_search_clear(parent, ctrl)
         if live_edit == nil then
             return
         end
-        g.search_clear_running = true
         search_run(entry, frame, live_edit, "")
     end)
-    -- pcall が失敗した経路でも必ず戻す(戻し忘れると以後ずっと「×から来た」扱いになる)。
-    g.search_clear_running = false
     if not ok then
         g.log_error_once("search_clear", string.format("incremental_search: × の処理に失敗(%s)", tostring(err)))
     end
