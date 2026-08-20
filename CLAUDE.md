@@ -46,6 +46,19 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
 * フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
 
+### 設定画面の位置は `g.settings_frame_pos` で決める
+
+各アドオンの設定画面は「アドオン一覧（`list_frame`）の右隣」に置く作りが多いが、
+**Addons Menu のショートカットから開くと一覧は開いていない**。素で
+`list_frame:GetX()` を呼ぶとそこで落ち、**窓は既に作った後なので中身が空の窓が出る**
+（実機で Auto Repair / Boss Direction で発生。同じ書き方が 11 アドオンにあった）。
+
+* 位置は `g.settings_frame_pos(width, height)`（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）を使う。
+  一覧が開いていればその右隣、開いていなければ画面中央へ置き、画面からはみ出さないよう丸める。
+* **位置を読むためだけに一覧を開いて隠す、をしないこと。** `characters_item_serch` が
+  そうしていたが、この「出ていない登録」が ESC のスタックに残り、後で一覧を開き直しても
+  手前に来ない原因になる（ESC の節を参照）。
+
 ### Addons Menu へ並べる項目（ショートカット）
 
 一覧の行の☆と設定画面の「ショートカット」タブで、**各アドオンの設定画面を Addons Menu へ

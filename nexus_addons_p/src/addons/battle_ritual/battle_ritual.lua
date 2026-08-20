@@ -308,9 +308,11 @@ function Battle_ritual_frame_location_save(Battle_ritual)
 end
 
 function Battle_ritual_settings_frame()
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
     local setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "Battle_ritual_setting", 0, 0, 0, 0)
-    setting:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    setting:SetPos(g.settings_frame_pos(500, 600))
     setting:SetSkinName("test_frame_low")
     setting:EnableHittestFrame(1)
     setting:EnableHitTest(1)
