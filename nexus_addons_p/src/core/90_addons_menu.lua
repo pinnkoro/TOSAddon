@@ -405,6 +405,48 @@ local function addons_menu_setting_tab()
     return "common"
 end
 
+-- 「初期化の速さ」の注記。**枠の中身だけを入れ替える**ので、入力欄には触らない。
+--
+-- **Enter のたびにタブごと作り直さないこと。** キーボードフォーカスを持っている入力欄を
+-- その場で壊すことになり、行き場を失った Enter がゲーム側へ渡ってチャット入力欄が開く
+-- (実機で発生)。値を変えたときに描き直したいのはこの注記だけなので、ここだけ差し替える。
+local ADDONS_MENU_INIT_NOTES = 3
+
+function addons_menu_fill_init_notes(note_box, shown_batch)
+    -- 何の数字なのかと、上げると何を失うのかを添える。数字だけ出しても決められない。
+    -- 所要時間は今の登録数から出す(アドオンを足しても説明文がずれない)。
+    local addon_count = #g._nexus_addons_p
+    local estimate = g.init_estimate_sec(addon_count, shown_batch)
+    local notes = {}
+    notes[1] = addons_menu_ml(
+        string.format("ログイン直後に 1 回で初期化する数(%d〜%d / 推奨 %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX,
+            g.INIT_BATCH_DEFAULT),
+        string.format("Addons initialized per tick right after login (%d-%d, recommended %d)", g.INIT_BATCH_MIN,
+            g.INIT_BATCH_MAX, g.INIT_BATCH_DEFAULT))
+    notes[2] = addons_menu_ml("大きいほど速く終わりますが、そのぶん動作が重くなります",
+        "Higher finishes sooner but makes those frames heavier")
+    notes[3] = addons_menu_ml(
+        string.format("今の設定なら %d 個で約 %.2f 秒。次のログインから反映されます", addon_count, estimate),
+        string.format("About %.2fs for %d addons. Applies from the next login", estimate, addon_count))
+    for i, line in ipairs(notes) do
+        local note = note_box:CreateOrGetControl("richtext", "init_note_" .. i, 8, 4 + (i - 1) * 18, 10, 20)
+        AUTO_CAST(note)
+        -- 先頭の行にだけ ※ を付ける。全行に付けると箇条書きに見えて、
+        -- 「3 つの注意点」ではなく「1 つの説明」であることが伝わらない。
+        -- 暗い枠("bg")へ載せるので、文字は薄い灰色にして本文より一段落とす。
+        note:SetText("{ol}{#CCCCCC}{s14}" .. (i == 1 and "※ " or "     ") .. line)
+    end
+end
+
+-- 入力欄の文字をコードから入れ直す。**同じ文字列なら触らない**
+-- (同じ内容でも入力位置が戻り、日本語変換も壊れる。CLAUDE.md の検索欄の節と同じ理由)。
+local function addons_menu_set_edit_text(edit, text)
+    text = tostring(text)
+    if edit:GetText() ~= text then
+        edit:SetText(text)
+    end
+end
+
 -- 共通タブ。従来の設定画面の中身がそのまま入る(上開きだけは並びタブへ移した)。
 local function addons_menu_setting_build_common(body, w)
     local def_setting = body:CreateOrGetControl("button", "def_setting", 10, 5, 150, 30)
@@ -464,36 +506,14 @@ local function addons_menu_setting_build_common(body, w)
         string.format("{ol}Press Enter to apply (%d-%d, recommended %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX,
             g.INIT_BATCH_DEFAULT)))
     init_edit:SetEventScript(ui.ENTERKEY, "addons_menu_setting_frame_ctrl")
-    -- 何の数字なのかと、上げると何を失うのかを添える。数字だけ出しても決められない。
-    -- 所要時間は今の登録数から出す(アドオンを足しても説明文がずれない)。
-    local addon_count = #g._nexus_addons_p
-    local estimate = g.init_estimate_sec(addon_count, shown_batch)
-    local notes = {}
-    notes[1] = addons_menu_ml(
-        string.format("ログイン直後に 1 回で初期化する数(%d〜%d / 推奨 %d)", g.INIT_BATCH_MIN, g.INIT_BATCH_MAX,
-            g.INIT_BATCH_DEFAULT),
-        string.format("Addons initialized per tick right after login (%d-%d, recommended %d)", g.INIT_BATCH_MIN,
-            g.INIT_BATCH_MAX, g.INIT_BATCH_DEFAULT))
-    notes[2] = addons_menu_ml("大きいほど速く終わりますが、そのぶん動作が重くなります",
-        "Higher finishes sooner but makes those frames heavier")
-    notes[3] = addons_menu_ml(
-        string.format("今の設定なら %d 個で約 %.2f 秒。次のログインから反映されます", addon_count, estimate),
-        string.format("About %.2fs for %d addons. Applies from the next login", estimate, addon_count))
     -- 補足は**枠に入れて「注記」に見せる**。設定そのものと同じ地の上に同じ色で置くと、
     -- どこまでが操作する項目でどこからが説明なのか見分けが付かない(実機で指摘)。
-    -- 暗い枠("bg")へ載せるので、文字は薄い灰色にして本文より一段落とす。
-    local note_box = body:CreateOrGetControl("groupbox", "init_note_box", 10, 200, w - 20, #notes * 18 + 10)
+    local note_box = body:CreateOrGetControl("groupbox", "init_note_box", 10, 200, w - 20, ADDONS_MENU_INIT_NOTES * 18 +
+                                                 10)
     AUTO_CAST(note_box)
     note_box:SetSkinName("bg")
     note_box:EnableScrollBar(0)
-    note_box:RemoveAllChild()
-    for i, line in ipairs(notes) do
-        local note = note_box:CreateOrGetControl("richtext", "init_note_" .. i, 8, 4 + (i - 1) * 18, 10, 20)
-        AUTO_CAST(note)
-        -- 先頭の行にだけ ※ を付ける。全行に付けると箇条書きに見えて、
-        -- 「3 つの注意点」ではなく「1 つの説明」であることが伝わらない。
-        note:SetText("{ol}{#CCCCCC}{s14}" .. (i == 1 and "※ " or "     ") .. line)
-    end
+    addons_menu_fill_init_notes(note_box, shown_batch)
 end
 
 -- 並びタブ。右上とシステムメニューを**左右に並べる**。
@@ -880,9 +900,9 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             addons_menu_save_json(_G["norisan"]["MENU"])
             ui.SysMsg(addons_menu_ml("{ol}レイヤーを変更", "{ol}Change Layer"))
             _G.addons_menu_create_frame()
-            if setting_frame then
-                setting_frame:ShowWindow(0)
-            end
+            -- **設定画面は閉じない。** 作り直すのは右上のフローティングボタンだけで、
+            -- こちらを閉じる理由が無い。閉じると入力欄ごと消えて、行き場を失った Enter が
+            -- ゲーム側へ渡りチャット入力欄が開く(実機で発生)。
             return
         end
     end
@@ -898,8 +918,18 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             _nexus_addons_p_save_settings()
             g.vlog("addons_menu: 初期化の件数を %d にした（入力 %s）", g.settings.init_batch, tostring(value))
             ui.SysMsg(addons_menu_ml("{ol}次のログインから反映されます", "{ol}Applies from the next login"))
+            -- **タブごと作り直さないこと。** 今フォーカスを持っている入力欄を壊すことになり、
+            -- 行き場を失った Enter がゲーム側へ渡ってチャット入力欄が開く(実機で発生)。
+            -- 描き直したいのは注記と、範囲外を入れたときの入力欄の値だけ。
+            if setting_frame then
+                local note_box = GET_CHILD_RECURSIVELY(setting_frame, "init_note_box")
+                if note_box then
+                    AUTO_CAST(note_box)
+                    addons_menu_fill_init_notes(note_box, g.settings.init_batch)
+                end
+            end
+            addons_menu_set_edit_text(ctrl, g.settings.init_batch)
         end
-        addons_menu_setting_rebuild()
         return
     end
     -- 折り返す数。Enter で確定する。数字以外や範囲外は addons_menu_layout 側で正すので、
@@ -916,8 +946,11 @@ function _G.addons_menu_setting_frame_ctrl(setting, ctrl)
             addons_menu_save_json(_G["norisan"]["MENU"])
             _G.addons_menu_refresh_open()
             g.vlog("addons_menu: %s の折り返しを %s にした", is_float and "float" or "sysmenu", tostring(value))
+            -- ここもタブごと作り直さない(上の init_batch_edit と同じ理由)。
+            -- 範囲外を入れたときだけ、正した値を入力欄へ戻す。
+            local _, wrap = addons_menu_layout(is_float and "float" or "sysmenu")
+            addons_menu_set_edit_text(ctrl, wrap)
         end
-        addons_menu_setting_rebuild()
         return
     end
     if ctrl_name == "float_dir_h" or ctrl_name == "float_dir_v" or ctrl_name == "sysmenu_dir_h" or ctrl_name ==
