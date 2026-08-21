@@ -992,9 +992,14 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
         MARKET_CTRLSET_SET_ICON(ctrlSet, itemObj, marketItem);
         local name = GET_CHILD_RECURSIVELY(ctrlSet, "name");
         local real_name = dictionary.ReplaceDicIDInCompStr(GET_FULL_NAME(itemObj))
+        -- 名前で色を分ける。**「540」は数字なのでどの言語でも同じだが、「上級」は訳される。**
+        -- 日本語の語だけを見ていたので、他の言語ではオレンジ表示に入らなかった(Issue #68)。
+        -- 韓国語の語は素のデータ(ies.ipf の名前)にある "상급" で確かめてある。
+        -- **英語クライアントの語は未確認**。分かったらここへ足すこと(表示色だけの話なので、
+        -- 確かめられない語を推測で入れない)。
         if not string.find(real_name, "540") then
             real_name = ScpArgMsg("PropDown") .. "{ol}{#FF0000}" .. real_name
-        elseif string.find(real_name, "540") and string.find(real_name, "上級") then
+        elseif string.find(real_name, "上級") or string.find(real_name, "상급") then
             real_name = "{ol}{#FFA500}" .. real_name
         end
         name:SetTextByKey("value", real_name)
