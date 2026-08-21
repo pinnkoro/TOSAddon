@@ -291,12 +291,13 @@ function My_buffs_control_frame_lock(buff, lock_slot)
 end
 
 function My_buffs_control_setting_menu()
-    local list_frame_name = addon_name_lower .. "list_frame"
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
     local my_buffs_control_setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "my_buffs_control_setting",
         0, 0, 0, 0)
     my_buffs_control_setting:Resize(250, 180)
-    my_buffs_control_setting:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    my_buffs_control_setting:SetPos(g.settings_frame_pos(250, 180))
     my_buffs_control_setting:SetSkinName("test_frame_low")
     my_buffs_control_setting:EnableHittestFrame(1)
     my_buffs_control_setting:EnableHitTest(1)

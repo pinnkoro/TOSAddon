@@ -46,6 +46,50 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
 * フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
 
+### 設定画面の位置は `g.settings_frame_pos` で決める
+
+各アドオンの設定画面は「アドオン一覧（`list_frame`）の右隣」に置く作りが多いが、
+**Addons Menu のショートカットから開くと一覧は開いていない**。素で
+`list_frame:GetX()` を呼ぶとそこで落ち、**窓は既に作った後なので中身が空の窓が出る**
+（実機で Auto Repair / Boss Direction で発生。同じ書き方が 11 アドオンにあった）。
+
+* 位置は `g.settings_frame_pos(width, height)`（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）を使う。
+  一覧が開いていればその右隣、開いていなければ画面中央へ置き、画面からはみ出さないよう丸める。
+* **位置を読むためだけに一覧を開いて隠す、をしないこと。** `characters_item_serch` が
+  そうしていたが、この「出ていない登録」が ESC のスタックに残り、後で一覧を開き直しても
+  手前に来ない原因になる（ESC の節を参照）。
+
+### Addons Menu へ並べる項目（ショートカット）
+
+一覧の行の☆と設定画面の「ショートカット」タブで、**各アドオンの設定画面を Addons Menu へ
+出せる**。集めているのは `addons_menu_collect_items`（[core/90_addons_menu.lua](nexus_addons_p/src/core/90_addons_menu.lua)）
+1 箇所で、出どころは 3 つ（相乗り項目 / registry の `config_func` / 設定を開く歯車）。
+
+* **`_G["norisan"]["MENU"] を書き換えないこと`**。アイコンの上書きは表示用の写しに対して行う。
+  共有テーブルを直接いじると本家側のメニューの見た目まで変わる。
+* **既定は出どころで違う**。相乗り項目は「出す」（既定を非表示にすると他アドオンの項目が
+  黙って消える）、registry の設定画面は「出さない」。
+* **`pairs` の順で並べない**。起動ごとに順番が変わる。相乗りはキー順、registry は登録順。
+  利用者が▲▼で並べ替えた分は `menu_shortcuts` の `order`。**`order` を持たない項目は末尾へ回す**
+  （相乗り項目は起動ごとに顔ぶれが変わるので、知らない項目が並びの真ん中へ割り込まないように）。
+  `table.sort` は安定ではないので、元の位置を最後の決め手にすること。
+  並べ替えは一覧全体へ番号を振り直す（隣と入れ替えるだけだと、番号を持たない項目が混ざったとき
+  「押しても動かない」組み合わせが残る）。まとめ書きは `g.menu_shortcut_set(..., defer)` で
+  溜めて、最後に 1 回だけ保存する。
+* 設定の保存先は `settings.json` の `menu_shortcuts`（`g.menu_shortcut_*`）。
+  **トップレベルなので `valid_keys` への追加が要る**（書き忘れると毎回プルーニングで消える）。
+* 並べ方（向き・折り返す数）は `addons_menu.json`。**`addons_menu_save_json` は書き出すキーを
+  列挙している**ので、設定を足したらそこと「デフォルトに戻す」（`def_setting`）の両方に書く。
+  読むより先に保存する経路があると設定が消えるので、`addons_menu_create_frame` は
+  `addons_menu_load_layout()` を保存より前に呼んでいる。
+* アイコン選択（[core/91_icon_picker.lua](nexus_addons_p/src/core/91_icon_picker.lua)）の「検索」タブが引く
+  画像名の表は **生成物**。[core/92_icon_names.lua](nexus_addons_p/src/core/92_icon_names.lua) を手で編集せず、
+  `git fetch upstream` してから `python docs/gen_icon_names.py` で作り直すこと
+  （素のクライアント `_client/jp/**` の `image="..."` / `SetImage("...")` / `{img ...}` から抜いている）。
+  **Lua には画像名を列挙する手段が無い**ので、同梱する以外に「名前で探す」を実現する方法は無い。
+* 収集の結果は [docs/tests/test_addons_menu.lua](docs/tests/test_addons_menu.lua) が検査する
+  （並び順・既定・アイコンの上書きが共有テーブルを汚さないこと）。
+
 ## 不具合の話が出たら「誰の環境で起きたか」を最初に確認する
 
 不具合の相談を受けたら、調べ始める前に**開発者本人の手元で再現したものか、
@@ -92,6 +136,19 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **調査が終わっても消さない**: その修正の経路を後から追える最低限のログは残すこと。
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
+
+## `local function` は呼び出しより前で定義する
+
+Lua の `local function f` は**宣言行より後ろからしか見えない**。前で呼ぶと同名の
+グローバル（= nil）を呼ぶことになり、**構文チェックは通るのに、そのボタンを押した
+瞬間だけ落ちる**。src を分割しているぶん前後関係が見えづらく、実際に踏んだ
+（Addons Menu の設定画面で「レイヤー設定 / デフォルトに戻す / 上へ開く」が無反応になった）。
+
+* 検出は [docs/check_forward_refs.py](docs/check_forward_refs.py)。**連結後の bundle に対して**行う
+  （ファイル単位では前後関係が分からない）。CI の `bundle` ジョブでも走る。
+* 直し方は「定義を呼び出しより前へ移す」か「ファイル先頭で `local <name>` と前方宣言する」。
+* グローバル（`function _G.foo`）は実行時に引くので前後関係を気にしなくてよい。
+  ただし読み込み時ガードの外から呼ぶものは `type(_G["foo"]) == "function"` で見てから呼ぶこと。
 
 ## 素の関数を書き写さない（置換方式フックは必ず素を呼ぶ）
 
@@ -329,6 +386,27 @@ PR で自動的に走る [Claude Code Review](.github/workflows/claude-review.ym
   訳すと検索できなくなるので、むしろ訳さないこと。
 * 「なぜそれが問題か」「どう直すか」の説明を日本語で書く、という意味。
 * CLAUDE.md 由来の指摘は、根拠にした箇所を引用して示すこと（既にそうなっている）。
+
+## 画面の見た目を変えたらスクリーンショットの撮り直し Issue を作る
+
+[nexus_addons_p/README.md](nexus_addons_p/README.md) は
+[nexus_addons_p/images/](nexus_addons_p/images/) の画像で使い方を説明している。
+**画像はゲームを起動しないと撮れず、Claude Code の側では撮れない。**
+そのため、見た目を変える PR では**撮り直しを Issue に残す**こと。放っておくと、
+README の説明と実際の画面が食い違ったまま配布されることになる（利用者が最初に見る場所）。
+
+* **作るタイミング**: 見た目を変える PR と同じタイミング。PR 本文にも Issue 番号を書く。
+  実機で確認できる人（＝リポジトリの持ち主）が後から撮って差し替えられるようにするのが目的。
+* **Issue に書くこと**（これだけあれば後から撮れる）:
+  * 撮り直す画像のファイル名（`images/04-addons-menu-settings.png` のように）
+  * **何が変わったのか**（タブが増えた／行にボタンが増えた など）
+  * **撮る手順**（どこを開くか、どの設定を ON にするか）
+  * README のどの行から参照されているか（alt テキストも直す必要があるため）
+* **alt テキストも一緒に直す**。画像の中身を説明した文になっているので、
+  見た目が変われば文も古くなる。**alt の更新は Issue ではなく PR の中で行うこと**
+  （こちらは画像が無くてもできる）。
+* **見た目を変えていない PR では作らない**。ノイズにしかならない。
+  「行が 1 つ増えた」程度でも画像に写るなら対象、内部実装だけなら対象外。
 
 ## PR を出すときは README の更新履歴を必ず更新する
 

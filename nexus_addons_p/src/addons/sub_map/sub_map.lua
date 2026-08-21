@@ -81,7 +81,6 @@ function Sub_map_ON_CHALLENGE_MODE_TOTAL_KILL_COUNT(frame, msg)
 end
 
 function Sub_map_settings()
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
     local config = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "sub_map_setting_frame", 0, 0, 0, 0)
     AUTO_CAST(config)
     config:RemoveAllChild()
@@ -93,7 +92,10 @@ function Sub_map_settings()
     local config_gb = config:CreateOrGetControl("groupbox", "config_gb", 10, 40, 0, 0)
     AUTO_CAST(config_gb)
     config_gb:SetSkinName("bg")
-    config:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    config:SetPos(g.settings_frame_pos(400, 400))
     local close = config:CreateOrGetControl("button", "close", 0, 0, 20, 20)
     AUTO_CAST(close)
     close:SetImage("testclose_button")

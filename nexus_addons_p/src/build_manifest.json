@@ -56,6 +56,8 @@
       "addons/bulk_sales/bulk_sales.lua",
       "guard_close.lua",
       "core/90_addons_menu.lua",
+      "core/91_icon_picker.lua",
+      "core/92_icon_names.lua",
       "conclude_scope_open.lua",
       "conclude_header.lua",
       "guard_open.lua",
@@ -129,6 +131,6 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "e09eada80eedd55dbf07dd4842bc48201d633691f6f0b1f43bc47b1d9bd4587a"
+    "_nexus_addons_p.lua": "fb8af711ff6e39d0d295ea916998bd4cda8385a40efa529a7678c9455eb12412"
   }
 }

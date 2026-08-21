@@ -668,17 +668,20 @@ function Characters_item_serch_get_sorted_sub_categories(items)
 end
 
 function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
-    if not list_frame then
-        list_frame = _nexus_addons_p_frame_init()
-        list_frame:ShowWindow(0)
-    end
+    -- 以前はここで一覧を開いて即隠していた(位置を読むためだけの空振り)。**もう要らない。**
+    -- 位置は g.settings_frame_pos が決めるうえ、この「出ていない登録」は ESC のスタックに
+    -- 死んだ登録を残し、後で一覧を開き直しても手前に来ない原因になっていた
+    -- (CLAUDE.md の ESC の節にある、esc_register_keep が据え置いてしまう例そのもの)。
     local characters_item_serch = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "characters_item_serch", 0, 0,
         70, 30)
     AUTO_CAST(characters_item_serch)
     characters_item_serch:SetSkinName("test_frame_low")
     characters_item_serch:Resize(670, 1080)
-    characters_item_serch:SetPos(list_frame:GetX() + list_frame:GetWidth(), 0)
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    local pos_x = (g.settings_frame_pos(670, 1080))
+    characters_item_serch:SetPos(pos_x, 0)
     characters_item_serch:EnableMove(0)
     characters_item_serch:SetLayerLevel(999)
     characters_item_serch:SetTitleBarSkin("None")
