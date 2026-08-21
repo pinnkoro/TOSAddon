@@ -291,7 +291,6 @@ function My_buffs_control_frame_lock(buff, lock_slot)
 end
 
 function My_buffs_control_setting_menu()
-    local list_frame_name = addon_name_lower .. "list_frame"
     local my_buffs_control_setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "my_buffs_control_setting",
         0, 0, 0, 0)
     my_buffs_control_setting:Resize(250, 180)

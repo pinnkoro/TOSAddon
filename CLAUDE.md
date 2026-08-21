@@ -137,6 +137,19 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
 
+## `local function` は呼び出しより前で定義する
+
+Lua の `local function f` は**宣言行より後ろからしか見えない**。前で呼ぶと同名の
+グローバル（= nil）を呼ぶことになり、**構文チェックは通るのに、そのボタンを押した
+瞬間だけ落ちる**。src を分割しているぶん前後関係が見えづらく、実際に踏んだ
+（Addons Menu の設定画面で「レイヤー設定 / デフォルトに戻す / 上へ開く」が無反応になった）。
+
+* 検出は [docs/check_forward_refs.py](docs/check_forward_refs.py)。**連結後の bundle に対して**行う
+  （ファイル単位では前後関係が分からない）。CI の `bundle` ジョブでも走る。
+* 直し方は「定義を呼び出しより前へ移す」か「ファイル先頭で `local <name>` と前方宣言する」。
+* グローバル（`function _G.foo`）は実行時に引くので前後関係を気にしなくてよい。
+  ただし読み込み時ガードの外から呼ぶものは `type(_G["foo"]) == "function"` で見てから呼ぶこと。
+
 ## 素の関数を書き写さない（置換方式フックは必ず素を呼ぶ）
 
 置換方式フック（`g.setup_hook`）で**素の関数の中身を書き写して自分の処理を足すこと**は

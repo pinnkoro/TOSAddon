@@ -194,6 +194,90 @@ function _G.addons_menu_move_drag(frame, ctrl)
         tostring(_G["norisan"]["MENU"].move), tostring(_G["norisan"]["MENU"].open))
 end
 
+-- 一覧を開いた姿(背が高い / 上開きなら y が上へずれている)から、本体ボタンだけの姿へ畳む。
+--
+-- **出し入れの前に必ず畳むこと。** 開いたまま隠して後で出し直すと、上開きのときは
+-- 本体ボタンが「y - 項目の高さ」に居るままなので、画面の上へ抜けて
+-- **アイコンが消えたように見える**(実機で発生)。畳めば必ず保存してある y へ戻る。
+local function addons_menu_collapse_frame(frame)
+    if frame == nil or frame:GetHeight() <= 40 then
+        return
+    end
+    AUTO_CAST(frame)
+    local children = {}
+    for i = 0, frame:GetChildCount() - 1 do
+        local child_obj = frame:GetChildByIndex(i)
+        if child_obj then
+            table.insert(children, child_obj)
+        end
+    end
+    for _, child_obj in ipairs(children) do
+        if child_obj:GetName() ~= "addons_menu_pic" then
+            frame:RemoveChild(child_obj:GetName())
+        end
+    end
+    frame:Resize(40, 40)
+    frame:SetPos(frame:GetX(), _G["norisan"]["MENU"].y or 30)
+    local main_pic = GET_CHILD(frame, "addons_menu_pic")
+    if main_pic then
+        main_pic:SetPos(0, 0)
+    end
+end
+
+-- 位置を画面の中へ丸める。**画面外へ出すと利用者からは「アイコンが消えた」ように見え、
+-- 掴んで戻すこともできない**(実機で発生)。作るときも設定を当てるときもここを通す。
+local function addons_menu_clamp_pos(x, y)
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    local cx, cy = x, y
+    if cx > screen_w - 40 then
+        cx = screen_w - 40
+    end
+    if cy > screen_h - 40 then
+        cy = screen_h - 40
+    end
+    if cx < 0 then
+        cx = 0
+    end
+    if cy < 0 then
+        cy = 0
+    end
+    if cx ~= x or cy ~= y then
+        g.vlog("addons_menu: ボタンの位置が画面外だったので戻した %s,%s → %d,%d (画面 %dx%d)", tostring(x),
+            tostring(y), cx, cy, screen_w, screen_h)
+    end
+    return cx, cy
+end
+
+-- 設定(位置・固定・レイヤー)を、今出ているフレームへその場で当てる。
+--
+-- **設定画面から addons_menu_create_frame を呼ばないこと。** あちらは
+-- ui.DestroyFrame → ui.CreateNewFrame で作り直すが、同じ押下の中で壊してすぐ作ると
+-- 出来上がったフレームが描画されないことがあり、**アイコンが消えたように見える**
+-- (押し直すと今度は出る = 「ON/OFF で出たり消えたり」の正体。実機で発生)。
+-- 作り直しが要るのは初回作成(GAME_START)だけで、設定はどれもその場で当てられる。
+local function addons_menu_apply_frame_settings()
+    local menu = _G["norisan"]["MENU"]
+    local frame = ui.GetFrame(menu.frame_name or "norisan_menu_frame")
+    if not frame then
+        -- まだ無いときだけ作る(初回や、他アドオンに壊された後)。
+        _G.addons_menu_create_frame()
+        return
+    end
+    AUTO_CAST(frame)
+    addons_menu_collapse_frame(frame)
+    frame:SetLayerLevel(menu.layer or 79)
+    frame:EnableHitTest(1)
+    frame:EnableHittestFrame(1)
+    frame:EnableMove(menu.move == true and 1 or 0)
+    menu.x, menu.y = addons_menu_clamp_pos(menu.x or 1190, menu.y or 30)
+    frame:SetPos(menu.x, menu.y)
+    frame:Resize(40, 40)
+    g.vlog("addons_menu: 設定をその場で当てた 位置=%d,%d 大きさ=%dx%d 表示=%d レイヤー=%s", frame:GetX(),
+        frame:GetY(), frame:GetWidth(), frame:GetHeight(), frame:IsVisible(), tostring(menu.layer))
+end
+
 -- 並べる項目を集める。フローティングのメニューと apps(ESC のシステムメニュー)側で
 -- 同じ並びにしたいので、収集はここ 1 箇所に集約する。
 --
@@ -1307,90 +1391,6 @@ local SYSMENU_SE_CLOSE = "button_click_2"
 
 local function addons_menu_play_se(name)
     pcall(imcSound.PlaySoundEvent, name)
-end
-
--- 一覧を開いた姿(背が高い / 上開きなら y が上へずれている)から、本体ボタンだけの姿へ畳む。
---
--- **出し入れの前に必ず畳むこと。** 開いたまま隠して後で出し直すと、上開きのときは
--- 本体ボタンが「y - 項目の高さ」に居るままなので、画面の上へ抜けて
--- **アイコンが消えたように見える**(実機で発生)。畳めば必ず保存してある y へ戻る。
-local function addons_menu_collapse_frame(frame)
-    if frame == nil or frame:GetHeight() <= 40 then
-        return
-    end
-    AUTO_CAST(frame)
-    local children = {}
-    for i = 0, frame:GetChildCount() - 1 do
-        local child_obj = frame:GetChildByIndex(i)
-        if child_obj then
-            table.insert(children, child_obj)
-        end
-    end
-    for _, child_obj in ipairs(children) do
-        if child_obj:GetName() ~= "addons_menu_pic" then
-            frame:RemoveChild(child_obj:GetName())
-        end
-    end
-    frame:Resize(40, 40)
-    frame:SetPos(frame:GetX(), _G["norisan"]["MENU"].y or 30)
-    local main_pic = GET_CHILD(frame, "addons_menu_pic")
-    if main_pic then
-        main_pic:SetPos(0, 0)
-    end
-end
-
--- 位置を画面の中へ丸める。**画面外へ出すと利用者からは「アイコンが消えた」ように見え、
--- 掴んで戻すこともできない**(実機で発生)。作るときも設定を当てるときもここを通す。
-local function addons_menu_clamp_pos(x, y)
-    local map_ui = ui.GetFrame("map")
-    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
-    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
-    local cx, cy = x, y
-    if cx > screen_w - 40 then
-        cx = screen_w - 40
-    end
-    if cy > screen_h - 40 then
-        cy = screen_h - 40
-    end
-    if cx < 0 then
-        cx = 0
-    end
-    if cy < 0 then
-        cy = 0
-    end
-    if cx ~= x or cy ~= y then
-        g.vlog("addons_menu: ボタンの位置が画面外だったので戻した %s,%s → %d,%d (画面 %dx%d)", tostring(x),
-            tostring(y), cx, cy, screen_w, screen_h)
-    end
-    return cx, cy
-end
-
--- 設定(位置・固定・レイヤー)を、今出ているフレームへその場で当てる。
---
--- **設定画面から addons_menu_create_frame を呼ばないこと。** あちらは
--- ui.DestroyFrame → ui.CreateNewFrame で作り直すが、同じ押下の中で壊してすぐ作ると
--- 出来上がったフレームが描画されないことがあり、**アイコンが消えたように見える**
--- (押し直すと今度は出る = 「ON/OFF で出たり消えたり」の正体。実機で発生)。
--- 作り直しが要るのは初回作成(GAME_START)だけで、設定はどれもその場で当てられる。
-local function addons_menu_apply_frame_settings()
-    local menu = _G["norisan"]["MENU"]
-    local frame = ui.GetFrame(menu.frame_name or "norisan_menu_frame")
-    if not frame then
-        -- まだ無いときだけ作る(初回や、他アドオンに壊された後)。
-        _G.addons_menu_create_frame()
-        return
-    end
-    AUTO_CAST(frame)
-    addons_menu_collapse_frame(frame)
-    frame:SetLayerLevel(menu.layer or 79)
-    frame:EnableHitTest(1)
-    frame:EnableHittestFrame(1)
-    frame:EnableMove(menu.move == true and 1 or 0)
-    menu.x, menu.y = addons_menu_clamp_pos(menu.x or 1190, menu.y or 30)
-    frame:SetPos(menu.x, menu.y)
-    frame:Resize(40, 40)
-    g.vlog("addons_menu: 設定をその場で当てた 位置=%d,%d 大きさ=%dx%d 表示=%d レイヤー=%s", frame:GetX(),
-        frame:GetY(), frame:GetWidth(), frame:GetHeight(), frame:IsVisible(), tostring(menu.layer))
 end
 
 -- 右上のフローティングボタンを、設定(sysmenu_only)に合わせて出し入れする。

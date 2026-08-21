@@ -55,6 +55,11 @@ jobs:
       - name: bundle の Lua 構文チェック
         run: sh docs/tests/syntax_check.sh
 
+      # local function を定義より前で呼んでいないか。Lua ではそこがグローバル(nil)参照に
+      # なるので、構文チェックは通るのにボタンを押した瞬間だけ落ちる（実際に踏んだ）。
+      - name: bundle の前方参照チェック
+        run: python3 docs/check_forward_refs.py
+
       # ゲーム API をスタブに差し替えて動かせる範囲の回帰テスト。
       # 実機でしか確認できない箇所を壊しても気付けないため、最低限だけ機械で見る。
       - name: core のロジックテスト

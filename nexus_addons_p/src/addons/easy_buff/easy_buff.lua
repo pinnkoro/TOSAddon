@@ -68,7 +68,6 @@ function Easy_buff_config_frame()
     easy_buff:SetSkinName("test_frame_low")
     easy_buff:SetLayerLevel(999)
     easy_buff:Resize(490, 410)
-    local list_frame_name = addon_name_lower .. "list_frame"
     -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
     -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
     -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
