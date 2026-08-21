@@ -54,17 +54,23 @@ function Mini_addons_event_NOTICE_ON_MSG(frame, msg, str, num)
             end
         end
     end
-    local fmt = ""
-    if is_appear then
-        fmt = "[{map}]에 필드 보스[{name}]가 등장하였습니다."
-    elseif is_disappear then
-        fmt = "[{map}]에 필드 보스[{name}]가 처치되었습니다."
-    else
+    -- **素の韓国語文を ReplaceDicIDInCompStr へ渡しても訳されない。**
+    -- あれは compstr 中の dicID を差し替える関数で、dicID を含まない文には効かないため、
+    -- 以前は言語を問わず韓国語でチャットに出ていた(Issue #68。バウバスのお知らせと同じ形)。
+    -- 名前とマップ名は上で訳してあるので、ここでは文だけ言語で出し分ける。
+    if not is_appear and not is_disappear then
         return
     end
-    clean_str = dictionary.ReplaceDicIDInCompStr(fmt)
-    clean_str = string.gsub(clean_str, "{name}", name)
-    clean_str = string.gsub(clean_str, "{map}", map)
+    if g.lang == "Japanese" then
+        clean_str = is_appear and string.format("[%s]にフィールドボス[%s]が出現しました。", map, name) or
+                        string.format("[%s]のフィールドボス[%s]が討伐されました。", map, name)
+    elseif g.lang == "kr" then
+        clean_str = is_appear and string.format("[%s]에 필드 보스[%s]가 등장하였습니다.", map, name) or
+                        string.format("[%s]에 필드 보스[%s]가 처치되었습니다.", map, name)
+    else
+        clean_str = is_appear and string.format("Field boss [%s] has appeared in [%s].", name, map) or
+                        string.format("Field boss [%s] in [%s] has been defeated.", name, map)
+    end
     CHAT_SYSTEM(clean_str)
     if g.settings.event_shout.guild_notice == 1 then
         ui.Chat("/g " .. clean_str)

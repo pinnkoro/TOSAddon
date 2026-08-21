@@ -50,9 +50,17 @@ function Mini_addons_REPUTATION_SHOP_OPEN_context(frame, ctrl, str, num)
         local id = shop.id
         local map_name = GetClassByType("Map", id).Name
         local box = shop.box
-        local text = g.lang == "Japanese" and
-                         string.gsub(dic.getTranslatedStr(shop.text), "型", " 憤怒ポーション ") ..
-                         "製造書 : " .. box or shop.text .. " Recipe : " .. box
+        -- 文言は言語ごとに出し分ける。**「製造書」は日本語分岐にしか無かった**ので、
+        -- 韓国語クライアントでも英語の "Recipe" が出ていた(Issue #68)。
+        -- 「型」→「憤怒ポーション」の差し替えは日本語の訳文にだけ要る整形なので、そのまま残す。
+        local text
+        if g.lang == "Japanese" then
+            text = string.gsub(dic.getTranslatedStr(shop.text), "型", " 憤怒ポーション ") .. "製造書 : " .. box
+        elseif g.lang == "kr" then
+            text = shop.text .. " 제조서 : " .. box
+        else
+            text = shop.text .. " Recipe : " .. box
+        end
         ui.AddContextMenuItem(context, map_name .. " (" .. text .. ") ",
             string.format("Mini_addons_ON_REQUEST_REPUTATION_SHOP_OPEN('%s')", shop_name))
     end
