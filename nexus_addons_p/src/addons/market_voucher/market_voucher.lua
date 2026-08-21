@@ -12,7 +12,9 @@ g.market_voucher_trans = {
         ["Period:"] = "集計期間 : ",
         ["Sales Slip"] = "売上伝票",
         ["Clear Log"] = "ログ削除",
-        ["ClearedMsg"] = "販売履歴を削除しました。logtextには残っています。",
+        ["ClearedMsg"] = "販売履歴を削除しました。market_voucher_log.txt.bak に退避しています。",
+        ["ClearFailedMsg"] = "退避に失敗したため、販売履歴は削除していません。",
+        ["TruncatedMsg"] = "新しい %d 件だけ表示しています(全 %d 件)。すべては market_voucher_log.txt にあります。",
         ["CloseFrameTooltip"] = "左クリックでフレームを閉じます。",
         ["ClearLogTooltip"] = "販売履歴を削除します",
         ["sell"] = "販売",
@@ -30,48 +32,139 @@ g.market_voucher_trans = {
         ["Period:"] = "Period : ",
         ["Sales Slip"] = "Sales Slip",
         ["Clear Log"] = "Clear Log",
-        ["ClearedMsg"] = "The sales history has been deleted. It remains in the log text.",
+        ["ClearedMsg"] = "The sales history was cleared. A backup was kept as market_voucher_log.txt.bak.",
+        ["ClearFailedMsg"] = "Could not write the backup, so the sales history was kept.",
+        ["TruncatedMsg"] = "Showing the newest %d of %d records. The full log is in market_voucher_log.txt.",
         ["CloseFrameTooltip"] = "Left-click to close the frame.",
         ["ClearLogTooltip"] = "Clear the sales history",
         ["sell"] = "Sell",
         ["buy"] = "Buy"
     }
 }
-function Market_voucher_save_settings()
-    g.save_json(g.market_voucher_path, g.market_voucher_settings)
-end
-
-function Market_voucher_load_settings()
+-- 取引記録の置き場所。**正本は market_voucher_log.txt の 1 本だけ**。
+--
+-- 以前は同じ内容を market_voucher.json にも書き、さらに
+-- Market_voucher_load_settings() が**ログインのたびに json を全件 decode して、
+-- そのまま re-encode で書き戻していた**。記録が増えるほど遅くなり、
+-- 派生元の実測では 1,360 件 / 124KB で 5.2 秒かかっていた(Issue #101)。
+-- しかも読み書きは on_init から無条件に走るので、**アドオンを OFF にしていても**往復していた。
+--
+-- 今は次のようにする。
+--   * 書くのは追記だけ(Market_voucher_append_log)。json へは書かない
+--   * 読むのは**伝票ウィンドウを開いたときだけ**(Market_voucher_get_records)
+--   * on_init はパスを組み立てるだけ。OFF ならフックも張らない
+--
+-- 旧 json からの移行は「txt が空のときに 1 回だけ」行う(Market_voucher_migrate_log)。
+-- json 自体は消さずに残す(利用者のデータなので、こちらの都合で捨てない)。
+function Market_voucher_setup_paths()
     g.market_voucher_path = string.format("../addons/%s/%s/market_voucher.json", addon_name_lower, g.active_id)
     g.market_voucher_old_path = string.format("../addons/%s/%s/settings_2507.json", "market_voucher", g.active_id)
     g.market_voucher_log_path = string.format("../addons/%s/%s/market_voucher_log.txt", addon_name_lower, g.active_id)
     g.market_voucher_old_log_path = string.format('../addons/%s/log_2507.txt', "market_voucher")
-    local settings = g.load_json(g.market_voucher_path)
-    if not settings then
-        local old_settings = g.load_json(g.market_voucher_old_path)
-        if old_settings then
-            settings = old_settings
-            local old_log_file = io.open(g.market_voucher_old_log_path, "r")
-            if old_log_file then
-                local content = old_log_file:read("*a")
-                old_log_file:close()
-                local new_log_file = io.open(g.market_voucher_log_path, "w")
-                if new_log_file then
-                    new_log_file:write(content)
-                    new_log_file:close()
-                end
-            end
-        else
-            settings = {}
+end
+
+-- txt に中身があるか。**全部読まない**(件数が多いほど遅くなるので、1 行だけ見る)。
+local function market_voucher_log_has_content()
+    local file = io.open(g.market_voucher_log_path, "r")
+    if not file then
+        return false
+    end
+    local first = file:read("*l")
+    file:close()
+    return first ~= nil and first ~= ""
+end
+
+-- 旧い置き場所から txt へ移す。**txt が空のときだけ、セッションに 1 回だけ**。
+--
+-- 拾う順番は次のとおり。個別配布版から引き継いだ利用者は log_2507.txt を持っている。
+--   1. 個別版のログ(log_2507.txt)        … 行がそのまま使える
+--   2. こちらの json(market_voucher.json) … 配列なので 1 行ずつ書き出す
+--   3. 個別版の設定(settings_2507.json)   … 同上
+function Market_voucher_migrate_log()
+    if g.market_voucher_migrated then
+        return
+    end
+    g.market_voucher_migrated = true
+    if market_voucher_log_has_content() then
+        return
+    end
+    local lines = nil
+    local source = nil
+    local old_log = io.open(g.market_voucher_old_log_path, "r")
+    if old_log then
+        local content = old_log:read("*a")
+        old_log:close()
+        if content and content ~= "" then
+            lines = content
+            source = "log_2507.txt"
         end
     end
-    g.market_voucher_settings = settings
-    Market_voucher_save_settings()
+    if not lines then
+        for _, path in ipairs({g.market_voucher_path, g.market_voucher_old_path}) do
+            local records = g.load_json(path)
+            if type(records) == "table" and #records > 0 then
+                lines = table.concat(records, "\n") .. "\n"
+                source = path
+                break
+            end
+        end
+    end
+    if not lines then
+        return
+    end
+    local file = io.open(g.market_voucher_log_path, "w")
+    if not file then
+        g.log_error_once("market_voucher_migrate", "MarketVoucher: 記録の移行先を開けない")
+        return
+    end
+    file:write(lines)
+    file:close()
+    g.vlog("market_voucher: 取引記録を %s から market_voucher_log.txt へ移した", tostring(source))
+end
+
+-- 記録を追記する。**1 回の取引で開くファイルは 1 つ、書き込みも 1 回**。
+function Market_voucher_append_log(records)
+    if type(records) ~= "table" or #records == 0 then
+        return
+    end
+    Market_voucher_migrate_log()
+    local file = io.open(g.market_voucher_log_path, "a")
+    if not file then
+        -- 記録できないこと自体は取引を止める理由にならないので、1 回だけ残して続ける。
+        g.log_error_once("market_voucher_append", "MarketVoucher: 記録を書けない(取引自体は続行)")
+        return
+    end
+    file:write(table.concat(records, "\n") .. "\n")
+    file:close()
+end
+
+-- 記録を読む。**伝票ウィンドウを開いたときだけ呼ぶこと。**
+-- ログインやマップ移動で呼ぶと、件数が増えるほど重くなる(それが Issue #101 の中身)。
+function Market_voucher_get_records()
+    Market_voucher_migrate_log()
+    local records = {}
+    local file = io.open(g.market_voucher_log_path, "r")
+    if not file then
+        return records
+    end
+    for line in file:lines() do
+        if line ~= "" then
+            records[#records + 1] = line
+        end
+    end
+    file:close()
+    return records
 end
 
 function market_voucher_on_init()
-    if not g.market_voucher_settings then
-        Market_voucher_load_settings()
+    -- パスの組み立てだけは OFF でも行う(設定画面から ON にしたときにすぐ使えるように)。
+    Market_voucher_setup_paths()
+    -- **use == 0 の早期 return はここでだけ行うこと。** 下の 3 本は
+    -- setup_hook_and_event の第 4 引数が false = ゲーム側の関数を呼ばずに丸ごと
+    -- 置き換える形で張る。張らなければ素の関数がそのまま残るので OFF は安全だが、
+    -- **フックの中で早期 return すると市場で買えない / 受け取れなくなる**。
+    if g.settings.market_voucher.use == 0 then
+        return
     end
     local old_func = g.settings.market_voucher.old_init_func
     if _G[old_func] then
@@ -115,13 +208,7 @@ end
 
 -- 記録を 1 行足す。3 本のフックが同じ書き方をしていたのでまとめる。
 function Market_voucher_append_record(result_string)
-    table.insert(g.market_voucher_settings, result_string)
-    local file_handle = io.open(g.market_voucher_log_path, "a")
-    if file_handle then
-        file_handle:write(result_string .. "\n")
-        file_handle:close()
-    end
-    Market_voucher_save_settings()
+    Market_voucher_append_log({result_string})
 end
 
 function Market_voucher_CABINET_GET_ALL_LIST(my_frame, my_msg)
@@ -167,18 +254,7 @@ function Market_voucher_record_sold_list(item_count)
             end
         end
     end
-    for _, result_string in ipairs(results_table) do
-        table.insert(g.market_voucher_settings, result_string)
-    end
-    Market_voucher_save_settings()
-    if #results_table > 0 then
-        local all_results = table.concat(results_table, "\n")
-        local file_handle = io.open(g.market_voucher_log_path, "a")
-        if file_handle then
-            file_handle:write(all_results .. "\n")
-            file_handle:close()
-        end
-    end
+    Market_voucher_append_log(results_table)
 end
 
 -- 買い注文の内容を記録する。OFF なら何もしない
@@ -327,8 +403,17 @@ function Market_voucher_init_frame()
     log_btn:ShowWindow(1)
 end
 
+-- 伝票に並べる行数の上限。**ここでしか記録を読まない**とはいえ、1 行につき richtext を
+-- 1 つ作るので、数千件あるとウィンドウを開くたびに数千個のコントロールを作ることになる。
+-- 枠(720px / 1 行 20px)に入るのは 36 行なので、それを大きく超えるぶんは作っても見えない。
+-- 並びは新しい順なので、上限で切っても**新しい取引から順に見える**。
+-- 合計と集計期間は**切る前の全件**から出す(数字だけ小さくなると、消えたように見えるため)。
+local MARKET_VOUCHER_MAX_ROWS = 200
+
 function Market_voucher_print()
-    if #g.market_voucher_settings == 0 then
+    -- 記録を読むのはここだけ。ログインやマップ移動では読まない(Issue #101)。
+    local records = Market_voucher_get_records()
+    if #records == 0 then
         return
     end
     local market_voucher = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "market_voucher", 0, 0, 0, 0)
@@ -354,13 +439,14 @@ function Market_voucher_print()
     close_button:SetImage("testclose_button")
     close_button:SetEventScript(ui.LBUTTONUP, "Market_voucher_print_close")
     local sumtotal_amount = 0
-    table.sort(g.market_voucher_settings, function(a, b)
+    table.sort(records, function(a, b)
         return a > b
     end)
-    local item_count = #g.market_voucher_settings
+    local item_count = #records
+    local shown_count = math.min(item_count, MARKET_VOUCHER_MAX_ROWS)
     local y_pos = 5
     for i = 1, item_count do
-        local tokens = StringSplit(g.market_voucher_settings[i], '/')
+        local tokens = StringSplit(records[i], '/')
         local date_str = tokens[1]
         local name_str = tokens[2]
         local item_str = string.gsub(tokens[3], "?", "-")
@@ -387,14 +473,25 @@ function Market_voucher_print()
                 GET_COMMAED_STRING(unit_price_val), Market_voucher_lang_trans("total amount:"),
                 GET_COMMAED_STRING(total_amount_val), status)
         end
-        local text_view = bg:CreateOrGetControl("richtext", "textview" .. i, 5, y_pos)
-        AUTO_CAST(text_view)
-        text_view:SetText("{ol}" .. line_text)
-        y_pos = y_pos + 20
+        -- 合計と集計期間は全件から出すので、ループ自体は最後まで回す。
+        -- **作るのを止めるのはコントロールだけ。**
+        if i <= shown_count then
+            local text_view = bg:CreateOrGetControl("richtext", "textview" .. i, 5, y_pos)
+            AUTO_CAST(text_view)
+            text_view:SetText("{ol}" .. line_text)
+            y_pos = y_pos + 20
+        end
+    end
+    if item_count > shown_count then
+        -- 上限で切ったことを黙らない(全部出たと誤解させない)。全件は txt に残っている。
+        local note = bg:CreateOrGetControl("richtext", "truncated", 5, y_pos)
+        AUTO_CAST(note)
+        note:SetText("{ol}{#FF9933}" ..
+                         string.format(Market_voucher_lang_trans("TruncatedMsg"), shown_count, item_count))
     end
     local date_pattern = "^(%d%d%d%d%-%d%d%-%d%d)"
-    local latest_date_str = string.match(g.market_voucher_settings[1], date_pattern)
-    local earliest_date_str = string.match(g.market_voucher_settings[item_count], date_pattern)
+    local latest_date_str = string.match(records[1], date_pattern)
+    local earliest_date_str = string.match(records[item_count], date_pattern)
     local sum_total_amount_text = market_voucher:CreateOrGetControl("richtext", "sumtotal_amount_text", 900, 740, 100,
         30)
     local rounded_number = math.floor(sumtotal_amount / 1000000 + 0.5)
@@ -420,14 +517,40 @@ function Market_voucher_auto_close(market_voucher)
     end
 end
 
+-- 「Clear Log」。**txt が正本になったので、消す前に .bak へ退避する。**
+-- 以前は json だけ消して txt を残していたので「ログテキストには残っています」で済んでいたが、
+-- 今そのまま消すと戻す手段が無くなる。文言も揃えて直してある(ClearedMsg)。
 function Market_voucher_clear()
-    g.market_voucher_settings = {}
+    local records = Market_voucher_get_records()
+    if #records > 0 then
+        local backup = io.open(g.market_voucher_log_path .. ".bak", "w")
+        if backup then
+            backup:write(table.concat(records, "\n") .. "\n")
+            backup:close()
+        else
+            -- 退避できないなら消さない。**消えて戻せない**より、消えないほうがまだよい。
+            g.log_error_once("market_voucher_clear", "MarketVoucher: 退避先を開けないので削除を中止した")
+            ui.SysMsg(Market_voucher_ui_text("ClearFailedMsg"))
+            return
+        end
+    end
+    local file = io.open(g.market_voucher_log_path, "w")
+    if file then
+        file:close()
+    end
     ui.SysMsg(Market_voucher_ui_text("ClearedMsg"))
-    Market_voucher_save_settings()
+    g.vlog("market_voucher: 記録 %d 件を .bak へ退避して消した", #records)
+    -- 開いている伝票は中身が古いままになるので畳む。
+    Market_voucher_print_close()
 end
 
 function Market_voucher_print_close()
     local market_voucher = ui.GetFrame(addon_name_lower .. "market_voucher")
+    -- **無いことがある。** 伝票を開いていない状態からも呼ばれる(Clear Log の後始末)。
+    -- 素で :GetName() を呼ぶとそこで落ちる。
+    if not market_voucher then
+        return
+    end
     ui.DestroyFrame(market_voucher:GetName())
 end
 -- market_voucher ここまで

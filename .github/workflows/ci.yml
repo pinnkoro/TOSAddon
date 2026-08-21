@@ -80,6 +80,11 @@ jobs:
       - name: Addons Menu の項目収集テスト
         run: luajit docs/tests/test_addons_menu.lua
 
+      # 取引記録の読み書き。ログインで全件往復すると使い込むほど重くなる(#101)。
+      # 実機では「なんとなく重い」としか出ないので、置き場所の性質を機械で押さえる。
+      - name: market_voucher の記録テスト
+        run: luajit docs/tests/test_market_voucher.lua
+
       # コンテキストメニューの横取りは、戻し忘れるとゲーム中の全ての右クリックメニューを
       # 巻き込む。復帰・素の戻り値・項目の差し替えを機械で見る。
       - name: mini_addons のメニュー横取りテスト
