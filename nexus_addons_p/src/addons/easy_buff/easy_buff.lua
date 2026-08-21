@@ -68,10 +68,10 @@ function Easy_buff_config_frame()
     easy_buff:SetSkinName("test_frame_low")
     easy_buff:SetLayerLevel(999)
     easy_buff:Resize(490, 410)
-    local list_frame_name = addon_name_lower .. "list_frame"
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
-    -- ts(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
-    easy_buff:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    easy_buff:SetPos(g.settings_frame_pos(490, 410))
     easy_buff:SetTitleBarSkin("None")
     easy_buff:EnableHittestFrame(1)
     easy_buff:EnableHitTest(1)

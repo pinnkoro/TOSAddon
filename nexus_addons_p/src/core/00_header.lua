@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.0.1"
+local ver = "2.1.0"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -1384,6 +1384,464 @@ function g.probe_esc_menu()
     -- GetEventScript(= ui.ToggleFrame('apps')) を見れば確認できる。
     -- 他アドオンがボタンを足すと並びも中身も変わるので、実機で毎回見られるようにしておく。
     pcall(esc_probe_dump_sysmenu)
+end
+
+-- ===== 検索欄のインクリメンタル検索と「×」 =====
+--
+-- 素のクライアントの検索欄は、打鍵のたびに 0.3 秒遅らせて検索し直す作りになっている。
+--   inventory.xml : <edit name="ItemSearch" ... typingscp="SEARCH_ITEM_INVENTORY_KEY"/>
+--   inventory.lua : SEARCH_ITEM_INVENTORY_KEY が CancelReserveScript / ReserveScript(0.3) で先送りする
+-- ワールドマップの検索欄(worldmap2_mainmap.xml)も同じ。**素には検索欄をクリアするボタンが
+-- どこにも無い**が、これは「文字を消せばその場で戻るので要らない」というだけで、
+-- 消す手段そのものを否定しているわけではない。こちらは素に合わせて打鍵で検索し直す
+-- ようにしたうえで、入力があるときだけ「×」を出す(一般的な検索窓と同じ)。
+--
+-- 素は frame:CancelReserveScript で前の予約を取り消すが、**グローバルの ReserveScript には
+-- 取り消しが無い**(素もフレーム側でしか呼んでいない)。フレーム側の予約は「フレームごとに
+-- 関数名 1 つ」なので、同じフレームに検索欄が複数ある作り(battle_ritual など)だと
+-- 打ち消し合ってしまう。そこで検索欄ごとに世代番号を持ち、**最後の打鍵の分だけ実行して
+-- 残りは捨てる**。捨てる側は数値比較で戻るだけなので、余分に起きても実害が無い。
+g.search_typing_delay = 0.3
+
+-- 「×」ボタンの名前。検索欄の子として作るので、検索欄ごとに 1 つ。
+g.search_clear_name = "nap_search_clear"
+
+-- 打鍵から検索関数を呼んでいる間だけ真。**その検索がキーボード操作から来たのかを
+-- アドオン側で見分けるためのもの。** 見分けが要るのは Focus() の扱いで、一覧の作り直しで
+-- 検索欄ごと作り直す作り(characters_item_serch)が、入力位置を戻してよいかの判断に使う。
+--
+-- **「打鍵以外を弾く」向きにすること。** 検索関数には打鍵のほかに Enter・虫眼鏡ボタン・
+-- 「×」から入ってくる。マウス操作(虫眼鏡 /「×」)では入力位置がそもそも無いので、
+-- 戻すと ESC の 1 回目を食って窓が閉じなくなる。「×から来たか」だけを見る作りにすると
+-- 虫眼鏡ボタン経由を取りこぼす(レビューで実際に指摘された)。
+g.search_typing_running = false
+
+-- [key] = {frame=, name=, handler=, arg_num=, delay=, seq=, last=, incremental=}
+-- key は handler 名と引数の組。**検索欄そのものを持たない**のは、打鍵から実行までの
+-- 0.3 秒の間に × ボタンで窓を閉じられると、破棄済みのコントロールを掴んだままになるため。
+-- 実行時に名前から引き直す(素も esc_top も同じやり方)。
+g.search_typing = g.search_typing or {}
+
+-- 検索欄の入力を消す「×」の出し入れだけを行う。**打鍵のたびに呼ばれる**ので、
+-- ここでは表示以外の状態を触らないこと(g.search_clear_sync の注意書きを参照)。
+--
+-- **位置決めを作成時ではなく最初に出すときに行う。** 虫眼鏡ボタン(search_btn)は
+-- どのアドオンでも検索欄より後に作られる = 登録を呼ぶ時点ではまだ幅を読めないため。
+-- 出すのは利用者が 1 文字打った後なので、そのときには必ず在る。
+local function search_clear_btn_sync(edit)
+    if edit == nil then
+        return
+    end
+    local ok, err = pcall(function()
+        local btn = GET_CHILD_RECURSIVELY(edit, g.search_clear_name)
+        if btn == nil then
+            return
+        end
+        AUTO_CAST(btn)
+        local text = edit:GetText() or ""
+        if text == "" then
+            btn:ShowWindow(0)
+            return
+        end
+        if btn:GetUserValue("NAP_PLACED") ~= "1" then
+            -- **虫眼鏡ボタンがまだ無いうちは位置を確定させない。** ここは検索欄の文字を
+            -- コードから入れた直後(まだ虫眼鏡ボタンを作っていない)にも通るので、
+            -- 確定させてしまうと左隣ではなく右端に置いたまま固定される。
+            local search_btn = GET_CHILD_RECURSIVELY(edit, "search_btn")
+            if search_btn ~= nil then
+                btn:SetMargin(0, 0, search_btn:GetWidth() + 4, 0)
+                btn:SetUserValue("NAP_PLACED", "1")
+            end
+        end
+        btn:ShowWindow(1)
+    end)
+    if not ok then
+        -- 打鍵のたびに通るが、log_error_once が同じ内容を 1 回だけに絞るので流れない。
+        g.log_error_once("search_clear_btn_sync",
+            string.format("incremental_search: 「×」の出し入れに失敗(%s)", tostring(err)))
+    end
+end
+
+-- **検索欄の文字をコードから変えたときに呼ぶ。**「×」の出し入れを合わせ、あわせて
+-- 「前回この語で検索した」の記録(entry.last)を捨てる。
+--
+-- **記録を捨てるのを忘れないこと。** _nexus_addons_p_search_fire は entry.last と同じ語なら
+-- 検索を飛ばすので、捨てないと「コードで空へ戻す → 利用者が同じ語を打ち直す」経路で
+-- 検索が一度も走らなくなる(another_warehouse でタブを切り替えてから同じ語を入れると再現した)。
+-- 打鍵のたびに走る側から呼ぶのは search_clear_btn_sync のほう。こちらを毎打鍵で呼ぶと
+-- 重複除外が常に無効になる。
+function g.search_clear_sync(edit)
+    if edit == nil then
+        return
+    end
+    search_clear_btn_sync(edit)
+    pcall(function()
+        local key = edit:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry ~= nil then
+            entry.last = nil
+            -- **世代番号も進めること。** 予約済みの検索を無効にする手段はこれしかない
+            -- (グローバルの ReserveScript に取り消しが無い)。進めないと、打鍵から
+            -- 実行までの間にコードが検索欄を空へ戻した場合でも古い予約がそのまま発火する。
+            -- 実例: another_warehouse は打鍵の 0.5 秒以内にタブを切り替えると、後から
+            -- 発火した検索が Another_warehouse_tab_change をタブ 1 固定で呼び直し、
+            -- 利用者が選んだタブを無言で巻き戻していた。
+            entry.seq = entry.seq + 1
+        end
+    end)
+end
+
+-- 検索欄に打鍵の受け取りと「×」を仕込む共通処理。
+--   incremental が true なら打鍵のたびに検索し直す。false のときは「×」を出すためだけに
+--   打鍵を受け取り、検索は Enter と虫眼鏡ボタンのままにする(tavern_of_soul のように
+--   全件を走査する検索は 1 文字ごとに走らせられないため)。
+local function setup_search_edit(edit, handler, arg_num, delay, incremental)
+    if edit == nil or handler == nil or handler == "" then
+        return
+    end
+    local key = string.format("%s#%s", handler, tostring(arg_num or 0))
+    local ok, err = pcall(function()
+        local frame = edit:GetTopParentFrame()
+        local entry = g.search_typing[key] or {}
+        entry.frame = frame:GetName()
+        entry.name = edit:GetName()
+        entry.handler = handler
+        entry.arg_num = arg_num or 0
+        entry.delay = delay or g.search_typing_delay
+        entry.incremental = incremental and true or false
+        entry.seq = entry.seq or 0
+        -- 窓を開き直したときに前回の検索語を引きずらない(引きずると、同じ語を打ち直しても
+        -- 「変わっていない」と見なして検索が走らない)。
+        entry.last = nil
+        g.search_typing[key] = entry
+        edit:SetUserValue("NAP_SEARCH_KEY", key)
+        edit:SetTypingScp("_nexus_addons_p_search_typing")
+
+        local clear_btn = edit:CreateOrGetControl("button", g.search_clear_name, 0, 0, 22, 22)
+        AUTO_CAST(clear_btn)
+        clear_btn:SetImage("testclose_button")
+        clear_btn:SetGravity(ui.RIGHT, ui.CENTER_VERT)
+        clear_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}入力を消して元の一覧に戻す" or g.lang == "kr" and
+                                     "{ol}입력을 지우고 원래 목록으로" or "{ol}Clear the search box")
+        clear_btn:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_search_clear")
+        -- 作り直した窓では「置いた」印も作り直させる(虫眼鏡ボタンの幅を測り直すため)。
+        clear_btn:SetUserValue("NAP_PLACED", "0")
+        clear_btn:ShowWindow(0)
+        g.search_clear_sync(edit)
+    end)
+    if not ok then
+        -- 打鍵を受け取れないクライアントに当たっても、ENTERKEY と虫眼鏡ボタンは
+        -- そのまま残るので検索自体は使える。1 回だけ残して以後は黙る。
+        g.log_error_once("search_typing:" .. key,
+            string.format("incremental_search: %s の打鍵登録に失敗(%s)", key, tostring(err)))
+    end
+end
+
+-- 検索欄を素と同じインクリメンタル検索にし、入力中は「×」を出す。
+-- **ui.ENTERKEY の割り当ての直後に呼ぶこと。**
+--   edit    : 検索欄(AUTO_CAST 済みの ui::CEditControl)
+--   handler : ui.ENTERKEY に割り当てたのと同じグローバル関数名
+--   arg_num : ui.ENTERKEY へ SetEventScriptArgNumber で渡しているのと同じ値(無ければ省略)
+--   delay   : 打鍵から検索までの秒数(省略時 g.search_typing_delay)。一覧の作り直しが
+--             重いものはここを伸ばす
+-- ENTERKEY と虫眼鏡ボタンは**そのまま残すこと**。押しても同じ検索がもう一度走るだけで
+-- 害が無く、「Enter で検索する」と思っている利用者の手を止めないため。
+function g.setup_incremental_search(edit, handler, arg_num, delay)
+    setup_search_edit(edit, handler, arg_num, delay, true)
+end
+
+-- 検索は Enter と虫眼鏡ボタンのままにし、「×」だけを付ける。
+-- **全件を走査して一致したぶんだけコントロールを作る検索**は 1 文字ごとに走らせられない
+-- (空文字や 1 文字で数千〜数万件に当たる)ので、そういう検索はこちらを使う。
+--   reset_handler : 「×」を押したときに呼ぶグローバル関数名。**空文字で検索し直す処理では
+--                   なく、検索前の姿へ戻す(中身を捨てて畳む)処理を渡すこと。**
+--                   呼び出しの並びは検索関数と同じ (frame, ctrl, argStr, argNum)。
+function g.setup_enter_search(edit, reset_handler, arg_num)
+    setup_search_edit(edit, reset_handler, arg_num, nil, false)
+end
+
+-- 打鍵のたびに呼ばれる(SetTypingScp の呼び出し規約は素の CHECK_EDIT_LENGTH と同じ (parent, ctrl))。
+-- 「×」の出し入れはここで即座に行い、検索そのものは _nexus_addons_p_search_fire へ先送りする。
+function _nexus_addons_p_search_typing(parent, ctrl)
+    local ok, err = pcall(function()
+        local key = ctrl:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry == nil then
+            return
+        end
+        search_clear_btn_sync(ctrl)
+        if not entry.incremental then
+            return
+        end
+        entry.seq = entry.seq + 1
+        ReserveScript(string.format("_nexus_addons_p_search_fire(%q, %d)", key, entry.seq), entry.delay)
+    end)
+    if not ok then
+        g.log_error_once("search_typing_reserve",
+            string.format("incremental_search: 打鍵の予約に失敗(%s)", tostring(err)))
+    end
+end
+
+-- 検索欄と登録を名前から引き直す。**参照を持ち回さない**理由は g.search_typing のコメント参照。
+-- 窓が閉じていれば nil を返す(ここで作り直すと、閉じたはずの窓が打鍵の残りで開き直る)。
+local function search_edit_of(entry)
+    local frame = ui.GetFrame(entry.frame)
+    if frame == nil or frame:IsVisible() ~= 1 then
+        return nil, nil
+    end
+    local edit = GET_CHILD_RECURSIVELY(frame, entry.name)
+    if edit == nil then
+        return nil, nil
+    end
+    AUTO_CAST(edit)
+    return frame, edit
+end
+
+-- 登録した検索関数を、ui.ENTERKEY から呼ばれるときと同じ並び (frame, ctrl, argStr, argNum) で呼ぶ。
+local function search_run(entry, frame, edit, text)
+    local func = _G[entry.handler]
+    if type(func) ~= "function" then
+        g.log_error_once("search_typing_func:" .. tostring(entry.handler),
+            string.format("incremental_search: %s が見つからない", tostring(entry.handler)))
+        return
+    end
+    entry.last = text
+    func(frame, edit, text, entry.arg_num)
+    g.vlog("incremental_search: %s(frame=%s text=%q arg=%s)", entry.handler, entry.frame, text,
+        tostring(entry.arg_num))
+end
+
+-- 予約した検索を実行する。seq が最新でなければ、続けて打鍵された分なので捨てる。
+function _nexus_addons_p_search_fire(key, seq)
+    local entry = g.search_typing[key]
+    if entry == nil or entry.seq ~= seq then
+        return
+    end
+    local ok, err = pcall(function()
+        local frame, edit = search_edit_of(entry)
+        if edit == nil then
+            return
+        end
+        local text = edit:GetText() or ""
+        if entry.last == text then
+            return
+        end
+        g.search_typing_running = true
+        search_run(entry, frame, edit, text)
+    end)
+    -- pcall が失敗した経路でも必ず戻す(戻し忘れると以後ずっと「打鍵から来た」扱いになる)。
+    g.search_typing_running = false
+    if not ok then
+        g.log_error_once("search_typing_fire:" .. key,
+            string.format("incremental_search: %s の実行に失敗(%s)", key, tostring(err)))
+    end
+end
+
+-- 「×」を押したとき。入力を消して、登録した検索関数を空文字で呼ぶ = 元の一覧へ戻す。
+-- **入力欄へ Focus() は戻さない。** キーボードフォーカスが入力欄にあると ESC の 1 回目が
+-- 「入力欄から抜ける」に使われて窓が閉じなくなるため(CLAUDE.md の ESC の節を参照)。
+function _nexus_addons_p_search_clear(parent, ctrl)
+    local ok, err = pcall(function()
+        local edit = ctrl:GetParent()
+        if edit == nil then
+            return
+        end
+        AUTO_CAST(edit)
+        local key = edit:GetUserValue("NAP_SEARCH_KEY")
+        local entry = key ~= nil and g.search_typing[key] or nil
+        if entry == nil then
+            return
+        end
+        edit:SetText("")
+        -- 打鍵で予約済みの検索の無効化(世代番号を進める)も search_clear_sync が行う。
+        g.search_clear_sync(edit)
+        local frame, live_edit = search_edit_of(entry)
+        if live_edit == nil then
+            return
+        end
+        search_run(entry, frame, live_edit, "")
+    end)
+    if not ok then
+        g.log_error_once("search_clear", string.format("incremental_search: × の処理に失敗(%s)", tostring(err)))
+    end
+end
+
+-- ===== 初回ロードの分割実行(スロットル) =====
+--
+-- ログイン直後は、登録されている全アドオンの on_init を **1 tick あたり数個ずつ**に
+-- 割って走らせる(core/20_lifecycle.lua の _nexus_addons_p_async_safe_call)。
+-- その「1 回あたりの件数」を利用者が変えられるようにしたのがここ。設定画面
+-- (Addons Menu の設定 → 共通タブ)の「初期化の速さ」から入る。
+--
+-- **待ち時間は処理の重さと無関係に積む。** 従来は 0.1 秒ごとに 2 件だったので、
+-- 51 個なら実際の処理が 0 秒でも 2.5 秒かかる。登録の末尾に来るアドオンほど遅れて
+-- 有効になり、market_favorite_rebuild は実測で GAME_START の 5 秒後だった
+-- (addons/market_favorite_rebuild のコメント参照)。
+-- そこで tick 間隔は 0.05 秒に固定し、**件数だけ**を可変にする。
+-- 件数 1 なら従来と同じ約 2.5 秒、既定の 4 で約 0.65 秒、上限 12 で約 0.2 秒。
+--
+-- **tick 間隔を 0.01 秒(素の作法)まで詰めないこと。** 素のクライアントは「止めずに
+-- できるだけ速く」を 0.01 か 0(毎フレーム)で書く(_PROCESS_MOVE_FRAME /
+-- _PROCESS_RESIZE_FRAME / UPDATE_TABKEY_VISIBLE など 23 箇所)。ただし 0.01 は
+-- フレーム時間(60fps で 16.7ms)で頭打ちになるので、実質「毎フレーム N 件」= fps 依存に
+-- なる。設定画面に所要秒数を出している以上、fps で倍違うのは説明と食い違う。
+-- 0.05 なら 20fps でも表示どおりの wall-clock になる。
+--
+-- **大きくするほど 1 フレームの取り分が増える**ので上限を置く。時間予算(time_limit)も
+-- 件数に連れて上げるが、こちらは **16ms = 60fps の 1 フレーム**で頭打ちにする。
+-- 素のクライアントには「1 フレームの時間予算」という考え方が無く
+-- (imcTime.GetAppTimeMS() は全体で 6 ファイル、どれも経過時間の表示)、意図して
+-- 1 フレーム以上を使う処理も見当たらない。1 フレーム分で切り上げるのが素の感覚に沿う。
+-- 予算を見るのは「次の 1 件へ進む前」だけなので、1 件で 100ms かかるアドオンは
+-- どの設定でもその tick を丸ごと使う。予算は軽い init をどこまで詰め込むかの上限でしかない。
+g.INIT_BATCH_MIN = 1
+g.INIT_BATCH_MAX = 12
+g.INIT_BATCH_DEFAULT = 4
+g.INIT_TICK_SEC = 0.05
+-- 1 tick の時間予算の上限(ms)。60fps の 1 フレーム分。
+g.INIT_TIME_LIMIT_MAX = 16
+
+-- 設定値から、実際に使う (件数, 時間予算 ms) を出す。
+-- **数字でない / 範囲外は既定とクランプで正す。** 設定ファイルは利用者が手で書き
+-- 換えられるので、0 や負数が入ると while が 1 件も進まないまま毎 tick 回り続ける
+-- (初期化が永久に終わらない)。ここを通す限りその形にはならない。
+-- 純ロジックなので docs/tests/test_core.lua から検査できる。
+function g.init_throttle(batch)
+    batch = tonumber(batch)
+    if not batch then
+        batch = g.INIT_BATCH_DEFAULT
+    end
+    batch = math.floor(batch)
+    if batch < g.INIT_BATCH_MIN then
+        batch = g.INIT_BATCH_MIN
+    elseif batch > g.INIT_BATCH_MAX then
+        batch = g.INIT_BATCH_MAX
+    end
+    -- 従来は 2 件 / 6ms = 1 件あたり 3ms。同じ比で伸ばし、16ms(60fps の 1 フレーム)で止める。
+    local time_limit = batch * 3
+    if time_limit < 6 then
+        time_limit = 6
+    elseif time_limit > g.INIT_TIME_LIMIT_MAX then
+        time_limit = g.INIT_TIME_LIMIT_MAX
+    end
+    return batch, time_limit
+end
+
+-- 件数 count のアドオンを初期化し終えるまでの目安(秒)。設定画面の説明文で使う。
+function g.init_estimate_sec(count, batch)
+    local per_tick = (g.init_throttle(batch))
+    count = tonumber(count) or 0
+    if count <= 0 then
+        return 0
+    end
+    return math.ceil(count / per_tick) * g.INIT_TICK_SEC
+end
+
+-- アドオンの設定画面を置く位置を返す。
+--
+-- 従来はどの設定画面も「アドオン一覧(list_frame)の右隣」に決め打ちしていたが、
+-- **Addons Menu のショートカットから開くと一覧は開いていない**。そのとき
+-- ui.GetFrame は nil を返し、素で :GetX() を呼ぶとそこで落ちる。**窓は既に作った後**なので、
+-- 利用者からは中身が何も無い空の窓が出るように見える
+-- (実機で Auto Repair / Boss Direction で発生。同じ書き方が 11 アドオンにあった)。
+--
+-- 一覧が開いていればこれまでどおり右隣、開いていなければ画面の中央へ置く。
+-- width / height は分かっていれば渡すこと(中央寄せと、画面からはみ出さないための丸めに使う)。
+function g.settings_frame_pos(width, height)
+    local list = ui.GetFrame(addon_name_lower .. "list_frame")
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    width = width or 400
+    height = height or 400
+    local x, y
+    if list then
+        x, y = list:GetX() + list:GetWidth(), list:GetY()
+    else
+        x, y = math.floor((screen_w - width) / 2), math.floor((screen_h - height) / 2)
+    end
+    if x + width > screen_w then
+        x = screen_w - width
+    end
+    if y + height > screen_h then
+        y = screen_h - height
+    end
+    if x < 0 then
+        x = 0
+    end
+    if y < 0 then
+        y = 0
+    end
+    return x, y
+end
+
+-- ===== Addons Menu のショートカット設定 =====
+--
+-- アドオン一覧の行に置く☆(core/20_lifecycle.lua)と、Addons Menu の一覧
+-- (core/90_addons_menu.lua)の両方が読み書きするので、触り方をここへ集約する。
+-- **90_addons_menu.lua は読み込み時ガードの外に居る**ので、あちらから呼べるように
+-- 置き場所はこのファイル(ガードの外)であること。
+--
+-- 保存先は settings.json のトップレベル menu_shortcuts。
+--   menu_shortcuts = { ["addon:another_warehouse"] = { show = 1, icon = "..." }, ... }
+--
+-- **キーは名前空間を分けること。** Nexus Addons P のアドオン(registry のキー)と、
+-- 他アドオンが相乗りで入れてくる項目(_G["norisan"]["MENU"] のキー)は別の出どころで、
+-- 綴りがぶつかる保証が無い。前者は "addon:"、後者は "menu:" を付けて区別する。
+--
+-- **知らないキーを消さないこと。** 相乗り側は自分の GAME_START で登録するので、
+-- そのアドオンを外している起動ではキーが存在しない。掃除すると入れ直したときに
+-- 設定が失われるので、「今のテーブルに無いものは出さない」だけにする。
+g.MENU_SHORTCUT_DEFAULT_ICON = "config_button_normal"
+
+function g.menu_shortcut_key(kind, key)
+    return tostring(kind) .. ":" .. tostring(key)
+end
+
+-- 設定を読む。無ければ nil(既定値の判断は呼び元が行う。既定は出どころで違う:
+-- registry のアドオンは「出さない」、相乗り項目は「出す」)。
+function g.menu_shortcut_cfg(key)
+    if not (g.settings and g.settings.menu_shortcuts) then
+        return nil
+    end
+    local cfg = g.settings.menu_shortcuts[key]
+    if type(cfg) ~= "table" then
+        return nil
+    end
+    return cfg
+end
+
+-- 出すかどうか。default_show は設定がまだ無いときの既定。
+function g.menu_shortcut_shown(key, default_show)
+    local cfg = g.menu_shortcut_cfg(key)
+    if cfg == nil or cfg.show == nil then
+        return default_show and true or false
+    end
+    return cfg.show == 1
+end
+
+-- 設定を書いて保存する。value が nil のときはその項目だけ消す
+-- (アイコンを既定へ戻すときに使う。エントリ自体は show を持つので残す)。
+--
+-- defer = true のときは保存しない。**まとめて書き換える処理はこれを使うこと**
+-- (並べ替えは一覧全体へ番号を振り直すので、そのまま呼ぶと 1 回の押下で
+--  設定ファイルを項目数ぶん書くことになる)。呼び元が最後に 1 回保存すること。
+function g.menu_shortcut_set(key, field, value, defer)
+    if not g.settings then
+        return false
+    end
+    g.settings.menu_shortcuts = g.settings.menu_shortcuts or {}
+    local cfg = g.settings.menu_shortcuts[key]
+    if type(cfg) ~= "table" then
+        cfg = {}
+        g.settings.menu_shortcuts[key] = cfg
+    end
+    cfg[field] = value
+    if not defer and type(_G["_nexus_addons_p_save_settings"]) == "function" then
+        _nexus_addons_p_save_settings()
+    end
+    g.vlog("menu_shortcut: %s の %s を %s にした", tostring(key), tostring(field), tostring(value))
+    return true
 end
 
 function g.debug_print_table(tbl, indent)

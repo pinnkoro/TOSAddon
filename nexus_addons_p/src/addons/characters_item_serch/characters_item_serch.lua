@@ -566,6 +566,25 @@ function Characters_item_serch_item_search(my_frame, ctrl, str, num)
     local search_text = search_edit:GetText()
     if search_text == "" then
         Characters_item_serch_frame_init(nil, nil, g.login_name, 0)
+        -- frame_init は RemoveAllChild で検索欄ごと作り直すので、打鍵で空へ戻したときは
+        -- 入力位置が外れて次の 1 文字がどこにも入らない。作り直した側へ戻しておく。
+        -- (窓を開いた直後の Focus() は ESC の 1 回目を食うので禁じているが、ここは
+        --  既に開いていて利用者が入力中の窓 = 元から入力位置がある状態を保つだけ)
+        --
+        -- **打鍵から来たときだけ戻すこと。** ここへは虫眼鏡ボタンと「×」からも入ってくる
+        -- (どちらも空欄のまま押せる)が、マウス操作では入力位置がそもそも無いので、
+        -- 戻すと ESC の 1 回目を食って窓が閉じなくなる(この窓は esc_register_destroy で
+        -- ESC スタックに積んである)。
+        if g.search_typing_running then
+            local new_frame = ui.GetFrame(addon_name_lower .. "characters_item_serch")
+            if new_frame then
+                local new_edit = GET_CHILD(new_frame, "search_edit")
+                if new_edit then
+                    AUTO_CAST(new_edit)
+                    new_edit:Focus()
+                end
+            end
+        end
         return
     end
     local gb = GET_CHILD(characters_item_serch, "gb")
@@ -649,17 +668,20 @@ function Characters_item_serch_get_sorted_sub_categories(items)
 end
 
 function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
-    if not list_frame then
-        list_frame = _nexus_addons_p_frame_init()
-        list_frame:ShowWindow(0)
-    end
+    -- 以前はここで一覧を開いて即隠していた(位置を読むためだけの空振り)。**もう要らない。**
+    -- 位置は g.settings_frame_pos が決めるうえ、この「出ていない登録」は ESC のスタックに
+    -- 死んだ登録を残し、後で一覧を開き直しても手前に来ない原因になっていた
+    -- (CLAUDE.md の ESC の節にある、esc_register_keep が据え置いてしまう例そのもの)。
     local characters_item_serch = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "characters_item_serch", 0, 0,
         70, 30)
     AUTO_CAST(characters_item_serch)
     characters_item_serch:SetSkinName("test_frame_low")
     characters_item_serch:Resize(670, 1080)
-    characters_item_serch:SetPos(list_frame:GetX() + list_frame:GetWidth(), 0)
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    local pos_x = (g.settings_frame_pos(670, 1080))
+    characters_item_serch:SetPos(pos_x, 0)
     characters_item_serch:EnableMove(0)
     characters_item_serch:SetLayerLevel(999)
     characters_item_serch:SetTitleBarSkin("None")
@@ -691,6 +713,7 @@ function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
     search_edit:SetTextAlign("left", "center")
     search_edit:SetSkinName("inventory_serch")
     search_edit:SetEventScript(ui.ENTERKEY, "Characters_item_serch_item_search")
+    g.setup_incremental_search(search_edit, "Characters_item_serch_item_search")
     local search_btn = search_edit:CreateOrGetControl("button", "search_btn", 0, 0, 60, 38)
     AUTO_CAST(search_btn)
     search_btn:SetImage("inven_s")

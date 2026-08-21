@@ -328,6 +328,22 @@ _nexus_addons_p_load_settings()
 check("ON が保持される", g.settings.verbose_log, 1)
 check("登録外のキーは従来どおり削除", g.settings.bogus_key, nil)
 check("保存内容にも載る", stored and stored.verbose_log, 1)
+
+-- 初期化のスロットルも同じ経路に乗る。**正規化まで load_settings で済ませること。**
+-- 0 や文字列が残ると分割実行が 1 件も進まないまま回り続ける（g.init_throttle 参照）。
+g.load_json = function() return nil end
+_nexus_addons_p_load_settings()
+check("init_batch の既定は推奨値", g.settings.init_batch, g.INIT_BATCH_DEFAULT)
+g.load_json = function() return {init_batch = 8} end
+_nexus_addons_p_load_settings()
+check("範囲内の値は保持される", g.settings.init_batch, 8)
+g.load_json = function() return {init_batch = 0} end
+_nexus_addons_p_load_settings()
+check("0 は下限まで押し上げる", g.settings.init_batch, g.INIT_BATCH_MIN)
+check("正した値が保存される", stored and stored.init_batch, g.INIT_BATCH_MIN)
+g.load_json = function() return {init_batch = "abc"} end
+_nexus_addons_p_load_settings()
+check("数字でなければ推奨値", g.settings.init_batch, g.INIT_BATCH_DEFAULT)
 g.settings = saved_settings
 
 -- ===== 9. get_map_type: MapType が空のときも「失敗」として扱う =====
@@ -1675,6 +1691,37 @@ for _, heading in ipairs(rd_section_order) do
     end
 end
 check("カテゴリの中がアドオン名順に並んでいる", order_ng, nil)
+
+-- ===== 28. 初期化スロットルの正規化 =====
+-- 設定画面から入る数値で、利用者が settings.json を手で書き換えることもできる。
+-- **件数が 0 以下になる経路を残さないこと。** _nexus_addons_p_async_safe_call の while は
+-- 1 件処理してから件数を見るので 0 でも進みはするが、時間予算も 0 になると 1 tick で
+-- 1 件しか進まず、初期化が終わるまで何十秒もかかる状態になる。
+print("[28] init_throttle は範囲外・数字以外を正す")
+local batch, budget = g.init_throttle(g.INIT_BATCH_DEFAULT)
+check("推奨値はそのまま", batch, g.INIT_BATCH_DEFAULT)
+check("推奨値の時間予算", budget, 12)
+check("下限より小さい値", (g.init_throttle(0)), g.INIT_BATCH_MIN)
+check("負数", (g.init_throttle(-5)), g.INIT_BATCH_MIN)
+check("上限より大きい値", (g.init_throttle(999)), g.INIT_BATCH_MAX)
+check("小数は切り捨て", (g.init_throttle(4.9)), 4)
+check("数字でない", (g.init_throttle("abc")), g.INIT_BATCH_DEFAULT)
+check("未設定", (g.init_throttle(nil)), g.INIT_BATCH_DEFAULT)
+local _, min_budget = g.init_throttle(g.INIT_BATCH_MIN)
+local _, max_budget = g.init_throttle(g.INIT_BATCH_MAX)
+check("時間予算は 6ms を下回らない", min_budget, 6)
+-- 上限は 60fps の 1 フレーム分。素のクライアントには「1 フレームの時間予算」という
+-- 考え方が無く、意図して 1 フレーム以上を使う処理も無い（g.init_throttle のコメント）。
+check("時間予算の上限は 1 フレーム分", g.INIT_TIME_LIMIT_MAX, 16)
+check("時間予算は上限で頭打ち", max_budget, g.INIT_TIME_LIMIT_MAX)
+local _, mid_budget = g.init_throttle(4)
+check("上限に届かない件数はそのまま伸びる", mid_budget, 12)
+
+-- 設定画面に出す目安の秒数。tick 間隔 × 必要な tick 数（端数は切り上げ）。
+check("51 個 / 1 件は従来と同じ約 2.55 秒", g.init_estimate_sec(51, 1), 51 * g.INIT_TICK_SEC)
+check("51 個 / 4 件は 13 tick", g.init_estimate_sec(51, 4), 13 * g.INIT_TICK_SEC)
+check("端数は切り上げる", g.init_estimate_sec(9, 4), 3 * g.INIT_TICK_SEC)
+check("0 件なら 0 秒", g.init_estimate_sec(0, 4), 0)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

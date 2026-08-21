@@ -46,6 +46,50 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * `_G["norisan"]["MENU"]` … メニュー項目の共有登録先（`{name, func, icon}` を入れる）
 * フレーム名 `"norisan_menu_frame"` … `core/20_lifecycle.lua` にも同名の分岐がある
 
+### 設定画面の位置は `g.settings_frame_pos` で決める
+
+各アドオンの設定画面は「アドオン一覧（`list_frame`）の右隣」に置く作りが多いが、
+**Addons Menu のショートカットから開くと一覧は開いていない**。素で
+`list_frame:GetX()` を呼ぶとそこで落ち、**窓は既に作った後なので中身が空の窓が出る**
+（実機で Auto Repair / Boss Direction で発生。同じ書き方が 11 アドオンにあった）。
+
+* 位置は `g.settings_frame_pos(width, height)`（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）を使う。
+  一覧が開いていればその右隣、開いていなければ画面中央へ置き、画面からはみ出さないよう丸める。
+* **位置を読むためだけに一覧を開いて隠す、をしないこと。** `characters_item_serch` が
+  そうしていたが、この「出ていない登録」が ESC のスタックに残り、後で一覧を開き直しても
+  手前に来ない原因になる（ESC の節を参照）。
+
+### Addons Menu へ並べる項目（ショートカット）
+
+一覧の行の☆と設定画面の「ショートカット」タブで、**各アドオンの設定画面を Addons Menu へ
+出せる**。集めているのは `addons_menu_collect_items`（[core/90_addons_menu.lua](nexus_addons_p/src/core/90_addons_menu.lua)）
+1 箇所で、出どころは 3 つ（相乗り項目 / registry の `config_func` / 設定を開く歯車）。
+
+* **`_G["norisan"]["MENU"] を書き換えないこと`**。アイコンの上書きは表示用の写しに対して行う。
+  共有テーブルを直接いじると本家側のメニューの見た目まで変わる。
+* **既定は出どころで違う**。相乗り項目は「出す」（既定を非表示にすると他アドオンの項目が
+  黙って消える）、registry の設定画面は「出さない」。
+* **`pairs` の順で並べない**。起動ごとに順番が変わる。相乗りはキー順、registry は登録順。
+  利用者が▲▼で並べ替えた分は `menu_shortcuts` の `order`。**`order` を持たない項目は末尾へ回す**
+  （相乗り項目は起動ごとに顔ぶれが変わるので、知らない項目が並びの真ん中へ割り込まないように）。
+  `table.sort` は安定ではないので、元の位置を最後の決め手にすること。
+  並べ替えは一覧全体へ番号を振り直す（隣と入れ替えるだけだと、番号を持たない項目が混ざったとき
+  「押しても動かない」組み合わせが残る）。まとめ書きは `g.menu_shortcut_set(..., defer)` で
+  溜めて、最後に 1 回だけ保存する。
+* 設定の保存先は `settings.json` の `menu_shortcuts`（`g.menu_shortcut_*`）。
+  **トップレベルなので `valid_keys` への追加が要る**（書き忘れると毎回プルーニングで消える）。
+* 並べ方（向き・折り返す数）は `addons_menu.json`。**`addons_menu_save_json` は書き出すキーを
+  列挙している**ので、設定を足したらそこと「デフォルトに戻す」（`def_setting`）の両方に書く。
+  読むより先に保存する経路があると設定が消えるので、`addons_menu_create_frame` は
+  `addons_menu_load_layout()` を保存より前に呼んでいる。
+* アイコン選択（[core/91_icon_picker.lua](nexus_addons_p/src/core/91_icon_picker.lua)）の「検索」タブが引く
+  画像名の表は **生成物**。[core/92_icon_names.lua](nexus_addons_p/src/core/92_icon_names.lua) を手で編集せず、
+  `git fetch upstream` してから `python docs/gen_icon_names.py` で作り直すこと
+  （素のクライアント `_client/jp/**` の `image="..."` / `SetImage("...")` / `{img ...}` から抜いている）。
+  **Lua には画像名を列挙する手段が無い**ので、同梱する以外に「名前で探す」を実現する方法は無い。
+* 収集の結果は [docs/tests/test_addons_menu.lua](docs/tests/test_addons_menu.lua) が検査する
+  （並び順・既定・アイコンの上書きが共有テーブルを汚さないこと）。
+
 ## 不具合の話が出たら「誰の環境で起きたか」を最初に確認する
 
 不具合の相談を受けたら、調べ始める前に**開発者本人の手元で再現したものか、
@@ -92,6 +136,19 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
 * **調査が終わっても消さない**: その修正の経路を後から追える最低限のログは残すこと。
   同じ不具合が再発したときと、利用者に `verbose_log.txt` をそのまま送ってもらう
   不具合報告のときに効く。
+
+## `local function` は呼び出しより前で定義する
+
+Lua の `local function f` は**宣言行より後ろからしか見えない**。前で呼ぶと同名の
+グローバル（= nil）を呼ぶことになり、**構文チェックは通るのに、そのボタンを押した
+瞬間だけ落ちる**。src を分割しているぶん前後関係が見えづらく、実際に踏んだ
+（Addons Menu の設定画面で「レイヤー設定 / デフォルトに戻す / 上へ開く」が無反応になった）。
+
+* 検出は [docs/check_forward_refs.py](docs/check_forward_refs.py)。**連結後の bundle に対して**行う
+  （ファイル単位では前後関係が分からない）。CI の `bundle` ジョブでも走る。
+* 直し方は「定義を呼び出しより前へ移す」か「ファイル先頭で `local <name>` と前方宣言する」。
+* グローバル（`function _G.foo`）は実行時に引くので前後関係を気にしなくてよい。
+  ただし読み込み時ガードの外から呼ぶものは `type(_G["foo"]) == "function"` で見てから呼ぶこと。
 
 ## 素の関数を書き写さない（置換方式フックは必ず素を呼ぶ）
 
@@ -175,6 +232,118 @@ git remote add upstream https://github.com/ajinorisan/TOSAddon-public.git
   1 箇所に集約してある。**アドオン側で `ESCAPE_PRESSED` を個別に購読しないこと**
   （各自が自分のフレームを閉じると、1 回の ESC で開いている自作ウィンドウが全部消える）。
 
+## 検索欄は 2 つの共通部品のどちらかを使う
+
+**検索欄を作ったら、必ず次のどちらかを呼ぶこと**（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)）。
+`ui.ENTERKEY` の割り当ての直後に置く。どちらを使っても、
+**入力があるときだけ虫眼鏡ボタンの左隣に「×」が出る**（登録すれば自動で付くので、
+アドオン側でボタンを作らないこと）。ENTERKEY と虫眼鏡ボタンはどちらの場合も残す。
+
+| | `g.setup_incremental_search` | `g.setup_enter_search` |
+| --- | --- | --- |
+| 検索するきっかけ | **打鍵のたび**（+ Enter / 虫眼鏡） | **Enter / 虫眼鏡だけ** |
+| 「×」を押したとき | 検索関数を**空文字で呼ぶ**（= 全件へ戻す） | 渡した**初期化関数**を呼ぶ（= 検索前の姿へ畳む） |
+| 使う場面 | **既に手元にある一覧を絞る**検索 | **全件を走査して当たったぶんだけ作る**検索 |
+
+### 選び方
+
+判断の基準はひとつだけ。**空文字で検索関数を呼んだときに何が起きるか**を見る。
+
+* **空文字 = 元の一覧が出るだけ**なら `g.setup_incremental_search`。
+  絞り込みなので 1 文字ごとに走らせても作る量は増えず、消せば戻る。
+* **空文字 = 全件に当たってしまう**なら `g.setup_enter_search`。
+  `string.find(name, "", 1, true)` は必ず真なので、`GetClassList` の全件を回して
+  一致したぶんだけコントロールを作る作りだと、**空でも 1 文字でも数千〜数万件を組み立てる**。
+  打鍵検索も「×で空文字検索」も成立しないので、こちらを使う。
+  * 実例: `tavern_of_soul` の `Tavern_of_soul_get_data`。件数の上限も無い。
+
+### 使い方
+
+```lua
+-- (1) 一覧を絞る検索
+search_edit:SetEventScript(ui.ENTERKEY, "Xxx_search")
+search_edit:SetEventScriptArgNumber(ui.ENTERKEY, index)   -- 無ければ省略
+g.setup_incremental_search(search_edit, "Xxx_search", index)
+--   第 4 引数で打鍵から検索までの秒数を伸ばせる（既定 0.3 秒。`another_warehouse` は 0.5 秒）
+
+-- (2) 全件を走査する検索
+search_edit:SetEventScript(ui.ENTERKEY, "Xxx_search")
+g.setup_enter_search(search_edit, "Xxx_clear")
+--   Xxx_clear は **空文字で検索し直す処理ではなく**、検索前の姿へ戻す処理にすること
+--   （入力を消す・結果を捨てる・窓の大きさを戻す）。呼び出しの並びは検索関数と同じ
+```
+
+### 共通の注意
+
+* **検索欄の文字をコードから変えたら `g.search_clear_sync(edit)` を呼ぶこと。** 理由は 2 つある。
+  1. 「×」の出し入れは打鍵でしか起きないので、呼ばないと空なのに「×」が残る／文字があるのに出ない
+  2. 「前回この語で検索した」の記録を捨てる。打鍵検索は同じ語なら検索を飛ばすので、捨てないと
+     **コードで空へ戻した後に利用者が同じ語を打ち直しても検索が走らない**
+  タブ切り替えで空へ戻す `another_warehouse`、組み立て直しで入れ直す `separate_buff_custom`、
+  一覧を作り直す `_nexus_addons_p_frame_init` がこれに当たる。
+* **今と同じ文字列を `SetText` で入れ直さないこと。** 同じ文字列でも入力位置が戻るので、
+  打っている最中にカーソルが飛び、日本語変換も壊れる。Lua では `""` も真なので
+  `if ctrl_text then SetText(ctrl_text) end` は常に成立する点に注意
+  （`separate_buff_custom` が実際にこの形で、打鍵のたびにカーソルが飛んでいた）。
+* **一覧を畳む／初期化する処理に窓の位置戻しを混ぜないこと。** 「×」からも呼ばれるので、
+  利用者が動かした窓が押すたびに初期位置へ飛ぶ（`tavern_of_soul` で実際にそうなっていた）。
+* **「×」から `Focus()` を戻さないこと。** 入力欄にキーボードフォーカスがあると ESC の
+  1 回目が「入力欄から抜ける」に使われ、窓が閉じなくなる（下記 ESC の節と同じ理由）。
+  打鍵で空になった経路だけ `Focus()` を戻したいときは `g.search_typing_running` を見る
+  （打鍵から検索関数を呼んでいる間だけ真）。**「打鍵以外を弾く」向きに書くこと。**
+  検索関数には打鍵のほかに Enter・虫眼鏡ボタン・「×」から入ってくるので、
+  「×から来たか」だけを見る書き方だと虫眼鏡ボタン経由を取りこぼす。
+* **検索語は `ctrl:GetText()` ではなく検索欄を名前で引いて読むこと。** 同じ関数を虫眼鏡ボタンにも
+  割り当てているので、`ctrl` がボタンのときは空文字を検索語にしてしまう
+  （`another_warehouse` が実際にこの形で「押すと検索が解除される」不具合になっていた）。
+* **一覧の作り直しで検索欄そのものを壊さないこと。** 検索欄は `if not frame` の中で 1 回だけ作り、
+  検索のたびに作り直すのは中身の groupbox だけにする。検索欄ごと作り直すと、打鍵の途中で
+  入力位置と文字が消えて打ち直しになる。やむを得ず作り直す経路（`characters_item_serch` は
+  空に戻したとき `frame_init` を通る）では、作り直した検索欄へ `Focus()` を戻すこと。
+
+### 素のクライアントはどうなっているか（調査済み・繰り返さないこと）
+
+`_client/jp/addon.ipf/**/*.xml` の `<edit>` を全部数えた結果。**素は Enter 方式が多数派**で、
+打鍵のたびに検索するのは一部だけ。「素がそうだから」を理由に一方へ寄せないこと。
+
+* **打鍵のたびに検索（`typingscp` あり）… 9 個** — inventory / item_cabinet の `ItemSearch`、
+  worldmap2_mainmap・worldmap2_submap の `search_edit`、guildinfo の `memberSearch`、
+  housing_shop、bgmplayer、party_search_board、colony_tax_distribute
+* **Enter だけ … 32 個** — adventure_book（8 個）/ quest / collection / friend / tpitem（5 個）/
+  cheatlist / worldmap（旧）/ guild_dress_room / halloffame / status の名声検索 など
+
+**素には「検索欄をクリアするボタン」が無い。**「×」はこちらで足したもので、素に倣ったものではない
+（一般的な検索窓の作法に寄せている）。`market_reset*_btn` というリセット用のアイコンは在るが、
+使われているのは一覧の再取得と `inventoryoption` のフィルタ条件のリセットで、検索文字列のクリアではない。
+
+**虫眼鏡ボタンの意味は場所による。**
+
+* inventory では、ボタン・Enter・打鍵が**同じ `SEARCH_ITEM_INVENTORY` を呼ぶ**。中で数えている
+  `searchEnterCount`（同じ語で押した回数）は**クライアント全体のどこからも読まれていない**ので、
+  現行では死んだコード＝ボタンは打鍵と同じことをするだけ。
+* worldmap2 では**別物**。打鍵の `WORLDMAP2_SEARCH_UPDATE` は候補一覧を出すだけ、
+  Enter の `WORLDMAP2_SEARCH` は最初に一致したマップへ実際に飛ぶ（3 文字以下は無視）。
+  「絞り込み」と「決定」で役割が分かれている作りが要るときは、こちらを参考にする。
+
+実物は次で読める。**同じ調査を繰り返さないこと。**
+
+```
+git show upstream/main:_client/jp/addon.ipf/inventory/inventory.xml     # typingscp="SEARCH_ITEM_INVENTORY_KEY"
+git show upstream/main:_client/jp/addon.ipf/inventory/inventory.lua     # CancelReserveScript / ReserveScript(0.3)
+git show upstream/main:_client/jp/ui.ipf/uiscp/worldmap2_uiscp_search.lua
+```
+
+### 実装側のメモ
+
+* グローバルの `ReserveScript(式文字列, 秒)` には**取り消しが無い**（素は `frame:CancelReserveScript`
+  を使うが、フレーム側の予約は「フレームごとに関数名 1 つ」なので、同じフレームに検索欄が
+  複数ある作り（`battle_ritual`）だと打ち消し合う）。そのため検索欄ごとに世代番号を持ち、
+  最後の打鍵の分だけ実行して残りは捨てている。
+* 打鍵から実行までの間に × ボタンで窓を閉じられることがあるので、**検索欄の参照を持ち回さず**
+  フレーム名とコントロール名から引き直す。
+* 「×」の位置決めは**作成時ではなく最初に表示するとき**に行う。虫眼鏡ボタン（`search_btn`）は
+  どのアドオンでも検索欄より後に作られ、登録時点では幅を読めないため。
+
 ## CMD(コンソール窓)をなるべく出さない
 
 `os.execute` は **GUI プロセスから呼ぶと必ず cmd.exe のコンソール窓を作る**。ゲーム画面が
@@ -217,6 +386,27 @@ PR で自動的に走る [Claude Code Review](.github/workflows/claude-review.ym
   訳すと検索できなくなるので、むしろ訳さないこと。
 * 「なぜそれが問題か」「どう直すか」の説明を日本語で書く、という意味。
 * CLAUDE.md 由来の指摘は、根拠にした箇所を引用して示すこと（既にそうなっている）。
+
+## 画面の見た目を変えたらスクリーンショットの撮り直し Issue を作る
+
+[nexus_addons_p/README.md](nexus_addons_p/README.md) は
+[nexus_addons_p/images/](nexus_addons_p/images/) の画像で使い方を説明している。
+**画像はゲームを起動しないと撮れず、Claude Code の側では撮れない。**
+そのため、見た目を変える PR では**撮り直しを Issue に残す**こと。放っておくと、
+README の説明と実際の画面が食い違ったまま配布されることになる（利用者が最初に見る場所）。
+
+* **作るタイミング**: 見た目を変える PR と同じタイミング。PR 本文にも Issue 番号を書く。
+  実機で確認できる人（＝リポジトリの持ち主）が後から撮って差し替えられるようにするのが目的。
+* **Issue に書くこと**（これだけあれば後から撮れる）:
+  * 撮り直す画像のファイル名（`images/04-addons-menu-settings.png` のように）
+  * **何が変わったのか**（タブが増えた／行にボタンが増えた など）
+  * **撮る手順**（どこを開くか、どの設定を ON にするか）
+  * README のどの行から参照されているか（alt テキストも直す必要があるため）
+* **alt テキストも一緒に直す**。画像の中身を説明した文になっているので、
+  見た目が変われば文も古くなる。**alt の更新は Issue ではなく PR の中で行うこと**
+  （こちらは画像が無くてもできる）。
+* **見た目を変えていない PR では作らない**。ノイズにしかならない。
+  「行が 1 つ増えた」程度でも画像に写るなら対象、内部実装だけなら対象外。
 
 ## PR を出すときは README の更新履歴を必ず更新する
 

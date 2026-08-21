@@ -992,9 +992,14 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
         MARKET_CTRLSET_SET_ICON(ctrlSet, itemObj, marketItem);
         local name = GET_CHILD_RECURSIVELY(ctrlSet, "name");
         local real_name = dictionary.ReplaceDicIDInCompStr(GET_FULL_NAME(itemObj))
+        -- 名前で色を分ける。**「540」は数字なのでどの言語でも同じだが、「上級」は訳される。**
+        -- 日本語の語だけを見ていたので、他の言語ではオレンジ表示に入らなかった(Issue #68)。
+        -- 韓国語の語は素のデータ(ies.ipf の名前)にある "상급" で確かめてある。
+        -- **英語クライアントの語は未確認**。分かったらここへ足すこと(表示色だけの話なので、
+        -- 確かめられない語を推測で入れない)。
         if not string.find(real_name, "540") then
             real_name = ScpArgMsg("PropDown") .. "{ol}{#FF0000}" .. real_name
-        elseif string.find(real_name, "540") and string.find(real_name, "上級") then
+        elseif string.find(real_name, "上級") or string.find(real_name, "상급") then
             real_name = "{ol}{#FFA500}" .. real_name
         end
         name:SetTextByKey("value", real_name)
@@ -2391,9 +2396,11 @@ end
 -- (CreateOrGetControl なので 2 度目以降は既存を引く)。
 --
 -- **OPEN_DLG_MARKET だけで付けてはいけない。** 初回ロードは 51 個のアドオンを
--- 0.1 秒ごとに 2 件ずつ処理する分割実行(core/20_lifecycle.lua の
--- _nexus_addons_p_async_safe_call)で、このアドオンはその**最後**に来る。実測で
--- GAME_START の 5 秒後だった。その前にマーケットを開くと OPEN_DLG_MARKET を
+-- 0.05 秒ごとに数件ずつ処理する分割実行(core/20_lifecycle.lua の
+-- _nexus_addons_p_async_safe_call)で、このアドオンはその**最後**に来る。1 件あたりの
+-- 数は設定画面の「初期化の速さ」で変えられ、遅い設定にするほど後ろへずれる
+-- (0.1 秒ごとに 2 件だった頃の実測で GAME_START の 5 秒後)。その前にマーケットを
+-- 開くと OPEN_DLG_MARKET を
 -- 取り逃がし、**開いたまま待っても永久にボタンが出ない**(開き直すまで直らない)。
 -- 設定画面から ON にしたときも on_init はその場で走るので、同じことが起きる。
 -- そこで初期化時と買/売モードの切り替え時にも通して、開いている最中でも追い付かせる。

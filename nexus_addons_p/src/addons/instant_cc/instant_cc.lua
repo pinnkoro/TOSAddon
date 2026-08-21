@@ -115,10 +115,12 @@ function Instant_cc_do_cc(cid, layer)
 end
 
 function Instant_cc_settings_frame_init()
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
     local settings = ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "instant_cc_settings")
     AUTO_CAST(settings)
-    settings:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
+    -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+    -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
+    -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
+    settings:SetPos(g.settings_frame_pos(340, 260))
     settings:EnableHitTest(1)
     settings:SetLayerLevel(999)
     settings:SetSkinName("test_frame_low")
