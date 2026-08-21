@@ -65,17 +65,27 @@ function Another_warehouse_load_settings()
         end
         need_save = true
     end
+    -- **10 セットの埋め直しはバージョン判定の外で行うこと。** 中に置くと、移行経路が
+    -- take_list を空のまま ver = 最新 で書いたとき(旧アドオンの設定に handlelist /
+    -- setitems が無かった場合)に一度も走らず、TAKE SET が 0 個のまま固定される。
+    -- セットを足す導線は一覧から開く編集画面しか無いので、**ゲーム内からは復旧できない**
+    -- (Issue #90)。読み込みのたびに「足りない分だけ足す」形にしておけば、
+    -- 既にその状態になっている利用者も次のログインで直る。
+    --
+    -- 10 個より多いぶんは減らさない(利用者が増やした結果を勝手に捨てない)。
+    if type(settings.take_list) ~= "table" then
+        settings.take_list = {}
+        need_save = true
+    end
+    while #settings.take_list < 10 do
+        local next_num = #settings.take_list + 1
+        table.insert(settings.take_list, {
+            name = "Take Items " .. next_num,
+            items = {}
+        })
+        need_save = true
+    end
     if not settings.ver or settings.ver < ver then
-        if not settings.take_list then
-            settings.take_list = {}
-        end
-        while #settings.take_list < 10 do
-            local next_num = #settings.take_list + 1
-            table.insert(settings.take_list, {
-                name = "Take Items " .. next_num,
-                items = {}
-            })
-        end
         settings.ver = ver
         need_save = true
     end
