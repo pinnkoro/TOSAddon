@@ -83,6 +83,14 @@ local DEFAULT_SETTINGS = {
     -- enchant_special_option の並び順に依存し、出る項目もランクで変わるため、
     -- 番号で保存すると別のオプションを復元しかねない
     hair_enchant_presets = {},
+    skill_reroll = 0,
+    -- スキル錬成の「高度な設定」窓を、アイテムを乗せた時点で自動で開くか
+    skill_reroll_auto_open = 0,
+    -- 高度な設定のプリセット。**配列**(1 始まり)で枠数は決めない。1 件の中身は
+    --   {name = 表示名, skills = {{class = スキルのクラス名, min_lv = 数}, ...}, repeat_count = 数}
+    -- **スキルはクラス名で持つこと。** 画面の並びは表示名順なので、番号で保存すると
+    -- 辞書や言語が変わっただけで別のスキルを復元しかねない
+    skill_reroll_presets = {},
     new_groups = {},
     chat_new_btn = 0,
     chat_xy = {},
@@ -109,8 +117,9 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "cupole_portion", "goodbye_ragana", "status_upgrade", "icor_status_search", "velnice",
                        "separated_buff", "group_chat", "memberinfo", "baubas_call", "pt_buff", "chat_recv", "pet_ring",
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
-                       "inventory_mod", "reroll_option", "hair_enchant", "chat_new_btn", "pt_info", "enchant_tooltip",
-                       "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout", "auto_accept_duel"}
+                       "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
+                       "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
+                       "auto_accept_duel"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -166,6 +175,11 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
     text_kr = "헤어 액세서리 자동 인챈트 사용성 개선",
     text_en = "Hair Accessory Auto-Enchant UX improved"
+}, {
+    name = "skill_reroll",
+    text_jp = "スキル錬成を希望スキルが出るまで回せるように",
+    text_kr = "스킬 연성을 원하는 스킬이 나올 때까지 반복",
+    text_en = "Keep re-rolling Skill Enchant until a wanted skill shows up"
 }, {
     name = "reroll_option",
     text_jp = "オプション設定の数値表を常に表示",
@@ -451,7 +465,7 @@ local SETTING_SECTIONS = {{
     name = "autos",
     names = {"coin_use", "skill_enchant", "weekly_boss_reward", "solodun_reward", "status_upgrade", "dialog_ctrl",
              "under_staff", "auto_accept_duel", "goodbye_ragana", "rp_charge", "auto_craft", "hair_enchant",
-             "auto_zoom", "velnice"},
+             "skill_reroll", "auto_zoom", "velnice"},
     text_jp = "自動処理関連",
     text_kr = "자동 처리 관련",
     text_en = "Automation-related"
