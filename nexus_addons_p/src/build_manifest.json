@@ -90,6 +90,9 @@
       "addons/mini_addons/hair_enchant/core.lua",
       "addons/mini_addons/hair_enchant/window.lua",
       "addons/mini_addons/hair_enchant/run.lua",
+      "addons/mini_addons/skill_reroll/core.lua",
+      "addons/mini_addons/skill_reroll/window.lua",
+      "addons/mini_addons/skill_reroll/run.lua",
       "addons/mini_addons/chat/chat_move.lua",
       "addons/mini_addons/misc/vakarine_notice.lua",
       "addons/mini_addons/sound/skill_sound.lua",
@@ -131,6 +134,6 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "1155ab87658cb66d41a5bec27cb6a31a199dba143ae966a919e03b0b909d0fee"
+    "_nexus_addons_p.lua": "b1c6d53366d6899bcdd3ca0497521764d6fd1967bb9ebab63bbd7165a8e03c91"
   }
 }
