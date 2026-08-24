@@ -250,6 +250,12 @@ skill_reroll.affordable = function(obj)
     return least
 end
 
+-- 撃った結果を待っている最中か。**自前の窓の UserValue と二重に持っている**のは、
+-- 機能を OFF にされたとき(Mini_addons_teardown)に窓ごと消えるため。窓が無くても
+-- 「HoldUI を解いてよいか」を判断できるようにしておく(skill_reroll.stop を参照)。
+-- READY を書き換えるところでは必ずこちらも揃えること
+skill_reroll.pending = false
+
 -- 連続実行を回している最中か。更新スクリプトが載っているかで見る。
 -- 「続けますか？」の返事待ちも回している扱いにする。ここで素のボタンを「スキル錬成」へ
 -- 戻すと、返事を待っているだけなのに終わったように見えるうえ、そのボタンを押せると
@@ -277,9 +283,14 @@ skill_reroll.do_is_stop = false
 
 skill_reroll.sync_do_button = function()
     local frame = ui.GetFrame("common_skill_enchant")
-    if frame == nil or frame:IsVisible() == 0 then
+    if frame == nil then
         return
     end
+    -- **非表示でも素通りさせないこと。** 回している最中に素の窓を閉じると、そこから
+    -- 呼ばれるこの関数が何もせず返り、「停止」の文言が戻らないまま do_is_stop が
+    -- 立ちっぱなしになる。そのあと機能を OFF にすると、戻す経路(下のフック)が
+    -- 早期 return するので**二度と元に戻らない**。隠れている窓の文字を書き換えるのは
+    -- 害が無いので、ここは表示状態を見ずに通す
     local do_enchant = GET_CHILD_RECURSIVELY(frame, "do_enchant")
     if do_enchant == nil then
         return
@@ -348,20 +359,24 @@ skill_reroll.stop = function(reason)
     if frame ~= nil then
         frame:StopUpdateScript("Mini_addons_skill_reroll_tick")
     end
+    -- **撃った結果を待っている途中で止めるときは HoldUI を解くこと。**
+    -- HoldUI を掛けるのは素(COMMON_SKILL_ENCHANT_DO / SELECT_BTN_LEFT)で、解くのは
+    -- 素の SUCCESS / FAILED だけ。結果が返らないまま止めるとどちらも走らないので、
+    -- 掛かりっぱなしになる。そうなると素の CLOSE / REFRESH / SET_TARGET_ITEM が
+    -- 揃って ui.CheckHoldedUI() で即 return するため、**やり直すことも窓を閉じることも
+    -- できなくなる**(「もう一度お試しください」と出しておきながら何もできない)。
+    --
+    -- **判断の材料を自前の窓(UserValue)に置かないこと。** Mini_addons_teardown は
+    -- g.frame_suffixes を回して ui.DestroyFrame するだけなので、機能を OFF にされると
+    -- ここへ来る前に窓が消えている。窓の有無に関わらず読める印(pending)で持つ。
+    -- 条件を「結果待ちだったとき」に絞るのは、他の窓が掛けた HoldUI を横から解かないため
+    if was_running and skill_reroll.pending and ui.CheckHoldedUI() == true then
+        ui.SetHoldUI(false)
+        core_g.vlog("mini_addons: スキル錬成 結果待ちのまま止めたので HoldUI を解いた")
+    end
+    skill_reroll.pending = false
     local adv = skill_reroll.frame()
     if adv ~= nil then
-        -- **撃った結果を待っている途中で止めるときは HoldUI を解くこと。**
-        -- HoldUI を掛けるのは素(COMMON_SKILL_ENCHANT_DO / SELECT_BTN_LEFT)で、解くのは
-        -- 素の SUCCESS / FAILED だけ。結果が返らないまま止めるとどちらも走らないので、
-        -- 掛かりっぱなしになる。そうなると素の CLOSE / REFRESH / SET_TARGET_ITEM が
-        -- 揃って ui.CheckHoldedUI() で即 return するため、**やり直すことも窓を閉じることも
-        -- できなくなる**(「もう一度お試しください」と出しておきながら何もできない)。
-        -- 条件を「結果待ちだったとき」に絞るのは、他の窓が掛けた HoldUI を横から
-        -- 解かないため
-        if was_running and adv:GetUserValue("READY") ~= "yes" and ui.CheckHoldedUI() == true then
-            ui.SetHoldUI(false)
-            core_g.vlog("mini_addons: スキル錬成 結果待ちのまま止めたので HoldUI を解いた")
-        end
         adv:SetUserValue("ASKING", "None")
         adv:SetUserValue("READY", "no")
     end

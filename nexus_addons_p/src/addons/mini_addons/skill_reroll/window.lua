@@ -796,12 +796,16 @@ end
 -- アイテムがスロットへ乗った。ここで初めて出うるスキルと素材の数が決まるので、
 -- 「自動で開く」はこの時点で効かせる。既に開いていれば監視スクリプトが組み直す
 function Mini_addons_COMMON_SKILL_ENCHANT_SET_TARGET_ITEM(my_frame, my_msg)
-    if g.settings.skill_reroll == 0 then
+    if g.settings.skill_reroll == 0 and not skill_reroll.do_is_stop then
         return
     end
     -- 回している間は錬成ボタンを「停止」として押せる状態に保つ(素はここで
-    -- 候補が出ている状態だと素材の一覧を組み直さないので、誰も戻さない)
+    -- 候補が出ている状態だと素材の一覧を組み直さないので、誰も戻さない)。
+    -- 機能 OFF でも、書き換えた文言が残っていればここで戻す
     skill_reroll.sync_do_button()
+    if g.settings.skill_reroll == 0 then
+        return
+    end
     if g.settings.skill_reroll_auto_open ~= 1 then
         return
     end
@@ -832,7 +836,9 @@ end
 -- 素の REFRESH_COMMON_SKILL_ENCHANT は最後に do_enchant:SetEnable(0) を掛けるので、
 -- ここで戻さないと「停止」と書いてあるのに押せない時間ができる
 function Mini_addons_REFRESH_COMMON_SKILL_ENCHANT(my_frame, my_msg)
-    if g.settings.skill_reroll == 0 then
+    -- **機能 OFF でも、こちらが「停止」に書き換えた文言が残っていれば戻すこと。**
+    -- 回している最中に素の窓を閉じ、そのあと OFF にされると、戻す経路がここしか無くなる
+    if g.settings.skill_reroll == 0 and not skill_reroll.do_is_stop then
         return
     end
     skill_reroll.sync_do_button()

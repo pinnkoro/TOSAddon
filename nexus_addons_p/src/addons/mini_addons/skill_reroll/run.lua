@@ -57,6 +57,7 @@ function Mini_addons_COMMON_SKILL_ENCHANT_DO(parent, ctrl)
     -- 当たっているなら捨てる前に訊くべきもの)。
     -- 指紋の未設定値は "None"(skill_reroll.fingerprint が返す "a/b/c" 形とは重ならない)
     adv:SetUserValue("READY", "yes")
+    skill_reroll.pending = false
     adv:SetUserValue("FIRED_FP", "None")
     adv:SetUserValue("SKIP_FP", skill_reroll.candidate(obj) == nil and skill_reroll.fingerprint(obj) or "None")
     adv:SetUserValue("ASKING", "None")
@@ -95,6 +96,7 @@ function Mini_addons_skill_reroll_SUCCESS(my_frame, my_msg)
     local _frame, _msg, _arg_str, arg_num = g.get_event_args(my_msg)
     if tonumber(arg_num) == 2 then
         adv:SetUserValue("READY", "yes")
+        skill_reroll.pending = false
         return
     end
     -- 演出の終わりを待つ。**その合図を取りこぼしたときの保険として時刻を控える**
@@ -109,6 +111,7 @@ function Mini_addons_skill_reroll_END(my_frame, my_msg)
         return
     end
     adv:SetUserValue("READY", "yes")
+    skill_reroll.pending = false
 end
 
 -- 素から失敗が返った。素材不足やサーバに弾かれたときなので、黙って回し続けない
@@ -152,6 +155,7 @@ function mini_addons_p_skill_reroll_msgbox(answer)
     --  次の結果からはまた止まる)
     adv:SetUserValue("SKIP_FP", skill_reroll.fingerprint(obj))
     adv:SetUserValue("READY", "yes")
+    skill_reroll.pending = false
     adv:SetUserValue("FIRED_FP", "None")
     adv:SetUserValue("FIRED_AT", tostring(os.time()))
     core_g.vlog("mini_addons: スキル錬成 当たりを見送って続行する")
@@ -225,6 +229,7 @@ function Mini_addons_skill_reroll_tick(frame, ctrl)
             adv:GetUserValue("FIRED_FP") ~= skill_reroll.fingerprint(obj) then
             core_g.vlog("mini_addons: スキル錬成 演出終わりの合図を取りこぼしたので先へ進める")
             adv:SetUserValue("READY", "yes")
+            skill_reroll.pending = false
             adv:SetUserValue("EFFECT_AT", "0")
             return 1
         end
@@ -290,6 +295,7 @@ function Mini_addons_skill_reroll_tick(frame, ctrl)
         -- 当たりでない候補を捨てる = 素の「維持」(今付いているスキルをそのまま残す)。
         -- **素の関数を呼ぶこと**(送る引数は素の持ち物)
         adv:SetUserValue("READY", "no")
+        skill_reroll.pending = true
         adv:SetUserValue("FIRED_AT", tostring(os.time()))
         adv:SetUserValue("FIRED_FP", fingerprint)
         core_g.vlog("mini_addons: スキル錬成 候補 %s Lv.%s は希望ではないので維持で捨てる",
@@ -346,6 +352,7 @@ function Mini_addons_skill_reroll_tick(frame, ctrl)
     end
     -- 撃つ前の中身を控える。次の回でこれと同じなら結果がまだ届いていない
     adv:SetUserValue("READY", "no")
+    skill_reroll.pending = true
     adv:SetUserValue("FIRED_AT", tostring(os.time()))
     adv:SetUserValue("FIRED_FP", fingerprint)
     adv:SetUserValue("COUNT", count + 1)

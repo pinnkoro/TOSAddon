@@ -457,7 +457,12 @@ g.hair_enchant_sync_from_screen = function(from_click)
             AUTO_CAST(ctrl)
             local on = ctrl:IsChecked() == 1 and 1 or 0
             local prev = g.need_options[option_name]
-            if prev == nil or prev.is_check ~= on then
+            -- **「表に無い」は「チェックが入っていない」と同じ扱いにすること。**
+            -- g.need_options は窓を開くたび空にするので、prev == nil を変化とみなすと
+            -- 開いた直後の最初のクリックで、押していない全オプションまで差分に積まれ、
+            -- 「食い違っていた」の誤検知が必ず出る(本物の食い違いが埋もれる)
+            local prev_on = (prev ~= nil and prev.is_check == 1) and 1 or 0
+            if prev_on ~= on then
                 local class_name = (g.hair_enchant_option_classes or {})[option_name]
                 -- text は停止判定が ScpArgMsg(obj[propName]) と突き合わせる文字列。
                 -- **クラス名から引き直すこと**(画面の表示文字列には数値範囲が付いている)
