@@ -20,6 +20,40 @@ end
 -- 読み込むと窓を組み直すので、抑えないと止まらなくなる
 skill_reroll.suppress_preset_sel = false
 
+-- **表(g.skill_reroll_wanted)を画面へ写す。** sync_from_screen の逆向きで、
+-- 全解除やプリセットの読込のように**表を書き換えてから画面へ反映したい**ときに使う。
+-- あわせて、上限より大きい最低レベルはここで丸めて表へ書き戻す
+skill_reroll.sync_to_screen = function()
+    local adv = ui.GetFrame(addon_name_lower .. "skill_reroll")
+    if adv == nil then
+        return
+    end
+    for _, class_name in ipairs(g.skill_reroll_shown or {}) do
+        local want = g.skill_reroll_wanted[class_name]
+        local check = GET_CHILD_RECURSIVELY(adv, "want_" .. class_name)
+        if check ~= nil then
+            AUTO_CAST(check)
+            check:SetCheck((want ~= nil and want.is_check == 1) and 1 or 0)
+        end
+        local lv_btn = GET_CHILD_RECURSIVELY(adv, "lv_" .. class_name)
+        if lv_btn ~= nil then
+            AUTO_CAST(lv_btn)
+            local max_lv = tonumber(lv_btn:GetUserValue("MAX_LV")) or 5
+            local min_lv = (want ~= nil and tonumber(want.min_lv)) or 1
+            if min_lv < 1 then
+                min_lv = 1
+            end
+            if min_lv > max_lv then
+                min_lv = max_lv
+            end
+            if want ~= nil then
+                want.min_lv = min_lv -- 丸めた値は必ず表へ戻す(理由は build_body 側)
+            end
+            lv_btn:SetText(string.format("{ol}Lv%d", min_lv))
+        end
+    end
+end
+
 -- 窓を組み直して、プリセット一覧やチェックの状態を今の設定に合わせる
 skill_reroll.rebuild = function()
     local adv = ui.GetFrame(addon_name_lower .. "skill_reroll")
@@ -28,6 +62,24 @@ skill_reroll.rebuild = function()
     end
     local guid, obj = skill_reroll.item()
     if guid == nil then
+        -- **アイテムが外れていても、表示だけは表に合わせること。**
+        -- 素の右クリック(REFRESH_COMMON_SKILL_ENCHANT)でスロットを空にしてもこの窓は
+        -- 開いたままなので、ここで何もしないと全解除やプリセットの読込をしても画面の
+        -- チェックが古いまま残る。画面を正とする sync_from_screen が次のクリック /
+        -- 実行 / 保存で**その古いチェックを表へ書き戻してしまう**(同じアイテムを乗せ直すと
+        -- BUILD_SIG が変わらず組み直しも走らない)
+        skill_reroll.sync_to_screen()
+        skill_reroll.sync_clear_btn()
+        -- プリセット読込が置いたリピート回数も、ここで反映して印を消しておく
+        local forced = adv:GetUserValue("REPEAT_TEXT")
+        if forced ~= nil and forced ~= "None" and forced ~= "" then
+            local repeat_count = GET_CHILD_RECURSIVELY(adv, "repeat_count")
+            if repeat_count ~= nil then
+                repeat_count:SetText(forced)
+            end
+            adv:SetUserValue("REPEAT_TEXT", "None")
+        end
+        core_g.vlog("mini_addons: スキル錬成 アイテムが乗っていないので、表示だけ設定に合わせた")
         return
     end
     skill_reroll.build_body(adv, guid, obj)
@@ -645,7 +697,14 @@ skill_reroll.build_body = function(adv, guid, obj)
             min_lv = 1 -- 旧い設定(0 = レベル不問)
         end
         if min_lv > max_lv then
-            min_lv = max_lv -- 上限が下がった / 別のスキルから引き継いだ値への保険
+            -- **画面だけ丸めて表を放置しないこと。** 停止判定(skill_reroll.is_wanted)は
+            -- 表の min_lv をそのまま読むので、「ボタンは Lv3 なのに条件は Lv5 のまま」に
+            -- なり、**絶対に成立しない条件**で回り続ける(素材が尽きるまで止まらない)。
+            -- プリセットで Lv5 を保存した後、上限 3 のスキルへ当たったときに通る経路
+            min_lv = max_lv
+            if want ~= nil then
+                want.min_lv = min_lv
+            end
         end
         local lv_btn = option_box:CreateOrGetControl("button", "lv_" .. skill.class_name, 330, oy - 1, 55, 24)
         AUTO_CAST(lv_btn)
