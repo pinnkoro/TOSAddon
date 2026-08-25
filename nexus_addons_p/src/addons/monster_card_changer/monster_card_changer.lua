@@ -118,16 +118,18 @@ function Monster_card_changer_update_protect_view()
                         end
                     end
                 end
-                if slotset then
-                    local slot = slotset:GetSlotByIndex(i)
+                -- 鍵は**色枠のほう(card_labelset)へ載せる**。こちらが後に描かれるので
+                -- カードの絵に隠れない。picture ではなく richtext の {img} で出す
+                -- (このリポジトリでスロットに載せて出ている実績があるのはこちら)。
+                local host = labelset or slotset
+                if host then
+                    local slot = host:GetSlotByIndex(i)
                     if slot then
                         AUTO_CAST(slot)
-                        -- 鍵は毎回作り直さず出し入れする。カードスロット画面は
-                        -- 開くたびに素が組み立て直すので CreateOrGetControl で引く
-                        local lock = slot:CreateOrGetControl("picture", "mcc_lock", 18, 30, 24, 24)
+                        -- カードスロット画面は開くたび素が組み立て直すので毎回引き直す
+                        local lock = slot:CreateOrGetControl("richtext", "mcc_lock", 16, 26, 28, 28)
                         AUTO_CAST(lock)
-                        lock:SetImage("lock_icon_s")
-                        lock:SetEnableStretch(1)
+                        lock:SetText(locked and "{img lock_icon_s 28 28}" or "")
                         lock:EnableHitTest(0)
                         lock:ShowWindow(locked and 1 or 0)
                     end
@@ -280,10 +282,12 @@ function Monster_card_changer_not_use()
                         end
                     end
                 end
-                local slot = slotset and slotset:GetSlotByIndex(i)
-                if slot then
-                    AUTO_CAST(slot)
-                    slot:RemoveChild("mcc_lock")
+                for _, set in ipairs({slotset, labelset}) do
+                    local slot = set and set:GetSlotByIndex(i)
+                    if slot then
+                        AUTO_CAST(slot)
+                        slot:RemoveChild("mcc_lock")
+                    end
                 end
             end
         end
@@ -350,6 +354,10 @@ function Monster_card_changer_monstercardpreset_open(is_cc_helper)
         return
     end
     MONSTERCARDSLOT_FRAME_OPEN()
+    -- **窓を開くのはここで済ませる。** 以前は 1 秒後の描き直し(preset_card_set)の中で
+    -- 開いていたので、1 秒以内に閉じると予約が後から発火して**開き直していた**。
+    ui.OpenFrame("monstercardpreset")
+    monstercardpreset:ShowWindow(1)
     local monster_card_changer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "monster_card_changer", 0, 0, 0,
         0)
     AUTO_CAST(monster_card_changer)
@@ -463,12 +471,13 @@ end
 -- 潰していた。書き込むのは EQUIP / REMOVE を押したときだけにする。
 function Monster_card_changer_preset_card_set(monster_card_changer)
     local monstercardpreset = ui.GetFrame("monstercardpreset")
-    -- 素の MONSTERCARDPRESET_FRAME_OPEN は呼ばない。あれは preset_list を 0 番へ選び直して
-    -- RequestCardPreset(0) まで走るので、こちらが描いた内容を上書きしてしまう。
-    -- 窓を出すのに要るのは ui.OpenFrame だけ（_CARD_PRESET_SLOT_EQUIP は窓が出ていないと
-    -- 何もせずに戻る）。
-    ui.OpenFrame("monstercardpreset")
-    monstercardpreset:ShowWindow(1)
+    -- **閉じられていたら開き直さないこと。** 開くのは monstercardpreset_open の側。
+    -- ここで開くと、開いた直後に閉じたとき 1 秒後のこの予約で開き直ってしまう。
+    if not monstercardpreset or monstercardpreset:IsVisible() == 0 then
+        -- CC Helper 連携はこの合図を待っているので、描かなくても立てる
+        g.monster_card_changer_ready = 1
+        return 0
+    end
     CARD_PRESET_CLEAR_SLOT(monstercardpreset)
     local page = Monster_card_changer_current_page()
     local preset = g.monster_card_changer_settings.presets[page + 1]
