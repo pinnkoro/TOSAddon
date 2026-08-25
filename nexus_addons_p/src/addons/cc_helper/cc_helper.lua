@@ -1281,8 +1281,12 @@ function Cc_helper_putitem(frame, in_btn, str, step)
         return
     elseif step == 6 then
         in_btn:SetUserValue("STEP", 6)
-        if g.cc_helper_settings[g.cid].mcc == 1 then
+        -- MCC を切った後も設定側の mcc が 1 のまま残ることがあるので、
+        -- アドオンが有効かどうかもここで見る（切ってあるなら素通りする）
+        if g.cc_helper_settings[g.cid].mcc == 1 and g.settings.monster_card_changer.use == 1 then
+            g.monster_card_changer_ready = nil
             Monster_card_changer_monstercardpreset_open(1)
+            g.cc_helper_mcc_deadline = imcTime.GetAppTime() + 30.0
             in_btn:RunUpdateScript("Cc_helper_mcc_operation", 0.1)
         else
             Cc_helper_putitem(nil, in_btn, nil, 7)
@@ -1750,6 +1754,15 @@ end
 
 function Cc_helper_mcc_operation(in_btn)
     local monstercardpreset = ui.GetFrame("monstercardpreset")
+    -- MCC 側が終了処理へ辿り着けないと ready が動かず、ここが永久に回り続けて
+    -- 搬入が終わらなくなる。期限を切って必ず抜ける。
+    if imcTime.GetAppTime() > (g.cc_helper_mcc_deadline or 0) then
+        g.vlog("[CCH] MCC の応答待ちが時間切れ(搬入) ready=%s", tostring(g.monster_card_changer_ready))
+        g.monster_card_changer_ready = nil
+        in_btn:StopUpdateScript("Cc_helper_mcc_operation")
+        Cc_helper_putitem(nil, in_btn, nil, 7)
+        return 0
+    end
     if not g.monster_card_changer_ready then
         return 1
     elseif g.monster_card_changer_ready == 1 then
@@ -1789,10 +1802,19 @@ function Cc_helper_mcc_equip_start(out_btn, preset_no)
         drop_list:SelectItem(preset_no - 1)
     end
     g.vlog("[CCH] カードプリセット %d へ入れ替える", preset_no)
+    g.cc_helper_mcc_deadline = imcTime.GetAppTime() + 30.0
     out_btn:RunUpdateScript("Cc_helper_mcc_equip_operation", 0.1)
 end
 
 function Cc_helper_mcc_equip_operation(out_btn)
+    -- 搬入側と同じ理由で期限を切る（MCC が終了処理へ辿り着けないと終わらない）
+    if imcTime.GetAppTime() > (g.cc_helper_mcc_deadline or 0) then
+        g.vlog("[CCH] MCC の応答待ちが時間切れ(搬出) ready=%s", tostring(g.monster_card_changer_ready))
+        g.monster_card_changer_ready = nil
+        out_btn:StopUpdateScript("Cc_helper_mcc_equip_operation")
+        Cc_helper_take_item(nil, out_btn, nil, 7)
+        return 0
+    end
     if not g.monster_card_changer_ready then
         return 1
     elseif g.monster_card_changer_ready == 1 then
@@ -1838,7 +1860,7 @@ function Cc_helper_take_item(frame, out_btn, str, step)
         out_btn:RunUpdateScript("Cc_helper_out_btn_agm_reserve", 0.1)
     elseif step == 6 then
         out_btn:SetUserValue("STEP", 6)
-        if g.cc_helper_settings[g.cid].mcc == 1 then
+        if g.cc_helper_settings[g.cid].mcc == 1 and g.settings.monster_card_changer.use == 1 then
             local preset_no = Cc_helper_mcc_preset()
             if preset_no > 0 then
                 -- 指定があるなら、カードの入れ替えまでこちらで実行する

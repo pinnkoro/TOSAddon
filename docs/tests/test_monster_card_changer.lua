@@ -283,6 +283,19 @@ check("全枠空を書いたなら nil でも一致", Monster_card_changer_prese
     true)
 check("中身があるのに nil なら不一致", Monster_card_changer_preset_matches(want), false)
 
+print("[9] 読み出せたかどうかを 2 つ目の戻り値で返す（時間切れの扱いを分けるため）")
+-- 読み出せないまま時間切れ = 「確かめようがない」なので、機能を止めずに従来どおり進む。
+-- 読み出せたうえで食い違う = 書き込みが通っていないので中止する。この 2 つを分ける材料。
+preset_info = nil
+local _, readable = Monster_card_changer_preset_matches(want)
+check("nil なら読み出せていない", readable, false)
+preset_info = fake_info({{
+    slot_idx = 4,
+    class_id = 501
+}})
+_, readable = Monster_card_changer_preset_matches(want)
+check("応答があれば読み出せている", readable, true)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

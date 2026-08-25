@@ -57,6 +57,16 @@ end
 -- 色ごとの保護設定(キャラごと)。未設定なら 0 で埋めて返す
 function Monster_card_changer_get_color_settings()
     local settings = g.monster_card_changer_settings
+    -- キャラ名が取れない状況(ログイン直後など)でも落ちないように、その場限りの表を返す。
+    -- settings[nil] への代入は Lua ではエラーになる。
+    if not settings or not g.login_name then
+        return {
+            red = 0,
+            blue = 0,
+            purple = 0,
+            green = 0
+        }
+    end
     if not settings[g.login_name] then
         settings[g.login_name] = {}
     end
@@ -103,10 +113,12 @@ end
 -- PAGE は Monster_card_changer_select_preset が押下のたびに必ず書くので、
 -- ドロップリスト側の選択状態がずれていてもプリセットを取り違えない。
 function Monster_card_changer_current_page()
+    local presets = g.monster_card_changer_settings and g.monster_card_changer_settings.presets
+    local count = presets and #presets or 0
     local monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     if monster_card_changer then
         local page = monster_card_changer:GetUserIValue("PAGE")
-        if page and page >= 0 and page < #g.monster_card_changer_settings.presets then
+        if page and page >= 0 and page < count then
             return page
         end
     end
@@ -454,10 +466,13 @@ function Monster_card_changer_build_preset(mode, page)
     return card_list, exp_list
 end
 
--- 書き込んだ内容がサーバー側に載ったかを見る
+-- 書き込んだ内容がサーバー側に載ったかを見る。
+-- 2 つ目の戻り値は「読み出せたか」。読み出せないまま時間切れになった場合は
+-- 「食い違っている」のではなく「確かめようがない」ので、扱いを分ける。
 function Monster_card_changer_preset_matches(card_list)
     local info = equipcard.GetCardPresetInfo(g.monster_card_changer_scratch_page)
     local seen = {}
+    local readable = info ~= nil
     if info ~= nil then
         local count = info:Count()
         for i = 0, count - 1 do
@@ -467,7 +482,7 @@ function Monster_card_changer_preset_matches(card_list)
             -- 想定外の枠が 1 つ返るだけで**永久に一致せず機能ごと使えなくなる**。
             if slot_no and slot_no >= 1 and slot_no <= g.monster_card_changer_slot_count then
                 if card_list[slot_no] ~= element.class_id then
-                    return false
+                    return false, readable
                 end
                 seen[slot_no] = true
             end
@@ -475,10 +490,10 @@ function Monster_card_changer_preset_matches(card_list)
     end
     for i = 1, g.monster_card_changer_slot_count do
         if card_list[i] ~= 0 and not seen[i] then
-            return false
+            return false, readable
         end
     end
-    return true
+    return true, readable
 end
 
 -- 作業用プリセットへ書き込み、**サーバーに載ったのを確かめてから**次へ進む。
@@ -494,9 +509,11 @@ function Monster_card_changer_write_preset(card_list, exp_list, next_func)
     }
     local monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     if not monster_card_changer then
-        -- 窓を閉じられた後。書き込みも適用もせずに終わる（中途半端に適用しない）
-        g.monster_card_changer_pending = nil
+        -- 窓を閉じられた後。書き込みも適用もせずに終わる（中途半端に適用しない）。
+        -- ready を 3 にしないと CC Helper 連携の待ち合わせが終わらないので、
+        -- 必ず終了処理を通す。
         g.vlog("[MCC] 作業用フレームが無いので中止")
+        Monster_card_changer_end_of_operation(nil)
         return
     end
     SetCardPreset(g.monster_card_changer_scratch_page, card_list, exp_list)
@@ -516,7 +533,11 @@ function Monster_card_changer_confirm_preset(monster_card_changer)
         RequestCardPreset(g.monster_card_changer_scratch_page)
         return 1
     end
-    if Monster_card_changer_preset_matches(pending.list) then
+    local matched, readable = Monster_card_changer_preset_matches(pending.list)
+    if readable then
+        pending.readable = 1
+    end
+    if matched then
         local next_func = pending.next_func
         g.monster_card_changer_pending = nil
         monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
@@ -525,22 +546,39 @@ function Monster_card_changer_confirm_preset(monster_card_changer)
         return 0
     end
     if imcTime.GetAppTime() > pending.deadline then
+        local next_func = pending.next_func
+        local was_readable = pending.readable
         g.monster_card_changer_pending = nil
         monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
-        g.vlog("[MCC] 作業用プリセットの書き込みを確認できずに中止")
-        ui.SysMsg(g.lang == "Japanese" and
-                      "{#FF0000}[MCC]プリセットの書き込みに失敗しました。やり直してください" or
-                      "{#FF0000}[MCC]Failed to write the preset. Please try again")
-        Monster_card_changer_end_of_operation(monster_card_changer)
+        if was_readable then
+            -- 読めたうえで食い違っている = 書き込みが通っていない。ここで適用すると
+            -- 「前に選んでいたプリセットが着く」という元の不具合そのものになるので中止する。
+            g.vlog("[MCC] 作業用プリセットの中身が一致しないまま時間切れ。適用しない")
+            ui.SysMsg(g.lang == "Japanese" and
+                          "{#FF0000}[MCC]プリセットの書き込みに失敗しました。やり直してください" or
+                          "{#FF0000}[MCC]Failed to write the preset. Please try again")
+            Monster_card_changer_end_of_operation(monster_card_changer)
+            return 0
+        end
+        -- 一度も読み出せなかった = 確かめようがない。**確認できないことを理由に
+        -- 機能そのものを止めない。** 従来と同じ動きで先へ進み、記録だけ残す。
+        g.vlog("[MCC] 作業用プリセットを読み出せないまま時間切れ。確認せずに適用する")
+        _G[next_func](monster_card_changer)
         return 0
     end
     return 1
 end
 
 -- 手元のインベントリを走査して、まだ guid が決まっていないカードに割り当てる。
--- レベルまで一致するものを先に押さえ、余ったぶんは ClassID だけで拾う
--- (カードレベルの取得元が食い違っていても「1 枚も拾えない」で止まらないようにするため)。
-function Monster_card_changer_resolve_guids()
+-- レベルまで一致するものを先に押さえる。
+--
+-- allow_class_fallback を渡すと、余ったぶんを **ClassID だけで**拾う。カードレベルの
+-- 取得元が食い違っていても「1 枚も拾えない」で止まらないための保険だが、**別のレベルの
+-- 同じカードを掴む**ので無条件には使わない。
+-- 搬入(REMOVE)では外したカードがサーバーから戻るのを待つ必要があるため、猶予を置いて
+-- からしか許さない。早々に許すと、戻ってくる前に「装備していなかった同じカード」を
+-- 倉庫へ入れてしまう。
+function Monster_card_changer_resolve_guids(allow_class_fallback)
     local used = {}
     local rest = 0
     for _, data in ipairs(g.monster_card_changer_cardlist) do
@@ -572,7 +610,8 @@ function Monster_card_changer_resolve_guids()
         end
     end
     local resolved = 0
-    for _, pass in ipairs({"exact", "class"}) do
+    local passes = allow_class_fallback and {"exact", "class"} or {"exact"}
+    for _, pass in ipairs(passes) do
         for _, data in ipairs(g.monster_card_changer_cardlist) do
             if not data.guid then
                 for _, candidate in ipairs(pool) do
@@ -641,6 +680,8 @@ function Monster_card_changer_remove_apply(monster_card_changer)
         inventype_Tab:SelectTab(4)
     end
     g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
+    -- レベルを見ない照合を許すのは、外したカードが戻る猶予を置いてから
+    g.monster_card_changer_fallback_at = imcTime.GetAppTime() + 3.0
     monster_card_changer:RunUpdateScript("Monster_card_changer_put_inv_to_warehouse", 0.2)
 end
 
@@ -662,16 +703,23 @@ function Monster_card_changer_put_inv_to_warehouse(monster_card_changer)
         Monster_card_changer_end_of_operation(monster_card_changer)
         return 0
     end
-    if Monster_card_changer_resolve_guids() > 0 then
+    local now = imcTime.GetAppTime()
+    local allow_fallback = now > (g.monster_card_changer_fallback_at or 0)
+    if Monster_card_changer_resolve_guids(allow_fallback) > 0 then
         -- 手元へ戻ってきたぶんが増えたので、待ち時間を延ばす
-        g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
+        g.monster_card_changer_deadline = now + 10.0
     end
     local data = g.monster_card_changer_cardlist[1]
     if data.guid then
         local inv_item = session.GetInvItemByGuid(data.guid)
         if inv_item then
-            item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, data.guid, 1,
-                accountwarehouse:GetUserIValue("HANDLE"), nil)
+            -- 倉庫が満杯・アイテムがロック中などで入らないことがある。毎回投げると
+            -- 打ち切りまでに何十回も要求を出すので、1 秒に 1 回までにする。
+            if not data.req_at or now - data.req_at > 1.0 then
+                data.req_at = now
+                item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, data.guid, 1,
+                    accountwarehouse:GetUserIValue("HANDLE"), nil)
+            end
             return 1
         end
         -- 倉庫へ入ったので次のカードへ
@@ -700,6 +748,10 @@ function Monster_card_changer_equip_get_presetinfo()
     local page = Monster_card_changer_current_page()
     local preset = g.monster_card_changer_settings.presets[page + 1]
     if not preset or not preset.slots then
+        -- ここで黙って戻ると ready が 2 のまま残り、CC Helper 連携の待ち合わせが
+        -- 終わらなくなる。必ず終了処理を通すこと。
+        g.vlog("[MCC] プリセット %d が読めないので中止", page + 1)
+        Monster_card_changer_end_of_operation(nil)
         return
     end
     g.monster_card_changer_cardlist = {}
@@ -737,8 +789,11 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
     if inventype_Tab then
         inventype_Tab:SelectTab(4)
     end
-    -- 手元にあるぶんを先に押さえる
-    Monster_card_changer_resolve_guids()
+    -- 手元にあるぶんを先に押さえる。
+    -- こちらは倉庫の中身が動かないので、レベルを見ない照合も最初から許す。
+    -- プリセットを保存した後にカードのレベルが上がっていると exp が変わり、
+    -- レベルまで一致するものが見つからなくなるため（よくある状況）。
+    Monster_card_changer_resolve_guids(true)
     local used = {}
     for _, data in ipairs(g.monster_card_changer_cardlist) do
         if data.guid then
@@ -782,7 +837,10 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
     local take_count = 0
     session.ResetItemList()
     for guid, count in pairs(take_list) do
-        session.AddItemID(tonumber(guid), count)
+        -- **tonumber を通さないこと。** guid は 64bit の識別子で、Lua の数値(double)へ
+        -- 落とすと桁が落ちて別物になりうる。CC Helper の倉庫搬出は文字列のまま渡していて
+        -- 実際に動いている(Cc_helper_equip_take_warehouse_item)。
+        session.AddItemID(guid, count)
         take_count = take_count + 1
     end
     g.vlog("[MCC] 倉庫から取り出す枚数=%d", take_count)
@@ -832,17 +890,22 @@ function Monster_card_changer_apply_card_preset(monster_card_changer)
 end
 
 function Monster_card_changer_end_of_operation(monster_card_changer)
+    -- 後始末は**フレームの有無より先に**行う。ここを取りこぼすと、次の動作が
+    -- 前回の残骸(cardlist / pending)を掴む。ready も CC Helper 連携の待ち合わせが
+    -- 見ているので必ず 3 にする。
     g.monster_card_changer_ready = 3
+    g.monster_card_changer_cardlist = nil
+    g.monster_card_changer_pending = nil
     if not monster_card_changer then
         monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     end
     if not monster_card_changer then
         return
     end
-    g.monster_card_changer_cardlist = nil
-    g.monster_card_changer_pending = nil
     ui.SysMsg("[MCC]End of Operation")
-    monster_card_changer:RunUpdateScript("Monster_card_changer_preset_card_set", 1.0)
+    -- **ここで画面を描き直さないこと。** preset_card_set は ui.OpenFrame を呼ぶので、
+    -- CC Helper 連携で先に窓を畳んだ後に呼ぶと、カード画面が 1 秒後に開き直って
+    -- また閉じる。中身を描き直す意味も、2 秒後に閉じる窓には無い。
     monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE", 3.0)
     monster_card_changer:RunUpdateScript("MONSTERCARDSLOT_CLOSE", 3.0)
 end
