@@ -28,6 +28,12 @@ function Cc_helper_ensure_sets(char_data)
         if not char_data.sets[s].items then
             char_data.sets[s].items = {}
         end
+        -- MCC 連携で搬出時に着けるカードプリセット(1 起点)。0 = 指定しない。
+        -- セットごとに持つ。搬出は右クリックでセットを選べるので、そのセット用の
+        -- カードもまとめて着くようにするため。
+        if char_data.sets[s].mcc_preset == nil then
+            char_data.sets[s].mcc_preset = 0
+        end
         for _, key in ipairs(g.cc_helper_item_keys) do
             if not char_data.sets[s].items[key] then
                 char_data.sets[s].items[key] = {
@@ -45,6 +51,30 @@ function Cc_helper_ensure_sets(char_data)
     end
     -- live alias so existing `[cid].items` reads/writes target the current set
     char_data.items = char_data.sets[char_data.current].items
+end
+
+-- 今表示・操作しているセットそのもの(items だけでなくセット単位の設定も読むため)
+function Cc_helper_current_set()
+    local cd = g.cc_helper_settings and g.cc_helper_settings[g.cid]
+    if not cd then
+        return nil
+    end
+    Cc_helper_ensure_sets(cd)
+    return cd.sets[cd.current]
+end
+
+-- 搬出時に着けるカードプリセット番号(1 起点)。0 = 指定しない
+function Cc_helper_mcc_preset()
+    local set = Cc_helper_current_set()
+    return (set and tonumber(set.mcc_preset)) or 0
+end
+
+-- MCC の設定は MCC 側の初期化で読み込まれるが、まだなら自分で読ませる
+function Cc_helper_mcc_presets()
+    if not g.monster_card_changer_settings and type(_G["Monster_card_changer_load_settings"]) == "function" then
+        Monster_card_changer_load_settings()
+    end
+    return g.monster_card_changer_settings and g.monster_card_changer_settings.presets
 end
 
 function Cc_helper_missing_char_data(char_data)
@@ -546,6 +576,24 @@ function Cc_helper_setting_frame_init(frame)
                                   "{ol}If checked, it will work with [Monster Card Changer]{nl}Individual Character Settings")
         mccuse:SetCheck(g.cc_helper_settings[g.cid].mcc)
         mccuse:SetEventScript(ui.LBUTTONUP, "Cc_helper_check_settings")
+        -- 搬出でどのカードプリセットへ入れ替えるか。**セットごとの設定**なので、
+        -- 上の Set タブを切り替えると表示も変わる。
+        local preset_no = Cc_helper_mcc_preset()
+        local mcc_preset = gbox:CreateOrGetControl("button", "mcc_preset", 110, 373, 66, 28)
+        AUTO_CAST(mcc_preset)
+        mcc_preset:SetSkinName("test_pvp_btn")
+        mcc_preset:SetText(preset_no > 0 and string.format("{ol}P%d", preset_no) or
+                               (g.lang == "Japanese" and "{ol}なし" or "{ol}None"))
+        mcc_preset:SetEventScript(ui.LBUTTONUP, "Cc_helper_mcc_preset_context")
+        local preset_name = ""
+        local presets = Cc_helper_mcc_presets()
+        if preset_no > 0 and presets and presets[preset_no] then
+            preset_name = "{nl}" .. tostring(presets[preset_no].name)
+        end
+        mcc_preset:SetTextTooltip(g.lang == "Japanese" and
+                                      "{ol}搬出時に着けるカードプリセット{nl}セットごとの設定" ..
+                                          preset_name or
+                                      "{ol}Card preset to equip on take-out{nl}Per-set setting" .. preset_name)
     else
         g.cc_helper_settings[g.cid].mcc = 0
     end
@@ -829,6 +877,36 @@ function Cc_helper_toggle_settings(frame, ctrl)
     Cc_helper_save_settings()
 end
 
+function Cc_helper_mcc_preset_context()
+    local title = g.lang == "Japanese" and "{ol}カードプリセット選択" or "{ol}Select Card Preset"
+    local context = ui.CreateContextMenu("cc_helper_mcc_preset_context", title, 0, 0, 0, 0)
+    local cur = Cc_helper_mcc_preset()
+    local none_text = g.lang == "Japanese" and "使わない（MCC の画面で手動）" or
+                          "Do not use (choose manually)"
+    ui.AddContextMenuItem(context, "{ol}" .. none_text .. (cur == 0 and " {#00FF00}<<" or ""),
+        "Cc_helper_mcc_preset_set(0)")
+    local presets = Cc_helper_mcc_presets()
+    if presets then
+        for i, preset_data in ipairs(presets) do
+            local mark = (i == cur) and " {#00FF00}<<" or ""
+            ui.AddContextMenuItem(context, string.format("{ol}%d: %s%s", i, tostring(preset_data.name), mark),
+                string.format("Cc_helper_mcc_preset_set(%d)", i))
+        end
+    end
+    ui.OpenContextMenu(context)
+end
+
+function Cc_helper_mcc_preset_set(n)
+    local set = Cc_helper_current_set()
+    if not set then
+        return
+    end
+    set.mcc_preset = n
+    g.vlog("[CCH] Set%d のカードプリセットを %d にした", g.cc_helper_settings[g.cid].current or 1, n)
+    Cc_helper_save_settings()
+    Cc_helper_setting_frame_init()
+end
+
 function Cc_helper_setting_frame_close(cch_setting)
     INVENTORY_SET_CUSTOM_RBTNDOWN("None")
     ui.DestroyFrame(cch_setting:GetName())
@@ -882,6 +960,11 @@ function Cc_helper_load_copy(cid)
         cd.sets[cd.current].items = json.decode(json.encode(src_items))
         Cc_helper_ensure_sets(cd) -- fill any missing item keys, re-point items alias
     end
+    -- カードプリセットの指定もセット単位の設定なので一緒に運ぶ。
+    -- items を丸ごと差し替えても set 自体は残るので、ここで明示的に入れる。
+    if src.mcc_preset ~= nil then
+        cd.sets[cd.current].mcc_preset = src.mcc_preset
+    end
     if src.mcc ~= nil then
         cd.mcc = src.mcc
     end
@@ -927,6 +1010,7 @@ function Cc_helper_setting_save(frame, ctrl)
     local new_copy_data = {
         items = json.decode(json.encode(cd.sets[cd.current].items)),
         setnum = cd.current,
+        mcc_preset = cd.sets[cd.current].mcc_preset or 0,
         agm = cd.agm,
         agm_check = cd.agm_check,
         mcc = cd.mcc,
@@ -1681,6 +1765,51 @@ function Cc_helper_mcc_operation(in_btn)
     end
     return 1
 end
+-- 搬出の最後に、指定されたカードプリセットへ入れ替える。
+-- カードプリセット画面を開き、MCC 側の準備が済んだら EQUIP と同じ処理を呼ぶ。
+-- ページ番号は MCC のフレームの PAGE が正なので、そこへ直接書く。
+-- **Monster_card_changer_select_preset は使わないこと。** あれは画面の描き直しを
+-- 予約し、その中で ready を 1 に戻すので、こちらの待ち合わせが二重に走る。
+function Cc_helper_mcc_equip_start(out_btn, preset_no)
+    g.monster_card_changer_ready = nil
+    Monster_card_changer_monstercardpreset_open(1)
+    local mcc_frame = ui.GetFrame(addon_name_lower .. "monster_card_changer")
+    if not mcc_frame then
+        g.vlog("[CCH] MCC のフレームが無いのでカード入れ替えを飛ばす")
+        Cc_helper_end_of_operation(out_btn, 1)
+        return
+    end
+    AUTO_CAST(mcc_frame)
+    mcc_frame:SetUserValue("PAGE", preset_no - 1)
+    -- 表示上の選択も合わせる(実際に読まれるのは上の PAGE)
+    local monstercardpreset = ui.GetFrame("monstercardpreset")
+    local drop_list = monstercardpreset and GET_CHILD(monstercardpreset, "drop_list")
+    if drop_list then
+        AUTO_CAST(drop_list)
+        drop_list:SelectItem(preset_no - 1)
+    end
+    g.vlog("[CCH] カードプリセット %d へ入れ替える", preset_no)
+    out_btn:RunUpdateScript("Cc_helper_mcc_equip_operation", 0.1)
+end
+
+function Cc_helper_mcc_equip_operation(out_btn)
+    if not g.monster_card_changer_ready then
+        return 1
+    elseif g.monster_card_changer_ready == 1 then
+        g.monster_card_changer_ready = 2
+        Monster_card_changer_equip_get_presetinfo()
+        return 1
+    elseif g.monster_card_changer_ready == 2 then
+        return 1
+    elseif g.monster_card_changer_ready == 3 then
+        g.monster_card_changer_ready = nil
+        out_btn:StopUpdateScript("Cc_helper_mcc_equip_operation")
+        Cc_helper_take_item(nil, out_btn, nil, 7)
+        return 0
+    end
+    return 1
+end
+
 -- takeitem
 function Cc_helper_take_item(frame, out_btn, str, step)
     if g.another_warehouse_func == true then
@@ -1710,7 +1839,15 @@ function Cc_helper_take_item(frame, out_btn, str, step)
     elseif step == 6 then
         out_btn:SetUserValue("STEP", 6)
         if g.cc_helper_settings[g.cid].mcc == 1 then
-            Cc_helper_end_of_operation(out_btn, 1)
+            local preset_no = Cc_helper_mcc_preset()
+            if preset_no > 0 then
+                -- 指定があるなら、カードの入れ替えまでこちらで実行する
+                Cc_helper_mcc_equip_start(out_btn, preset_no)
+            else
+                -- 指定が無いときは従来どおり。カードプリセット画面を開いて終わり、
+                -- どれを着けるかは利用者が選ぶ
+                Cc_helper_end_of_operation(out_btn, 1)
+            end
             return
         else
             Cc_helper_take_item(nil, out_btn, nil, 7)
