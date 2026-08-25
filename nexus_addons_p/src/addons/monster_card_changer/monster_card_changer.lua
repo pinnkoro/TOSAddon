@@ -99,13 +99,32 @@ function Monster_card_changer_update_protect_view()
     end
     local colors = Monster_card_changer_get_color_settings()
     for _, color in ipairs(g.monster_card_changer_colors) do
-        local group = g.monster_card_changer_color_groups[color]
         local locked = colors[color] == 1
-        local tone = locked and "FF555555" or "FFFFFFFF"
+        -- チェックボックスのラベル。保護中だけ目立つ色にする
+        local checkbox = GET_CHILD(monstercardslot, color)
+        if checkbox then
+            AUTO_CAST(checkbox)
+            local label = g.lang == "Japanese" and "保護" or "LOCK"
+            checkbox:SetText("{ol}" .. (locked and "{#FFCC00}" or "{#999999}") .. label)
+        end
+        -- カードのほうは**灰色にするだけ**で示す。
+        --
+        -- 鍵の絵も足そうとしたが、実機で次のどれも描画されなかった。同じ箱に足した
+        -- richtext の文字は出るので、配置ではなく画像の出し方の問題。素でも鍵の画像は
+        -- {img ...} に一度も使われていない(使われているのはアイコン系だけ)。
+        -- **同じ順で試し直さないこと。**
+        --   1. スロットへ picture を足す
+        --   2. スロットへ richtext を足して {img lock_icon_s}
+        --   3. 箱へ picture を足して SetImage("locked_slot")
+        -- まだ試していないのは、素の mixer.lua と同じく CreateIcon で作った
+        -- **アイコン**へ SetImage する経路だけ。ただし素が画面を組み立て直すたびに
+        -- 戻るので、戻し処理まで要る。
+        local group = g.monster_card_changer_color_groups[color]
         local gbox = GET_CHILD_RECURSIVELY(monstercardslot, group .. "cardGbox")
         if gbox then
             local slotset = GET_CHILD(gbox, group .. "card_slotset")
             local labelset = GET_CHILD(gbox, group .. "card_labelset")
+            local tone = locked and "FF555555" or "FFFFFFFF"
             for i = 0, g.monster_card_changer_slots_per_group - 1 do
                 for _, set in ipairs({slotset, labelset}) do
                     if set then
@@ -117,30 +136,8 @@ function Monster_card_changer_update_protect_view()
                     end
                 end
             end
-            -- **鍵はスロットではなくグループの箱へ載せること。** スロットに picture と
-            -- richtext の両方を足してみたが、実機ではどちらも描画されなかった。
-            -- 箱に載せる置き方は他のアドオンで実績がある。
-            --
-            -- 画像だけだと出ているかどうかが分からないので**文字も併記する**。
-            -- 画像名が違っても {img ...} は黙って何も出さないため、文字が無いと
-            -- 「機能が効いていない」のか「画像が出ていないだけ」なのか切り分けられない。
             AUTO_CAST(gbox)
-            local width = gbox:GetWidth()
-            -- **鍵の絵を出すのは諦めた。** カードスロット画面のこの箱では、
-            -- 実機で次のどれも描画されなかった(3 通り試した)。
-            --   1. スロットへ picture を足す
-            --   2. スロットへ richtext を足して {img ...}
-            --   3. 箱へ picture を足して SetImage("locked_slot")
-            -- 同じ箱に足した richtext の**文字は出る**ので、配置ではなく画像の出し方の
-            -- 問題。素でも鍵の画像は {img ...} に一度も使われていない。
-            -- 灰色化と合わせれば保護されていることは伝わるので、文字だけにしてある。
-            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 46, width, 24)
-            AUTO_CAST(lock)
-            lock:SetTextAlign("center", "center")
-            lock:EnableHitTest(0)
-            lock:SetText(locked and (g.lang == "Japanese" and "{ol}{s16}{#FFCC00}保護" or
-                             "{ol}{s16}{#FFCC00}LOCKED") or "")
-            lock:ShowWindow(locked and 1 or 0)
+            gbox:RemoveChild("mcc_lock") -- 旧版がカードの上へ出していた文字の後始末
         end
     end
 end
@@ -449,6 +446,9 @@ function Monster_card_changer_preset_open(monster_card_changer)
         checkbox:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_color_save")
         checkbox:SetEventScriptArgString(ui.LBUTTONUP, color_name)
         checkbox:SetCheck(color_settings[color_name])
+        -- チェックボックスは 25x25 で何も書かれていないため、何のチェックなのかが
+        -- 分からなかった。ラベルを付ける(色は保護中かどうかで変える)
+        checkbox:SetText(g.lang == "Japanese" and "{ol}保護" or "{ol}LOCK")
         checkbox:SetTextTooltip(g.lang == "Japanese" and
                                     "{ol}チェックを入れると該当の色のカードを外しません{nl}EQUIP でも上書きしません" or
                                     "{ol}checked, cards of the specified color will not be unequipped{nl}EQUIP does not overwrite them either")
