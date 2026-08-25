@@ -126,19 +126,15 @@ function Monster_card_changer_update_protect_view()
             -- 「機能が効いていない」のか「画像が出ていないだけ」なのか切り分けられない。
             AUTO_CAST(gbox)
             local width = gbox:GetWidth()
-            -- 鍵の絵は picture の SetImage で出す。**{img ...} では出ない。**
-            -- 素を調べたところ、{img ...} に使われているのはアイコン系だけで、
-            -- 鍵の画像は picture / button の image に使われている(実機でも
-            -- {img lock_icon_s} は何も出なかった)。
-            local lock_img = gbox:CreateOrGetControl("picture", "mcc_lock_img", (width - 26) / 2, 24, 26, 26)
-            AUTO_CAST(lock_img)
-            lock_img:SetImage("locked_slot")
-            lock_img:SetEnableStretch(1)
-            lock_img:EnableHitTest(0)
-            lock_img:ShowWindow(locked and 1 or 0)
-            -- 文字も併記する。画像名が違っても picture は黙って何も出さないので、
-            -- 文字が無いと「効いていない」のか「絵が出ていないだけ」なのか分からない
-            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 54, width, 24)
+            -- **鍵の絵を出すのは諦めた。** カードスロット画面のこの箱では、
+            -- 実機で次のどれも描画されなかった(3 通り試した)。
+            --   1. スロットへ picture を足す
+            --   2. スロットへ richtext を足して {img ...}
+            --   3. 箱へ picture を足して SetImage("locked_slot")
+            -- 同じ箱に足した richtext の**文字は出る**ので、配置ではなく画像の出し方の
+            -- 問題。素でも鍵の画像は {img ...} に一度も使われていない。
+            -- 灰色化と合わせれば保護されていることは伝わるので、文字だけにしてある。
+            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 46, width, 24)
             AUTO_CAST(lock)
             lock:SetTextAlign("center", "center")
             lock:EnableHitTest(0)
@@ -294,7 +290,6 @@ function Monster_card_changer_not_use()
                 end
             end
             gbox:RemoveChild("mcc_lock")
-            gbox:RemoveChild("mcc_lock_img")
         end
     end
 end
