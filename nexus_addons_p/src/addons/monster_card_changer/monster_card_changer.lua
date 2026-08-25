@@ -6,6 +6,14 @@ g.monster_card_changer_slot_count = 12
 g.monster_card_changer_slot_colors = {"red", "red", "red", "blue", "blue", "blue", "purple", "purple", "purple",
                                       "green", "green", "green"}
 g.monster_card_changer_colors = {"red", "blue", "purple", "green"}
+-- 色 -> 素のカードグループ名。カードスロット画面の <グループ名>cardGbox を引くのに使う
+g.monster_card_changer_color_groups = {
+    red = "ATK",
+    blue = "DEF",
+    purple = "UTIL",
+    green = "STAT"
+}
+g.monster_card_changer_slots_per_group = 3
 -- 着脱はゲーム側のプリセットを 1 枠だけ作業用に借りて行う(素に空き番号が無いため)。
 -- 借りるのは EQUIP / REMOVE を押したときだけで、画面を開いただけでは書き込まない。
 g.monster_card_changer_scratch_page = 0
@@ -77,6 +85,56 @@ function Monster_card_changer_get_color_settings()
         end
     end
     return colors
+end
+
+-- 保護している色の 3 枠を灰色にして鍵を出す。
+-- チェックボックスだけだと、どの枠が守られているのか画面から読み取れない。
+--
+-- 灰色にするのは素と同じ書き方(slot:GetIcon():SetColorTone)。カードが入っていない枠には
+-- アイコンが無いので、枠の色枠(card_labelset)のほうも一緒に落とす。
+function Monster_card_changer_update_protect_view()
+    local monstercardslot = ui.GetFrame("monstercardslot")
+    if not monstercardslot then
+        return
+    end
+    local colors = Monster_card_changer_get_color_settings()
+    for _, color in ipairs(g.monster_card_changer_colors) do
+        local group = g.monster_card_changer_color_groups[color]
+        local locked = colors[color] == 1
+        local tone = locked and "FF555555" or "FFFFFFFF"
+        local gbox = GET_CHILD_RECURSIVELY(monstercardslot, group .. "cardGbox")
+        if gbox then
+            local slotset = GET_CHILD(gbox, group .. "card_slotset")
+            local labelset = GET_CHILD(gbox, group .. "card_labelset")
+            for i = 0, g.monster_card_changer_slots_per_group - 1 do
+                for _, set in ipairs({slotset, labelset}) do
+                    if set then
+                        local slot = set:GetSlotByIndex(i)
+                        if slot then
+                            local icon = slot:GetIcon()
+                            if icon then
+                                icon:SetColorTone(tone)
+                            end
+                        end
+                    end
+                end
+                if slotset then
+                    local slot = slotset:GetSlotByIndex(i)
+                    if slot then
+                        AUTO_CAST(slot)
+                        -- 鍵は毎回作り直さず出し入れする。カードスロット画面は
+                        -- 開くたびに素が組み立て直すので CreateOrGetControl で引く
+                        local lock = slot:CreateOrGetControl("picture", "mcc_lock", 18, 30, 24, 24)
+                        AUTO_CAST(lock)
+                        lock:SetImage("lock_icon_s")
+                        lock:SetEnableStretch(1)
+                        lock:EnableHitTest(0)
+                        lock:ShowWindow(locked and 1 or 0)
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- 保護設定をログ用の文字列にする
@@ -206,6 +264,29 @@ function Monster_card_changer_not_use()
         if check_box then
             monstercardslot:RemoveChild(color)
         end
+        -- 灰色と鍵も素の見た目へ戻す
+        local group = g.monster_card_changer_color_groups[color]
+        local gbox = GET_CHILD_RECURSIVELY(monstercardslot, group .. "cardGbox")
+        if gbox then
+            local slotset = GET_CHILD(gbox, group .. "card_slotset")
+            local labelset = GET_CHILD(gbox, group .. "card_labelset")
+            for i = 0, g.monster_card_changer_slots_per_group - 1 do
+                for _, set in ipairs({slotset, labelset}) do
+                    if set then
+                        local slot = set:GetSlotByIndex(i)
+                        local icon = slot and slot:GetIcon()
+                        if icon then
+                            icon:SetColorTone("FFFFFFFF")
+                        end
+                    end
+                end
+                local slot = slotset and slotset:GetSlotByIndex(i)
+                if slot then
+                    AUTO_CAST(slot)
+                    slot:RemoveChild("mcc_lock")
+                end
+            end
+        end
     end
 end
 
@@ -245,7 +326,21 @@ function Monster_card_changer_inventory_frame_init()
     local monstercardslot = ui.GetFrame("monstercardslot")
     local applyBtn = GET_CHILD(monstercardslot, "applyBtn")
     AUTO_CAST(applyBtn)
-    applyBtn:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_monstercardpreset_open")
+    applyBtn:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_toggle_preset")
+end
+
+-- カードスロット画面の「プリセット」ボタン。
+-- **開いているときは プリセットだけ 閉じること。** ここでインベントリ側のボタンと同じ
+-- MONSTERCARDSLOT_CLOSE を呼ぶと、カード装着の窓ごと消えてしまう
+-- (goddesscardslot も巻き込む)。素の applyBtn も MONSTERCARDPRESET_FRAME_OPEN を
+-- 割り当てているだけで、カード装着の窓は閉じない。
+function Monster_card_changer_toggle_preset()
+    local monstercardpreset = ui.GetFrame("monstercardpreset")
+    if monstercardpreset and monstercardpreset:IsVisible() == 1 then
+        MONSTERCARDPRESET_FRAME_CLOSE()
+        return
+    end
+    Monster_card_changer_monstercardpreset_open()
 end
 
 function Monster_card_changer_monstercardpreset_open(is_cc_helper)
@@ -350,6 +445,7 @@ function Monster_card_changer_preset_open(monster_card_changer)
                                     "{ol}チェックを入れると該当の色のカードを外しません{nl}EQUIP でも上書きしません" or
                                     "{ol}checked, cards of the specified color will not be unequipped{nl}EQUIP does not overwrite them either")
     end
+    Monster_card_changer_update_protect_view()
     g.vlog("[MCC] 画面を開いた 保護: %s", Monster_card_changer_color_text())
     Monster_card_changer_save_settings()
     -- **開いた時点でプリセットのデータを読ませておくこと。** 素の
@@ -443,6 +539,7 @@ function Monster_card_changer_color_save(monstercardslot, checkbox, check_name)
     Monster_card_changer_save_settings()
     -- 押した直後の見た目と、保存した値の両方を出す。食い違っていれば
     -- 「外したはずなのに外れていない」の原因がどちら側かが分かる。
+    Monster_card_changer_update_protect_view()
     g.vlog("[MCC] 色の保護 %s: 見た目=%s 保存後: %s", tostring(check_name),
         tostring(checkbox:IsChecked()), Monster_card_changer_color_text())
 end
@@ -1024,6 +1121,8 @@ function Monster_card_changer_wait_apply(monster_card_changer)
     local next_func = g.monster_card_changer_apply_next
     g.monster_card_changer_apply_next = nil
     monster_card_changer:StopUpdateScript("Monster_card_changer_wait_apply")
+    -- 適用でカードスロット画面は素が組み立て直すので、灰色と鍵を付け直す
+    Monster_card_changer_update_protect_view()
     if diff == 0 then
         g.vlog("[MCC] 装備の切り替えを確認")
     else
