@@ -79,6 +79,16 @@ function Monster_card_changer_get_color_settings()
     return colors
 end
 
+-- 保護設定をログ用の文字列にする
+function Monster_card_changer_color_text()
+    local colors = Monster_card_changer_get_color_settings()
+    local out = {}
+    for _, color in ipairs(g.monster_card_changer_colors) do
+        out[#out + 1] = string.format("%s=%s", color, tostring(colors[color]))
+    end
+    return table.concat(out, " ")
+end
+
 -- slot_no は 1〜12
 function Monster_card_changer_is_protected(slot_no)
     local color = g.monster_card_changer_slot_colors[slot_no]
@@ -340,7 +350,13 @@ function Monster_card_changer_preset_open(monster_card_changer)
                                     "{ol}チェックを入れると該当の色のカードを外しません{nl}EQUIP でも上書きしません" or
                                     "{ol}checked, cards of the specified color will not be unequipped{nl}EQUIP does not overwrite them either")
     end
+    g.vlog("[MCC] 画面を開いた 保護: %s", Monster_card_changer_color_text())
     Monster_card_changer_save_settings()
+    -- **開いた時点でプリセットのデータを読ませておくこと。** 素の
+    -- MONSTERCARDPRESET_FRAME_OPEN も開くときに RequestCardPreset を呼んでいる。
+    -- これを省くと、最初の EQUIP / REMOVE の書き込み確認だけ何秒待っても通らない
+    -- (実機で 2 回とも「画面を開いてから最初の 1 回」だけ失敗していた)。
+    RequestCardPreset(g.monster_card_changer_scratch_page)
     monster_card_changer:RunUpdateScript("Monster_card_changer_preset_card_set", 1.0)
     return 0
 end
@@ -424,8 +440,11 @@ end
 function Monster_card_changer_color_save(monstercardslot, checkbox, check_name)
     local is_check = checkbox:IsChecked()
     Monster_card_changer_get_color_settings()[check_name] = is_check
-    g.vlog("[MCC] 色の保護 %s=%s", tostring(check_name), tostring(is_check))
     Monster_card_changer_save_settings()
+    -- 押した直後の見た目と、保存した値の両方を出す。食い違っていれば
+    -- 「外したはずなのに外れていない」の原因がどちら側かが分かる。
+    g.vlog("[MCC] 色の保護 %s: 見た目=%s 保存後: %s", tostring(check_name),
+        tostring(checkbox:IsChecked()), Monster_card_changer_color_text())
 end
 
 -- 適用するプリセットの中身を組み立てる。
@@ -661,7 +680,8 @@ function Monster_card_changer_remove(monstercardpreset)
             end
         end
     end
-    g.vlog("[MCC] REMOVE: 外す枚数=%d", #g.monster_card_changer_cardlist)
+    g.vlog("[MCC] REMOVE: 外す枚数=%d 保護: %s", #g.monster_card_changer_cardlist,
+        Monster_card_changer_color_text())
     local card_list, exp_list = Monster_card_changer_build_preset("remove")
     Monster_card_changer_write_preset(card_list, exp_list, "Monster_card_changer_remove_apply")
 end
@@ -775,7 +795,8 @@ function Monster_card_changer_equip_get_presetinfo()
             end
         end
     end
-    g.vlog("[MCC] EQUIP: プリセット %d / 必要枚数=%d", page + 1, #g.monster_card_changer_cardlist)
+    g.vlog("[MCC] EQUIP: プリセット %d / 必要枚数=%d 保護: %s", page + 1,
+        #g.monster_card_changer_cardlist, Monster_card_changer_color_text())
     local monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     if accountwarehouse:IsVisible() == 1 and #g.monster_card_changer_cardlist > 0 then
