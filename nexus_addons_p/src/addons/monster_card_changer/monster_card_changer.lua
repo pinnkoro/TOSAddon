@@ -466,13 +466,13 @@ function Monster_card_changer_build_preset(mode, page)
     return card_list, exp_list
 end
 
--- 書き込んだ内容がサーバー側に載ったかを見る。
--- 2 つ目の戻り値は「読み出せたか」。読み出せないまま時間切れになった場合は
--- 「食い違っている」のではなく「確かめようがない」ので、扱いを分ける。
+-- 書き込んだ内容が作業用プリセットに載ったかを見る。
+-- **これは手元のキャッシュの確認であって、サーバーの状態の証明ではない。**
+-- 実機で確かめた結果、SetCardPreset は GetCardPresetInfo を同期で更新する
+-- (違う内容を書いた直後に読んでも、その場で一致する)。
 function Monster_card_changer_preset_matches(card_list)
     local info = equipcard.GetCardPresetInfo(g.monster_card_changer_scratch_page)
     local seen = {}
-    local readable = info ~= nil
     if info ~= nil then
         local count = info:Count()
         for i = 0, count - 1 do
@@ -482,7 +482,7 @@ function Monster_card_changer_preset_matches(card_list)
             -- 想定外の枠が 1 つ返るだけで**永久に一致せず機能ごと使えなくなる**。
             if slot_no and slot_no >= 1 and slot_no <= g.monster_card_changer_slot_count then
                 if card_list[slot_no] ~= element.class_id then
-                    return false, readable
+                    return false
                 end
                 seen[slot_no] = true
             end
@@ -490,23 +490,24 @@ function Monster_card_changer_preset_matches(card_list)
     end
     for i = 1, g.monster_card_changer_slot_count do
         if card_list[i] ~= 0 and not seen[i] then
-            return false, readable
+            return false
         end
     end
-    return true, readable
+    return true
 end
 
--- 作業用プリセットへ書き込み、**サーバーに載ったのを確かめてから**次へ進む。
--- 以前は書き込みの 1 秒後に適用していたため、間に合わないと 1 つ前に選んでいた
--- プリセットがそのまま適用されていた。プリセット 1 のままだと中身が変わらず
--- 気付けないので、「2 番目以降を選ぶと反映されない」という形で出ていた。
+-- 作業用プリセットへ書き込んでから適用へ進む。
+--
+-- 元の不具合(「プリセット 2 番目以降を選ぶと反映されない」)は、**書き込みが
+-- RunUpdateScript の 1 秒後**だったせいで、届く前に適用を押せてしまうことだった。
+-- 書き込みと適用を**同じ呼び出しの中で続けて送る**ことで、そもそも押し込む隙を無くす。
+-- 同じ接続へ順に送るので、サーバー側でも順序が入れ替わらない。
+--
+-- **RequestCardPreset を呼んで確かめようとしないこと。** 実機で踏んだ:
+-- あれはサーバーから取り直してキャッシュを上書きするので、こちらが今書いた内容が
+-- **古い内容で消される**。1 回目の REMOVE だけ 5 秒待って「一致しない」と誤検出し、
+-- 適用を中止していた(verbose_log で確認)。読み戻しはサーバーの状態の証明にもならない。
 function Monster_card_changer_write_preset(card_list, exp_list, next_func)
-    g.monster_card_changer_pending = {
-        list = card_list,
-        next_func = next_func,
-        deadline = imcTime.GetAppTime() + 5.0,
-        requested = 0
-    }
     local monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     if not monster_card_changer then
         -- 窓を閉じられた後。書き込みも適用もせずに終わる（中途半端に適用しない）。
@@ -517,56 +518,46 @@ function Monster_card_changer_write_preset(card_list, exp_list, next_func)
         return
     end
     SetCardPreset(g.monster_card_changer_scratch_page, card_list, exp_list)
+    -- SetCardPreset は手元のキャッシュを同期で更新するので、普通はここで一致する。
+    -- 待たずにそのまま適用まで進む。
+    if Monster_card_changer_preset_matches(card_list) then
+        g.vlog("[MCC] 作業用プリセット %d へ書き込み", g.monster_card_changer_scratch_page)
+        _G[next_func](monster_card_changer)
+        return
+    end
+    -- 反映が遅れる環境に備えて少しだけ待つ。ここでも問い合わせ直さない。
+    g.monster_card_changer_pending = {
+        list = card_list,
+        next_func = next_func,
+        deadline = imcTime.GetAppTime() + 2.0
+    }
     monster_card_changer:RunUpdateScript("Monster_card_changer_confirm_preset", 0.1)
 end
 
+-- 書き込みが手元へ即反映されなかったときだけ走る保険。
+-- 時間切れでも**適用はする**。読み戻しはサーバーの状態の証明ではないので、
+-- 一致しないことを理由に機能を止める意味が無い(止めると、実機で出たように
+-- 「押しても何も起きずエラーだけ出る」になる)。記録だけ残して先へ進む。
 function Monster_card_changer_confirm_preset(monster_card_changer)
     local pending = g.monster_card_changer_pending
     if not pending then
         monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
         return 0
     end
-    if pending.requested == 0 then
-        -- サーバーへ問い合わせ直す。手元のキャッシュだけを見て判断すると
-        -- 「書いたつもり」のまま先へ進んでしまう。
-        pending.requested = 1
-        RequestCardPreset(g.monster_card_changer_scratch_page)
+    local matched = Monster_card_changer_preset_matches(pending.list)
+    if not matched and imcTime.GetAppTime() <= pending.deadline then
         return 1
     end
-    local matched, readable = Monster_card_changer_preset_matches(pending.list)
-    if readable then
-        pending.readable = 1
-    end
+    local next_func = pending.next_func
+    g.monster_card_changer_pending = nil
+    monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
     if matched then
-        local next_func = pending.next_func
-        g.monster_card_changer_pending = nil
-        monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
-        g.vlog("[MCC] 作業用プリセット %d への書き込みを確認", g.monster_card_changer_scratch_page)
-        _G[next_func](monster_card_changer)
-        return 0
+        g.vlog("[MCC] 作業用プリセット %d への書き込みを遅れて確認", g.monster_card_changer_scratch_page)
+    else
+        g.vlog("[MCC] 作業用プリセットの読み戻しが一致しないまま適用へ進む")
     end
-    if imcTime.GetAppTime() > pending.deadline then
-        local next_func = pending.next_func
-        local was_readable = pending.readable
-        g.monster_card_changer_pending = nil
-        monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
-        if was_readable then
-            -- 読めたうえで食い違っている = 書き込みが通っていない。ここで適用すると
-            -- 「前に選んでいたプリセットが着く」という元の不具合そのものになるので中止する。
-            g.vlog("[MCC] 作業用プリセットの中身が一致しないまま時間切れ。適用しない")
-            ui.SysMsg(g.lang == "Japanese" and
-                          "{#FF0000}[MCC]プリセットの書き込みに失敗しました。やり直してください" or
-                          "{#FF0000}[MCC]Failed to write the preset. Please try again")
-            Monster_card_changer_end_of_operation(monster_card_changer)
-            return 0
-        end
-        -- 一度も読み出せなかった = 確かめようがない。**確認できないことを理由に
-        -- 機能そのものを止めない。** 従来と同じ動きで先へ進み、記録だけ残す。
-        g.vlog("[MCC] 作業用プリセットを読み出せないまま時間切れ。確認せずに適用する")
-        _G[next_func](monster_card_changer)
-        return 0
-    end
-    return 1
+    _G[next_func](monster_card_changer)
+    return 0
 end
 
 -- 手元のインベントリを走査して、まだ guid が決まっていないカードに割り当てる。
