@@ -464,10 +464,18 @@ function Monster_card_changer_build_preset(mode, page)
     local card_list = {}
     local exp_list = {}
     local slots = nil
+    -- 枠ごとに「実際に押さえたカード」を引けるようにする
+    local found = {}
     if mode == "equip" then
         local preset = g.monster_card_changer_settings.presets[page + 1]
         slots = preset and preset.slots
+        for _, data in ipairs(g.monster_card_changer_cardlist or {}) do
+            if data.slot_no and data.guid then
+                found[data.slot_no] = data
+            end
+        end
     end
+    local missing = 0
     for i = 1, g.monster_card_changer_slot_count do
         local card_id = 0
         local card_exp = 0
@@ -475,12 +483,30 @@ function Monster_card_changer_build_preset(mode, page)
             local id, lv, exp = GETMYCARD_INFO(i - 1)
             card_id = id or 0
             card_exp = exp or 0
-        elseif slots and slots[i] then
-            card_id = slots[i].card_id or 0
-            card_exp = slots[i].card_exp or 0
+        elseif slots and slots[i] and (slots[i].card_id or 0) ~= 0 then
+            local data = found[i]
+            if data then
+                -- **押さえたカードの実際の経験値を書くこと。** プリセットに保存された
+                -- 経験値をそのまま書くと、レベルが違うカードしか手元に無いときに
+                -- 「持っていないカード」を要求することになり、その枠は空のままになる
+                -- (実機で踏んだ: Lv10 を 3 枚要求したが Lv1 が 2 枚しか無く、
+                --  青が 1 枚だけ着いて 2 枠が空になった)。
+                card_id = data.cls_id
+                card_exp = data.found_exp or 0
+            else
+                -- 手元に無いカードは要求しない。空のままにして数だけ数える
+                missing = missing + 1
+            end
         end
         card_list[i] = card_id
         exp_list[i] = card_exp
+    end
+    if missing > 0 then
+        g.vlog("[MCC] 手元に見つからないカードが %d 枚あるので、その枠は空のまま適用する", missing)
+        ui.SysMsg(g.lang == "Japanese" and
+                      string.format("{#FFCC00}[MCC]カードが %d 枚見つからないため、その枠は空のままです",
+                          missing) or
+                      string.format("{#FFCC00}[MCC]%d card(s) not found; those slots stay empty", missing))
     end
     return card_list, exp_list
 end
@@ -623,11 +649,20 @@ function Monster_card_changer_resolve_guids(allow_class_fallback)
                 pool[#pool + 1] = {
                     guid = guid,
                     cls_id = item_obj.ClassID,
-                    lv = tonumber(TryGetProp(item_obj, "Level", 0)) or 0
+                    lv = tonumber(TryGetProp(item_obj, "Level", 0)) or 0,
+                    -- **実際の経験値まで控える。** 適用リストにはここで掴んだカードの
+                    -- 経験値を書く必要がある(プリセットに保存された経験値を書くと、
+                    -- 手元に無いカードを要求することになり、その枠は空のままになる)
+                    exp = tonumber(TryGetProp(item_obj, "ItemExp", 0)) or 0
                 }
             end
         end
     end
+    -- 高いレベルから先に見る。レベルを見ない照合で「たまたま最初に見つかった Lv1」を
+    -- 掴まないようにするため
+    table.sort(pool, function(a, b)
+        return a.lv > b.lv
+    end)
     local resolved = 0
     local passes = allow_class_fallback and {"exact", "class"} or {"exact"}
     for _, pass in ipairs(passes) do
@@ -637,10 +672,12 @@ function Monster_card_changer_resolve_guids(allow_class_fallback)
                     if not used[candidate.guid] and candidate.cls_id == data.cls_id and
                         (pass == "class" or candidate.lv == data.lv) then
                         data.guid = candidate.guid
+                        data.found_lv = candidate.lv
+                        data.found_exp = candidate.exp
                         used[candidate.guid] = true
                         resolved = resolved + 1
                         if pass == "class" then
-                            g.vlog("[MCC] レベル不一致のまま照合 cls=%s 期待lv=%s 実lv=%s",
+                            g.vlog("[MCC] 希望と違うレベルのカードを使う cls=%s 希望lv=%s 実lv=%s",
                                 tostring(data.cls_id), tostring(data.lv), tostring(candidate.lv))
                         end
                         break
@@ -788,6 +825,7 @@ function Monster_card_changer_equip_get_presetinfo()
                     level = tonumber(slot_data.card_lv) or 0
                 end
                 table.insert(g.monster_card_changer_cardlist, {
+                    slot_no = i,
                     cls_id = cls_id,
                     lv = level,
                     guid = nil
@@ -802,6 +840,9 @@ function Monster_card_changer_equip_get_presetinfo()
     if accountwarehouse:IsVisible() == 1 and #g.monster_card_changer_cardlist > 0 then
         Monster_card_changer_take_from_warehouse(monster_card_changer, accountwarehouse)
     else
+        -- 倉庫を開いていないときも、手元にあるカードは押さえておく。
+        -- 適用リストは「実際に持っているカード」から組み立てるため。
+        Monster_card_changer_resolve_guids(true)
         Monster_card_changer_equip_apply(monster_card_changer)
     end
 end
@@ -837,11 +878,15 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
                 pool[#pool + 1] = {
                     guid = guid,
                     cls_id = acw_item.type,
-                    lv = tonumber(TryGetProp(item_obj, "Level", 0)) or 0
+                    lv = tonumber(TryGetProp(item_obj, "Level", 0)) or 0,
+                    exp = tonumber(TryGetProp(item_obj, "ItemExp", 0)) or 0
                 }
             end
         end
     end
+    table.sort(pool, function(a, b)
+        return a.lv > b.lv
+    end)
     local take_list = {}
     for _, pass in ipairs({"exact", "class"}) do
         for _, data in ipairs(g.monster_card_changer_cardlist) do
@@ -850,8 +895,14 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
                     if not used[candidate.guid] and candidate.cls_id == data.cls_id and
                         (pass == "class" or candidate.lv == data.lv) then
                         data.guid = candidate.guid
+                        data.found_lv = candidate.lv
+                        data.found_exp = candidate.exp
                         used[candidate.guid] = true
                         take_list[candidate.guid] = 1
+                        if pass == "class" then
+                            g.vlog("[MCC] 倉庫から希望と違うレベルのカードを出す cls=%s 希望lv=%s 実lv=%s",
+                                tostring(data.cls_id), tostring(data.lv), tostring(candidate.lv))
+                        end
                         break
                     end
                 end

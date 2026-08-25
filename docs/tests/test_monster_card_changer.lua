@@ -8,6 +8,9 @@
 --   2. **保護色の枠には今装備しているカードを書き戻すこと**。SCR_TX_APPLY_CARD_PRESET は
 --      12 枠を丸ごと差し替える命令なので、外す側のリストを絞るだけでは保護色まで外れる。
 --      利用者からは「チェックの有無に関係なく全部外れる」という形で出ていた。
+--   3. **適用リストには「実際に押さえたカード」の経験値を書くこと**。プリセットに保存
+--      された経験値をそのまま書くと、レベルの違うカードしか手元に無いときに「持って
+--      いないカード」を要求することになり、その枠は空のままになる（実機で踏んだ）。
 --
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_monster_card_changer.lua
@@ -152,6 +155,21 @@ local function make_settings(slots, protect)
     }
 end
 
+-- 実際に押さえたカード。resolve_guids が cardlist へ書くのと同じ形にする。
+-- found = { [枠番号] = {cls_id, exp} }
+local function set_found(found)
+    local list = {}
+    for slot_no, v in pairs(found or {}) do
+        list[#list + 1] = {
+            slot_no = slot_no,
+            cls_id = v[1],
+            guid = "guid" .. slot_no,
+            found_exp = v[2]
+        }
+    end
+    g.monster_card_changer_cardlist = list
+end
+
 local function concat(list)
     local out = {}
     for i = 1, 12 do
@@ -167,6 +185,11 @@ make_settings({
     [7] = 701,
     [8] = 702
 })
+set_found({
+    [4] = {501, 5010},
+    [7] = {701, 7010},
+    [8] = {702, 7020}
+})
 local card_list, exp_list = Monster_card_changer_build_preset("equip", 1)
 check("要素数", #card_list, 12)
 check("並び", concat(card_list), "0,0,0,501,0,0,701,702,0,0,0,0")
@@ -176,6 +199,7 @@ check("exp も同じ位置", exp_list[4], 5010)
 
 print("[2] 全枠空のプリセットでも 12 要素になる")
 make_settings({})
+set_found({})
 card_list = Monster_card_changer_build_preset("equip", 1)
 check("要素数", #card_list, 12)
 check("並び", concat(card_list), "0,0,0,0,0,0,0,0,0,0,0,0")
@@ -192,6 +216,7 @@ make_settings({}, {
     purple = 0,
     green = 0
 })
+set_found({})
 card_list, exp_list = Monster_card_changer_build_preset("remove")
 check("赤は今の装備を書き戻す", concat(card_list),
     "1001,1002,1003,0,0,0,0,0,0,0,0,0")
@@ -209,6 +234,10 @@ make_settings({
     purple = 0,
     green = 0
 })
+set_found({
+    [4] = {604, 6040},
+    [7] = {607, 6070}
+})
 card_list = Monster_card_changer_build_preset("equip", 1)
 check("赤は今の装備のまま / 青と紫はプリセットの内容", concat(card_list),
     "1001,1002,1003,604,0,0,607,0,0,0,0,0")
@@ -222,6 +251,9 @@ make_settings({
     purple = 0,
     green = 0
 })
+set_found({
+    [1] = {601, 6010}
+})
 card_list = Monster_card_changer_build_preset("equip", 1)
 check("並び", concat(card_list), "601,0,0,0,0,0,0,0,0,0,0,0")
 
@@ -229,9 +261,38 @@ print("[6] 色の設定が無いキャラでも保護なし扱いで落ちない
 make_settings({
     [1] = 601
 }, nil)
+set_found({
+    [1] = {601, 6010}
+})
 card_list = Monster_card_changer_build_preset("equip", 1)
 check("並び", concat(card_list), "601,0,0,0,0,0,0,0,0,0,0,0")
 check("色設定が 0 で埋まる", g.monster_card_changer_settings[g.login_name].purple, 0)
+
+print("[6b] 押さえたカードの実際の経験値を書く／手元に無い枠は空のまま")
+-- 実機で踏んだ形。プリセットは cls=644518 の Lv10 を 3 枚要求しているが、
+-- 手元にあるのは 1 枚だけ。残り 2 枠は空のままにする（持っていないカードを要求すると
+-- サーバーが該当を見つけられず、結局その枠は空になるうえ無駄に倉庫から出すことになる）。
+make_settings({
+    [4] = 644518,
+    [5] = 644518,
+    [6] = 644518
+}, {
+    red = 0,
+    blue = 0,
+    purple = 0,
+    green = 0
+})
+-- プリセットに保存された経験値は 9999(Lv10 相当)だが、押さえたのは 100 のカード
+g.monster_card_changer_settings.presets[2].slots[4].card_exp = 9999
+g.monster_card_changer_settings.presets[2].slots[5].card_exp = 9999
+g.monster_card_changer_settings.presets[2].slots[6].card_exp = 9999
+set_found({
+    [4] = {644518, 100}
+})
+card_list, exp_list = Monster_card_changer_build_preset("equip", 1)
+check("押さえた枠だけ埋まる", concat(card_list), "0,0,0,644518,0,0,0,0,0,0,0,0")
+check("保存された経験値ではなく実際の経験値", exp_list[4], 100)
+check("押さえられなかった枠は 0", exp_list[5], 0)
 
 print("[7] 枠と色の対応（3 枠ずつ赤・青・紫・緑）")
 check("枠1", g.monster_card_changer_slot_colors[1], "red")
