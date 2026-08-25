@@ -156,14 +156,16 @@ local function make_settings(slots, protect)
 end
 
 -- 実際に押さえたカード。resolve_guids が cardlist へ書くのと同じ形にする。
--- found = { [枠番号] = {cls_id, exp} }
+-- found = { [枠番号] = {cls_id, exp, equipped} }
+-- equipped を真にすると「既にその枠へ着いている」ぶん（guid は付かない）になる。
 local function set_found(found)
     local list = {}
     for slot_no, v in pairs(found or {}) do
         list[#list + 1] = {
             slot_no = slot_no,
             cls_id = v[1],
-            guid = "guid" .. slot_no,
+            guid = (not v[3]) and ("guid" .. slot_no) or nil,
+            equipped = v[3] or nil,
             found_exp = v[2]
         }
     end
@@ -293,6 +295,28 @@ card_list, exp_list = Monster_card_changer_build_preset("equip", 1)
 check("押さえた枠だけ埋まる", concat(card_list), "0,0,0,644518,0,0,0,0,0,0,0,0")
 check("保存された経験値ではなく実際の経験値", exp_list[4], 100)
 check("押さえられなかった枠は 0", exp_list[5], 0)
+
+print("[6c] 既にその枠へ着いているカードは、探さず現状のまま書き戻す")
+-- 装備したカードはインベントリから消えるので、「手元に無い」と判定して空にすると
+-- **黙って外れる**。同じプリセットで EQUIP を 2 回押す、共通のカードがあるプリセットへ
+-- 切り替える、で踏む。
+make_settings({
+    [1] = 601,
+    [4] = 604
+}, {
+    red = 0,
+    blue = 0,
+    purple = 0,
+    green = 0
+})
+set_found({
+    -- 枠 1 は既に着いている（guid は付かない）。枠 4 は手元から押さえた
+    [1] = {601, 1234, true},
+    [4] = {604, 6040}
+})
+card_list, exp_list = Monster_card_changer_build_preset("equip", 1)
+check("着いている枠も残る", concat(card_list), "601,0,0,604,0,0,0,0,0,0,0,0")
+check("着いている枠は今の経験値のまま", exp_list[1], 1234)
 
 print("[7] 枠と色の対応（3 枠ずつ赤・青・紫・緑）")
 check("枠1", g.monster_card_changer_slot_colors[1], "red")

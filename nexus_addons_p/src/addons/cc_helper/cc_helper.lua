@@ -1752,12 +1752,28 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
     return 0
 end
 
+-- MCC が無反応か。MCC は待ちループのたびに g.monster_card_changer_alive_at を更新する。
+-- 一定時間まったく更新が無ければ、更新スクリプトが落ちたと見なして抜ける。
+function Cc_helper_mcc_stalled()
+    local alive = g.monster_card_changer_alive_at
+    if not alive then
+        -- 一度も合図が無いまま経った場合(古い MCC など)も抜けられるようにする
+        return imcTime.GetAppTime() > (g.cc_helper_mcc_deadline or 0)
+    end
+    return (imcTime.GetAppTime() - alive) > 30.0
+end
+
 function Cc_helper_mcc_operation(in_btn)
     local monstercardpreset = ui.GetFrame("monstercardpreset")
     -- MCC 側が終了処理へ辿り着けないと ready が動かず、ここが永久に回り続けて
-    -- 搬入が終わらなくなる。期限を切って必ず抜ける。
-    if imcTime.GetAppTime() > (g.cc_helper_mcc_deadline or 0) then
-        g.vlog("[CCH] MCC の応答待ちが時間切れ(搬入) ready=%s", tostring(g.monster_card_changer_ready))
+    -- 搬入が終わらなくなる。ただし**固定の秒数で切らないこと。** MCC の 1 回の動作は
+    -- 保存の確認(最大 15 秒)・倉庫からの取り出し(10 秒)・適用の反映待ち(10 秒)を
+    -- 足すと 30 秒を超え、搬入はさらに預け入れの待ちが乗る。途中で切ると、まさに
+    -- 直したはずの「カードが着く前に窓が閉じる」を遅い経路で再現してしまう。
+    -- MCC が動いている限り待ち、無反応になったときだけ抜ける。
+    if Cc_helper_mcc_stalled() then
+        g.vlog("[CCH] MCC が無反応なので待つのをやめる(搬入) ready=%s",
+            tostring(g.monster_card_changer_ready))
         g.monster_card_changer_ready = nil
         in_btn:StopUpdateScript("Cc_helper_mcc_operation")
         Cc_helper_putitem(nil, in_btn, nil, 7)
@@ -1807,9 +1823,10 @@ function Cc_helper_mcc_equip_start(out_btn, preset_no)
 end
 
 function Cc_helper_mcc_equip_operation(out_btn)
-    -- 搬入側と同じ理由で期限を切る（MCC が終了処理へ辿り着けないと終わらない）
-    if imcTime.GetAppTime() > (g.cc_helper_mcc_deadline or 0) then
-        g.vlog("[CCH] MCC の応答待ちが時間切れ(搬出) ready=%s", tostring(g.monster_card_changer_ready))
+    -- 搬入側と同じ（MCC が動いている限り待ち、無反応になったときだけ抜ける）
+    if Cc_helper_mcc_stalled() then
+        g.vlog("[CCH] MCC が無反応なので待つのをやめる(搬出) ready=%s",
+            tostring(g.monster_card_changer_ready))
         g.monster_card_changer_ready = nil
         out_btn:StopUpdateScript("Cc_helper_mcc_equip_operation")
         Cc_helper_take_item(nil, out_btn, nil, 7)

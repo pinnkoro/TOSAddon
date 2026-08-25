@@ -122,17 +122,24 @@ function Monster_card_changer_update_protect_view()
         local group = g.monster_card_changer_color_groups[color]
         local gbox = GET_CHILD_RECURSIVELY(monstercardslot, group .. "cardGbox")
         if gbox then
+            -- **穴の無いテーブルにしてから回すこと。** ipairs は添字 1 が nil だと
+            -- 1 回も回らないので、{nil, labelset} では labelset が処理されない
+            local sets = {}
             local slotset = GET_CHILD(gbox, group .. "card_slotset")
             local labelset = GET_CHILD(gbox, group .. "card_labelset")
+            if slotset then
+                sets[#sets + 1] = slotset
+            end
+            if labelset then
+                sets[#sets + 1] = labelset
+            end
             local tone = locked and "FF555555" or "FFFFFFFF"
             for i = 0, g.monster_card_changer_slots_per_group - 1 do
-                for _, set in ipairs({slotset, labelset}) do
-                    if set then
-                        local slot = set:GetSlotByIndex(i)
-                        local icon = slot and slot:GetIcon()
-                        if icon then
-                            icon:SetColorTone(tone)
-                        end
+                for _, set in ipairs(sets) do
+                    local slot = set:GetSlotByIndex(i)
+                    local icon = slot and slot:GetIcon()
+                    if icon then
+                        icon:SetColorTone(tone)
                     end
                 end
             end
@@ -273,16 +280,21 @@ function Monster_card_changer_not_use()
         local group = g.monster_card_changer_color_groups[color]
         local gbox = GET_CHILD_RECURSIVELY(monstercardslot, group .. "cardGbox")
         if gbox then
+            local sets = {}
             local slotset = GET_CHILD(gbox, group .. "card_slotset")
             local labelset = GET_CHILD(gbox, group .. "card_labelset")
+            if slotset then
+                sets[#sets + 1] = slotset
+            end
+            if labelset then
+                sets[#sets + 1] = labelset
+            end
             for i = 0, g.monster_card_changer_slots_per_group - 1 do
-                for _, set in ipairs({slotset, labelset}) do
-                    if set then
-                        local slot = set:GetSlotByIndex(i)
-                        local icon = slot and slot:GetIcon()
-                        if icon then
-                            icon:SetColorTone("FFFFFFFF")
-                        end
+                for _, set in ipairs(sets) do
+                    local slot = set:GetSlotByIndex(i)
+                    local icon = slot and slot:GetIcon()
+                    if icon then
+                        icon:SetColorTone("FFFFFFFF")
                     end
                 end
             end
@@ -338,6 +350,10 @@ end
 function Monster_card_changer_toggle_preset()
     local monstercardpreset = ui.GetFrame("monstercardpreset")
     if monstercardpreset and monstercardpreset:IsVisible() == 1 then
+        -- 閉じたことを覚えておく。確認のポーリング中は RequestCardPreset を投げており、
+        -- 素の CARD_PRESET_LOAD が応答のたびに無条件で ui.OpenFrame を呼ぶので、
+        -- 覚えておかないと勝手に開き直る
+        g.monster_card_changer_closed_by_user = 1
         MONSTERCARDPRESET_FRAME_CLOSE()
         return
     end
@@ -353,6 +369,7 @@ function Monster_card_changer_monstercardpreset_open(is_cc_helper)
     MONSTERCARDSLOT_FRAME_OPEN()
     -- **窓を開くのはここで済ませる。** 以前は 1 秒後の描き直し(preset_card_set)の中で
     -- 開いていたので、1 秒以内に閉じると予約が後から発火して**開き直していた**。
+    g.monster_card_changer_closed_by_user = nil
     ui.OpenFrame("monstercardpreset")
     monstercardpreset:ShowWindow(1)
     local monster_card_changer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "monster_card_changer", 0, 0, 0,
@@ -576,7 +593,9 @@ function Monster_card_changer_build_preset(mode, page)
         local preset = g.monster_card_changer_settings.presets[page + 1]
         slots = preset and preset.slots
         for _, data in ipairs(g.monster_card_changer_cardlist or {}) do
-            if data.slot_no and data.guid then
+            -- 既に着いているぶん(equipped)も「押さえた」扱い。装備中のカードは
+            -- 手元に無いので guid が付かないが、書き戻さないと外れてしまう
+            if data.slot_no and (data.guid or data.equipped) then
                 found[data.slot_no] = data
             end
         end
@@ -692,6 +711,16 @@ function Monster_card_changer_confirm_preset(monster_card_changer)
         monster_card_changer:StopUpdateScript("Monster_card_changer_confirm_preset")
         return 0
     end
+    Monster_card_changer_alive()
+    -- 利用者が閉じたなら閉じたままにする。RequestCardPreset の応答を受けた素の
+    -- CARD_PRESET_LOAD が無条件に ui.OpenFrame を呼ぶので、ここで畳み直さないと
+    -- 「閉じたのに開き直る」が別経路で残る
+    if g.monster_card_changer_closed_by_user then
+        local monstercardpreset = ui.GetFrame("monstercardpreset")
+        if monstercardpreset and monstercardpreset:IsVisible() == 1 then
+            MONSTERCARDPRESET_FRAME_CLOSE()
+        end
+    end
     if Monster_card_changer_preset_matches(pending.list) then
         local next_func = pending.next_func
         g.monster_card_changer_pending = nil
@@ -735,7 +764,8 @@ function Monster_card_changer_resolve_guids(allow_class_fallback)
     for _, data in ipairs(g.monster_card_changer_cardlist) do
         if data.guid then
             used[data.guid] = true
-        else
+        elseif not data.equipped then
+            -- 既に着いているぶんは探しに行かない(装備中のカードは手元に無い)
             rest = rest + 1
         end
     end
@@ -773,7 +803,7 @@ function Monster_card_changer_resolve_guids(allow_class_fallback)
     local passes = allow_class_fallback and {"exact", "class"} or {"exact"}
     for _, pass in ipairs(passes) do
         for _, data in ipairs(g.monster_card_changer_cardlist) do
-            if not data.guid then
+            if not data.guid and not data.equipped then
                 for _, candidate in ipairs(pool) do
                     if not used[candidate.guid] and candidate.cls_id == data.cls_id and
                         (pass == "class" or candidate.lv == data.lv) then
@@ -795,6 +825,25 @@ function Monster_card_changer_resolve_guids(allow_class_fallback)
     return resolved
 end
 
+-- CC Helper 連携の待ち合わせが「MCC が生きているか」で判断できるようにする。
+-- 固定の秒数で切ると、遅い経路(保存の確認に 15 秒 + 取り出し 10 秒 + 適用 10 秒、
+-- さらに搬入の預け入れ)が終わる前に CC Helper が窓を閉じてしまう。
+function Monster_card_changer_alive()
+    g.monster_card_changer_alive_at = imcTime.GetAppTime()
+end
+
+-- 動作中かどうか。EQUIP / REMOVE の多重押下を弾くのに使う。
+-- 進行状態はグローバル 1 組しか無いので、重ねて押されると先の操作の後続処理
+-- (外したカードの倉庫への預け入れなど)が実行されないまま失われる。
+function Monster_card_changer_busy()
+    if not g.monster_card_changer_busy_flag then
+        return false
+    end
+    ui.SysMsg(g.lang == "Japanese" and "{#FFCC00}[MCC]動作中です。終わるまでお待ちください" or
+                  "{#FFCC00}[MCC]Operating. Please wait until it finishes")
+    return true
+end
+
 function Monster_card_changer_notice()
     local msg = g.lang == "Japanese" and
                     "{ol}{#CCCC22}[MCC]動作中。バグ防止の為他の動作は行わないでください" or
@@ -806,6 +855,11 @@ end
 -- 引数は使わないが、ボタンの LBUTTONUP と CC Helper の Cc_helper_mcc_operation の
 -- どちらからも monstercardpreset を渡して呼ばれるので受け取っておく。
 function Monster_card_changer_remove(monstercardpreset)
+    if Monster_card_changer_busy() then
+        return
+    end
+    g.monster_card_changer_busy_flag = 1
+    Monster_card_changer_alive()
     g.monster_card_changer_cardlist = {}
     for i = 1, g.monster_card_changer_slot_count do
         if not Monster_card_changer_is_protected(i) then
@@ -855,6 +909,7 @@ end
 -- 以前は取り外し要求の 1 秒後に 1 回だけ走査していたため、サーバーからの戻りが
 -- 間に合わないと guid を拾えず、そのまま 1 枚も預けずに終わっていた。
 function Monster_card_changer_put_inv_to_warehouse(monster_card_changer)
+    Monster_card_changer_alive()
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     local inventory = ui.GetFrame("inventory")
     if accountwarehouse:IsVisible() ~= 1 or inventory:IsVisible() ~= 1 then
@@ -911,6 +966,11 @@ end
 -- 使っていたが、あれは素の preset_list の選択キーを見るので、MCC が足した drop_list の
 -- 選択とずれることがあり、空のプリセットを読んで「倉庫から何も出さずに適用」になっていた。
 function Monster_card_changer_equip_get_presetinfo()
+    if Monster_card_changer_busy() then
+        return
+    end
+    g.monster_card_changer_busy_flag = 1
+    Monster_card_changer_alive()
     local page = Monster_card_changer_current_page()
     local preset = g.monster_card_changer_settings.presets[page + 1]
     if not preset or not preset.slots then
@@ -930,11 +990,20 @@ function Monster_card_changer_equip_get_presetinfo()
                 if level == 0 then
                     level = tonumber(slot_data.card_lv) or 0
                 end
+                -- **その枠に既に同じカードが着いているなら探しに行かないこと。**
+                -- 装備したカードはインベントリから消えるので、探しに行くと「手元に無い」
+                -- と判定され、空のまま適用して**黙って外れる**。同じプリセットで EQUIP を
+                -- 2 回押す・共通のカードがあるプリセットへ切り替える、で踏む。
+                local cur_id, cur_lv, cur_exp = GETMYCARD_INFO(i - 1)
+                local equipped = (cur_id or 0) == cls_id
                 table.insert(g.monster_card_changer_cardlist, {
                     slot_no = i,
                     cls_id = cls_id,
                     lv = level,
-                    guid = nil
+                    guid = nil,
+                    -- 着いているぶんは、今の経験値をそのまま書き戻して現状維持にする
+                    equipped = equipped or nil,
+                    found_exp = equipped and (cur_exp or 0) or nil
                 })
             end
         end
@@ -996,7 +1065,7 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
     local take_list = {}
     for _, pass in ipairs({"exact", "class"}) do
         for _, data in ipairs(g.monster_card_changer_cardlist) do
-            if not data.guid then
+            if not data.guid and not data.equipped then
                 for _, candidate in ipairs(pool) do
                     if not used[candidate.guid] and candidate.cls_id == data.cls_id and
                         (pass == "class" or candidate.lv == data.lv) then
@@ -1043,6 +1112,7 @@ end
 -- 倉庫由来の guid をそのまま GetInvItemByGuid に通すだけでは足りないので、
 -- **インベントリを走査し直して**全部揃っているかを見る。
 function Monster_card_changer_wait_take(monster_card_changer)
+    Monster_card_changer_alive()
     for _, data in ipairs(g.monster_card_changer_cardlist) do
         if data.guid and not session.GetInvItemByGuid(data.guid) then
             data.guid = nil -- まだ手元に無いので割り当て直す
@@ -1122,6 +1192,7 @@ function Monster_card_changer_apply_diff()
 end
 
 function Monster_card_changer_wait_apply(monster_card_changer)
+    Monster_card_changer_alive()
     local diff = Monster_card_changer_apply_diff()
     local timeout = imcTime.GetAppTime() > (g.monster_card_changer_deadline or 0)
     if diff > 0 and not timeout then
@@ -1151,6 +1222,8 @@ function Monster_card_changer_end_of_operation(monster_card_changer)
     g.monster_card_changer_ready = 3
     g.monster_card_changer_cardlist = nil
     g.monster_card_changer_pending = nil
+    g.monster_card_changer_busy_flag = nil
+    Monster_card_changer_alive()
     if not monster_card_changer then
         monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     end
