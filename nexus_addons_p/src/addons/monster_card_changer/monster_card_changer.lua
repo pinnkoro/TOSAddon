@@ -110,31 +110,33 @@ function Monster_card_changer_update_protect_view()
                 for _, set in ipairs({slotset, labelset}) do
                     if set then
                         local slot = set:GetSlotByIndex(i)
-                        if slot then
-                            local icon = slot:GetIcon()
-                            if icon then
-                                icon:SetColorTone(tone)
-                            end
+                        local icon = slot and slot:GetIcon()
+                        if icon then
+                            icon:SetColorTone(tone)
                         end
                     end
                 end
-                -- 鍵は**色枠のほう(card_labelset)へ載せる**。こちらが後に描かれるので
-                -- カードの絵に隠れない。picture ではなく richtext の {img} で出す
-                -- (このリポジトリでスロットに載せて出ている実績があるのはこちら)。
-                local host = labelset or slotset
-                if host then
-                    local slot = host:GetSlotByIndex(i)
-                    if slot then
-                        AUTO_CAST(slot)
-                        -- カードスロット画面は開くたび素が組み立て直すので毎回引き直す
-                        local lock = slot:CreateOrGetControl("richtext", "mcc_lock", 16, 26, 28, 28)
-                        AUTO_CAST(lock)
-                        lock:SetText(locked and "{img lock_icon_s 28 28}" or "")
-                        lock:EnableHitTest(0)
-                        lock:ShowWindow(locked and 1 or 0)
-                    end
-                end
             end
+            -- **鍵はスロットではなくグループの箱へ載せること。** スロットに picture と
+            -- richtext の両方を足してみたが、実機ではどちらも描画されなかった。
+            -- 箱に載せる置き方は他のアドオンで実績がある。
+            --
+            -- 画像だけだと出ているかどうかが分からないので**文字も併記する**。
+            -- 画像名が違っても {img ...} は黙って何も出さないため、文字が無いと
+            -- 「機能が効いていない」のか「画像が出ていないだけ」なのか切り分けられない。
+            AUTO_CAST(gbox)
+            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 46, 200, 28)
+            AUTO_CAST(lock)
+            lock:SetGravity(ui.CENTER_HORZ, ui.TOP)
+            lock:SetTextAlign("center", "center")
+            lock:EnableHitTest(0)
+            if locked then
+                lock:SetText(g.lang == "Japanese" and "{img lock_icon_s 20 20}{ol}{s16}{#FFCC00} 保護" or
+                                 "{img lock_icon_s 20 20}{ol}{s16}{#FFCC00} LOCKED")
+            else
+                lock:SetText("")
+            end
+            lock:ShowWindow(locked and 1 or 0)
         end
     end
 end
@@ -282,14 +284,8 @@ function Monster_card_changer_not_use()
                         end
                     end
                 end
-                for _, set in ipairs({slotset, labelset}) do
-                    local slot = set and set:GetSlotByIndex(i)
-                    if slot then
-                        AUTO_CAST(slot)
-                        slot:RemoveChild("mcc_lock")
-                    end
-                end
             end
+            gbox:RemoveChild("mcc_lock")
         end
     end
 end
