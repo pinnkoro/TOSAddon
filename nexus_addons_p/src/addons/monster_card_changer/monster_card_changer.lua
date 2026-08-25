@@ -125,17 +125,25 @@ function Monster_card_changer_update_protect_view()
             -- 画像名が違っても {img ...} は黙って何も出さないため、文字が無いと
             -- 「機能が効いていない」のか「画像が出ていないだけ」なのか切り分けられない。
             AUTO_CAST(gbox)
-            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 46, 200, 28)
+            local width = gbox:GetWidth()
+            -- 鍵の絵は picture の SetImage で出す。**{img ...} では出ない。**
+            -- 素を調べたところ、{img ...} に使われているのはアイコン系だけで、
+            -- 鍵の画像は picture / button の image に使われている(実機でも
+            -- {img lock_icon_s} は何も出なかった)。
+            local lock_img = gbox:CreateOrGetControl("picture", "mcc_lock_img", (width - 26) / 2, 24, 26, 26)
+            AUTO_CAST(lock_img)
+            lock_img:SetImage("locked_slot")
+            lock_img:SetEnableStretch(1)
+            lock_img:EnableHitTest(0)
+            lock_img:ShowWindow(locked and 1 or 0)
+            -- 文字も併記する。画像名が違っても picture は黙って何も出さないので、
+            -- 文字が無いと「効いていない」のか「絵が出ていないだけ」なのか分からない
+            local lock = gbox:CreateOrGetControl("richtext", "mcc_lock", 0, 54, width, 24)
             AUTO_CAST(lock)
-            lock:SetGravity(ui.CENTER_HORZ, ui.TOP)
             lock:SetTextAlign("center", "center")
             lock:EnableHitTest(0)
-            if locked then
-                lock:SetText(g.lang == "Japanese" and "{img lock_icon_s 20 20}{ol}{s16}{#FFCC00} 保護" or
-                                 "{img lock_icon_s 20 20}{ol}{s16}{#FFCC00} LOCKED")
-            else
-                lock:SetText("")
-            end
+            lock:SetText(locked and (g.lang == "Japanese" and "{ol}{s16}{#FFCC00}保護" or
+                             "{ol}{s16}{#FFCC00}LOCKED") or "")
             lock:ShowWindow(locked and 1 or 0)
         end
     end
@@ -286,6 +294,7 @@ function Monster_card_changer_not_use()
                 end
             end
             gbox:RemoveChild("mcc_lock")
+            gbox:RemoveChild("mcc_lock_img")
         end
     end
 end
