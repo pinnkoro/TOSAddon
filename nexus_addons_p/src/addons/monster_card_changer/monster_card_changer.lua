@@ -517,6 +517,9 @@ function Monster_card_changer_write_preset(card_list, exp_list, next_func)
         Monster_card_changer_end_of_operation(nil)
         return
     end
+    -- 適用の結果を**実際の装備状態**で確かめるために控えておく。
+    -- プリセットの読み戻しは手元のキャッシュしか見ていないので当てにならない。
+    g.monster_card_changer_applied = card_list
     SetCardPreset(g.monster_card_changer_scratch_page, card_list, exp_list)
     -- SetCardPreset は手元のキャッシュを同期で更新するので、普通はここで一致する。
     -- 待たずにそのまま適用まで進む。
@@ -658,7 +661,10 @@ function Monster_card_changer_remove(monstercardpreset)
 end
 
 function Monster_card_changer_remove_apply(monster_card_changer)
-    pc.ReqExecuteTx_NumArgs("SCR_TX_APPLY_CARD_PRESET", g.monster_card_changer_scratch_page)
+    Monster_card_changer_apply_and_wait(monster_card_changer, "Monster_card_changer_remove_deposit")
+end
+
+function Monster_card_changer_remove_deposit(monster_card_changer)
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     if accountwarehouse:IsVisible() ~= 1 or #g.monster_card_changer_cardlist == 0 then
         Monster_card_changer_end_of_operation(monster_card_changer)
@@ -845,10 +851,23 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
     monster_card_changer:RunUpdateScript("Monster_card_changer_wait_take", 0.2)
 end
 
+-- 倉庫から出したカードが**本当に手元へ来るまで**待つ。
+-- 素の適用ボタンの説明にもあるとおり、インベントリに無いカードは適用されない。
+-- 取り出し要求と同じ瞬間に適用を送ると、サーバー側ではまだ手元に無いので
+-- 1 枚も装備されないまま終わる（実機で踏んだ）。
+--
+-- 倉庫由来の guid をそのまま GetInvItemByGuid に通すだけでは足りないので、
+-- **インベントリを走査し直して**全部揃っているかを見る。
 function Monster_card_changer_wait_take(monster_card_changer)
-    local rest = 0
     for _, data in ipairs(g.monster_card_changer_cardlist) do
         if data.guid and not session.GetInvItemByGuid(data.guid) then
+            data.guid = nil -- まだ手元に無いので割り当て直す
+        end
+    end
+    Monster_card_changer_resolve_guids(true)
+    local rest = 0
+    for _, data in ipairs(g.monster_card_changer_cardlist) do
+        if not data.guid then
             rest = rest + 1
         end
     end
@@ -876,8 +895,67 @@ function Monster_card_changer_equip_apply(monster_card_changer)
 end
 
 function Monster_card_changer_apply_card_preset(monster_card_changer)
+    Monster_card_changer_apply_and_wait(monster_card_changer, "Monster_card_changer_end_of_operation")
+end
+
+-- 適用を要求し、**実際の装備が変わるまで待ってから**次へ進む。
+--
+-- ここを待たずに終わらせると、CC Helper 連携が「終わった」と見なして倉庫と
+-- インベントリを閉じてしまい、利用者からは「カードが入る前／着く前に窓が閉じる」
+-- という形で出る。しかも本当に適用されたかどうかを誰も見ていないので、
+-- **何も起きていないことに気付けない**（実機で踏んだ: 倉庫から 9 枚出したのに
+-- 1 枚も装備されず、次の REMOVE が「外す枚数=0」になっていた）。
+--
+-- 見るのはプリセットの読み戻しではなく GETMYCARD_INFO = 実際に装備しているカード。
+function Monster_card_changer_apply_and_wait(monster_card_changer, next_func)
     pc.ReqExecuteTx_NumArgs("SCR_TX_APPLY_CARD_PRESET", g.monster_card_changer_scratch_page)
-    Monster_card_changer_end_of_operation(monster_card_changer)
+    if not monster_card_changer then
+        monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
+    end
+    if not monster_card_changer then
+        Monster_card_changer_end_of_operation(nil)
+        return
+    end
+    g.monster_card_changer_apply_next = next_func
+    g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
+    monster_card_changer:RunUpdateScript("Monster_card_changer_wait_apply", 0.2)
+end
+
+-- 装備が意図した内容と食い違っている枠の数
+function Monster_card_changer_apply_diff()
+    local expect = g.monster_card_changer_applied
+    if not expect then
+        return 0
+    end
+    local diff = 0
+    for i = 1, g.monster_card_changer_slot_count do
+        local card_id = GETMYCARD_INFO(i - 1)
+        if (card_id or 0) ~= (expect[i] or 0) then
+            diff = diff + 1
+        end
+    end
+    return diff
+end
+
+function Monster_card_changer_wait_apply(monster_card_changer)
+    local diff = Monster_card_changer_apply_diff()
+    local timeout = imcTime.GetAppTime() > (g.monster_card_changer_deadline or 0)
+    if diff > 0 and not timeout then
+        return 1
+    end
+    local next_func = g.monster_card_changer_apply_next
+    g.monster_card_changer_apply_next = nil
+    monster_card_changer:StopUpdateScript("Monster_card_changer_wait_apply")
+    if diff == 0 then
+        g.vlog("[MCC] 装備の切り替えを確認")
+    else
+        g.vlog("[MCC] 適用したのに %d 枠が意図と違う（インベントリにカードが無い／プリセットが" ..
+                   "サーバーへ載っていない可能性）", diff)
+        ui.SysMsg(g.lang == "Japanese" and
+                      "{#FF0000}[MCC]カードの切り替えが反映されませんでした" or
+                      "{#FF0000}[MCC]The card change was not applied")
+    end
+    _G[next_func](monster_card_changer)
 end
 
 function Monster_card_changer_end_of_operation(monster_card_changer)
