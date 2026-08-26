@@ -80,6 +80,12 @@ jobs:
       - name: Addons Menu の項目収集テスト
         run: luajit docs/tests/test_addons_menu.lua
 
+      # カードは 12 枠の位置がそのまま色(赤/青/紫/緑)に対応する。適用リストを詰めると
+      # 紫のカードが赤の枠に入り、保護色の枠へ現状を書き戻さないとチェックしても全部外れる。
+      # どちらも実機でしか出ないが、組み立てそのものは機械で押さえられる。
+      - name: monster_card_changer のプリセット組み立てテスト
+        run: luajit docs/tests/test_monster_card_changer.lua
+
       # 取引記録の読み書き。ログインで全件往復すると使い込むほど重くなる(#101)。
       # 実機では「なんとなく重い」としか出ないので、置き場所の性質を機械で押さえる。
       - name: market_voucher の記録テスト
