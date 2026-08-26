@@ -17,6 +17,13 @@ g.monster_card_changer_slots_per_group = 3
 -- 着脱はゲーム側のプリセットを 1 枠だけ作業用に借りて行う(素に空き番号が無いため)。
 -- 借りるのは EQUIP / REMOVE を押したときだけで、画面を開いただけでは書き込まない。
 g.monster_card_changer_scratch_page = 0
+-- 動作が終わってからカード画面を閉じるまでの秒数。
+-- 元は 3.0 秒だったが、あれは**完了判定が甘かった名残**。適用の tx を送った直後に
+-- 「終了」と見なしていたので、サーバーの応答と画面更新を待つ猶予が要った。
+-- 今は GETMYCARD_INFO(実際に装備しているカード)が意図した内容になるまで待ってから
+-- 終了処理へ入るので、その時点で完了は確定している。CC Helper が
+-- MONSTERCARDSLOT_CLOSE を予約している秒数に揃えてある。
+g.monster_card_changer_close_delay = 0.5
 
 function Monster_card_changer_save_settings()
     g.save_json(g.monster_card_changer_path, g.monster_card_changer_settings)
@@ -1304,8 +1311,10 @@ function Monster_card_changer_end_of_operation(monster_card_changer)
     -- また閉じる。
     local settings = g.monster_card_changer_settings
     if not settings or settings.auto_close == 1 then
-        monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE", 3.0)
-        monster_card_changer:RunUpdateScript("MONSTERCARDSLOT_CLOSE", 3.0)
+        monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE",
+            g.monster_card_changer_close_delay)
+        monster_card_changer:RunUpdateScript("MONSTERCARDSLOT_CLOSE",
+            g.monster_card_changer_close_delay)
     end
 end
 -- monster_card_changer ここまで
