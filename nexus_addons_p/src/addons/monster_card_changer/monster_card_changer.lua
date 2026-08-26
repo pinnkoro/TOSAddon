@@ -1310,10 +1310,21 @@ function Monster_card_changer_end_of_operation(monster_card_changer)
         return
     end
     ui.SysMsg("[MCC]End of Operation")
-    -- **ここで画面を描き直さないこと。** preset_card_set は ui.OpenFrame を呼ぶので、
-    -- CC Helper 連携で先に窓を畳んだ後に呼ぶと、カード画面が 1 秒後に開き直って
-    -- また閉じる。
     local settings = g.monster_card_changer_settings
+    if settings and settings.auto_close ~= 1 then
+        -- 開いたまま残すなら、選んでいるプリセットの中身を描き直す。
+        -- 動作中は RequestCardPreset の応答を受けた素の CARD_PRESET_LOAD が
+        -- **作業用プリセットの中身**(REMOVE ならほぼ空)を描くので、放っておくと
+        -- 空のまま残る。データは無事で、表示だけの問題。
+        --
+        -- preset_card_set は閉じられていたら何もしないので、ここから呼んで安全。
+        -- **かつて ui.OpenFrame を呼んでいたころは、CC Helper 連携で窓を畳んだ後に
+        -- 開き直す原因になっていた。** 開くのは monstercardpreset_open の側に移した。
+        --
+        -- 1 秒待つのは、確認で投げた RequestCardPreset の応答が遅れて届いて
+        -- 上書きし返すのを避けるため。
+        monster_card_changer:RunUpdateScript("Monster_card_changer_preset_card_set", 1.0)
+    end
     if not settings or settings.auto_close == 1 then
         monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE",
             g.monster_card_changer_close_delay)
