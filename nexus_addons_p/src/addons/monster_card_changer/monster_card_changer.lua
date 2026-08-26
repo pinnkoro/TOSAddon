@@ -56,6 +56,12 @@ function Monster_card_changer_load_settings()
             changed = true
         end
     end
+    -- 動作が終わったらカード画面を閉じるか。既定は従来どおり閉じる(1)。
+    -- アカウントごとの設定なので presets と同じ階層に置く。
+    if settings.auto_close == nil then
+        settings.auto_close = 1
+        changed = true
+    end
     g.monster_card_changer_settings = settings
     if changed then
         Monster_card_changer_save_settings()
@@ -270,6 +276,10 @@ function Monster_card_changer_not_use()
     if equip then
         monstercardpreset:RemoveChild("equip")
     end
+    local auto_close = GET_CHILD(monstercardpreset, 'mcc_auto_close')
+    if auto_close then
+        monstercardpreset:RemoveChild("mcc_auto_close")
+    end
     local monstercardslot = ui.GetFrame('monstercardslot')
     for _, color in ipairs(g.monster_card_changer_colors) do
         local check_box = GET_CHILD(monstercardslot, color)
@@ -437,6 +447,17 @@ function Monster_card_changer_preset_open(monster_card_changer)
             "{ol}現在のプリセットへ、装備カードを変更します{nl}保護した色はそのまま残します" or
             "{ol}Change equipped cards to the current preset{nl}Protected colors are kept")
     equip:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_equip_get_presetinfo")
+    -- 動作後に画面を閉じるかどうか。元の MCC は必ず閉じていたが、処理が長くなったぶん
+    -- 「何が起きたのか分からないまま閉じる」ようになったので切れるようにする。
+    -- 置き場所は題名の左（この帯には他に何も無い）。
+    local auto_close = monstercardpreset:CreateOrGetControl("checkbox", "mcc_auto_close", 45, 24, 25, 25)
+    AUTO_CAST(auto_close)
+    auto_close:SetText(g.lang == "Japanese" and "{ol}終了後に閉じる" or "{ol}Close when done")
+    auto_close:SetCheck(g.monster_card_changer_settings.auto_close or 0)
+    auto_close:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_auto_close_save")
+    auto_close:SetTextTooltip(g.lang == "Japanese" and
+                                  "{ol}動作が終わったらカード画面を自動で閉じます{nl}外すと開いたまま残るので、結果を確かめられます" or
+                                  "{ol}Closes the card windows when the operation finishes{nl}Uncheck to keep them open and check the result")
     local monstercardslot = ui.GetFrame('monstercardslot')
     local color_settings = Monster_card_changer_get_color_settings()
     local card_colors = {{
@@ -559,6 +580,12 @@ function Monster_card_changer_save_preset()
     end
     g.vlog("[MCC] SAVE: プリセット %d へ保存", page + 1)
     Monster_card_changer_save_settings()
+end
+
+function Monster_card_changer_auto_close_save(monstercardpreset, checkbox)
+    g.monster_card_changer_settings.auto_close = checkbox:IsChecked()
+    Monster_card_changer_save_settings()
+    g.vlog("[MCC] 終了後に閉じる=%s", tostring(g.monster_card_changer_settings.auto_close))
 end
 
 function Monster_card_changer_color_save(monstercardslot, checkbox, check_name)
@@ -845,7 +872,7 @@ end
 function Monster_card_changer_set_controls_enable(enable)
     local monstercardpreset = ui.GetFrame("monstercardpreset")
     if monstercardpreset then
-        for _, name in ipairs({"save_btn", "equip", "unequip"}) do
+        for _, name in ipairs({"save_btn", "equip", "unequip", "mcc_auto_close"}) do
             local ctrl = GET_CHILD(monstercardpreset, name)
             if ctrl then
                 AUTO_CAST(ctrl)
@@ -1274,8 +1301,11 @@ function Monster_card_changer_end_of_operation(monster_card_changer)
     ui.SysMsg("[MCC]End of Operation")
     -- **ここで画面を描き直さないこと。** preset_card_set は ui.OpenFrame を呼ぶので、
     -- CC Helper 連携で先に窓を畳んだ後に呼ぶと、カード画面が 1 秒後に開き直って
-    -- また閉じる。中身を描き直す意味も、2 秒後に閉じる窓には無い。
-    monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE", 3.0)
-    monster_card_changer:RunUpdateScript("MONSTERCARDSLOT_CLOSE", 3.0)
+    -- また閉じる。
+    local settings = g.monster_card_changer_settings
+    if not settings or settings.auto_close == 1 then
+        monster_card_changer:RunUpdateScript("MONSTERCARDPRESET_FRAME_CLOSE", 3.0)
+        monster_card_changer:RunUpdateScript("MONSTERCARDSLOT_CLOSE", 3.0)
+    end
 end
 -- monster_card_changer ここまで
