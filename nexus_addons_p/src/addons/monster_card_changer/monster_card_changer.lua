@@ -456,8 +456,12 @@ function Monster_card_changer_preset_open(monster_card_changer)
     equip:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_equip_get_presetinfo")
     -- 動作後に画面を閉じるかどうか。元の MCC は必ず閉じていたが、処理が長くなったぶん
     -- 「何が起きたのか分からないまま閉じる」ようになったので切れるようにする。
-    -- 置き場所は題名の左（この帯には他に何も無い）。
-    local auto_close = monstercardpreset:CreateOrGetControl("checkbox", "mcc_auto_close", 45, 24, 25, 25)
+    --
+    -- 置き場所は**緑(STAT)の下、素の「適用効果」と同じ高さの右側**。
+    -- 素の窓は bg が 550x380 で、上から題名の帯(〜61)・ボタンの帯(57〜95)・
+    -- カード群(93〜353)と埋まっており、空いているのはこの帯しか無い。
+    -- 題名の左へ置くと題名と重なる(実機で確認済み)。
+    local auto_close = monstercardpreset:CreateOrGetControl("checkbox", "mcc_auto_close", 355, 348, 25, 25)
     AUTO_CAST(auto_close)
     auto_close:SetText(g.lang == "Japanese" and "{ol}終了後に閉じる" or "{ol}Close when done")
     auto_close:SetCheck(g.monster_card_changer_settings.auto_close or 0)
