@@ -1286,7 +1286,7 @@ function Cc_helper_putitem(frame, in_btn, str, step)
         if g.cc_helper_settings[g.cid].mcc == 1 and g.settings.monster_card_changer.use == 1 then
             g.monster_card_changer_ready = nil
             Monster_card_changer_monstercardpreset_open(1)
-            g.cc_helper_mcc_deadline = imcTime.GetAppTime() + 30.0
+            Cc_helper_mcc_wait_start()
             in_btn:RunUpdateScript("Cc_helper_mcc_operation", 0.1)
         else
             Cc_helper_putitem(nil, in_btn, nil, 7)
@@ -1752,6 +1752,18 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
     return 0
 end
 
+-- MCC の待ち合わせを始めるときに呼ぶ。生存の合図を今の時刻へ揃える。
+--
+-- **前の動作が残した合図をそのまま使わないこと。** 合図は MCC の待ちループが
+-- 更新するものなので、前回の動作から 30 秒以上経っていると、待ち始めた瞬間に
+-- 「無反応」と判定して即座に抜けてしまう。
+-- (実機で踏んだ: ready=1 なのに搬入・搬出とも即打ち切りになり、カードが外れなかった)
+function Cc_helper_mcc_wait_start()
+    local now = imcTime.GetAppTime()
+    g.monster_card_changer_alive_at = now
+    g.cc_helper_mcc_deadline = now + 30.0
+end
+
 -- MCC が無反応か。MCC は待ちループのたびに g.monster_card_changer_alive_at を更新する。
 -- 一定時間まったく更新が無ければ、更新スクリプトが落ちたと見なして抜ける。
 function Cc_helper_mcc_stalled()
@@ -1818,7 +1830,7 @@ function Cc_helper_mcc_equip_start(out_btn, preset_no)
         drop_list:SelectItem(preset_no - 1)
     end
     g.vlog("[CCH] カードプリセット %d へ入れ替える", preset_no)
-    g.cc_helper_mcc_deadline = imcTime.GetAppTime() + 30.0
+    Cc_helper_mcc_wait_start()
     out_btn:RunUpdateScript("Cc_helper_mcc_equip_operation", 0.1)
 end
 
