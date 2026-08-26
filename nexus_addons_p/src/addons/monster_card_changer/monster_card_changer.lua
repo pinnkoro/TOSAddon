@@ -242,6 +242,7 @@ function monster_card_changer_on_init()
         Monster_card_changer_inventory_frame_init()
         g.setup_hook_and_event(g.addon, "CARD_PRESET_CHANGE_NAME_EXEC",
             "Monster_card_changer_CARD_PRESET_CHANGE_NAME_EXEC", false)
+        g.setup_hook(Monster_card_changer_CARD_PRESET_LOAD, "CARD_PRESET_LOAD")
     end
 end
 
@@ -341,6 +342,34 @@ function Monster_card_changer_CARD_PRESET_CHANGE_NAME_EXEC(my_frame, my_msg)
     AUTO_CAST(monster_card_changer)
     monster_card_changer:SetUserValue("PAGE", page)
     Monster_card_changer_preset_open(monster_card_changer)
+end
+
+-- 素の CARD_PRESET_LOAD はサーバーからプリセットの応答が届くたびに画面を描き直す。
+-- 描かれるのは**ゲーム側のプリセット**＝こちらが作業用に借りている枠の中身なので、
+-- REMOVE の直後に画面を開き直すと「ほぼ空」の状態が一瞬出ていた
+-- (画面を開くときの読み込み用に RequestCardPreset を投げているため、必ず通る)。
+--
+-- 素を呼んだ直後に、こちらの表示で描き直す。
+-- **素の中身を書き写さないこと**(CLAUDE.md)。ここは素をそのまま呼んで後ろに足すだけ。
+function Monster_card_changer_CARD_PRESET_LOAD(...)
+    local origin = g.FUNCS["CARD_PRESET_LOAD"]
+    if origin then
+        origin(...)
+    end
+    if g.settings.monster_card_changer.use == 0 then
+        return
+    end
+    -- **動作中は描き直さないこと。** preset_card_set は ready を 1 に戻すので、
+    -- CC Helper 連携の待ち合わせ(1 を合図に動き出す)と衝突して二重に走る。
+    -- 動作中の見た目は、終わったときにまとめて描き直せばよい。
+    if g.monster_card_changer_busy_flag then
+        return
+    end
+    local monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
+    if not monster_card_changer then
+        return
+    end
+    Monster_card_changer_preset_card_set(monster_card_changer)
 end
 
 function Monster_card_changer_inventory_frame_init()
@@ -512,7 +541,10 @@ function Monster_card_changer_preset_open(monster_card_changer)
     -- これを省くと、最初の EQUIP / REMOVE の書き込み確認だけ何秒待っても通らない
     -- (実機で 2 回とも「画面を開いてから最初の 1 回」だけ失敗していた)。
     RequestCardPreset(g.monster_card_changer_scratch_page)
-    monster_card_changer:RunUpdateScript("Monster_card_changer_preset_card_set", 1.0)
+    -- 窓は monstercardpreset_open の側で同期に開くようにしたので、待つ理由は無い。
+    -- 上の RequestCardPreset の応答で素が作業用プリセットの中身を描くが、
+    -- Monster_card_changer_CARD_PRESET_LOAD がその直後に描き直す。
+    monster_card_changer:RunUpdateScript("Monster_card_changer_preset_card_set", 0.1)
     return 0
 end
 
