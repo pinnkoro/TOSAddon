@@ -467,8 +467,8 @@ function Monster_card_changer_preset_open(monster_card_changer)
     auto_close:SetCheck(g.monster_card_changer_settings.auto_close or 0)
     auto_close:SetEventScript(ui.LBUTTONUP, "Monster_card_changer_auto_close_save")
     auto_close:SetTextTooltip(g.lang == "Japanese" and
-                                  "{ol}動作が終わったらカード画面を自動で閉じます{nl}外すと開いたまま残るので、結果を確かめられます" or
-                                  "{ol}Closes the card windows when the operation finishes{nl}Uncheck to keep them open and check the result")
+                                  "{ol}動作が終わったらカード画面を自動で閉じます" or
+                                  "{ol}Closes the card windows when the operation finishes")
     local monstercardslot = ui.GetFrame('monstercardslot')
     local color_settings = Monster_card_changer_get_color_settings()
     local card_colors = {{
