@@ -471,6 +471,8 @@ function Monster_card_changer_preset_open(monster_card_changer)
                                     "{ol}checked, cards of the specified color will not be unequipped{nl}EQUIP does not overwrite them either")
     end
     Monster_card_changer_update_protect_view()
+    -- 動作中に開き直された場合に備えて、今の状態へ合わせる
+    Monster_card_changer_set_controls_enable(g.monster_card_changer_busy_flag and 0 or 1)
     g.vlog("[MCC] 画面を開いた 保護: %s", Monster_card_changer_color_text())
     Monster_card_changer_save_settings()
     -- **開いた時点でプリセットのデータを読ませておくこと。** 素の
@@ -832,6 +834,42 @@ function Monster_card_changer_alive()
     g.monster_card_changer_alive_at = imcTime.GetAppTime()
 end
 
+-- 動作中は SAVE / EQUIP / REMOVE・プリセットの選択・色の保護を触れないようにする。
+-- 押しても無視するだけだと「反応がない」と見えて連打を招くので、**押せなくする**。
+--
+-- 素の流儀に合わせ、ボタンとチェックは SetEnable、ドロップリストは EnableHitTest。
+-- (素も CARD_PRESET_APPLY_PRESET の直後に _DISABLE_CARD_PRESET_APPLY_SAVE_BTN を呼んでいる)
+--
+-- **画面全体を覆う類のことはしない。** 外し忘れるとゲーム内から復旧できず、
+-- クライアントの再起動しかなくなる。被害が症状より重い。
+function Monster_card_changer_set_controls_enable(enable)
+    local monstercardpreset = ui.GetFrame("monstercardpreset")
+    if monstercardpreset then
+        for _, name in ipairs({"save_btn", "equip", "unequip"}) do
+            local ctrl = GET_CHILD(monstercardpreset, name)
+            if ctrl then
+                AUTO_CAST(ctrl)
+                ctrl:SetEnable(enable)
+            end
+        end
+        local drop_list = GET_CHILD(monstercardpreset, "drop_list")
+        if drop_list then
+            AUTO_CAST(drop_list)
+            drop_list:EnableHitTest(enable)
+        end
+    end
+    local monstercardslot = ui.GetFrame("monstercardslot")
+    if monstercardslot then
+        for _, color in ipairs(g.monster_card_changer_colors) do
+            local checkbox = GET_CHILD(monstercardslot, color)
+            if checkbox then
+                AUTO_CAST(checkbox)
+                checkbox:SetEnable(enable)
+            end
+        end
+    end
+end
+
 -- 動作中かどうか。EQUIP / REMOVE の多重押下を弾くのに使う。
 -- 進行状態はグローバル 1 組しか無いので、重ねて押されると先の操作の後続処理
 -- (外したカードの倉庫への預け入れなど)が実行されないまま失われる。
@@ -860,6 +898,7 @@ function Monster_card_changer_remove(monstercardpreset)
     end
     g.monster_card_changer_busy_flag = 1
     Monster_card_changer_alive()
+    Monster_card_changer_set_controls_enable(0)
     g.monster_card_changer_cardlist = {}
     for i = 1, g.monster_card_changer_slot_count do
         if not Monster_card_changer_is_protected(i) then
@@ -971,6 +1010,7 @@ function Monster_card_changer_equip_get_presetinfo()
     end
     g.monster_card_changer_busy_flag = 1
     Monster_card_changer_alive()
+    Monster_card_changer_set_controls_enable(0)
     local page = Monster_card_changer_current_page()
     local preset = g.monster_card_changer_settings.presets[page + 1]
     if not preset or not preset.slots then
@@ -1224,6 +1264,7 @@ function Monster_card_changer_end_of_operation(monster_card_changer)
     g.monster_card_changer_pending = nil
     g.monster_card_changer_busy_flag = nil
     Monster_card_changer_alive()
+    Monster_card_changer_set_controls_enable(1)
     if not monster_card_changer then
         monster_card_changer = ui.GetFrame(addon_name_lower .. "monster_card_changer")
     end
