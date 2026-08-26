@@ -771,7 +771,10 @@ function Monster_card_changer_write_preset(card_list, exp_list, next_func)
         deadline = imcTime.GetAppTime() + 15.0,
         next_request = 0
     }
-    monster_card_changer:RunUpdateScript("Monster_card_changer_confirm_preset", 0.3)
+    -- 刻みを詰めても待たずに進むことはない(下の confirm_preset は一致するまで 1 を
+    -- 返し続ける)。サーバーへの問い合わせ直しは pending.next_request で別に 1.5 秒へ
+    -- 絞ってあるので、刻みを短くしても要求は増えない。
+    monster_card_changer:RunUpdateScript("Monster_card_changer_confirm_preset", 0.1)
 end
 
 -- サーバーへ問い合わせ直しながら、書き込みが載るのを待つ。
@@ -1011,6 +1014,7 @@ function Monster_card_changer_remove_deposit(monster_card_changer)
     g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
     -- レベルを見ない照合を許すのは、外したカードが戻る猶予を置いてから
     g.monster_card_changer_fallback_at = imcTime.GetAppTime() + 3.0
+    -- ここも詰めない(wait_take と同じくインベントリを全走査するため)
     monster_card_changer:RunUpdateScript("Monster_card_changer_put_inv_to_warehouse", 0.2)
 end
 
@@ -1211,6 +1215,8 @@ function Monster_card_changer_take_from_warehouse(monster_card_changer, accountw
     item.TakeItemFromWarehouse_List(IT_ACCOUNT_WAREHOUSE, session.GetItemIDList(),
         accountwarehouse:GetUserIValue("HANDLE"))
     g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
+    -- **ここは詰めないこと。** 1 回ごとに Monster_card_changer_resolve_guids が
+    -- インベントリを全走査するので、刻みを半分にすると走査が倍になる。
     monster_card_changer:RunUpdateScript("Monster_card_changer_wait_take", 0.2)
 end
 
@@ -1282,7 +1288,8 @@ function Monster_card_changer_apply_and_wait(monster_card_changer, next_func)
     end
     g.monster_card_changer_apply_next = next_func
     g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
-    monster_card_changer:RunUpdateScript("Monster_card_changer_wait_apply", 0.2)
+    -- 1 回あたり GETMYCARD_INFO を 12 回読むだけなので、刻みを詰めても軽い
+    monster_card_changer:RunUpdateScript("Monster_card_changer_wait_apply", 0.1)
 end
 
 -- 装備が意図した内容と食い違っている枠の数
