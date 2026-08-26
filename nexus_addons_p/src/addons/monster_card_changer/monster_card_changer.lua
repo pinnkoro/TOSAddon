@@ -548,6 +548,19 @@ function Monster_card_changer_preset_open(monster_card_changer)
     return 0
 end
 
+-- CC Helper 連携へ「画面が整った」と伝える合図。
+--
+-- **終わった直後(3)を 1 へ書き戻さないこと。** 確認中に投げた RequestCardPreset の
+-- 応答が終了処理の後から届くと、フックが画面を描き直しにきて合図まで戻してしまう。
+-- CC Helper の待ちループは 0.1 秒周期なので、3 を見る前にこれが挟まると
+-- REMOVE / EQUIP がもう一度丸ごと走りうる。
+function Monster_card_changer_mark_ready()
+    if g.monster_card_changer_ready == 3 then
+        return
+    end
+    g.monster_card_changer_ready = 1
+end
+
 -- 選択中のプリセットの中身を画面へ描くだけ。**サーバーへは書き込まない。**
 -- 以前はここで SetCardPreset(0, ...) を呼んでいたが、これは素の SAVE ボタンと同じ
 -- サーバー保存なので、画面を開いたりプリセットを選び直すたびにゲーム標準のプリセットを
@@ -558,7 +571,7 @@ function Monster_card_changer_preset_card_set(monster_card_changer)
     -- ここで開くと、開いた直後に閉じたとき 1 秒後のこの予約で開き直ってしまう。
     if not monstercardpreset or monstercardpreset:IsVisible() == 0 then
         -- CC Helper 連携はこの合図を待っているので、描かなくても立てる
-        g.monster_card_changer_ready = 1
+        Monster_card_changer_mark_ready()
         return 0
     end
     CARD_PRESET_CLEAR_SLOT(monstercardpreset)
@@ -578,7 +591,7 @@ function Monster_card_changer_preset_card_set(monster_card_changer)
             end
         end
     end
-    g.monster_card_changer_ready = 1
+    Monster_card_changer_mark_ready()
     return 0
 end
 
@@ -1038,6 +1051,21 @@ function Monster_card_changer_put_inv_to_warehouse(monster_card_changer)
         return 0
     end
     local now = imcTime.GetAppTime()
+    -- **打ち切りの判定はどの枝より先に行うこと。** 以前は「guid が決まらない」枝でしか
+    -- 見ておらず、倉庫が満杯・カードがロック中などで**預けられない**カードが 1 枚でも
+    -- あると、要求を投げ続けたまま永久に終わらなかった。動作中の印(busy_flag)も
+    -- 戻らないのでボタンが押せないままになり、毎回 alive を更新するので
+    -- CC Helper 側の無反応判定にも掛からない。
+    if now > (g.monster_card_changer_deadline or 0) then
+        monster_card_changer:StopUpdateScript("Monster_card_changer_put_inv_to_warehouse")
+        g.vlog("[MCC] 倉庫へ入れられないカードが %d 枚あるため搬入を打ち切り",
+            #g.monster_card_changer_cardlist)
+        ui.SysMsg(g.lang == "Japanese" and
+                      "{#FF0000}[MCC]倉庫へ入れられなかったカードがあります" or
+                      "{#FF0000}[MCC]Some cards could not be stored in the warehouse")
+        Monster_card_changer_end_of_operation(monster_card_changer)
+        return 0
+    end
     local allow_fallback = now > (g.monster_card_changer_fallback_at or 0)
     if Monster_card_changer_resolve_guids(allow_fallback) > 0 then
         -- 手元へ戻ってきたぶんが増えたので、待ち時間を延ばす
@@ -1061,16 +1089,7 @@ function Monster_card_changer_put_inv_to_warehouse(monster_card_changer)
         g.monster_card_changer_deadline = imcTime.GetAppTime() + 10.0
         return 1
     end
-    if imcTime.GetAppTime() > g.monster_card_changer_deadline then
-        monster_card_changer:StopUpdateScript("Monster_card_changer_put_inv_to_warehouse")
-        g.vlog("[MCC] 手元に見つからないカードが %d 枚あるため搬入を打ち切り",
-            #g.monster_card_changer_cardlist)
-        ui.SysMsg(g.lang == "Japanese" and
-                      "{#FF0000}[MCC]倉庫へ入れられなかったカードがあります" or
-                      "{#FF0000}[MCC]Some cards could not be stored in the warehouse")
-        Monster_card_changer_end_of_operation(monster_card_changer)
-        return 0
-    end
+    -- 手元へ戻るのを待つ。打ち切りは上で見ている
     return 1
 end
 
@@ -1237,7 +1256,11 @@ function Monster_card_changer_wait_take(monster_card_changer)
     Monster_card_changer_resolve_guids(true)
     local rest = 0
     for _, data in ipairs(g.monster_card_changer_cardlist) do
-        if not data.guid then
+        -- **既に着いているぶん(equipped)は数えないこと。** resolve_guids は装備中の
+        -- カードを探しに行かないので guid が入ることはなく、数えると rest が 0 に
+        -- ならず、届いた後も 10 秒待たされたうえで「取り出せなかった」と誤って出る。
+        -- resolve_guids 側の数え方と揃える。
+        if not data.guid and not data.equipped then
             rest = rest + 1
         end
     end
