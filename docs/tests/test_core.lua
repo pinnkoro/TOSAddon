@@ -1756,6 +1756,29 @@ check("定義でないものを渡しても落ちない", g.badge_of(nil), nil)
 -- ここで「知っている」扱いにすると、印を導入した版の新着が誰にも出なくなる。
 g.settings = {}
 check("seen_ver が無ければ since は出す", g.badge_of({since = "2.0.0"}), "new")
+
+-- 行の中身（Mini Addons の設定項目）の新着を、行の印へ集約する。
+-- **一覧しか見ていない人に伝える唯一の経路**なので、集約の規則をここで守る。
+g.settings = {seen_ver = "2.1.0"}
+local mini = {key = "mini_addons"}
+g.badge_children["mini_addons"] = {{name = "a", text_jp = "あ"}, {name = "b", text_jp = "い", updated = "2.2.0"},
+                                   {name = "c", text_jp = "う", since = "2.2.0"}}
+local row_badge, row_count = g.badge_row(mini)
+check("子に新着があれば行にも出す", row_badge, "new")
+check("新着の件数を数える", row_count, 2)
+-- 子に NEW と Update が混ざったら NEW（g.badge_of と同じ「増えたほうを見せる」規則）
+g.badge_children["mini_addons"] = {{name = "b", text_jp = "い", updated = "2.2.0"}}
+check("子が Update だけなら Update", (g.badge_row(mini)), "upd")
+g.badge_children["mini_addons"] = {{name = "a", text_jp = "あ"}}
+check("子に新着が無ければ出さない", (g.badge_row(mini)), nil)
+-- 行そのものの印が優先。件数は 0（子から来た印のときだけ件数を出すため）
+g.badge_children["mini_addons"] = {{name = "b", text_jp = "い", updated = "2.2.0"}}
+local own_badge, own_count = g.badge_row({key = "mini_addons", since = "2.2.0"})
+check("行そのものの印が優先", own_badge, "new")
+check("行そのものの印なら件数は 0", own_count, 0)
+-- 子を預けていない行（大多数のアドオン）で落ちないこと
+check("子を預けていない行", (g.badge_row({key = "no_such_addon"})), nil)
+g.badge_children["mini_addons"] = nil
 g.settings = saved_settings
 
 if failures > 0 then

@@ -720,7 +720,7 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
                 if g.settings[entry.key] and g.settings[entry.key].use == 1 then
                     on_count = on_count + 1
                 end
-                if g.badge_of(entry) then
+                if (g.badge_row(entry)) then
                     new_count = new_count + 1
                 end
             end
@@ -784,14 +784,18 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
                     -- 印が無い起動では空いた列だけが残り、窓が理由もなく広くなる。
                     -- 名前と一緒に幅へ数えるので、印が消えれば次の起動で元の幅へ戻る。
                     local row_w = name_text:GetWidth()
-                    local badge = g.badge_of(entry)
+                    -- 印は自分の since / updated だけでなく、その行の中身(Mini Addons の
+                    -- 設定項目)の新着も拾う。詳細は g.badge_row。
+                    local badge, child_count = g.badge_row(entry)
                     if badge then
                         local badge_ctrl = box:CreateOrGetControl("richtext", "badge_" .. entry.key,
                             12 + row_w + 8, by + 10, 10, 20)
                         AUTO_CAST(badge_ctrl)
                         badge_ctrl:SetText(g.badge_text(badge))
                         badge_ctrl:EnableHitTest(1)
-                        badge_ctrl:SetTextTooltip(g.badge_tooltip(entry, badge))
+                        badge_ctrl:SetTextTooltip(child_count > 0 and
+                                                      g.badge_children_tooltip(entry, child_count) or
+                                                      g.badge_tooltip(entry, badge))
                         row_w = row_w + 8 + badge_ctrl:GetWidth()
                     end
                     if max_name_w < row_w then

@@ -232,7 +232,19 @@ function Mini_addons_setting_build(setting, filter_text, keep_pos)
             AUTO_CAST(header)
             header:SetSkinName("None")
             header:SetTextAlign("left", "center")
-            header:SetText("{ol}{s18}{#FFCC33}" .. localized_text(section))
+            -- 畳んだままでも新着に気付けるよう、見出しに件数を出す(まとめ版の一覧と同じ)。
+            -- 数えるのは絞り込んだ後(matched)ではなく**セクションの全項目**にする。
+            -- 検索中に「新着 1 件」と出ているのに、絞り込みで隠れていて見えない、という
+            -- 食い違いを避けるため。
+            local new_count = 0
+            for _, item in ipairs(section.items) do
+                if core_g.badge_of(item) then
+                    new_count = new_count + 1
+                end
+            end
+            header:SetText("{ol}{s18}{#FFCC33}" .. localized_text(section) ..
+                               (new_count > 0 and string.format("   {s14}{#FF6347}%d %s", new_count,
+                    g.lang == "Japanese" and "件が新着" or "new") or ""))
             if searching then
                 header:SetTextTooltip(g.lang == "Japanese" and "{ol}検索中は折りたたみできません" or
                                           g.lang == "kr" and "{ol}검색 중에는 접을 수 없습니다" or

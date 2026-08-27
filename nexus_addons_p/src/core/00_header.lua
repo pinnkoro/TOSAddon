@@ -1965,6 +1965,83 @@ function g.badge_text(badge)
     return nil
 end
 
+-- 行そのものではなく「その行の中身」に新着があることがある。Mini Addons は 1 行の裏に
+-- 80 以上の設定項目を抱えており、設定を 1 つ足しても一覧の行は何も変わらないので、
+-- **一覧を見ているだけでは気付けない**。子の定義をここへ預けてもらい、行の印に集約する。
+--
+-- 預ける側は addons/mini_addons/settings/definitions.lua（読み込み時ガードの中）。
+-- **core 側から子を直接見に行かないこと**: あちらは conclude スコープの local なので
+-- 見えないし、本家が居るときは定義そのものが存在しない。
+g.badge_children = g.badge_children or {}
+
+-- 定義の表示名。registry のエントリ(data.name)と mini_addons の設定定義(text_jp など)の
+-- どちらも同じ呼び方で引けるようにする。
+function g.badge_label(def)
+    if type(def) ~= "table" then
+        return ""
+    end
+    if def.data and def.data.name then
+        return def.data.name
+    end
+    if g.lang == "Japanese" and def.text_jp then
+        return def.text_jp
+    elseif g.lang == "kr" and def.text_kr then
+        return def.text_kr
+    end
+    return def.text_en or def.text_jp or def.name or ""
+end
+
+-- 一覧の行に出す印。自分の since / updated を先に見て、無ければ子の新着を集める。
+-- 戻り値は (印, 新着の子の件数)。子から来た印のときだけ件数が 1 以上になる。
+function g.badge_row(entry)
+    local own = g.badge_of(entry)
+    if own then
+        return own, 0
+    end
+    local children = g.badge_children[entry.key]
+    if type(children) ~= "table" then
+        return nil, 0
+    end
+    local badge, count = nil, 0
+    for _, def in ipairs(children) do
+        local b = g.badge_of(def)
+        if b then
+            count = count + 1
+            -- **NEW を優先する。** g.badge_of と同じ理由(追加と改修が混ざったときに
+            -- 「増えた」ほうを見せる)。件数は数え続けるので break しない。
+            if b == "new" then
+                badge = "new"
+            elseif badge == nil then
+                badge = "upd"
+            end
+        end
+    end
+    return badge, count
+end
+
+-- 子から来た印のツールチップ。**何が新しいのかを名前で出すこと**: 行の印だけでは
+-- 「設定画面のどこか」までしか分からず、80 以上ある項目から探すことになる。
+-- 長くなりすぎないよう 5 件で打ち切って残りは件数で示す。
+function g.badge_children_tooltip(entry, count)
+    local ja = g.lang == "Japanese"
+    local lines = {ja and string.format("{ol}設定に %d 件の新着があります", count) or
+        string.format("{ol}%d new or updated settings", count)}
+    local shown = 0
+    for _, def in ipairs(g.badge_children[entry.key] or {}) do
+        local b = g.badge_of(def)
+        if b then
+            if shown >= 5 then
+                lines[#lines + 1] = ja and string.format("ほか %d 件", count - shown) or
+                                        string.format("and %d more", count - shown)
+                break
+            end
+            shown = shown + 1
+            lines[#lines + 1] = string.format("・%s [%s]", g.badge_label(def), b == "new" and "NEW" or "Update")
+        end
+    end
+    return table.concat(lines, "{nl}")
+end
+
 -- 印のツールチップ。**「この版で変わりました」のような前置きを付けないこと。**
 -- 印が出ている時点で「変わった」ことは伝わっているので前置きは何も足さないうえ、
 -- 印は seen_ver より新しいものを全部出す = **今の版とは限らない**ので、

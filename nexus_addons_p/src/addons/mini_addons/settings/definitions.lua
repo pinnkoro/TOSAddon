@@ -524,5 +524,19 @@ do
             last[#last + 1] = defs[name]
         end
     end
+    -- まとめ版の一覧(core/20_lifecycle.lua)の Mini Addons の行へ、設定項目の新着を
+    -- 集約して出せるようにする。**ここで預けないと気付けない**: 設定を 1 つ足しても
+    -- 一覧の行の見た目は変わらないので、一覧しか見ていない人には増えたことが伝わらない。
+    -- 集約と印の決め方は core_g.badge_row。
+    local all = {}
+    for _, name in ipairs(order) do
+        all[#all + 1] = defs[name]
+    end
+    -- **入れ物が無い前提で書くこと。** ここはチャンクの読み込み中に走るので、
+    -- core_g.badge_children が nil のまま添字を引くと**その場で読み込みが止まり、
+    -- これより後ろの定義がまるごと失われる**（後続の market_favorite_rebuild などが
+    -- 丸ごと消える）。core が古い / 差し替えられた場合にも耐えるようにする。
+    core_g.badge_children = core_g.badge_children or {}
+    core_g.badge_children["mini_addons"] = all
 end
 
