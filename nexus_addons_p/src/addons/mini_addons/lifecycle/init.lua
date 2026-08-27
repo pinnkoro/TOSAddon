@@ -200,6 +200,28 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     -- 「演出を待たずに実行」を ON にしたときだけ使う、ひとつ手前の合図。
     -- アイテムの実データが更新される SUCEECD 側を使う(SUCEECD_RESULT ではない。理由は実装側)
     g.setup_hook_and_event(g.addon, "HIGH_HAIRENCHANT_SUCEECD", "Mini_addons_HIGH_HAIRENCHANT_SUCEECD", true)
+    -- スキル錬成(common_skill_enchant)を希望スキルが出るまで回す
+    -- 素の窓が開かれる入口。ここで「高度な設定」ボタンを足す
+    g.setup_hook_and_event(g.addon, "COMMON_SKILL_ENCHANT_OPEN", "Mini_addons_COMMON_SKILL_ENCHANT_OPEN", true)
+    -- アイテムがスロットへ乗った所。自動で開く設定はここで効かせる
+    g.setup_hook_and_event(g.addon, "COMMON_SKILL_ENCHANT_SET_TARGET_ITEM",
+        "Mini_addons_COMMON_SKILL_ENCHANT_SET_TARGET_ITEM", true)
+    -- 素が結果のたびに呼ぶ画面のリセット。回している間は錬成ボタンを押せる状態へ戻す
+    -- (素はここで do_enchant:SetEnable(0) を掛ける)
+    g.setup_hook_and_event(g.addon, "REFRESH_COMMON_SKILL_ENCHANT", "Mini_addons_REFRESH_COMMON_SKILL_ENCHANT", true)
+    -- 素の窓が閉じたら自前の窓も畳む
+    g.setup_hook_and_event(g.addon, "COMMON_SKILL_ENCHANT_CLOSE", "Mini_addons_COMMON_SKILL_ENCHANT_CLOSE", true)
+    -- 錬成ボタンの押下。回している最中は「停止」として受けるので素は呼ばない。
+    -- **ここだけ置換方式(g.setup_hook)にすること。** イベント方式の bool=false だと、
+    -- 機能を OFF にしたとき Mini_addons_teardown が購読だけ外してラッパを _G に残すため、
+    -- 素の「スキル錬成」ボタンが誰も呼ばない no-op になる(置換方式は g.hook_installed から
+    -- 元の関数へ戻す)
+    g.setup_hook(Mini_addons_COMMON_SKILL_ENCHANT_DO, "COMMON_SKILL_ENCHANT_DO")
+    -- 結果の合図。**素の演出(0.8 秒)の終わりを待つ**ので、次を撃つ合図は END の方で立てる
+    -- (SUCCESS 側は「維持」= 演出を出さずに返る経路だけを拾う。理由は run.lua)
+    g.setup_hook_and_event(g.addon, "SUCCESS_COMMON_SKILL_ENCHANT", "Mini_addons_skill_reroll_SUCCESS", true)
+    g.setup_hook_and_event(g.addon, "COMMON_SKILL_ENCHANT_END", "Mini_addons_skill_reroll_END", true)
+    g.setup_hook_and_event(g.addon, "FAILED_COMMON_SKILL_ENCHANT", "Mini_addons_skill_reroll_FAILED", true)
     -- チャットフレーム移動のワイドモニター制限解除
     g.setup_hook_and_event(g.addon, "_PROCESS_MOVE_MAIN_POPUPCHAT_FRAME",
         "Mini_addons__PROCESS_MOVE_MAIN_POPUPCHAT_FRAME", false)

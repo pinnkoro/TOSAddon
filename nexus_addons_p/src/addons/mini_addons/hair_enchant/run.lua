@@ -48,6 +48,10 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN(my_frame, my_msg)
     end
     local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
     if reroll_option and reroll_option:IsVisible() == 1 then
+        -- **回し始める前に画面を写し直す。** 停止判定は g.need_options を見るので、
+        -- 画面に入っているチェックが表へ届いていないと、当たっても止まらない
+        -- (理由は g.hair_enchant_sync_from_screen)
+        g.hair_enchant_sync_from_screen()
         -- 停止条件は後から追いにくいので、回し始めに 1 回だけ両方の設定を出す
         local high_hairenchant = ui.GetFrame("high_hairenchant")
         local rank_up = high_hairenchant and GET_CHILD_RECURSIVELY(high_hairenchant, "rank_up")

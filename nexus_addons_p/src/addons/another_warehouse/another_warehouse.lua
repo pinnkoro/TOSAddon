@@ -179,8 +179,10 @@ function Another_warehouse_on_msg(frame, msg, str, num)
     local cur_pos = gb:GetScrollCurPos()
     awh:SetUserValue("SCROLL_POS", cur_pos)
     if msg == 'ACCOUNT_WAREHOUSE_ITEM_REMOVE' then
-        Another_warehouse_remove_recurse_guid(awh, str)
+        -- **一覧の作り直しを先に予約すること。** 後ろに置くと、手前の見た目の後始末が
+        -- 落ちたときに一覧が更新されないまま残る(実際にそうなっていた)。
         awh:RunUpdateScript("Another_warehouse_frame_update_remove", 3.0)
+        Another_warehouse_remove_recurse_guid(awh, str)
         return
     end
     local index = awh:GetUserIValue("TAB_INDEX")
@@ -197,19 +199,32 @@ function Another_warehouse_frame_update_remove(awh)
 end
 
 function Another_warehouse_remove_recurse_guid(awh, guid)
+    -- **ui.GetFocusObject() はスロットとは限らない。** 今フォーカスのあるコントロールを
+    -- 返すだけなので、ボタンなどが返ると GetIcon が無く
+    -- 「attempt to call a nil value (method 'GetIcon')」で落ちる。
+    -- 倉庫からアイテムが減るたびに踏んでいて、この関数が落ちると呼び元の
+    -- Another_warehouse_on_msg も止まり、**一覧が更新されないまま残っていた**。
+    --
+    -- 素も GetFocusObject の戻り値は GetClassName() == "slot" を見てから使っている
+    -- (ui.ipf/uiscp/lib_mouse.lua の _UPDATE_MOUSE_CURSOR)。
     local slot = ui.GetFocusObject()
-    if not slot then
+    if not slot or slot:GetClassName() ~= "slot" then
         return
     end
+    AUTO_CAST(slot)
     local icon = slot:GetIcon()
-    if icon then
-        local icon_info = icon:GetInfo()
-        if icon_info:GetIESID() == guid then
-            slot:ClearIcon()
-            slot:SetSkinName("invenslot2")
-            slot:SetText("")
-            slot:RemoveAllChild()
-        end
+    if not icon then
+        return
+    end
+    local icon_info = icon:GetInfo()
+    if not icon_info then
+        return
+    end
+    if icon_info:GetIESID() == guid then
+        slot:ClearIcon()
+        slot:SetSkinName("invenslot2")
+        slot:SetText("")
+        slot:RemoveAllChild()
     end
 end
 
@@ -1149,13 +1164,18 @@ function Another_warehouse_on_rbutton(frame, slot, iesid, argnum)
     if g.settings.cc_helper.use == 1 then
         local cch_setting = ui.GetFrame(addon_name_lower .. "cch_setting")
         if cch_setting and cch_setting:IsVisible() == 1 then
+            -- こちらも同じ理由で型を見る(上の Another_warehouse_remove_recurse_guid 参照)
             local slot = ui.GetFocusObject()
-            if not slot then
+            if not slot or slot:GetClassName() ~= "slot" then
                 return
             end
+            AUTO_CAST(slot)
             local icon = slot:GetIcon()
             if icon then
                 local icon_info = icon:GetInfo()
+                if not icon_info then
+                    return
+                end
                 local iesid = icon_info:GetIESID()
                 local awh_item = session.GetEtcItemByGuid(IT_ACCOUNT_WAREHOUSE, iesid)
                 if not awh_item then

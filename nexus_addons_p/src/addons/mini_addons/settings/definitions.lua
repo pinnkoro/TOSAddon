@@ -83,6 +83,14 @@ local DEFAULT_SETTINGS = {
     -- enchant_special_option の並び順に依存し、出る項目もランクで変わるため、
     -- 番号で保存すると別のオプションを復元しかねない
     hair_enchant_presets = {},
+    skill_reroll = 0,
+    -- スキル錬成の「高度な設定」窓を、アイテムを乗せた時点で自動で開くか
+    skill_reroll_auto_open = 0,
+    -- 高度な設定のプリセット。**配列**(1 始まり)で枠数は決めない。1 件の中身は
+    --   {name = 表示名, skills = {{class = スキルのクラス名, min_lv = 数}, ...}, repeat_count = 数}
+    -- **スキルはクラス名で持つこと。** 画面の並びは表示名順なので、番号で保存すると
+    -- 辞書や言語が変わっただけで別のスキルを復元しかねない
+    skill_reroll_presets = {},
     new_groups = {},
     chat_new_btn = 0,
     chat_xy = {},
@@ -109,8 +117,9 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "cupole_portion", "goodbye_ragana", "status_upgrade", "icor_status_search", "velnice",
                        "separated_buff", "group_chat", "memberinfo", "baubas_call", "pt_buff", "chat_recv", "pet_ring",
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
-                       "inventory_mod", "reroll_option", "hair_enchant", "chat_new_btn", "pt_info", "enchant_tooltip",
-                       "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout", "auto_accept_duel"}
+                       "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
+                       "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
+                       "auto_accept_duel"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -125,7 +134,10 @@ local MAIN_FRAME_SETTINGS = {{
     name = "event_shout",
     text_jp = "イベントグローバルシャウトをチャットに表示",
     text_kr = "이벤트 글로벌 샤우트를 채팅에 표시",
-    text_en = "Displays Event Global Shouts in the chat"
+    text_en = "Displays Event Global Shouts in the chat",
+    updated = "2.1.0",
+    updated_note_jp = "フィールドボスの出現・討伐のお知らせが、日本語 / 英語でも出るようになりました",
+    updated_note_en = "Field boss spawn/defeat notices now appear in Japanese / English too"
 }, {
     name = "multiple_item",
     text_jp = "メレジナハード以降のハードレイドで追加報酬券お知らせ",
@@ -165,7 +177,19 @@ local MAIN_FRAME_SETTINGS = {{
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
     text_kr = "헤어 액세서리 자동 인챈트 사용성 개선",
-    text_en = "Hair Accessory Auto-Enchant UX improved"
+    text_en = "Hair Accessory Auto-Enchant UX improved",
+    -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+    -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
+    updated = "2.2.0",
+    updated_note_jp = "チェックした希望オプションが効かないことがあったのを修正しました",
+    updated_note_en = "Fixed wanted options being ignored"
+}, {
+    name = "skill_reroll",
+    text_jp = "スキル錬成を希望スキルが出るまで回せるように",
+    text_kr = "스킬 연성을 원하는 스킬이 나올 때까지 반복",
+    text_en = "Keep re-rolling Skill Enchant until a wanted skill shows up",
+    -- 「NEW」の印。**since は一度書いたら触らないこと**(触ると追加と改修の区別が付かない)。
+    since = "2.2.0"
 }, {
     name = "reroll_option",
     text_jp = "オプション設定の数値表を常に表示",
@@ -244,7 +268,10 @@ local SUB_FRAME_SETTINGS = {
         name = "baubas_call",
         text_jp = "バウバス登場をお知らせ",
         text_kr = "바우버스 등장 소식",
-        text_en = "Announcing the arrival of Baubas"
+        text_en = "Announcing the arrival of Baubas",
+        updated = "2.1.0",
+        updated_note_jp = "お知らせが日本語 / 英語でも出るようになり、討伐の取りこぼしを減らしました",
+        updated_note_en = "Notices now appear in Japanese / English; fewer missed defeat notices"
     }, {
         name = "chat_recv",
         text_jp = "PTメンバーの死亡をニコチャットで表示",
@@ -451,7 +478,7 @@ local SETTING_SECTIONS = {{
     name = "autos",
     names = {"coin_use", "skill_enchant", "weekly_boss_reward", "solodun_reward", "status_upgrade", "dialog_ctrl",
              "under_staff", "auto_accept_duel", "goodbye_ragana", "rp_charge", "auto_craft", "hair_enchant",
-             "auto_zoom", "velnice"},
+             "skill_reroll", "auto_zoom", "velnice"},
     text_jp = "自動処理関連",
     text_kr = "자동 처리 관련",
     text_en = "Automation-related"
@@ -497,5 +524,19 @@ do
             last[#last + 1] = defs[name]
         end
     end
+    -- まとめ版の一覧(core/20_lifecycle.lua)の Mini Addons の行へ、設定項目の新着を
+    -- 集約して出せるようにする。**ここで預けないと気付けない**: 設定を 1 つ足しても
+    -- 一覧の行の見た目は変わらないので、一覧しか見ていない人には増えたことが伝わらない。
+    -- 集約と印の決め方は core_g.badge_row。
+    local all = {}
+    for _, name in ipairs(order) do
+        all[#all + 1] = defs[name]
+    end
+    -- **入れ物が無い前提で書くこと。** ここはチャンクの読み込み中に走るので、
+    -- core_g.badge_children が nil のまま添字を引くと**その場で読み込みが止まり、
+    -- これより後ろの定義がまるごと失われる**（後続の market_favorite_rebuild などが
+    -- 丸ごと消える）。core が古い / 差し替えられた場合にも耐えるようにする。
+    core_g.badge_children = core_g.badge_children or {}
+    core_g.badge_children["mini_addons"] = all
 end
 

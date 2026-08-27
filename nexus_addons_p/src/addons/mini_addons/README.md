@@ -27,6 +27,7 @@
 | [inventory/](inventory/README.md) | インベントリの改造・イコルステータス検索・コインの自動使用 |
 | [weekly_boss/](weekly_boss/README.md) | 週間ボスのダメージ報酬・ビルドランキング・報酬の自動受け取り |
 | [hair_enchant/](hair_enchant/README.md) | ヘアアクセサリーの魔法付与を、目標を決めて回せるようにする |
+| [skill_reroll/](skill_reroll/README.md) | スキル錬成を、希望スキルが出るまで回せるようにする |
 | [buff_list/](buff_list/README.md) | PT メンバーのバフを、バフごとに表示 / 非表示 |
 | [party/](party/README.md) | PT 情報フレームのリサイズとメンバーの現在地 |
 | [channel/](channel/README.md) | チャンネル切替フレームと表示のズレ修正 |
@@ -56,6 +57,12 @@
   （= `nil`）に化けます。**エラーにならない**ので、動かすときは `local` と利用箇所を同じ断片に
   まとめ、実機で該当機能を通して `verbose_log.txt` を確認してください
   （CLAUDE.md「修正したら詳細ログを出して、実機のログで確認する」）。
+* **トップレベルの `local` を増やしすぎないこと。** bundle 全体が 1 つのチャンクとして
+  読まれるので、Lua(LuaJIT)の「1 つの関数につきローカル変数 200 個まで」に既に近い所に
+  います。超えると `main function has more than 200 local variables` で**まとめ版ごと
+  読み込めなくなる**（特定の機能だけが壊れるのではない）ので、機能ごとの内部関数は
+  1 つのテーブルにまとめてください（例: [skill_reroll/core.lua](skill_reroll/core.lua) の
+  `local skill_reroll = {}`）。
 * **断片単体は構文として不完全**です（全体が `do ... end` で囲まれ、`g` などを断片間で共有する）。
   構文チェックは連結後の bundle に対して行います（`sh docs/tests/syntax_check.sh`）。
   エディタや luacheck は各断片で「未定義のグローバル `g`」と警告しますが、これは想定どおりです。

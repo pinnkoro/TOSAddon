@@ -207,6 +207,8 @@ function Mini_addons_hair_enchant_preset_save_do(frame, ctrl)
         ui.SysMsg(g.lang == "Japanese" and "プリセットの名前を入力してください" or "Enter a preset name")
         return
     end
+    -- 保存する前に画面を写し直す(画面のチェックがそのまま保存されるように)
+    g.hair_enchant_sync_from_screen()
     local options = {}
     for option_name, value in pairs(g.need_options or {}) do
         local class_name = (g.hair_enchant_option_classes or {})[option_name]
@@ -431,6 +433,61 @@ function Mini_addons_HIGH_HAIRENCHANT_DRAW_HIRE_ITEM(my_frame, my_msg)
     hair_enchant_open_advanced()
 end
 
+-- **画面のチェックを g.need_options へ写し直す。**
+--
+-- 表を更新しているのはチェックのイベント(mini_addons_p_reroll_option_check)だが、
+-- **渡ってくる ctrl は押した行のものとは限らない。** スキル錬成側の一覧で、押した行の
+-- 1 つ下のコントロールがイベントを受け取る事象を実機のログで確認した(押した行は画面上
+-- チェックが付くのに、届いたのは隣の行の「未チェックのまま」の状態)。同じ書き方の
+-- ここでも同じことが起きうる。しかもこちらは件数を出す場所が無いので、
+-- **「希望オプションが出ても止まらない」**という一番分かりにくい形になる。
+--
+-- 一覧全体を画面から読み直せば、どのコントロールがイベントを受けても結果は同じになる。
+-- 食い違いが見つかったときだけログに出す(毎回通る経路なのでログを流さないこと)
+-- from_click … チェックを押した流れから呼んだか(意味は skill_reroll 側と同じ)
+g.hair_enchant_sync_from_screen = function(from_click)
+    local reroll_option = ui.GetFrame(addon_name_lower .. "reroll_option")
+    if reroll_option == nil then
+        return
+    end
+    local fixed = {}
+    for _, option_name in ipairs(g.hair_enchant_option_names or {}) do
+        local ctrl = GET_CHILD_RECURSIVELY(reroll_option, option_name)
+        if ctrl ~= nil then
+            AUTO_CAST(ctrl)
+            local on = ctrl:IsChecked() == 1 and 1 or 0
+            local prev = g.need_options[option_name]
+            -- **「表に無い」は「チェックが入っていない」と同じ扱いにすること。**
+            -- g.need_options は窓を開くたび空にするので、prev == nil を変化とみなすと
+            -- 開いた直後の最初のクリックで、押していない全オプションまで差分に積まれ、
+            -- 「食い違っていた」の誤検知が必ず出る(本物の食い違いが埋もれる)
+            local prev_on = (prev ~= nil and prev.is_check == 1) and 1 or 0
+            if prev_on ~= on then
+                local class_name = (g.hair_enchant_option_classes or {})[option_name]
+                -- text は停止判定が ScpArgMsg(obj[propName]) と突き合わせる文字列。
+                -- **クラス名から引き直すこと**(画面の表示文字列には数値範囲が付いている)
+                g.need_options[option_name] = {
+                    is_check = on,
+                    text = class_name ~= nil and ScpArgMsg(class_name) or
+                        (prev ~= nil and prev.text or "")
+                }
+                table.insert(fixed, string.format("%s=%s", tostring(class_name or option_name),
+                    on == 1 and "ON" or "OFF"))
+            end
+        end
+    end
+    if from_click and #fixed == 1 then
+        -- 押した 1 件が動いた = 正常
+        core_g.vlog("mini_addons: ヘアエンチャント 希望オプション %s", fixed[1])
+    elseif from_click and #fixed == 0 then
+        core_g.vlog("{#FF6347}mini_addons: ヘアエンチャント チェックを押したのに変化が無い{/}")
+    elseif #fixed > 0 then
+        core_g.vlog("{#FF6347}mini_addons: ヘアエンチャント 希望オプションが画面と食い違っていた(%d 件): %s{/}",
+            #fixed, table.concat(fixed, ", "))
+    end
+    return #fixed
+end
+
 -- reroll_option の中身(希望オプションのチェック / 目標ランク / リピート回数 / Cancel)を組む。
 -- **ランクが上がったら組み直す。** 選べるオプションもその数値範囲もランクごとに違い
 -- (`enchant_special_option_ratio.ies` の `AppearRatio_<rank>` が 0 のものは出ない。
@@ -456,14 +513,11 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     -- 名前は呼び出し側(SetEventScript)が addon_name_lower から組み立てるので、必ず揃えること。
     -- 本家から移す際にここだけ "mini_addons_" のままにしてしまい、チェックが一切拾われず
     -- 「希望のオプションが出ても止まらない」形で出ていた
+    -- **ctrl と str を当てにしないこと**(理由は g.hair_enchant_sync_from_screen)。
+    -- 一覧を画面から読み直してから、選んだオプションの表示を作り直す
     function mini_addons_p_reroll_option_check(gbox, ctrl, str)
-        g.need_options[ctrl:GetName()] = {
-            is_check = ctrl:IsChecked(),
-            text = str
-        }
+        g.hair_enchant_sync_from_screen(true)
         hair_enchant_mark_dirty()
-        core_g.vlog("mini_addons: ヘアエンチャント 希望オプション %s = %s", tostring(str),
-            ctrl:IsChecked() == 1 and "ON" or "OFF")
         local bodyGbox1 = GET_CHILD_RECURSIVELY(high_hairenchant, "bodyGbox1")
         local dest = bodyGbox1:GetUserValue("DESTROY")
         local bodyGbox1_1 = GET_CHILD_RECURSIVELY(high_hairenchant, "bodyGbox1_1")
@@ -601,7 +655,10 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
             -- ランクで変わらないので、組み直しても同じオプションは同じ名前になる。
             -- g.need_options もこの名前を鍵にしているため、チェックをそのまま戻せる
             local option_name = "option_text" .. i
-            local option_text = option_box:CreateOrGetControl("checkbox", option_name, 5, oy, 0, 20)
+            -- 高さと送り(下の oy)は**必ず離して取ること。** 押した行とは別の行の
+            -- コントロールがイベントを受け取る事象があり、当たり判定が縦に重なって
+            -- いるのが疑わしい(詳細は g.hair_enchant_sync_from_screen)
+            local option_text = option_box:CreateOrGetControl("checkbox", option_name, 5, oy, 0, 22)
             AUTO_CAST(option_text)
             option_text:SetText("{ol}" .. OptionString)
             option_text:SetEventScript(ui.LBUTTONUP, (addon_name_lower .. "_reroll_option_check"))
@@ -613,7 +670,7 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
             table.insert(g.hair_enchant_option_names, option_name)
             g.hair_enchant_option_labels[option_name] = OptionString
             g.hair_enchant_option_classes[option_name] = cls.ClassName
-            oy = oy + 25
+            oy = oy + 32
         end
     end
     -- 中身より枠が高いときに余白を作らないよう、実際の高さに合わせて縮める
