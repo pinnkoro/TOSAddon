@@ -180,7 +180,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = core_g.VER_NEXT,
+    updated = "2.2.0",
     updated_note_jp = "チェックした希望オプションが効かないことがあったのを修正しました",
     updated_note_en = "Fixed wanted options being ignored"
 }, {
@@ -189,7 +189,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "스킬 연성을 원하는 스킬이 나올 때까지 반복",
     text_en = "Keep re-rolling Skill Enchant until a wanted skill shows up",
     -- 「NEW」の印。**since は一度書いたら触らないこと**(触ると追加と改修の区別が付かない)。
-    since = core_g.VER_NEXT
+    since = "2.2.0"
 }, {
     name = "reroll_option",
     text_jp = "オプション設定の数値表を常に表示",

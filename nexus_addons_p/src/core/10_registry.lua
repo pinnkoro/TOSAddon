@@ -84,7 +84,7 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = g.VER_NEXT,
+    updated = "2.2.0",
     updated_note_jp = "アイテムを取り出した後に一覧が更新されないことがあったのを修正しました",
     updated_note_en = "Fixed the list not refreshing after taking items out",
     data = {
@@ -187,7 +187,7 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.2.0",
     updated_note_jp = "Monster Card Changer と連携して、搬出のときにカードプリセットの{nl}着け直しまで自動でできるようになりました（設定画面の「MCC 連携」）",
     updated_note_en = "Works with Monster Card Changer: card presets can now be re-equipped{nl}automatically when hauling out (see \"MCC link\" in the settings)",
     data = {
@@ -343,7 +343,7 @@ g._nexus_addons_p = {{
 }, {
     key = "monster_card_changer",
     category = "gear",
-    updated = g.VER_NEXT,
+    updated = "2.2.0",
     updated_note_jp = "カードの着脱まわりの不具合をまとめて修正し、閉じ方と保護色の表示を足しました",
     updated_note_en = "Fixed card equip/remove bugs; added close-after option and protected-color marks",
     data = {
