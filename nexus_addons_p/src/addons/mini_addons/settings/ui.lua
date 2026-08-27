@@ -50,6 +50,18 @@ local function create_setting_row(gbox, setting, y)
     checkbox:SetTextTooltip(tooltip_text)
     local text_width = checkbox:GetWidth()
     local right = 10 + text_width
+    -- NEW / Update の印。判定と見た目はまとめ版に寄せてある(core/00_header.lua の g.badge_of)。
+    -- **既読の基準(seen_ver)もまとめ版の settings.json 側**。ここを mini_addons.json に
+    -- 分けると、一覧の印と設定画面の印が別々に消えることになって説明が付かなくなる。
+    local badge = core_g.badge_of(setting)
+    if badge then
+        local badge_ctrl = gbox:CreateOrGetControl("richtext", setting.name .. "_badge", right + 10, y + 4, 10, 20)
+        AUTO_CAST(badge_ctrl)
+        badge_ctrl:SetText(core_g.badge_text(badge))
+        badge_ctrl:EnableHitTest(1)
+        badge_ctrl:SetTextTooltip(core_g.badge_tooltip(setting, badge))
+        right = right + 10 + badge_ctrl:GetWidth()
+    end
     if setting.name == "baubas_call" then -- チェックボックスの隣に特殊なUIを追加する処理
         local baubas_call_btn = gbox:CreateOrGetControl("button", "baubas_call_btn", right + 15, y - 5, 50, 30)
         AUTO_CAST(baubas_call_btn)

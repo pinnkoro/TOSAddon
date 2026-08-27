@@ -82,6 +82,11 @@ g._nexus_addons_p = {{
 },]] {
     key = "another_warehouse",
     category = "storage",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
+    updated = g.VER_NEXT,
+    updated_note_jp = "アイテムを取り出した後に一覧が更新されないことがあったのを修正しました",
+    updated_note_en = "Fixed the list not refreshing after taking items out",
     data = {
         use = 0,
         name = "Another Warehouse",
@@ -182,6 +187,9 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
+    updated = g.VER_NEXT,
+    updated_note_jp = "Monster Card Changer と連携して、搬出のときにカードプリセットの{nl}着け直しまで自動でできるようになりました（設定画面の「MCC 連携」）",
+    updated_note_en = "Works with Monster Card Changer: card presets can now be re-equipped{nl}automatically when hauling out (see \"MCC link\" in the settings)",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -322,6 +330,9 @@ g._nexus_addons_p = {{
 }, {
     key = "market_voucher",
     category = "storage",
+    updated = "2.1.0",
+    updated_note_jp = "ログインが速くなり、「ログ削除」が退避してから消すようになりました",
+    updated_note_en = "Faster login; log deletion now backs up before removing",
     data = {
         use = 0,
         name = "Market Voucher",
@@ -332,6 +343,9 @@ g._nexus_addons_p = {{
 }, {
     key = "monster_card_changer",
     category = "gear",
+    updated = g.VER_NEXT,
+    updated_note_jp = "カードの着脱まわりの不具合をまとめて修正し、閉じ方と保護色の表示を足しました",
+    updated_note_en = "Fixed card equip/remove bugs; added close-after option and protected-color marks",
     data = {
         use = 0,
         name = "Monster Card Changer",
@@ -495,6 +509,9 @@ g._nexus_addons_p = {{
 }, {
     key = "sub_map",
     category = "char",
+    updated = "2.0.1",
+    updated_note_jp = "ボスやモンスターのアイコンが表示されなくなっていたのを修正しました",
+    updated_note_en = "Fixed boss and monster icons not being shown",
     data = {
         use = 0,
         name = "Sub Map",
@@ -515,6 +532,9 @@ g._nexus_addons_p = {{
 }, {
     key = "tavern_of_soul",
     category = "misc",
+    updated = "2.0.1",
+    updated_note_jp = "一覧のカテゴリを「ダンジョン・コンテンツ」から「その他」へ移しました",
+    updated_note_en = "Moved from the Dungeons & Content category to Other",
     data = {
         use = 0,
         name = "Tavern of Soul",
@@ -550,6 +570,9 @@ g._nexus_addons_p = {{
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
     category = "storage",
+    updated = "2.1.0",
+    updated_note_jp = "名前の色分けと EP13 ショップの一覧が、韓国語クライアントでも正しく出るようになりました",
+    updated_note_en = "Name colors and the EP13 shop list now render correctly on the Korean client",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",

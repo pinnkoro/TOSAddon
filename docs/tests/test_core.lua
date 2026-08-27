@@ -1726,6 +1726,38 @@ check("51 個 / 4 件は 13 tick", g.init_estimate_sec(51, 4), 13 * g.INIT_TICK_
 check("端数は切り上げる", g.init_estimate_sec(9, 4), 3 * g.INIT_TICK_SEC)
 check("0 件なら 0 秒", g.init_estimate_sec(0, 4), 0)
 
+-- ===== 29. 更新のお知らせ（NEW / 更新 の印） =====
+-- 版の比較と印の判定は純ロジックなのでここで検査できる。**実機でしか確かめられない
+-- 部分（帯の高さ・窓の中身）とは分けてある**ので、少なくとも「いつ出るか」は機械で守る。
+print("[29] ver_cmp と badge_of")
+check("同じ版", g.ver_cmp("2.1.0", "2.1.0"), 0)
+check("桁が違っても比べられる", g.ver_cmp("2.1", "2.1.0"), 0)
+check("小さい", g.ver_cmp("2.0.9", "2.1.0"), -1)
+check("大きい", g.ver_cmp("2.1.1", "2.1.0"), 1)
+check("10 は 9 より大きい（文字列比較になっていない）", g.ver_cmp("2.10.0", "2.9.0"), 1)
+-- 未採番の印。main へ入れる PR では版を上げないので、開発中の since / updated はこれになる。
+check("next はどの版より新しい", g.ver_cmp(g.VER_NEXT, "99.0.0"), 1)
+check("next 同士は同じ", g.ver_cmp(g.VER_NEXT, g.VER_NEXT), 0)
+-- 設定ファイルは手で書き換えられる。数字が無い値で比較が壊れないこと。
+check("nil は 0.0.0 扱い", g.ver_cmp(nil, "0.0.0"), 0)
+check("数字でない値も 0.0.0 扱い", g.ver_cmp("abc", "0.0.1"), -1)
+
+local saved_settings = g.settings
+g.settings = {seen_ver = "2.1.0"}
+check("印が無い定義には何も出さない", g.badge_of({}), nil)
+check("新しい since は NEW", g.badge_of({since = "2.2.0"}), "new")
+check("知っている版の since は出さない", g.badge_of({since = "2.1.0"}), nil)
+check("新しい updated は 更新", g.badge_of({updated = "2.2.0"}), "upd")
+check("知っている版の updated は出さない", g.badge_of({updated = "2.0.0"}), nil)
+-- 追加した版で中身も直したときに両方出ると読み手が混乱するので NEW を優先する。
+check("NEW と 更新 が重なったら NEW", g.badge_of({since = "2.2.0", updated = "2.2.0"}), "new")
+check("定義でないものを渡しても落ちない", g.badge_of(nil), nil)
+-- **seen_ver が無いとき（既に使っている人が更新した直後）は印を出す。**
+-- ここで「知っている」扱いにすると、印を導入した版の新着が誰にも出なくなる。
+g.settings = {}
+check("seen_ver が無ければ since は出す", g.badge_of({since = "2.0.0"}), "new")
+g.settings = saved_settings
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

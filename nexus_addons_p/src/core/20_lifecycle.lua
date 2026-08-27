@@ -4,6 +4,9 @@ end
 
 function _nexus_addons_p_load_settings()
     local settings = g.load_json(g.settings_path)
+    -- 初回インストールかどうか。**ここでしか判定できない**(この後 settings が {} になる)。
+    -- 更新のお知らせの既定値に使う。詳細は core/00_header.lua の「更新のお知らせ」の節。
+    local first_install = (settings == nil)
     if not settings then
         settings = {}
     end
@@ -18,6 +21,8 @@ function _nexus_addons_p_load_settings()
     valid_keys.list_collapsed = true -- 一覧のカテゴリ見出しを畳んでいるか（_nexus_addons_p_list_build）
     valid_keys.menu_shortcuts = true -- Addons Menu へ出す項目とアイコン（g.menu_shortcut_*）
     valid_keys.init_batch = true -- 初回ロードで 1 tick に初期化する件数（g.init_throttle）
+    valid_keys.seen_ver = true -- NEW / Update の印を出す基準（g.badge_of）
+    valid_keys.list_opened_ver = true -- アドオン一覧を開いた版（印を消す起点）
     for key, _ in pairs(settings) do
         if not valid_keys[key] then
             settings[key] = nil
@@ -68,6 +73,30 @@ function _nexus_addons_p_load_settings()
     if settings.init_batch ~= normalized_batch then
         settings.init_batch = normalized_batch
         changed = true
+    end
+    -- ===== 更新のお知らせの既読管理（詳細は core/00_header.lua の同名の節） =====
+    --
+    -- 初回インストールのときだけ seen_ver を今の版で埋める。**それ以外では埋めないこと。**
+    -- 既に使っている人が更新した直後はこのキーが無いが、そこを ver で埋めると
+    -- 「印を導入した版の新着が誰にも出ない」ことになる。無いときは 0.0.0 扱いなので、
+    -- since / updated が付いている項目（＝その版で足した / 直した項目）だけが印を持つ。
+    if first_install and settings.seen_ver == nil then
+        settings.seen_ver = ver
+        settings.list_opened_ver = ver
+        changed = true
+    end
+    -- 「一覧を開いた版」を「知っている版」へ進めるのは**次の起動のここ 1 回だけ**。
+    -- 開いた瞬間に進めると、印が出るより先に消えて意味が無くなる。
+    -- GAME_START はマップ移動のたびに来るので、セッション中に 1 回だけ通す
+    -- （移動のたびに進めると、一覧を開いた直後にマップを跨いだ人だけ印が消える）。
+    if not g.seen_ver_promoted then
+        g.seen_ver_promoted = true
+        if settings.list_opened_ver ~= nil and g.ver_cmp(settings.list_opened_ver, settings.seen_ver) > 0 then
+            g.vlog("更新のお知らせ: seen_ver を %s から %s へ進めた（印はここで消える）",
+                tostring(settings.seen_ver), tostring(settings.list_opened_ver))
+            settings.seen_ver = settings.list_opened_ver
+            changed = true
+        end
     end
     g.settings = settings
     if changed then
@@ -684,9 +713,15 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
         if #items > 0 then
             local collapsed = (not searching) and g.settings.list_collapsed[section.name] == 1
             local on_count = 0
+            -- 畳んだままでも新着に気付けるよう、見出しに件数を出す。畳んでいる中に
+            -- NEW があると、印を付けても見つけられない(検索中は畳まないので出ない)。
+            local new_count = 0
             for _, entry in ipairs(items) do
                 if g.settings[entry.key] and g.settings[entry.key].use == 1 then
                     on_count = on_count + 1
+                end
+                if g.badge_of(entry) then
+                    new_count = new_count + 1
                 end
             end
             -- 開閉マークは幅を固定した別コントロールに分ける。見出しの文字列に
@@ -703,8 +738,10 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
             AUTO_CAST(header)
             header:SetSkinName("None")
             header:SetTextAlign("left", "center")
-            header:SetText(string.format("{ol}{s18}{#FFCC33}%s   {s16}{#CCCCCC}%d / %d",
-                list_localized(section) or section.name, on_count, #items))
+            header:SetText(string.format("{ol}{s18}{#FFCC33}%s   {s16}{#CCCCCC}%d / %d%s",
+                list_localized(section) or section.name, on_count, #items,
+                new_count > 0 and string.format("   {s14}{#FF6347}%d %s", new_count,
+                    g.lang == "Japanese" and "件が新着" or "new") or ""))
             if searching then
                 local tip = g.lang == "Japanese" and "{ol}検索中は折りたたみできません" or g.lang == "kr" and
                                 "{ol}검색 중에는 접을 수 없습니다" or "{ol}Cannot collapse while filtering"
@@ -743,8 +780,22 @@ function _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
                     name_text:EnableHitTest(1)
                     name_text:SetTextTooltip(
                         list_localized(g._nexus_addons_p_trans[entry.key]) or ("{ol}" .. entry.data.name))
-                    if max_name_w < name_text:GetWidth() then
-                        max_name_w = name_text:GetWidth()
+                    -- NEW / Update の印は名前のすぐ右に置く。**離れた固定の列にしないこと**:
+                    -- 印が無い起動では空いた列だけが残り、窓が理由もなく広くなる。
+                    -- 名前と一緒に幅へ数えるので、印が消えれば次の起動で元の幅へ戻る。
+                    local row_w = name_text:GetWidth()
+                    local badge = g.badge_of(entry)
+                    if badge then
+                        local badge_ctrl = box:CreateOrGetControl("richtext", "badge_" .. entry.key,
+                            12 + row_w + 8, by + 10, 10, 20)
+                        AUTO_CAST(badge_ctrl)
+                        badge_ctrl:SetText(g.badge_text(badge))
+                        badge_ctrl:EnableHitTest(1)
+                        badge_ctrl:SetTextTooltip(g.badge_tooltip(entry, badge))
+                        row_w = row_w + 8 + badge_ctrl:GetWidth()
+                    end
+                    if max_name_w < row_w then
+                        max_name_w = row_w
                     end
                     rows[#rows + 1] = {
                         box = box,
@@ -1030,6 +1081,15 @@ function _nexus_addons_p_frame_init()
     -- あると ESC の 1 回目がクライアント側の「入力欄から抜ける」に使われ、
     -- ESCAPE_PRESSED がこちらへ届かない(利用者から見ると「2 回押さないと閉じない」)。
     list_frame:ShowWindow(1)
+    -- 新着の印を「一度見た」ことにする起点。**ここで seen_ver を進めないこと**
+    -- (印が出るより先に消える)。進めるのは次の起動 = 上の _nexus_addons_p_load_settings。
+    -- 一覧は ON/OFF の切り替えなどで開いたまま何度も通るので、進んだときだけ保存する。
+    if g.settings and g.ver_cmp(ver, g.settings.list_opened_ver) > 0 then
+        g.settings.list_opened_ver = ver
+        _nexus_addons_p_save_settings()
+        g.vlog("更新のお知らせ: 一覧を開いた(list_opened_ver=%s / seen_ver=%s。印は次の起動で消える)",
+            tostring(ver), tostring(g.settings.seen_ver))
+    end
     -- 一括操作ボタンもこの中で置き直す(幅が決まる場所がそこなので)。
     _nexus_addons_p_list_build(list_frame, filter_text, keep_pos)
     -- ESC は × ボタンと同じ閉じ方にする。**破棄だけにしないこと**:
