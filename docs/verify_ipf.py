@@ -58,7 +58,8 @@ ADDON_ID = "nexus_addons_p"  # addons.json の file（一度決めたら変え�
 PACK_ROOT = os.path.join(REPO, "nexus_addons_p")  # .ipf 内部パスはここからの相対
 BUNDLE_DIR = os.path.join(REPO, "nexus_addons_p", ADDON)
 ADDONS_JSON = os.path.join(REPO, "addons.json")
-HEADER_LUA = os.path.join(REPO, "nexus_addons_p", "src", "core", "00_header.lua")
+SRC = os.path.join(REPO, "nexus_addons_p", "src")
+HEADER_LUA = os.path.join(SRC, "core", "00_header.lua")
 IPF_GLOB = os.path.join(REPO, "nexus_addons_p", "*.ipf")
 
 REBUILD_HINT = (
@@ -241,6 +242,36 @@ def check_version(ipf_path):
     return False
 
 
+def check_next_placeholder():
+    """更新のお知らせの since / updated に "next"（未採番の印）が残っていないか。
+
+    main へ入れる PR では版を上げない（先行採番の禁止）ので、開発中の since / updated には
+    g.VER_NEXT = "next" を書く。これは**どの版よりも新しいもの**として扱われるため、
+    置き換えを忘れたまま配布すると NEW / 更新 の印が永久に消えない。
+    release-prep / release でしか走らない検査なので、開発中に引っかかることはない。
+    """
+    next_re = re.compile(r"^\s*(?:since|updated)\s*=\s*(?:core_)?g\.VER_NEXT", re.M)
+    ng = []
+    for root, _dirs, files in os.walk(SRC):
+        for name in sorted(files):
+            if not name.endswith(".lua"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            rel = os.path.relpath(path, REPO)
+            if next_re.search(text):
+                ng.append(f"{rel}: since / updated が未採番（g.VER_NEXT）のまま")
+    if not ng:
+        print("  未採番（g.VER_NEXT）の残りなし")
+        return True
+    print("\n[verify] 未採番の印が残っている。実際の版へ置き換えること:")
+    for line in ng:
+        print(f"    {line}")
+    print("    ※ README の更新履歴の見出しを vX.Y.Z に確定させるのと同じ PR で置き換えること")
+    return False
+
+
 USAGE = "  使い方: python docs/verify_ipf.py [--version-only | --content-only]"
 
 
@@ -267,6 +298,8 @@ def main():
     if not content_only:
         print("[verify] バージョンの三者一致")
         ok &= check_version(ipf_path)
+        print("[verify] 更新のお知らせの未採番チェック")
+        ok &= check_next_placeholder()
 
     print("[verify] OK" if ok else "[verify] NG")
     sys.exit(0 if ok else 1)

@@ -1868,3 +1868,195 @@ function g.log_to_file(message)
     end
 end
 
+
+-- ===== 更新のお知らせ(NEW / Update の印) =====
+--
+-- 「機能を足したのに気付かれない」を減らすための仕掛け。出口は 2 つ。
+--   * 一覧(core/20_lifecycle.lua)の行と Mini Addons の設定行に付く NEW / Update の印
+--   * 印のツールチップ(何が変わったか。updated_note_jp / _en)
+--
+-- **更新内容そのものはゲーム内に持たない。** 全文は README の更新履歴が持っており、
+-- ゲーム内に二重に持つと必ず食い違う(かつては帯 + 全文の窓を出していたが、
+-- README と同じ内容を長々と並べるだけになったので畳んだ)。印は「どこが変わったか」を
+-- 指すところまでを受け持つ。
+--
+-- 既読の記録は settings.json のトップレベル 2 つ。**valid_keys への追加が要る**
+-- (書き忘れると毎回プルーニングで消える。_nexus_addons_p_load_settings 参照)。
+--   seen_ver        …… 印を出す基準。「この版までは知っている」
+--   list_opened_ver …… アドオン一覧を開いた版
+--
+-- **一覧を開いた瞬間に seen_ver を進めないこと。** 印は「どこが新しいのか探す」ための
+-- ものなので、開いた瞬間に全部消えると探しに行けない(そもそも印が出る前に消える)。
+-- 開いた版は list_opened_ver に控えるだけにして、seen_ver を進めるのは**次の起動**
+-- (_nexus_addons_p_load_settings)。つまり「一度一覧を開いたら、次の起動で消える」。
+--
+-- **seen_ver が無いときは 0.0.0 扱い**にする(= since / updated が付いている項目は全部出る)。
+-- 既に使っている人が更新したときにここが空になるので、ver で埋めてしまうと
+-- 「印を導入した版の新着が誰にも出ない」ことになる。初回インストールのときだけ ver を入れる。
+
+-- まだ採番していない版を指す印。**main へ入れる PR では版を上げない**(CLAUDE.md の
+-- 「バージョン情報はリリース時にだけ上げる」)ので、開発中の since / updated はこれを書く。
+-- どの版よりも新しいものとして扱われるため、採番するまでは必ず印が出る。
+-- release-prep/vX.Y.Z で実際の版へ置き換える(置き換え忘れは docs/verify_ipf.py が落とす)。
+g.VER_NEXT = "next"
+
+-- "2.1.0" のような版を数値の並びにする。VER_NEXT と数字を含まない文字列は nil を返し、
+-- 呼び元(g.ver_cmp)がそれぞれ「無限大」「0.0.0」として扱う。
+local function ver_parts(v)
+    if v == g.VER_NEXT then
+        return nil
+    end
+    local parts = {}
+    for n in string.gmatch(tostring(v or ""), "%d+") do
+        parts[#parts + 1] = tonumber(n)
+    end
+    return parts
+end
+
+-- 版の比較。a < b なら -1、同じなら 0、a > b なら 1。
+-- 桁数が違っても比べられる("2.1" と "2.1.0" は同じ)。数字が 1 つも無いものは 0.0.0 扱い
+-- (設定ファイルは手で書き換えられるので、変な値が入っても比較が壊れないようにする)。
+function g.ver_cmp(a, b)
+    local pa, pb = ver_parts(a), ver_parts(b)
+    if pa == nil or pb == nil then
+        if pa == nil and pb == nil then
+            return 0
+        end
+        return (pa == nil) and 1 or -1
+    end
+    local n = math.max(#pa, #pb)
+    for i = 1, n do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then
+            return (x < y) and -1 or 1
+        end
+    end
+    return 0
+end
+
+-- 行に出す印を決める。def は since / updated を持つテーブルなら何でもよい
+-- (core/10_registry.lua のエントリでも、mini_addons の設定定義でも同じ形で使う)。
+-- 戻り値は "new" / "upd" / nil。
+--
+-- **NEW を優先する。** 追加した版で中身も直したときに両方出ると読み手が混乱するので、
+-- 「追加された」ほうだけを見せる(そもそも追加時に updated は書かない運用)。
+function g.badge_of(def)
+    if type(def) ~= "table" then
+        return nil
+    end
+    local seen = g.settings and g.settings.seen_ver
+    if def.since ~= nil and g.ver_cmp(def.since, seen) > 0 then
+        return "new"
+    end
+    if def.updated ~= nil and g.ver_cmp(def.updated, seen) > 0 then
+        return "upd"
+    end
+    return nil
+end
+
+-- 印の表示文字列。**言語によらず英字にする。** 一覧に並ぶアドオン名がすべて英字なので、
+-- そこだけ「更新」と混ざると行の中で浮く。
+function g.badge_text(badge)
+    if badge == "new" then
+        return "{ol}{s14}{#FF6347}NEW"
+    elseif badge == "upd" then
+        return "{ol}{s14}{#FFCC33}Update"
+    end
+    return nil
+end
+
+-- 行そのものではなく「その行の中身」に新着があることがある。Mini Addons は 1 行の裏に
+-- 80 以上の設定項目を抱えており、設定を 1 つ足しても一覧の行は何も変わらないので、
+-- **一覧を見ているだけでは気付けない**。子の定義をここへ預けてもらい、行の印に集約する。
+--
+-- 預ける側は addons/mini_addons/settings/definitions.lua（読み込み時ガードの中）。
+-- **core 側から子を直接見に行かないこと**: あちらは conclude スコープの local なので
+-- 見えないし、本家が居るときは定義そのものが存在しない。
+g.badge_children = g.badge_children or {}
+
+-- 定義の表示名。registry のエントリ(data.name)と mini_addons の設定定義(text_jp など)の
+-- どちらも同じ呼び方で引けるようにする。
+function g.badge_label(def)
+    if type(def) ~= "table" then
+        return ""
+    end
+    if def.data and def.data.name then
+        return def.data.name
+    end
+    if g.lang == "Japanese" and def.text_jp then
+        return def.text_jp
+    elseif g.lang == "kr" and def.text_kr then
+        return def.text_kr
+    end
+    return def.text_en or def.text_jp or def.name or ""
+end
+
+-- 一覧の行に出す印。自分の since / updated を先に見て、無ければ子の新着を集める。
+-- 戻り値は (印, 新着の子の件数)。子から来た印のときだけ件数が 1 以上になる。
+function g.badge_row(entry)
+    local own = g.badge_of(entry)
+    if own then
+        return own, 0
+    end
+    local children = g.badge_children[entry.key]
+    if type(children) ~= "table" then
+        return nil, 0
+    end
+    local badge, count = nil, 0
+    for _, def in ipairs(children) do
+        local b = g.badge_of(def)
+        if b then
+            count = count + 1
+            -- **NEW を優先する。** g.badge_of と同じ理由(追加と改修が混ざったときに
+            -- 「増えた」ほうを見せる)。件数は数え続けるので break しない。
+            if b == "new" then
+                badge = "new"
+            elseif badge == nil then
+                badge = "upd"
+            end
+        end
+    end
+    return badge, count
+end
+
+-- 子から来た印のツールチップ。**何が新しいのかを名前で出すこと**: 行の印だけでは
+-- 「設定画面のどこか」までしか分からず、80 以上ある項目から探すことになる。
+-- 長くなりすぎないよう 5 件で打ち切って残りは件数で示す。
+function g.badge_children_tooltip(entry, count)
+    local ja = g.lang == "Japanese"
+    local lines = {ja and string.format("{ol}設定に %d 件の新着があります", count) or
+        string.format("{ol}%d new or updated settings", count)}
+    local shown = 0
+    for _, def in ipairs(g.badge_children[entry.key] or {}) do
+        local b = g.badge_of(def)
+        if b then
+            if shown >= 5 then
+                lines[#lines + 1] = ja and string.format("ほか %d 件", count - shown) or
+                                        string.format("and %d more", count - shown)
+                break
+            end
+            shown = shown + 1
+            lines[#lines + 1] = string.format("・%s [%s]", g.badge_label(def), b == "new" and "NEW" or "Update")
+        end
+    end
+    return table.concat(lines, "{nl}")
+end
+
+-- 印のツールチップ。**「この版で変わりました」のような前置きを付けないこと。**
+-- 印が出ている時点で「変わった」ことは伝わっているので前置きは何も足さないうえ、
+-- 印は seen_ver より新しいものを全部出す = **今の版とは限らない**ので、
+-- 「この版で」と書くと嘘になる(v2.0.1 の項目にも出て実際に食い違った)。
+-- 出すのは updated_note だけにする。
+function g.badge_tooltip(def, badge)
+    local ja = g.lang == "Japanese"
+    if badge == "new" then
+        return ja and "{ol}新しく追加されました" or "{ol}Newly added"
+    end
+    local note = ja and def.updated_note_jp or def.updated_note_en or def.updated_note_jp
+    if note and note ~= "" then
+        return "{ol}" .. note
+    end
+    -- 注記の書き忘れ。**印だけ出して中身が無い**状態なので、そうと分かる形にしておく
+    -- (CLAUDE.md は updated_note_jp を省かないことにしている)。
+    return ja and "{ol}更新されました" or "{ol}Updated"
+end

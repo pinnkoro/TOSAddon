@@ -134,7 +134,10 @@ local MAIN_FRAME_SETTINGS = {{
     name = "event_shout",
     text_jp = "イベントグローバルシャウトをチャットに表示",
     text_kr = "이벤트 글로벌 샤우트를 채팅에 표시",
-    text_en = "Displays Event Global Shouts in the chat"
+    text_en = "Displays Event Global Shouts in the chat",
+    updated = "2.1.0",
+    updated_note_jp = "フィールドボスの出現・討伐のお知らせが、日本語 / 英語でも出るようになりました",
+    updated_note_en = "Field boss spawn/defeat notices now appear in Japanese / English too"
 }, {
     name = "multiple_item",
     text_jp = "メレジナハード以降のハードレイドで追加報酬券お知らせ",
@@ -174,12 +177,19 @@ local MAIN_FRAME_SETTINGS = {{
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
     text_kr = "헤어 액세서리 자동 인챈트 사용성 개선",
-    text_en = "Hair Accessory Auto-Enchant UX improved"
+    text_en = "Hair Accessory Auto-Enchant UX improved",
+    -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+    -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "チェックした希望オプションが効かないことがあったのを修正しました",
+    updated_note_en = "Fixed wanted options being ignored"
 }, {
     name = "skill_reroll",
     text_jp = "スキル錬成を希望スキルが出るまで回せるように",
     text_kr = "스킬 연성을 원하는 스킬이 나올 때까지 반복",
-    text_en = "Keep re-rolling Skill Enchant until a wanted skill shows up"
+    text_en = "Keep re-rolling Skill Enchant until a wanted skill shows up",
+    -- 「NEW」の印。**since は一度書いたら触らないこと**(触ると追加と改修の区別が付かない)。
+    since = core_g.VER_NEXT
 }, {
     name = "reroll_option",
     text_jp = "オプション設定の数値表を常に表示",
@@ -258,7 +268,10 @@ local SUB_FRAME_SETTINGS = {
         name = "baubas_call",
         text_jp = "バウバス登場をお知らせ",
         text_kr = "바우버스 등장 소식",
-        text_en = "Announcing the arrival of Baubas"
+        text_en = "Announcing the arrival of Baubas",
+        updated = "2.1.0",
+        updated_note_jp = "お知らせが日本語 / 英語でも出るようになり、討伐の取りこぼしを減らしました",
+        updated_note_en = "Notices now appear in Japanese / English; fewer missed defeat notices"
     }, {
         name = "chat_recv",
         text_jp = "PTメンバーの死亡をニコチャットで表示",
@@ -511,5 +524,19 @@ do
             last[#last + 1] = defs[name]
         end
     end
+    -- まとめ版の一覧(core/20_lifecycle.lua)の Mini Addons の行へ、設定項目の新着を
+    -- 集約して出せるようにする。**ここで預けないと気付けない**: 設定を 1 つ足しても
+    -- 一覧の行の見た目は変わらないので、一覧しか見ていない人には増えたことが伝わらない。
+    -- 集約と印の決め方は core_g.badge_row。
+    local all = {}
+    for _, name in ipairs(order) do
+        all[#all + 1] = defs[name]
+    end
+    -- **入れ物が無い前提で書くこと。** ここはチャンクの読み込み中に走るので、
+    -- core_g.badge_children が nil のまま添字を引くと**その場で読み込みが止まり、
+    -- これより後ろの定義がまるごと失われる**（後続の market_favorite_rebuild などが
+    -- 丸ごと消える）。core が古い / 差し替えられた場合にも耐えるようにする。
+    core_g.badge_children = core_g.badge_children or {}
+    core_g.badge_children["mini_addons"] = all
 end
 
