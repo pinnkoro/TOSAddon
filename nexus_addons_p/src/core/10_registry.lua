@@ -313,6 +313,9 @@ g._nexus_addons_p = {{
 }, {
     key = "job_change_helper",
     category = "char",
+    updated = g.VER_NEXT,
+    updated_note_jp = "装備を全部外すボタンでペット（コンパニオン）も外し、着け直すときに呼び戻すようにしました",
+    updated_note_en = "The remove-all-equipment button now also removes the companion, and re-summons it when re-equipping",
     data = {
         use = 0,
         name = "Job Change Helper",
