@@ -1047,6 +1047,25 @@ function g.create_persistent_frame(frame_name)
     return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
 end
 
+-- ウィンドウの裏をクリックできてしまうのを防ぐ。**窓を開いたら必ず呼ぶこと。**
+--
+-- 土台の notice_on_pc.xml は <input ... hittestframe="false"/> なので、既定では
+-- フレーム自身の背景(コントロールが乗っていない部分)が当たり判定を持たない。
+-- そこを押した入力は下の 3D 画面へ抜けてしまい、窓の上をクリックしたつもりが
+-- キャラクターが歩き出す・敵を選ぶ、という動きになる。
+-- (子のボタンやスロットは各自の EnableHitTest で受けるので、そこだけは抜けない。
+--  つまり「窓の余白を押したときだけ裏に通る」という分かりにくい出方をする)
+--
+-- 逆に**通したいもの**では呼ばないこと。常時表示の HUD(always_status / indun_panel の
+-- 折りたたみ時 / muteki のように「固定」で通す作りのもの)、マーカー、ツールチップ、
+-- 大きさ 0 の入れ物フレームが当たる。ここで塞ぐと、画面の一部が押せなくなる。
+function g.block_click_through(frame)
+    if not frame then
+        return
+    end
+    frame:EnableHittestFrame(1)
+end
+
 -- スクロールできる groupbox の、今のスクロール位置を返す。
 --
 -- **GetScrollPos ではない。あれはクライアントに無い。**

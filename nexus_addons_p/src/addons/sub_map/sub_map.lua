@@ -83,6 +83,7 @@ end
 function Sub_map_settings()
     local config = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "sub_map_setting_frame", 0, 0, 0, 0)
     AUTO_CAST(config)
+    g.block_click_through(config)
     config:RemoveAllChild()
     config:SetLayerLevel(999)
     config:SetSkinName("test_frame_low")

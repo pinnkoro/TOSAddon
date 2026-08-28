@@ -178,6 +178,30 @@ Lua の `local function f` は**宣言行より後ろからしか見えない**�
 * `ui.*` を差し替えられないクライアントに当たったら横取りを諦め、素をそのまま呼ぶ
   （追加項目は出ないが標準のメニューは壊れない）。可否は `verbose_log.txt` に 1 回だけ出す。
 
+## ウィンドウを開いたら裏をクリックできないようにする
+
+**自作ウィンドウを開くコードを書いたら、必ず `g.block_click_through(frame)` を呼ぶこと**
+（[core/00_header.lua](nexus_addons_p/src/core/00_header.lua)。中身は `EnableHittestFrame(1)`）。
+
+土台の `notice_on_pc.xml` は `<input ... hittestframe="false"/>` なので、**既定ではフレーム
+自身の背景（コントロールが乗っていない余白）が当たり判定を持たない**。そこを押した入力は
+下の 3D 画面へ抜け、窓の上を押したつもりでキャラクターが歩き出す・敵を選ぶ、という動きになる。
+子のボタンやスロットは各自の `EnableHitTest` で受けるので、**余白を押したときだけ裏に通る**
+という一番分かりにくい形で出る（実際に 44 アドオン中 26 個の窓がこの作りだった）。
+
+* **`EnableMove` と相乗りさせないこと。** 「フレームを固定」は**動かさない**だけの設定で、
+  当たり判定まで捨てる意味はない。`indun_panel` が `EnableHittestFrame(enable)` と
+  `EnableMove(enable)` を同じ変数で切り替えており、**固定にした利用者だけ**展開表示
+  （横 600px 以上）の上を押すと裏へ抜けていた。
+* **呼んではいけないもの**（塞ぐと画面の一部が押せなくなる）
+  * 常時表示の HUD（`always_status` / `muteki` / `monster_kill_count` のように、
+    利用者の「固定」「ロック」設定で通す/通さないを切り替える作りのもの）
+  * マーカー（`party_marker` / `boss_direction` の矢印）、ツールチップ
+  * 大きさ 0 の入れ物フレーム（`mini_addons` の `RunUpdateScript` 用の土台など）
+* 呼び忘れは [docs/check_frame_hittest.py](docs/check_frame_hittest.py) が落とす（CI の
+  `bundle` ジョブでも走る）。上の「通したいもの」はスクリプトの `ALLOW` へ**理由付きで**
+  足すこと。ALLOW に残骸（該当のフレーム生成が無いキー）が残っていても落ちる。
+
 ## ウィンドウを開いたら ESC で閉じられるようにする
 
 **自作ウィンドウを開くコードを書いたら、必ず `g.esc_register` 系でスタックへ積むこと。**

@@ -675,6 +675,7 @@ function Characters_item_serch_frame_init(frame, ctrl, select_name, num)
     local characters_item_serch = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "characters_item_serch", 0, 0,
         70, 30)
     AUTO_CAST(characters_item_serch)
+    g.block_click_through(characters_item_serch)
     characters_item_serch:SetSkinName("test_frame_low")
     characters_item_serch:Resize(670, 1080)
     -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。

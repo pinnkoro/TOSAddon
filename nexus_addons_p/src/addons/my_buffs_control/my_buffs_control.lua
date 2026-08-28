@@ -360,6 +360,7 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
     if not my_buffs_control then
         my_buffs_control = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "my_buffs_control", 0, 0, 0, 0)
         AUTO_CAST(my_buffs_control)
+        g.block_click_through(my_buffs_control)
         my_buffs_control:SetSkinName("test_frame_low")
         my_buffs_control:Resize(500, 1060)
         my_buffs_control:SetPos(150, 10)
