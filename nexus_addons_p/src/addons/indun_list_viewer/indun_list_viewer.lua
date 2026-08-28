@@ -621,6 +621,7 @@ function Indun_list_viewer_config(parent)
     if not indun_list_viewer then
         indun_list_viewer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "indun_list_viewer", 0, 0, 10, 10)
         AUTO_CAST(indun_list_viewer)
+        g.block_click_through(indun_list_viewer)
     end
     indun_list_viewer:RemoveAllChild()
     local title_gb = indun_list_viewer:CreateOrGetControl("groupbox", "title_gb", 0, 0, 10, 10)
@@ -711,6 +712,7 @@ function Indun_list_viewer_title_frame_open()
     end
     local indun_list_viewer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "indun_list_viewer", 0, 0, 10, 10)
     AUTO_CAST(indun_list_viewer)
+    g.block_click_through(indun_list_viewer)
     indun_list_viewer:RemoveAllChild()
     indun_list_viewer:SetLayerLevel(99)
     indun_list_viewer:SetSkinName("test_frame_low")

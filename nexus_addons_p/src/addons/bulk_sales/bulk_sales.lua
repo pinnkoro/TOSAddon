@@ -29,6 +29,7 @@ end
 function Bulk_sales_slotset()
     local bulk_sales = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "bulk_sales", 0, 0, 0, 0)
     AUTO_CAST(bulk_sales)
+    g.block_click_through(bulk_sales)
     bulk_sales:SetSkinName("test_frame_low")
     bulk_sales:SetLayerLevel(80)
     bulk_sales:SetTitleBarSkin("None")

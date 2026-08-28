@@ -539,6 +539,7 @@ end
 function Indun_panel_challenge_map_display(map_clsname, date_str)
     local indun_panel_map = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "indun_panel_map", 0, 0, 0, 0)
     AUTO_CAST(indun_panel_map)
+    g.block_click_through(indun_panel_map)
     indun_panel_map:RemoveAllChild()
     indun_panel_map:SetSkinName("bg")
     indun_panel_map:SetLayerLevel(100)
@@ -672,9 +673,14 @@ function Indun_panel_setup_frame(indun_panel)
     indun_panel:SetTitleBarSkin("None")
     local enable = g.indun_panel_settings.etc.move == 0 and 1 or 0
     indun_panel:EnableMove(enable)
-    indun_panel:EnableHittestFrame(enable)
+    -- 「フレームを固定」は**動かさない**だけの設定なので、当たり判定は固定でも残す。
+    -- 以前は EnableHittestFrame(enable) と EnableMove に相乗りさせていたが、これだと
+    -- 固定にした利用者だけパネルの余白が当たり判定を失い、展開表示(横 600px 以上)の
+    -- 上を押すとその入力が下の 3D 画面へ抜けてキャラクターが歩き出していた。
+    g.block_click_through(indun_panel)
     -- フレーム固定チェックの状態に関わらず、ドラッグ保存ハンドラは常にバインドしておく。
-    -- 固定モード(move==1)は EnableHittestFrame(0) で LBUTTONUP 自体が発火しないため無害。
+    -- 固定モード(move==1)は EnableMove(0) で位置が動かず、Indun_panel_frame_drag は
+    -- 座標が変わっていなければ何もしないので無害。
     -- これにより、設定で固定を外して即ドラッグした場合(リビルド前)も、既にハンドラが
     -- 付いているので位置が保存される。
     -- (以前は固定モードで "None" にしており、チェックを外した直後に動かすと
@@ -1000,9 +1006,9 @@ function Indun_panel_ischecked(indun_panel, ctrl)
         g.indun_panel_settings.etc[ctrlname] = ischeck
     end
     if ctrlname == "move" then
+        -- 動かせるかどうかだけを切り替える。当たり判定は常に残す(Indun_panel_setup_frame 参照)。
         local enable = g.indun_panel_settings.etc.move == 0 and 1 or 0
         indun_panel:EnableMove(enable)
-        indun_panel:EnableHittestFrame(enable)
     end
     Indun_panel_save_settings()
 end

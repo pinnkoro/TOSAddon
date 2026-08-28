@@ -145,6 +145,7 @@ end
 function Aethergem_manager_gem_setting(inventory, btn_pic, str, num)
     local setting_frame = ui.CreateNewFrame("chat_memberlist", "Aethergem_manager_setting_frame", 0, 0, 0, 0)
     AUTO_CAST(setting_frame)
+    g.block_click_through(setting_frame)
     -- 2560,1920
     setting_frame:SetSkinName("test_frame_low")
     local map_frame = ui.GetFrame("map")

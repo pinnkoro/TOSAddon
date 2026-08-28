@@ -60,6 +60,11 @@ jobs:
       - name: bundle の前方参照チェック
         run: python3 docs/check_forward_refs.py
 
+      # 窓の裏がクリックで抜けないか。土台の notice_on_pc は hittestframe="false" なので、
+      # 塞ぎ忘れると窓の余白を押した入力が 3D 画面へ抜けてキャラクターが動く。
+      - name: 窓の当たり判定チェック
+        run: python3 docs/check_frame_hittest.py
+
       # ゲーム API をスタブに差し替えて動かせる範囲の回帰テスト。
       # 実機でしか確認できない箇所を壊しても気付けないため、最低限だけ機械で見る。
       - name: core のロジックテスト

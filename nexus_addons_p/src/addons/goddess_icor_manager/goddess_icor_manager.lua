@@ -125,6 +125,7 @@ end
 
 function Goddess_icor_manager_list_init(frame, ctrl, str, page)
     local gim = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "gim", 0, 0, 0, 0)
+    g.block_click_through(gim)
     gim:Resize(1920, 1060) -- 1000
     gim:SetOffset(0, 5) -- 0,20
     gim:ShowWindow(1)

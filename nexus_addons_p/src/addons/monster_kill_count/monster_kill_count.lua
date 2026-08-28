@@ -537,6 +537,7 @@ function Monster_kill_count_map_information(map_id)
     local frame_name = addon_name_lower .. "mkc_map_info"
     local map_info = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
     AUTO_CAST(map_info)
+    g.block_click_through(map_info)
     map_info:SetPos(1000, 30)
     map_info:SetSkinName("test_frame_low")
     local close_btn = map_info:CreateOrGetControl("button", "close_button", 0, 0, 30, 30)
