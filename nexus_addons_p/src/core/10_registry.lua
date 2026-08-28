@@ -290,7 +290,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.2.1",
     updated_note_jp = "「フレームを固定」にしていると、展開表示の上を押した入力が裏の画面へ抜けていたのを修正しました",
     updated_note_en = "Fixed clicks passing through the expanded panel to the game when the frame was locked",
     data = {
@@ -313,7 +313,7 @@ g._nexus_addons_p = {{
 }, {
     key = "job_change_helper",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.2.1",
     updated_note_jp = "装備を全部外すボタンでペット（コンパニオン）も外し、着け直すときに呼び戻すようにしました",
     updated_note_en = "The remove-all-equipment button now also removes the companion, and re-summons it when re-equipping",
     data = {
