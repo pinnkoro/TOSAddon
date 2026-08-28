@@ -50,6 +50,7 @@ function Status_point_check_toggle_frame(frame, ctrl)
     if not status_point_check then
         status_point_check = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "status_point_check", 0, 0, 0, 0)
         AUTO_CAST(status_point_check)
+        g.block_click_through(status_point_check)
     end
     status_point_check:SetSkinName("collection_complete")
     status_point_check:SetPos(510, 100)

@@ -31,6 +31,7 @@ function Tavern_of_soul_main_frame_init()
     end
     local tos_main = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "tos_main", 0, 0, 0, 0)
     AUTO_CAST(tos_main)
+    g.block_click_through(tos_main)
     tos_main:RemoveAllChild()
     local map_frame = ui.GetFrame("map")
     local width = map_frame:GetWidth()

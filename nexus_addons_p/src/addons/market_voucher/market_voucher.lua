@@ -418,6 +418,7 @@ function Market_voucher_print()
     end
     local market_voucher = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "market_voucher", 0, 0, 0, 0)
     AUTO_CAST(market_voucher)
+    g.block_click_through(market_voucher)
     market_voucher:SetSkinName("downbox")
     market_voucher:ShowTitleBar(0)
     market_voucher:SetOffset(15, 175)

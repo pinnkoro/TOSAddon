@@ -227,6 +227,7 @@ function Separate_buff_custom_settings(buff_list, ctrl, ctrl_text)
     if not buff_list then
         buff_list = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "separate_buff_custom_buff_list", 0, 0, 0, 0)
         AUTO_CAST(buff_list)
+        g.block_click_through(buff_list)
         buff_list:SetSkinName("test_frame_low")
         buff_list:SetPos(150, 10)
         buff_list:SetLayerLevel(999)

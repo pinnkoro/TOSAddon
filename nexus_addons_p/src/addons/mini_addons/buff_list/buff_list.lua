@@ -92,6 +92,7 @@ function Mini_addons_buff_list_open(frame, ctrl, ctrl_text, num)
     if not buff_list then
         buff_list = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "buff_list", 0, 0, 10, 10)
         AUTO_CAST(buff_list)
+        core_g.block_click_through(buff_list)
         buff_list:SetSkinName("test_frame_low")
         buff_list:Resize(500, 1005)
         buff_list:SetPos(20, 30)

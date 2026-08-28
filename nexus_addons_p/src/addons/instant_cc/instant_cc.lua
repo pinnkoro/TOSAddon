@@ -117,6 +117,7 @@ end
 function Instant_cc_settings_frame_init()
     local settings = ui.CreateNewFrame("chat_memberlist", addon_name_lower .. "instant_cc_settings")
     AUTO_CAST(settings)
+    g.block_click_through(settings)
     -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
     -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
     -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。

@@ -1182,6 +1182,7 @@ function _G.addons_menu_setting_frame(frame, ctrl)
     local setting_w, setting_h = size[1], size[2]
     local setting = ui.CreateNewFrame("chat_memberlist", ADDONS_MENU_SETTING_FRAME, 0, 0, 0, 0)
     AUTO_CAST(setting)
+    g.block_click_through(setting)
     setting:SetTitleBarSkin("None")
     -- 他の設定画面と同じ skin にする。**"chat_window" は半透明**で、後ろの画面が透けて
     -- 文字が読みにくかった(実機で指摘)。アドオン一覧や各アドオンの設定画面はどれも

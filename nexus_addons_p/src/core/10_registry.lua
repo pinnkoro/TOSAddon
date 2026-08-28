@@ -290,6 +290,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
+    updated = g.VER_NEXT,
+    updated_note_jp = "「フレームを固定」にしていると、展開表示の上を押した入力が裏の画面へ抜けていたのを修正しました",
+    updated_note_en = "Fixed clicks passing through the expanded panel to the game when the frame was locked",
     data = {
         use = 0,
         name = "Indun Panel",

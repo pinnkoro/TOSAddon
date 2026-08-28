@@ -97,6 +97,7 @@ function Ancient_auto_set_ANCIENT_CARD_LIST_OPEN()
     local frame_name = addon_name_lower .. "_ancient_auto_set_priset_frame"
     local priset_frame = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
     AUTO_CAST(priset_frame)
+    g.block_click_through(priset_frame)
     priset_frame:RemoveAllChild()
     priset_frame:SetLayerLevel(92)
     priset_frame:SetSkinName('None')
