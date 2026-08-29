@@ -102,8 +102,15 @@ local function hair_enchant_running_frame()
     if reroll_option == nil or reroll_option:IsVisible() == 0 then
         return nil
     end
-    -- 手で 1 回だけ付与したときは何もしない
-    if reroll_option:GetUserValue("STATUS") ~= "is_repeat" then
+    -- 手で 1 回だけ付与したときは何もしない。
+    -- **STATUS で見てはいけない。** STATUS が "is_repeat" になるのは 1 回目を撃ち終えた
+    -- 後なので、「回し始めていきなり停止条件へ当たり、確認ダイアログの『はい』から
+    -- 撃った 1 発」の間はまだ "None" のまま。ここで弾くと**その結果の合図だけが
+    -- 捨てられ**、READY が立たないまま見張りタイマーの「結果の合図が来ない」で
+    -- 止まる(希望オプションが既に付いている髪で回すと毎回そうなり、
+    -- 「はい」を押しても 1 回で止まる形で出た)。
+    -- 判定は更新スクリプトが載っているかを見る hair_enchant_is_running を使う
+    if not hair_enchant_is_running() then
         return nil
     end
     return reroll_option
@@ -188,8 +195,10 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         -- 余分な 1 発の結果が届いて振り直され、当たりが消える(実際に報告された)。
         -- 黙って止まるのを避けるのが目的なので、**撃たずに止めて知らせる**方に倒す。
         -- 続けたければもう一度押せばよく、素材も当たりも失わない
-        core_g.vlog("mini_addons: ヘアエンチャント 停止(%s まま %s 秒経過 / 撃ち直しはしない)", waiting,
-            tostring(HAIR_ENCHANT_WATCHDOG))
+        core_g.vlog(
+            "mini_addons: ヘアエンチャント 停止(%s まま %s 秒経過 / 撃ち直しはしない / READY=%s STATUS=%s ASKING=%s)",
+            waiting, tostring(HAIR_ENCHANT_WATCHDOG), tostring(reroll_option:GetUserValue("READY")),
+            tostring(reroll_option:GetUserValue("STATUS")), tostring(reroll_option:GetUserValue("ASKING")))
         ui.SysMsg(g.lang == "Japanese" and
                       "魔法付与の結果が返らないため連続付与を止めました。もう一度お試しください" or
                       "Stopped: no result came back from the server. Please try again")
