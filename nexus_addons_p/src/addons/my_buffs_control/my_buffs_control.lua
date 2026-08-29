@@ -22,19 +22,25 @@ function My_buffs_control_save_settings()
         ver = g.my_buffs_control_settings.ver
     }
     g.save_json(g.my_buffs_control_path, json_data)
-    -- .dat は毎回まるごと書き直す。件数は GetClassList("Buff") のデバフ以外ほぼ全件で、
-    -- 実測 3816 行 / 40KB(2026-08 の JP クライアント)。**呼び出し元を増やすときは、
-    -- 必ずこの計測を実機で見ること。** mini_addons のバフ一覧が json のままで 5 秒
-    -- かかっていた前例がある(settings/storage.lua の Mini_addons_load_buffs のコメント)。
-    -- あちらは 2806 キーの json.decode で、こちらは行単位の .dat なので桁が違うが、
-    -- 「表を全件書き直す」形は同じなので、呼ぶ回数が増えれば同じ問題になる。
+    -- .dat には**非表示にしたバフ(0)だけ**を書く。表は「非表示リスト」なので、
+    -- 表示するバフは表に載せない(載っていない = 表示)。
+    --
+    -- **表示を 1 として書き戻さないこと。** 以前は判定が「== 1 なら表示」= 許可リストで、
+    -- 表示するバフ全部を持つ必要があった。そのため起動時に GetClassList("Buff") を全件
+    -- 舐めて 1 を入れており、.dat は実測 3816 行 / 40KB(2026-08 の JP クライアント)。
+    -- 未登録のバフを受けるたびに 1 を足して書き直す経路まで生えていた。
+    -- 非表示リストなら、書く量は利用者が実際に隠したぶん(普通は数件〜数十件)で済む。
+    -- mini_addons のバフ一覧が json のままで 5 秒かかっていた前例があるので
+    -- (settings/storage.lua の Mini_addons_load_buffs のコメント)、
+    -- 「表を全件書き直す」形そのものを持たないのが一番効く。
     local t0 = My_buffs_control_now_ms()
     local file = io.open(g.my_buffs_control_dat_path, "w")
     if file then
         local lines = {}
         for id, val in pairs(g.my_buffs_control_settings.buffs) do
-            if val ~= nil then
-                table.insert(lines, tostring(id) .. ":::" .. tostring(val))
+            -- 0 以外(= 表示)が紛れ込んでいても書かない。表に残っていても意味を持たない
+            if val == 0 then
+                table.insert(lines, tostring(id) .. ":::0")
             end
         end
         if #lines > 0 then
@@ -53,6 +59,9 @@ function My_buffs_control_load_settings()
     g.my_buffs_control_old_path = string.format("../addons/%s/settings_2503.json", "my_buffs")
     local t0 = My_buffs_control_now_ms()
     local settings = g.load_json(g.my_buffs_control_path)
+    -- **移行のために ver を上げないこと。** ver を上げると need_init が立ち、
+    -- settings ごと既定値へ差し替わるので、利用者の lock と窓位置まで初期化される。
+    -- 非表示リストへの移行は .dat の中身(表示の行が在るか)で自分で気付ける
     local ver = 1.2
     local need_init = false
     if not settings or not settings.ver or settings.ver < ver then
@@ -70,42 +79,47 @@ function My_buffs_control_load_settings()
     if not settings.buffs then
         settings.buffs = {}
     end
+    -- 表は「非表示リスト」。載っていない = 表示なので、**表示するバフは入れない。**
+    -- ここで GetClassList("Buff") を全件舐めて 1 を入れてはいけない(それが 3816 行の元)。
+    local converted = 0
+    local file = io.open(g.my_buffs_control_dat_path, "r")
+    if file then
+        for line in file:lines() do
+            local id, val = string.match(line, "^(.-):::(.*)$")
+            if id and val then
+                -- 許可リスト時代の .dat には表示(1)の行が全件入っている。
+                -- **0 の行だけ拾って、残りは捨てる。** 拾い切ったら下で 1 回書き直す
+                if tonumber(val) == 0 then
+                    settings.buffs[id] = 0
+                else
+                    converted = converted + 1
+                end
+            end
+        end
+        file:close()
+    end
     if need_init then
         local old_settings = g.load_json(g.my_buffs_control_old_path)
         if old_settings and old_settings.buffs then
             for id, is_visible in pairs(old_settings.buffs) do
-                settings.buffs[tostring(id)] = (is_visible == true) and 1 or 0
-            end
-        end
-        local cls_list, count = GetClassList("Buff")
-        for i = 0, count - 1 do
-            local buff_cls = GetClassByIndexFromList(cls_list, i)
-            if buff_cls then
-                if buff_cls.Group1 ~= 'Debuff' and buff_cls.Group1 ~= 'Deuff' then
-                    local buff_id = tostring(buff_cls.ClassID)
-                    -- 既に設定がある(移行された)場合は上書きしない
-                    if settings.buffs[buff_id] == nil then
-                        settings.buffs[buff_id] = 1
-                    end
+                -- 旧 json は真偽値。非表示(false)だけを引き継ぐ
+                if is_visible ~= true then
+                    settings.buffs[tostring(id)] = 0
                 end
             end
         end
-    else
-        local file = io.open(g.my_buffs_control_dat_path, "r")
-        if file then
-            for line in file:lines() do
-                local id, val = string.match(line, "^(.-):::(.*)$")
-                if id and val then
-                    settings.buffs[id] = tonumber(val)
-                end
-            end
-            file:close()
-        end
+    end
+    -- 表示(1)の行を捨てたときは、その場で 1 回だけ書き直して形を揃える。
+    -- 放っておくと毎回読み捨てることになり、移行が終わらない
+    if converted > 0 then
+        need_init = true
+        g.vlog("my_buffs_control: .dat から表示指定 %d 件を落として非表示リストへ移行する", converted)
     end
     g.my_buffs_control_settings = settings
     -- 件数と所要時間はここでしか分からない。**この行を消さないこと。**
-    -- 「レイドで重い」の切り分けでは、まずこの件数(実測 3816 件)と、上の
-    -- .dat 書き出しの ms を突き合わせる。走るのはセッション中 1 回だけ。
+    -- 非表示リストにしてからは、ここが「利用者が隠したバフの数」になる
+    -- (許可リストだった頃は表示するバフ全部で、実測 3816 件だった)。
+    -- 桁が戻っていたら移行に失敗している。走るのはセッション中 1 回だけ。
     local buff_count = 0
     for _ in pairs(settings.buffs) do
         buff_count = buff_count + 1
@@ -156,10 +170,6 @@ function my_buffs_control_on_init()
     else
         My_buffs_control_reset_ui()
     end
-    if g.my_buffs_control_is_change then
-        My_buffs_control_save_settings()
-        g.my_buffs_control_is_change = false
-    end
     if g.get_map_type() == 'City' then
         return
     end
@@ -171,7 +181,10 @@ function my_buffs_control_on_init()
     -- 置換方式なら**素を呼ぶかどうかを手前で決められる**ので、隠すバフは最初から描かれない。
     -- 素の中身は 1 行も写していない(CLAUDE.md「素の関数を書き写さない」)。
     g.setup_hook(My_buffs_control_BUFF_ON_MSG, "BUFF_ON_MSG")
-    g.register_msg("BUFF_ADD", "My_buffs_control_BUFF_ADD")
+    -- **BUFF_ADD は購読しない。** 表が非表示リストになったので「初めて見たバフ」を
+    -- 表へ足す必要が無い(載っていない = 表示)。許可リストだった頃は、未登録のバフを
+    -- 受けるたびに 1 を足して is_change を立て、次のマップ移動で .dat を全件
+    -- 書き直していた。その経路ごと消してある
     My_buffs_control_common_buff_msg()
     local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
     _nexus_addons_p:RunUpdateScript("My_buffs_control_delayed_init", 1.0)
@@ -242,7 +255,8 @@ function My_buffs_control_common_buff_msg()
         if buff and BUFF_CHECK_SEPARATELIST(buff.buffID) ~= true then
             local cls = GetClassByType('Buff', buff.buffID)
             local is_debuff = cls and (cls.Group1 == 'Debuff' or cls.Group1 == 'Deuff')
-            if is_debuff or g.my_buffs_control_settings.buffs[tostring(buff.buffID)] == 1 then
+            -- 表は非表示リスト。**載っていない(nil) = 表示**なので ~= 0 で見ること
+            if is_debuff or g.my_buffs_control_settings.buffs[tostring(buff.buffID)] ~= 0 then
                 want_n = want_n + 1
                 want[want_n] = {
                     id = buff.buffID,
@@ -396,7 +410,8 @@ function My_buffs_control_BUFF_ON_MSG(frame, msg, argStr, argNum)
     if not cls or cls.Group1 == 'Debuff' or cls.Group1 == 'Deuff' then
         return origin(frame, msg, argStr, argNum)
     end
-    if g.my_buffs_control_settings.buffs[tostring(argNum)] == 1 then
+    -- 表は非表示リスト。載っていない(nil) = 表示なので、そのまま素へ渡す
+    if g.my_buffs_control_settings.buffs[tostring(argNum)] ~= 0 then
         return origin(frame, msg, argStr, argNum)
     end
     -- セパレートバフ欄行きは素が自分で弾く。判定を写さず素へ任せる。
@@ -597,7 +612,7 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
                 if not ctrl_text or ctrl_text == "" or string.find(buff_name, ctrl_text) then
                     local image_name = GET_BUFF_ICON_NAME(buff_cls)
                     if image_name ~= "icon_None" and buff_name ~= "None" then
-                        local is_checked = g.my_buffs_control_settings.buffs[tostring(buff_cls.ClassID)] == 1
+                        local is_checked = g.my_buffs_control_settings.buffs[tostring(buff_cls.ClassID)] ~= 0
                         table.insert(all_buffs, {
                             cls = buff_cls,
                             name = buff_name,
@@ -608,8 +623,8 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
                 end
             else
                 -- デバフは設定の対象外。過去に混入したぶんを表から取り除く。
-                -- **判定は ~= nil で書くこと。** 非表示を 0 で持つようになったので、
-                -- 真偽で書くと 0 のエントリも「在る」と見えて数え方が変わる。
+                -- **判定は ~= nil で書くこと。** 見たいのは「表に在るか」であって
+                -- 値の真偽ではない(Lua では 0 も真なので、not で書くと意図が消える)。
                 local key = tostring(buff_cls.ClassID)
                 if g.my_buffs_control_settings.buffs[key] ~= nil then
                     g.my_buffs_control_settings.buffs[key] = nil
@@ -660,41 +675,18 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
     my_buffs_control:ShowWindow(1)
 end
 
--- **非表示は nil ではなく 0 で持つこと。** nil にすると .dat から行ごと消えるので、
--- 次にそのバフを受けたとき My_buffs_control_BUFF_ADD が「知らないバフ」と見なして
--- 1(表示)へ戻し、そのうえ is_change を立てて次のマップ移動で .dat を全件書き直す。
--- 非表示のバフを常用している人ほど、マップ移動のたびに全件(実測 3816 行)の
--- 書き出しを踏むことになる。
+-- 表は非表示リスト。**非表示は 0 で持ち、表示へ戻すときは行ごと消す。**
+-- 表示を 1 として持つと、表示するバフ全部を持つ許可リストへ逆戻りする
+-- (それが .dat 3816 行の元だった。理由は My_buffs_control_save_settings のコメント)。
 function My_buffs_control_buff_toggle(frame, ctrl, str_buff_id, num)
     local is_check = ctrl:IsChecked()
     if is_check == 1 then
-        g.my_buffs_control_settings.buffs[str_buff_id] = 1
+        g.my_buffs_control_settings.buffs[str_buff_id] = nil
     else
         g.my_buffs_control_settings.buffs[str_buff_id] = 0
     end
     My_buffs_control_save_settings()
 end
 
--- 初めて見たバフを「表示」で表へ足す。**判定は == nil で書くこと。**
--- 非表示は 0 で持つので、not で書くと Lua では 0 が真になるぶん今は動くが、
--- 「未登録かどうか」を見ている意図が消えて、0 を false に変えた途端に
--- 非表示のバフが毎回 1 へ戻る形へ壊れる。
-function My_buffs_control_BUFF_ADD(frame, ctrl, str, buff_id)
-    local str_buff_id = tostring(buff_id)
-    local buff_cls = GetClassByType("Buff", buff_id)
-    -- クラスを引けないバフ ID が来ることがある。素の COMMON_BUFF_MSG は nil ガードを
-    -- 持たないので、ここで弾かないと後段まで nil が流れる。
-    if not buff_cls then
-        return
-    end
-    if buff_cls.Group1 ~= 'Debuff' and buff_cls.Group1 ~= 'Deuff' then
-        if g.my_buffs_control_settings.buffs[str_buff_id] == nil then
-            g.my_buffs_control_settings.buffs[str_buff_id] = 1
-            g.my_buffs_control_is_change = true
-            g.vlog("my_buffs_control: 未登録のバフを表示で追加 id=%s (次のマップ移動で .dat を書き直す)",
-                str_buff_id)
-        end
-    end
-end
 -- my_buffs_control ここまで
 
