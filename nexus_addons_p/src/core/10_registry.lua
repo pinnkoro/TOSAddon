@@ -385,9 +385,9 @@ g._nexus_addons_p = {{
 }, {
     key = "my_buffs_control",
     category = "battle",
-    updated = "2.2.2",
-    updated_note_jp = "レイドなどバフの通知が集中する場所で重くなるのを直しました。設定ファイルも大幅に軽くなり、非表示にしたバフの設定が保持されるようになりました",
-    updated_note_en = "Fixed heavy lag where buff messages pile up (raids etc.). Much smaller settings file, and hidden buff settings are now kept",
+    updated = g.VER_NEXT,
+    updated_note_jp = "バフリストに一括で表示 / 非表示にするボタンを足し、ESC でも閉じられるようにしました",
+    updated_note_en = "Added buttons to show/hide every listed buff at once, and the list now closes with ESC",
     data = {
         use = 0,
         name = "My Buffs Control",
