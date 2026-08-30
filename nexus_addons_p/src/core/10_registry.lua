@@ -385,7 +385,7 @@ g._nexus_addons_p = {{
 }, {
     key = "my_buffs_control",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.2.3",
     updated_note_jp = "バフリストに一括で表示 / 非表示にするボタンを足しました。切り替えがその場で反映されるようになり、ESC でも閉じられます",
     updated_note_en = "Added buttons to show/hide every listed buff at once. Changes now apply immediately, and the list closes with ESC",
     data = {
