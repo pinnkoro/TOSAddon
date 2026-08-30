@@ -596,13 +596,93 @@ function My_buffs_control_frame_close(frame, ctrl, str, num)
 end
 
 function My_buffs_control_buff_list_search(my_buffs_control, ctrl, ctrl_text, num)
-    local search_edit = GET_CHILD_RECURSIVELY(my_buffs_control, "search_edit")
-    local ctrl_text = search_edit:GetText()
-    if ctrl_text ~= "" then
-        My_buffs_control_buff_list_open(my_buffs_control, ctrl, ctrl_text)
-    else
-        My_buffs_control_buff_list_open(my_buffs_control, ctrl, "")
+    My_buffs_control_buff_list_open(my_buffs_control, ctrl, My_buffs_control_buff_list_filter_text(my_buffs_control),
+        num)
+end
+
+-- 一覧に出すバフを列挙する。**表示と一括操作で必ずこれを共有すること。**
+-- 条件(デバフ除外 / 検索語 / アイコンや名前が無いものの除外)が 2 箇所に分かれると、
+-- 「見えているものと一括操作の対象」が食い違って、出ていないバフまで勝手に切り替わる
+-- (mini_addons の Mini_addons_buff_list_each と同じ理由)。
+--
+-- ついでにデバフのエントリを表から取り除き、消した件数を返す。デバフは設定の対象外なので、
+-- 過去に混入したぶんが残っていても意味を持たない。
+function My_buffs_control_buff_list_each(filter_text, func)
+    local cls_list, count = GetClassList("Buff")
+    local pruned = 0
+    for i = 0, count - 1 do
+        local buff_cls = GetClassByIndexFromList(cls_list, i)
+        if buff_cls then
+            if buff_cls.Group1 ~= 'Debuff' and buff_cls.Group1 ~= 'Deuff' then
+                local buff_name = dictionary.ReplaceDicIDInCompStr(buff_cls.Name)
+                if not filter_text or filter_text == "" or string.find(buff_name, filter_text) then
+                    local image_name = GET_BUFF_ICON_NAME(buff_cls)
+                    if image_name ~= "icon_None" and buff_name ~= "None" then
+                        func(buff_cls, buff_name, image_name)
+                    end
+                end
+            else
+                -- **判定は ~= nil で書くこと。** 見たいのは「表に在るか」であって
+                -- 値の真偽ではない(Lua では 0 も真なので、not で書くと意図が消える)。
+                local key = tostring(buff_cls.ClassID)
+                if g.my_buffs_control_settings.buffs[key] ~= nil then
+                    g.my_buffs_control_settings.buffs[key] = nil
+                    pruned = pruned + 1
+                end
+            end
+        end
     end
+    return pruned
+end
+
+-- いま検索欄に入っている絞り込み。一括操作の対象を「見えている分」に合わせるために使う。
+-- **ctrl:GetText() で読まないこと。** 同じ関数を虫眼鏡ボタンにも割り当てているので、
+-- ctrl がボタンのときに空文字を検索語にしてしまう(CLAUDE.md「検索欄は名前で引いて読む」)。
+function My_buffs_control_buff_list_filter_text(my_buffs_control)
+    local search_edit = my_buffs_control and GET_CHILD_RECURSIVELY(my_buffs_control, "search_edit")
+    return search_edit and search_edit:GetText() or ""
+end
+
+-- 変えた設定をその場でバフ欄へ反映する。
+-- **設定を変える経路からは必ずここを通すこと。** 置換方式のフックは「次に通知が来たとき」
+-- しか効かないので、これが無いとチェックを切り替えても出ているバフがそのまま残り、
+-- 効いていないように見える。一括操作だけ即時で単体のチェックは次の通知まで、のように
+-- 経路ごとに違うと、利用者からは「効くときと効かないときがある」という形で出る。
+-- 街は全表示が仕様なので触らない(on_init も街では突き合わせを呼ばない)。
+function My_buffs_control_apply_now()
+    if g.get_map_type() == 'City' then
+        return
+    end
+    My_buffs_control_common_buff_msg()
+end
+
+-- 一覧に出ているバフをまとめて表示 / 非表示にする(num: 1=表示, 0=非表示)。
+-- 対象は**いま一覧に出ているぶんだけ**。検索で絞っていればその分だけが変わる。
+function My_buffs_control_buff_list_set_all(frame, ctrl, str, num)
+    local hide = num ~= 1
+    local filter_text = My_buffs_control_buff_list_filter_text(frame)
+    local changed = 0
+    My_buffs_control_buff_list_each(filter_text, function(buff_cls)
+        local key = tostring(buff_cls.ClassID)
+        -- 表は「非表示リスト」。載っていない = 表示なので、表示に戻すときは nil にする。
+        local now_hidden = g.my_buffs_control_settings.buffs[key] == 0
+        if now_hidden ~= hide then
+            g.my_buffs_control_settings.buffs[key] = hide and 0 or nil
+            changed = changed + 1
+        end
+    end)
+    My_buffs_control_save_settings()
+    g.vlog("my_buffs_control: バフ一覧を一括変更 表示=%s 変更 %d 件 filter=%s", tostring(not hide), changed,
+        tostring(filter_text))
+    ui.SysMsg(g.lang == "Japanese" and
+                  string.format("{ol}{#00BFFF}[Nexus Addons P] バフ表示を %d 件 %s にしました", changed,
+            hide and "非表示" or "表示") or
+                  string.format("{ol}{#00BFFF}[Nexus Addons P] Set %d buff(s) to %s", changed,
+            hide and "hidden" or "shown"))
+    if changed > 0 then
+        My_buffs_control_apply_now()
+    end
+    My_buffs_control_buff_list_open(frame, ctrl, filter_text, num)
 end
 
 function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
@@ -615,7 +695,11 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
         my_buffs_control:Resize(500, 1060)
         my_buffs_control:SetPos(150, 10)
         my_buffs_control:SetLayerLevel(121)
-        local search_edit = my_buffs_control:CreateOrGetControl("edit", "search_edit", 40, 10, 305, 38)
+        local title_text = my_buffs_control:CreateOrGetControl('richtext', 'title_text', 15, 15, 10, 30)
+        AUTO_CAST(title_text)
+        title_text:SetText("{#000000}{s20}Buff List")
+        local search_edit = my_buffs_control:CreateOrGetControl("edit", "search_edit", title_text:GetWidth() + 30, 10,
+            305, 38)
         AUTO_CAST(search_edit)
         search_edit:SetFontName("white_18_ol")
         search_edit:SetTextAlign("left", "center")
@@ -632,48 +716,55 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
         close:SetImage("testclose_button")
         close:SetGravity(ui.RIGHT, ui.TOP)
         close:SetEventScript(ui.LBUTTONUP, "My_buffs_control_frame_close")
+        -- 一括操作のボタン列。文言と並びは mini_addons のバフ一覧に揃える。
+        local ja = g.lang == "Japanese"
+        local buttons = {{
+            name = "all_on_btn",
+            text = ja and "{ol}全部表示" or "{ol}Show all",
+            tooltip = ja and
+                "{ol}いま一覧に出ているバフを全部「表示」にします{nl}検索で絞り込んでいるときは、その分だけが対象です" or
+                "{ol}Show every buff currently listed{nl}Only the filtered ones while searching",
+            script = "My_buffs_control_buff_list_set_all",
+            arg = 1
+        }, {
+            name = "all_off_btn",
+            text = ja and "{ol}全部非表示" or "{ol}Hide all",
+            tooltip = ja and
+                "{ol}いま一覧に出ているバフを全部「非表示」にします{nl}検索で絞り込んでいるときは、その分だけが対象です{nl} {nl}{#FF0000}絞り込まずに押すと全部消えます" or
+                "{ol}Hide every buff currently listed{nl}Only the filtered ones while searching{nl} {nl}{#FF0000}Hides everything if pressed without a filter",
+            script = "My_buffs_control_buff_list_set_all",
+            arg = 0
+        }}
+        local btn_x = 10
+        for _, spec in ipairs(buttons) do
+            local btn = my_buffs_control:CreateOrGetControl("button", spec.name, btn_x, 50, 115, 30)
+            AUTO_CAST(btn)
+            btn:SetText(spec.text)
+            btn:SetTextTooltip(spec.tooltip)
+            btn:SetEventScript(ui.LBUTTONUP, spec.script)
+            btn:SetEventScriptArgNumber(ui.LBUTTONUP, spec.arg)
+            btn_x = btn_x + 120
+        end
     end
-    local buff_list_gb = my_buffs_control:CreateOrGetControl("groupbox", "buff_list_gb", 10, 50, 480,
-        my_buffs_control:GetHeight() - 60)
+    -- ボタン列のぶん下げる
+    local buff_list_gb = my_buffs_control:CreateOrGetControl("groupbox", "buff_list_gb", 10, 85, 480,
+        my_buffs_control:GetHeight() - 95)
     AUTO_CAST(buff_list_gb)
     buff_list_gb:SetSkinName("bg")
     buff_list_gb:RemoveAllChild()
-    local cls_list, count = GetClassList("Buff")
     local all_buffs = {}
-    local pruned = 0
-    for i = 0, count - 1 do
-        local buff_cls = GetClassByIndexFromList(cls_list, i)
-        if buff_cls then
-            if buff_cls.Group1 ~= 'Debuff' and buff_cls.Group1 ~= 'Deuff' then
-                local buff_name = dictionary.ReplaceDicIDInCompStr(buff_cls.Name)
-                if not ctrl_text or ctrl_text == "" or string.find(buff_name, ctrl_text) then
-                    local image_name = GET_BUFF_ICON_NAME(buff_cls)
-                    if image_name ~= "icon_None" and buff_name ~= "None" then
-                        local is_checked = g.my_buffs_control_settings.buffs[tostring(buff_cls.ClassID)] ~= 0
-                        table.insert(all_buffs, {
-                            cls = buff_cls,
-                            name = buff_name,
-                            image = image_name,
-                            is_checked = is_checked
-                        })
-                    end
-                end
-            else
-                -- デバフは設定の対象外。過去に混入したぶんを表から取り除く。
-                -- **判定は ~= nil で書くこと。** 見たいのは「表に在るか」であって
-                -- 値の真偽ではない(Lua では 0 も真なので、not で書くと意図が消える)。
-                local key = tostring(buff_cls.ClassID)
-                if g.my_buffs_control_settings.buffs[key] ~= nil then
-                    g.my_buffs_control_settings.buffs[key] = nil
-                    pruned = pruned + 1
-                end
-            end
-        end
-    end
+    local pruned = My_buffs_control_buff_list_each(ctrl_text or "", function(buff_cls, buff_name, image_name)
+        table.insert(all_buffs, {
+            cls = buff_cls,
+            name = buff_name,
+            image = image_name,
+            is_checked = g.my_buffs_control_settings.buffs[tostring(buff_cls.ClassID)] ~= 0
+        })
+    end)
     -- **掃除で実際に消したときだけ保存すること。** この関数は一覧を開く入口であると同時に、
     -- 検索の実行関数でもある(g.setup_incremental_search から My_buffs_control_buff_list_search
-    -- 経由で呼ばれる)。無条件に保存すると**打鍵のたびに .dat を全件書き直す**ことになる
-    -- (実機で、設定画面を 30 秒触った間に 9 回。1 回あたり 1〜3ms)。
+    -- 経由で呼ばれる)。無条件に保存すると**打鍵のたびに .dat を書き直す**ことになる
+    -- (実機で、設定画面を 30 秒触った間に 9 回)。
     -- 掃除は初回に効けば以降は何も変わらないので、変化が無ければ書かない。
     if pruned > 0 then
         g.vlog("my_buffs_control: バフ表からデバフ %d 件を取り除いた", pruned)
@@ -710,6 +801,11 @@ function My_buffs_control_buff_list_open(frame, ctrl, ctrl_text, num)
         y = y + 35
     end
     my_buffs_control:ShowWindow(1)
+    -- 設定画面から開くサブ画面なので、設定画面と同じく ESC で閉じられるようにする。
+    -- × は ui.DestroyFrame だけなので esc_register_destroy でよい。
+    -- 検索し直すとこの関数がもう一度呼ばれるが、esc_register は同じフレームの古い登録を
+    -- 外してから積み直すので二重には積まれない(この窓自身の開き直しなので最前面で正しい)。
+    g.esc_register_destroy(addon_name_lower .. "my_buffs_control")
 end
 
 -- 表は非表示リスト。**非表示は 0 で持ち、表示へ戻すときは行ごと消す。**
@@ -723,6 +819,7 @@ function My_buffs_control_buff_toggle(frame, ctrl, str_buff_id, num)
         g.my_buffs_control_settings.buffs[str_buff_id] = 0
     end
     My_buffs_control_save_settings()
+    My_buffs_control_apply_now()
 end
 
 -- my_buffs_control ここまで
