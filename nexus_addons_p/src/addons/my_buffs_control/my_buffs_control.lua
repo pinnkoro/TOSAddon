@@ -80,23 +80,48 @@ function My_buffs_control_load_settings()
         settings.buffs = {}
     end
     -- 表は「非表示リスト」。載っていない = 表示なので、**表示するバフは入れない。**
-    -- ここで GetClassList("Buff") を全件舐めて 1 を入れてはいけない(それが 3816 行の元)。
-    local converted = 0
+    -- ここで無条件に GetClassList("Buff") を全件舐めて 1 を入れてはいけない(それが 3816 行の元)。
+    --
+    -- ただし**許可リスト時代の .dat からの移行のときだけ**は全件舐める必要がある。
+    -- 当時の「非表示」は 0 の行ではなく**行が無いこと**だったため(v2.2.1 の
+    -- My_buffs_control_buff_toggle は非表示に nil を入れ、書き出しは nil の行を書かない)。
+    -- **0 の行だけ拾う移行にすると、利用者が隠したバフを一件残らず捨てることになる。**
+    local shown, hidden_n, legacy_n = {}, 0, 0
     local file = io.open(g.my_buffs_control_dat_path, "r")
     if file then
         for line in file:lines() do
             local id, val = string.match(line, "^(.-):::(.*)$")
             if id and val then
-                -- 許可リスト時代の .dat には表示(1)の行が全件入っている。
-                -- **0 の行だけ拾って、残りは捨てる。** 拾い切ったら下で 1 回書き直す
                 if tonumber(val) == 0 then
+                    -- 非表示リスト形式の行。そのまま採用する
                     settings.buffs[id] = 0
+                    hidden_n = hidden_n + 1
                 else
-                    converted = converted + 1
+                    -- 許可リスト形式の行(表示)。表には入れず、「表示だった」ことだけ控える
+                    shown[id] = true
+                    legacy_n = legacy_n + 1
                 end
             end
         end
         file:close()
+    end
+    -- 許可リスト形式の行が在った = 移行が要る。**「表示」に載っていないバフが当時の非表示。**
+    -- 走るのは移行の 1 回だけで、以降は legacy_n == 0 なのでここへ入らない
+    if legacy_n > 0 then
+        local cls_list, count = GetClassList("Buff")
+        for i = 0, count - 1 do
+            local buff_cls = GetClassByIndexFromList(cls_list, i)
+            if buff_cls and buff_cls.Group1 ~= 'Debuff' and buff_cls.Group1 ~= 'Deuff' then
+                local buff_id = tostring(buff_cls.ClassID)
+                if not shown[buff_id] and settings.buffs[buff_id] == nil then
+                    settings.buffs[buff_id] = 0
+                    hidden_n = hidden_n + 1
+                end
+            end
+        end
+        need_init = true
+        g.vlog("my_buffs_control: 許可リスト形式の .dat を移行(表示 %d 件 -> 非表示 %d 件を書き出す)",
+            legacy_n, hidden_n)
     end
     if need_init then
         local old_settings = g.load_json(g.my_buffs_control_old_path)
@@ -108,12 +133,6 @@ function My_buffs_control_load_settings()
                 end
             end
         end
-    end
-    -- 表示(1)の行を捨てたときは、その場で 1 回だけ書き直して形を揃える。
-    -- 放っておくと毎回読み捨てることになり、移行が終わらない
-    if converted > 0 then
-        need_init = true
-        g.vlog("my_buffs_control: .dat から表示指定 %d 件を落として非表示リストへ移行する", converted)
     end
     g.my_buffs_control_settings = settings
     -- 件数と所要時間はここでしか分からない。**この行を消さないこと。**
@@ -212,7 +231,15 @@ function My_buffs_control_clear_slots(buff_frame)
         if slotlist and slotcount then
             for i = 0, slotcount - 1 do
                 local slot = slotlist[i]
-                if slot then
+                -- **アイコンの有無を見てから呼ぶこと。** 素の CLEAR_BUFF_SLOT は
+                -- slot:GetIcon():GetInfo() をノーガードで引く。素はこれを表示中の
+                -- スロットにしか呼ばないが、こちらは未使用ぶんを含む全スロットへ掛ける
+                -- (不可視スロットに残った iconInfo.type を消すのがこの関数の目的なので、
+                --  「表示中だけ」に絞ると OnlyOneBuff が元の位置へ復活する不具合が戻る)。
+                -- アイコンが無いスロットは古い type も持たないので、飛ばして正しい。
+                -- 素も、全スロットを走査する get_exist_debuff_in_slotlist では
+                -- icon と iconInfo の両方を nil ガードしている。
+                if slot and slot:GetIcon() ~= nil then
                     CLEAR_BUFF_SLOT(slot, captionlist and captionlist[i])
                 end
             end
@@ -309,7 +336,11 @@ function My_buffs_control_common_buff_msg()
             extra = extra + (n - w)
         end
     end
-    if extra == 0 and g.my_buffs_control_built_sig == want_sig then
+    -- **have_n == 0 のときは帰らないこと。** built_sig はセッション中ずっと残るので、
+    -- マップ移動でバフ欄が空になったのに顔ぶれが前のマップと同じだと、
+    -- extra == 0 かつ sig 一致で「変化なし」と見えて**一つも描かないまま終わる**。
+    -- この関数はまさにその取りこぼしを埋めるためにあるので、空なら必ず組み立てる。
+    if extra == 0 and have_n > 0 and g.my_buffs_control_built_sig == want_sig then
         g.vlog("my_buffs_control: 突き合わせ 変化なし (表示 %d 件 / 並べたい %d 件)", have_n, want_n)
         return
     end
@@ -354,6 +385,10 @@ end
 --
 -- 判断できないとき(s_buff_ui がまだ無い)は true を返して従来どおり消しに行く。
 -- 見落として「非表示にしたのに出る」になるより、無駄に 1 回働く方が実害が小さい。
+-- 出ていれば true と**そのアイコンの BuffIndex**を返す。
+-- index を返すのは、素の "REMOVE" が iconInfo.type と BuffIndex の**両方一致**で
+-- 探すため。届いたメッセージ側の index をそのまま渡すと、居残りアイコンの index と
+-- 違ったときに消えず、以後その ID の通知ごとにフル再配置の空振りを払い続ける。
 function My_buffs_control_is_displayed(buff_id)
     if not s_buff_ui or not s_buff_ui["slotlist"] then
         return true
@@ -369,7 +404,7 @@ function My_buffs_control_is_displayed(buff_id)
                     local icon = slot:GetIcon()
                     local icon_info = icon and icon:GetInfo()
                     if icon_info and tonumber(icon_info.type) == target then
-                        return true
+                        return true, icon:GetUserIValue("BuffIndex")
                     end
                 end
             end
@@ -424,9 +459,11 @@ function My_buffs_control_BUFF_ON_MSG(frame, msg, argStr, argNum)
     -- ただし**隠す前から出ていたぶん**は残っている(レイド中に設定画面でチェックを外した
     -- 場合。過去のメッセージは戻ってこないので、出ているものは自分で消すしかない)。
     -- 出ているときだけ、素に "BUFF_REMOVE" として処理させる。
-    if My_buffs_control_is_displayed(argNum) then
+    -- 消すのは**居残りアイコンが持っている BuffIndex**。届いた argStr ではない(上のコメント)
+    local displayed, shown_index = My_buffs_control_is_displayed(argNum)
+    if displayed then
         My_buffs_control_stat_bump("removed")
-        return origin(frame, "BUFF_REMOVE", argStr, argNum)
+        return origin(frame, "BUFF_REMOVE", shown_index or argStr, argNum)
     end
     -- 出ていない REMOVE は消す相手が居ないので捨てる。**ここを素へ通してはいけない。**
     -- 素の REMOVE は対象が無くても末尾の再配置まで通るので、丸ごと空振りになる。
