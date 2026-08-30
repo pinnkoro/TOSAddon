@@ -643,6 +643,19 @@ function My_buffs_control_buff_list_filter_text(my_buffs_control)
     return search_edit and search_edit:GetText() or ""
 end
 
+-- 変えた設定をその場でバフ欄へ反映する。
+-- **設定を変える経路からは必ずここを通すこと。** 置換方式のフックは「次に通知が来たとき」
+-- しか効かないので、これが無いとチェックを切り替えても出ているバフがそのまま残り、
+-- 効いていないように見える。一括操作だけ即時で単体のチェックは次の通知まで、のように
+-- 経路ごとに違うと、利用者からは「効くときと効かないときがある」という形で出る。
+-- 街は全表示が仕様なので触らない(on_init も街では突き合わせを呼ばない)。
+function My_buffs_control_apply_now()
+    if g.get_map_type() == 'City' then
+        return
+    end
+    My_buffs_control_common_buff_msg()
+end
+
 -- 一覧に出ているバフをまとめて表示 / 非表示にする(num: 1=表示, 0=非表示)。
 -- 対象は**いま一覧に出ているぶんだけ**。検索で絞っていればその分だけが変わる。
 function My_buffs_control_buff_list_set_all(frame, ctrl, str, num)
@@ -666,11 +679,8 @@ function My_buffs_control_buff_list_set_all(frame, ctrl, str, num)
             hide and "非表示" or "表示") or
                   string.format("{ol}{#00BFFF}[Nexus Addons P] Set %d buff(s) to %s", changed,
             hide and "hidden" or "shown"))
-    -- 変えた結果をその場でバフ欄へ反映する。置換方式のフックは「次に通知が来たとき」しか
-    -- 効かないので、これが無いと一括で切り替えても画面が変わらず、効いていないように見える。
-    -- 街は全表示が仕様なので触らない(on_init も街では突き合わせを呼ばない)。
-    if changed > 0 and g.get_map_type() ~= 'City' then
-        My_buffs_control_common_buff_msg()
+    if changed > 0 then
+        My_buffs_control_apply_now()
     end
     My_buffs_control_buff_list_open(frame, ctrl, filter_text, num)
 end
@@ -809,6 +819,7 @@ function My_buffs_control_buff_toggle(frame, ctrl, str_buff_id, num)
         g.my_buffs_control_settings.buffs[str_buff_id] = 0
     end
     My_buffs_control_save_settings()
+    My_buffs_control_apply_now()
 end
 
 -- my_buffs_control ここまで
