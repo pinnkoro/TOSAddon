@@ -101,6 +101,12 @@ jobs:
       - name: mini_addons のメニュー横取りテスト
         run: luajit docs/tests/test_mini_addons_menu.lua
 
+      # バフ表は「非表示リスト」(載っていない = 表示)。表示のバフを書き戻すと許可リストへ
+      # 逆戻りして .dat が全件(実測 3816 行)へ膨らみ、レイドで重くなる原因が戻る。
+      # 移行が 1 回で終わること・窓の位置を初期化しないことも併せて見る。
+      - name: my_buffs_control の非表示リストテスト
+        run: luajit docs/tests/test_my_buffs_control.lua
+
       # .ipf の暗号化は Python 実装（docs/ipf_crypt.py）に置き換えてある。実際に配布した
       # .ipf を復号し、raw deflate 展開してテーブル記載の平文 CRC32 と一致するかを見る
       # （テーブルは暗号化されないので、暗号実装を経由しない独立オラクルになる）。

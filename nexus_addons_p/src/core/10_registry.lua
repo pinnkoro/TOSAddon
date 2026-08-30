@@ -372,6 +372,9 @@ g._nexus_addons_p = {{
 }, {
     key = "muteki",
     category = "battle",
+    updated = "2.2.2",
+    updated_note_jp = "登録していないスキルを使うと内部で毎回エラーになっていたのを修正しました",
+    updated_note_en = "Fixed an internal error that occurred every time an unregistered skill was used",
     data = {
         use = 0,
         name = "Muteki",
@@ -382,6 +385,9 @@ g._nexus_addons_p = {{
 }, {
     key = "my_buffs_control",
     category = "battle",
+    updated = "2.2.2",
+    updated_note_jp = "レイドなどバフの通知が集中する場所で重くなるのを直しました。設定ファイルも大幅に軽くなり、非表示にしたバフの設定が保持されるようになりました",
+    updated_note_en = "Fixed heavy lag where buff messages pile up (raids etc.). Much smaller settings file, and hidden buff settings are now kept",
     data = {
         use = 0,
         name = "My Buffs Control",

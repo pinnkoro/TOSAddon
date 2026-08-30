@@ -180,9 +180,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = "2.2.0",
-    updated_note_jp = "チェックした希望オプションが効かないことがあったのを修正しました",
-    updated_note_en = "Fixed wanted options being ignored"
+    updated = "2.2.2",
+    updated_note_jp = "「続けますか？」で「はい」を押した後、連続付与が 1 回で止まっていたのを修正しました",
+    updated_note_en = "Fixed auto-enchant stopping after one roll when you answered Yes to the confirmation"
 }, {
     name = "skill_reroll",
     text_jp = "スキル錬成を希望スキルが出るまで回せるように",

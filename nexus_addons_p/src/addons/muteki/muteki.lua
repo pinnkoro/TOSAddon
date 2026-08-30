@@ -479,20 +479,26 @@ function Muteki_ICON_USE(my_frame, my_msg)
         if icon_info:GetCategory() == 'Skill' then
             local skill_id = icon_info.type
             local skill_id_str = tostring(skill_id)
-            if g.muteki_buffs[g.muteki_skills[skill_id_str].buff_id] then
+            -- **引く前に g.muteki_skills を確かめること。** ICON_USE はこのアドオンが
+            -- 面倒を見ていないスキルアイコンにも来るので、未登録なら何もせず帰る。
+            -- 以前は次の if で .buff_id を引いてから存在確認しており、未登録のスキルを
+            -- 使うたびに必ず落ちていた(debug_log.txt に 2026-07-29 以降 十数件。
+            -- msg の失敗報告は (メッセージ, ハンドラ) ごとに 1 回だけなので気付きにくい)。
+            local skill_list = g.muteki_skills[skill_id_str]
+            if not skill_list then
                 return
             end
-            local skill_list = g.muteki_skills[skill_id_str]
-            if skill_list then
-                g.muteki_time_buffs[skill_list.buff_id] = {
-                    show = false,
-                    effect = false,
-                    start_time = imcTime.GetAppTime(),
-                    set_time = skill_list.time,
-                    notify = 0
-                }
-                Muteki_BUFF_ON_MSG("", 'BUFF_ADD', "", tonumber(skill_list.buff_id))
+            if g.muteki_buffs[skill_list.buff_id] then
+                return
             end
+            g.muteki_time_buffs[skill_list.buff_id] = {
+                show = false,
+                effect = false,
+                start_time = imcTime.GetAppTime(),
+                set_time = skill_list.time,
+                notify = 0
+            }
+            Muteki_BUFF_ON_MSG("", 'BUFF_ADD', "", tonumber(skill_list.buff_id))
         end
     end
 end
