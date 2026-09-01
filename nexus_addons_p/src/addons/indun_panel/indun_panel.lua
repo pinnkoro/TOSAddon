@@ -1,18 +1,40 @@
 -- indun_panel ここから
 local induns = {{
+    -- チャレンジ / 分裂は Lv 帯(段)が複数あり、その一覧は CHALLENGE_TIERS / SINGULARITY_TIERS が持つ。
+    -- ここに入場 ID を並べていた頃は段の数だけ描画関数が呼ばれていた(1 行を 3 回描いていた)うえ、
+    -- Lv 上限が上がるたびに 2 か所へ書く必要があったので、ID は段の表へ寄せた。
     challenge = {
-        solo_520 = 1001,
-        solo_540 = 1004,
-        pt_540 = 1005,
         jp = "チャレンジ",
         icon = {"Item", 490363}
     }
 }, {
     singularity = {
-        singularity_520 = 2000,
-        singularity_540 = 2001,
         jp = "分裂特異点",
         icon = {"Item", 11030017}
+    }
+}, {
+    -- Lv560。実装時点では Solo/Auto のみで Hard(パーティ) は未実装(indun ID 735 が欠番)。
+    -- 追加されたら h = 735 を足すだけでよい(HARD ボタンは h があるときだけ出る)。
+    -- アイコンは**入場券**を使う。他のレイドはボス(Monster)の画像だが、
+    -- Uriel 系は monster.ies の Icon が 9 体すべて "boss_uriel" の 1 枚で、
+    -- ボスの画像にすると偽りの輝翼と堕落した審判の翼が同じ絵になって見分けが付かない。
+    -- 入場券なら item_Boss_LightUriel_Auto_Enter / item_Boss_DarkUriel_Auto_Enter で別絵になる。
+    -- 参照する ID は raid_tbl の期限なし(通常)の券。アシャーク / 共鳴の聖所と同じ持ち方。
+    light_uriel = {
+        s = 734,
+        a = 733,
+        ac = 80049,
+        jp = "偽りの輝翼",
+        icon = {"Item", 11210072}
+    }
+}, {
+    -- Lv560。上と対の実装で、こちらも Hard(パーティ) は未実装(indun ID 738 が欠番)。
+    dark_uriel = {
+        s = 737,
+        a = 736,
+        ac = 80051,
+        jp = "堕落した審判の翼",
+        icon = {"Item", 11210076}
     }
 }, {
     zmei = {
@@ -173,6 +195,13 @@ local induns = {{
         icon = {"Item", 960213}
     }
 }, {
+    -- Lv560。アシャークと同じ「入場券で入るパーティダンジョン」型
+    zawra = {
+        id = 732,
+        jp = "共鳴の聖所",
+        icon = {"Item", 11210069}
+    }
+}, {
     ashaq = {
         id = 728,
         jp = "アシャーク",
@@ -194,9 +223,10 @@ function Indun_panel_load_settings()
     g.indun_panel_path = string.format("../addons/%s/%s/indun_panel.json", addon_name_lower, g.active_id)
     g.indun_panel_old_path = string.format("../addons/%s/%s/settings.json", "indun_panel", g.active_id)
     local settings = g.load_json(g.indun_panel_path)
-    local indun_keys = {"challenge", "singularity", "zmei", "belliora", "laimara", "ledania", "neringa", "golem",
-                        "merregina", "slogutis", "upinis", "roze", "falouros", "reservoir", "jellyzele", "delmore",
-                        "telharsha", "bernice", "giltine", "memory", "wailing", "ashaq", "jsr"}
+    local indun_keys = {"challenge", "singularity", "light_uriel", "dark_uriel", "zmei", "belliora", "laimara",
+                        "ledania", "neringa", "golem", "merregina", "slogutis", "upinis", "roze", "falouros",
+                        "reservoir", "jellyzele", "delmore", "telharsha", "bernice", "giltine", "memory", "wailing",
+                        "zawra", "ashaq", "jsr"}
     local json_to_indun_map = {
         veliora = "belliora",
         limara = "laimara",
@@ -239,6 +269,7 @@ function Indun_panel_load_settings()
                 rada = 1,
                 jurate = 1,
                 austeja = 1,
+                saule = 1,
                 pvp_mine = 1,
                 market = 1,
                 craft = 1,
@@ -281,6 +312,18 @@ function Indun_panel_load_settings()
                         end
                     end
                 end
+            end
+        end
+    end
+    -- 新しいショートカット追加時のバックフィル。cols に無いキーは既定 ON(1) で補う。
+    -- これが無いと、既存ユーザーの保存済み cols に無い新ボタンは nil 判定で描画されず、
+    -- 設定のチェックも外れたままになる = 追加したのに誰にも出ない
+    local col_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market", "craft",
+                      "leticia"}
+    if type(settings.cols) == "table" then
+        for _, name in ipairs(col_keys) do
+            if settings.cols[name] == nil then
+                settings.cols[name] = 1
             end
         end
     end
@@ -392,7 +435,12 @@ end
 function Indun_panel_INDUN_ALREADY_PLAYING_dilay()
     local indunenter = ui.GetFrame("indunenter")
     local indun_type = indunenter:GetUserIValue('INDUN_TYPE')
-    if indun_type == 1005 or indun_type == 2000 or indun_type == 2001 then -- 1005＝540チャレPT 2001＝540分裂
+    -- 対象は「自動マッチングで入るもの」= チャレンジの PT と分裂の全段。
+    -- 以前は 1005 / 2000 / 2001 を直接並べていたが、1005 は削除され 1007 と 2003 が
+    -- 増えたので、段の表から引く Indun_panel_is_auto_rejoin_indun に任せる
+    -- (この関数は段の表より前にあるので、表を upvalue で掴めない。
+    --  グローバル関数にして実行時に引く)。
+    if Indun_panel_is_auto_rejoin_indun(indun_type) then
         AnsGiveUpPrevPlayingIndun(1)
         ui.CloseFrame("indunenter")
         ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
@@ -639,7 +687,8 @@ function Indun_panel_frame_init(is_toggle, msg)
     btn:SetTextTooltip(g.lang == "Japanese" and "{ol}右クリック: 常時展開で開く" or
                            "{ol}Right click: Open in Always Expand")
     local x = Indun_panel_create_common_buttons(indun_panel)
-    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "pvp_mine", "market", "craft",
+    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market",
+                         "craft",
                          "leticia"}
     for _, key_name in ipairs(button_keys) do
         local value = g.indun_panel_settings.cols[key_name]
@@ -784,6 +833,18 @@ function Indun_panel_create_shortcut_button(indun_panel, key_name, x)
         tooltip_msg = (g.lang == "Japanese" and "{ol}アウステヤショップ{nl}" or "{ol}Austeja Shop{nl}") ..
                           "{#FFFF00}" .. coin_count
         btn:SetEventScript(ui.LBUTTONUP, "REQ_AustejaCertificate_SHOP_OPEN")
+    elseif key_name == "saule" then
+        btn = indun_panel:CreateOrGetControl("button", "saule", x, 7, 29, 29)
+        -- 素のクライアントに **サウレ専用のショップボタン画像は無い**(baseskinset の
+        -- goddess*_shop_btn は goddess_ / 2 / 3 / 4 / 5 の 5 枚だけで、素の
+        -- minimized_certificate_shop_button は goddess5_shop_btn = アウステヤの絵のまま
+        -- サウレの商店を開いている)。それをそのまま真似るとアウステヤのボタンと
+        -- 隣同士で同じ絵になって見分けが付かないので、コインの画像を使う。
+        btn:SetText("{img icon_item_season_coin_Saule 29 29}")
+        coin_count = GET_COMMAED_STRING(TryGetProp(account_obj, "SauleCertificate", "0"))
+        tooltip_msg = (g.lang == "Japanese" and "{ol}サウレショップ{nl}" or "{ol}Saule Shop{nl}") ..
+                          "{#FFFF00}" .. coin_count
+        btn:SetEventScript(ui.LBUTTONUP, "REQ_SauleCertificate_SHOP_OPEN")
     elseif key_name == "pvp_mine" then
         btn = indun_panel:CreateOrGetControl("button", "pvp_mine", x, 7, 29, 29)
         btn:SetText("{img pvpmine_shop_btn_total 29 29}")
@@ -921,7 +982,8 @@ function Indun_panel_frame_open(indun_panel)
     configbtn:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_open")
     configbtn:SetTextTooltip(g.lang == "Japanese" and "{ol}Indun Panel 設定" or "{ol}Indun Panel Config")
     x = x + 30
-    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "pvp_mine", "market", "craft",
+    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market",
+                         "craft",
                          "leticia"}
     for _, key_name in ipairs(button_keys) do
         local value = g.indun_panel_settings.cols[key_name]
@@ -949,7 +1011,9 @@ function Indun_panel_frame_open(indun_panel)
             current_x = current_x + 85
         end
     end
-    local always_open = indun_panel:CreateOrGetControl('checkbox', 'always_open', 710, 5, 30, 30)
+    -- 位置は SET ボタンの右隣。x=710 の決め打ちだと、ショートカットを 1 つ足すだけで
+    -- SET ボタン列が 30px 右へずれて SET C と重なる(実際サウレの追加で 25px 重なった)
+    local always_open = indun_panel:CreateOrGetControl('checkbox', 'always_open', current_x, 5, 30, 30)
     AUTO_CAST(always_open)
     always_open:SetCheck(g.indun_panel_settings.etc.always_open)
     always_open:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
@@ -973,7 +1037,7 @@ function Indun_panel_frame_open(indun_panel)
     if g.indun_panel_settings[current_set] and g.indun_panel_settings[current_set].jsr == 1 then
         indun_panel_FIELD_BOSS_TIME_TAB_SETTING()
     end
-    local final_x = current_x + 30
+    local final_x = current_x + 35 -- 常時展開チェックボックス(30px)ぶんを足す
     indun_panel:Resize(final_x, 40)
     indun_panel:ShowWindow(1)
     Indun_panel_frame_contents(configbtn)
@@ -1087,6 +1151,10 @@ function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char
     }, {
         name = "austeja",
         img = "goddess5_shop_btn",
+        size = 29
+    }, {
+        name = "saule",
+        img = "icon_item_season_coin_Saule",
         size = 29
     }, {
         name = "pvp_mine",
@@ -1276,14 +1344,49 @@ function Indun_panel_frame_skin_select_(skin_name)
     Indun_panel_frame_open(indun_panel)
 end
 
+-- 各行の描画関数が「この行は横 n px 使った」と申告する先。
+-- パネルの幅は Indun_panel_frame_contents の最後でこの値から決める。
+function Indun_panel_note_row_width(width)
+    if not width then
+        return
+    end
+    if not g.indun_panel_row_width or width > g.indun_panel_row_width then
+        g.indun_panel_row_width = width
+    end
+end
+
+-- Lv560 で足した ID が実機のクライアントで引けているかを、起動につき 1 回だけ出す。
+-- パネルの組み立ては FPS_UPDATE 経由で何度も走るので、毎回出すとログが流れて埋もれる。
+-- 見るのは「その ID の Indun クラスが引けたか」と「引けた場合の ClassName」。
+-- 引けていなければ ID がずれている(データ側で差し替わった)ということなので、ここで分かる。
+local vlog_new_induns_done = false
+local function vlog_new_induns()
+    if vlog_new_induns_done then
+        return
+    end
+    vlog_new_induns_done = true
+    local targets = {733, 734, 736, 737, 732, 1006, 1007, 2003}
+    for _, indun_type in ipairs(targets) do
+        local cls = GetClassByType("Indun", indun_type)
+        if cls then
+            g.vlog("indun_panel: Lv560 indun %d = %s (Lv%s, Ticket=%s)", indun_type,
+                tostring(TryGetProp(cls, 'ClassName', 'None')), tostring(TryGetProp(cls, 'Level', 0)),
+                tostring(TryGetProp(cls, 'TicketingType', 'None')))
+        else
+            g.vlog("indun_panel: Lv560 indun %d が引けない(ID が変わった可能性)", indun_type)
+        end
+    end
+end
+
 function Indun_panel_frame_contents(configbtn)
+    vlog_new_induns()
     local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
-    local shop_buttons = {"gabija", "vakarine", "rada", "jurate", "austeja"}
+    local shop_buttons = {"gabija", "vakarine", "rada", "jurate", "austeja", "saule"}
     local shop_props = {"GabijaCertificate", "VakarineCertificate", "RadaCertificate", "JurateCertificate",
-                        "AustejaCertificate"}
+                        "AustejaCertificate", "SauleCertificate"}
     local shop_names_jp = {"ガビヤショップ", "ヴァカリネショップ", "ラダショップ",
-                           "ユラテショップ", "アウステヤショップ"}
-    local shop_names_en = {"Gabija Shop", "Vakarine Shop", "Rada Shop", "Jurate Shop", "Austeja Shop"}
+                           "ユラテショップ", "アウステヤショップ", "サウレショップ"}
+    local shop_names_en = {"Gabija Shop", "Vakarine Shop", "Rada Shop", "Jurate Shop", "Austeja Shop", "Saule Shop"}
     local account_obj = GetMyAccountObj()
     for i, btn_name in ipairs(shop_buttons) do
         local btn = GET_CHILD_RECURSIVELY(indun_panel, btn_name)
@@ -1300,6 +1403,11 @@ function Indun_panel_frame_contents(configbtn)
         prefix = "FF"
     end
     local x = 150
+    local shading_lines = {}
+    -- 行の右端はこれまで一律 600px で足りていたが、チャレンジ / 分裂が Lv 帯 3 段になって
+    -- はみ出すようになった。実際に描いた行の幅を覚えておいて、最後にパネルの幅を決める。
+    -- (チャレンジを非表示にしている人のパネルは今までどおりの幅のまま)
+    g.indun_panel_row_width = 600
     local current_set = g.indun_panel_settings.etc.use_set
     local use_tbl = g.indun_panel_settings[current_set]
     if not use_tbl then
@@ -1314,6 +1422,8 @@ function Indun_panel_frame_contents(configbtn)
         if use_tbl[key] == 1 then
             if g.indun_panel_settings.etc.shading == 1 then
                 local line = indun_panel:CreateOrGetControl("picture", "line" .. key, 5, y - 2, 740, 33)
+                -- 縞の幅はパネルの幅が確定してから合わせ直す(行を描く前は幅が分からない)
+                table.insert(shading_lines, line)
                 AUTO_CAST(line)
                 line:SetImage("fullwhite")
                 line:SetEnableStretch(1)
@@ -1361,20 +1471,13 @@ function Indun_panel_frame_contents(configbtn)
             end
             if type(value) == "table" then
                 if key == "challenge" then
-                    for sub_key, sub_value in pairs(value) do
-                        if sub_key ~= "jp" and sub_key ~= "icon" then
-                            Indun_panel_challenge_frame(indun_panel, key, sub_key, sub_value, y, x)
-                        end
-                    end
+                    -- 段の一覧は関数側が持っているので、行につき 1 回だけ呼ぶ
+                    Indun_panel_challenge_frame(indun_panel, key, nil, nil, y, x)
                 elseif key == "singularity" then
-                    for sub_key, sub_value in pairs(value) do
-                        if sub_key ~= "jp" and sub_key ~= "icon" then
-                            Indun_panel_singularity_frame(indun_panel, key, sub_key, sub_value, y, x)
-                        end
-                    end
-                elseif key == "zmei" or key == "belliora" or key == "laimara" or key == "ledania" or key == "neringa" or
-                    key == "golem" or key == "merregina" or key == "slogutis" or key == "upinis" or key == "roze" or
-                    key == "falouros" or key == "reservoir" then -- レイド系 (onsweep)
+                    Indun_panel_singularity_frame(indun_panel, key, nil, nil, y, x)
+                elseif key == "light_uriel" or key == "dark_uriel" or key == "zmei" or key == "belliora" or key ==
+                    "laimara" or key == "ledania" or key == "neringa" or key == "golem" or key == "merregina" or key ==
+                    "slogutis" or key == "upinis" or key == "roze" or key == "falouros" or key == "reservoir" then -- レイド系 (onsweep)
                     for sub_key, sub_value in pairs(value) do
                         if sub_key ~= "jp" and sub_key ~= "icon" then
                             Indun_panel_create_frame_onsweep(indun_panel, key, sub_key, sub_value, y, x)
@@ -1392,6 +1495,8 @@ function Indun_panel_frame_contents(configbtn)
                     Indun_panel_velnice_frame(indun_panel, key, value.id, y, x)
                 elseif key == "wailing" then
                     Indun_panel_cemetery_frame(indun_panel, key, value.id, y, x)
+                elseif key == "zawra" then
+                    Indun_panel_resonance_frame(indun_panel, key, value.id, y, x)
                 elseif key == "ashaq" then
                     Indun_panel_demonlair_frame(indun_panel, key, value.id, y, x)
                 elseif key == "jsr" then
@@ -1411,6 +1516,7 @@ function Indun_panel_frame_contents(configbtn)
     y = y + 40
     if g.indun_panel_settings.etc.shading == 1 then
         local line = indun_panel:CreateOrGetControl("picture", "last_line", 5, y - 2, 740, 33)
+        table.insert(shading_lines, line)
         AUTO_CAST(line)
         line:SetImage("fullwhite")
         line:SetEnableStretch(1)
@@ -1418,7 +1524,11 @@ function Indun_panel_frame_contents(configbtn)
         line:SetColorTone(prefix .. (index_remainder == 1 and "696969" or "A9A9A9"))
     end
     indun_panel:SetLayerLevel(80)
-    indun_panel:Resize(x + 600, y)
+    local panel_width = x + (g.indun_panel_row_width or 600)
+    for _, line in ipairs(shading_lines) do
+        line:Resize(panel_width - 10, 33)
+    end
+    indun_panel:Resize(panel_width, y)
     indun_panel:SetSkinName(g.indun_panel_settings.etc.skin_name or "chat_window_2")
     indun_panel:EnableHitTest(1)
     indun_panel:SetAlpha(100)
@@ -1525,7 +1635,25 @@ function Indun_panel_get_entrance_count(indun_type, index)
         return 0
     end
     local reset_type = indun_cls.PlayPerResetType
-    local current_count = GET_CURRENT_ENTERANCE_COUNT(reset_type) or 0
+    -- 素の GET_CURRENT_ENTERANCE_COUNT は第 2 引数にダンジョンのクラスを取り、
+    -- TicketingType == "Entrance_Ticket" のときだけ CheckCountName をアカウント/etc から読む。
+    -- 渡さないと PlayPerResetType 側の経路に落ちて回数が出ない(0 のままになる)。
+    -- 素も「Entrance_Ticket のときだけ渡す」書き分けをしているので、そこに合わせる
+    -- (induninfo.lua の INDUNINFO_SET_ENTERANCE_COUNT / 詳細一覧の countText と同じ判定)。
+    -- ただし素が第 2 引数を実際に使うのは **ClassName が Challenge_ か
+    -- SanctuartyResonance_ で始まるときだけ**なので、効くのは
+    -- チャレンジ(1004/1006/1007)・分裂(2000/2001/2003)・共鳴の聖所(732)の 7 つ。
+    -- アシャーク(728, DemonLair_Ashark)は TicketingType が Entrance_Ticket でも
+    -- 素の分岐に載らず、PlayPerResetType 側の経路へ落ちる。**これは素の induninfo も
+    -- 同じ**(素も Entrance_Ticket なら cls を渡すが、同じ理由で使われない)ので、
+    -- ここで CheckCountName を自前で読んでゲームの表示とずらすことはしない。
+    local ticket_type = TryGetProp(indun_cls, 'TicketingType', 'None')
+    local current_count
+    if ticket_type == 'Entrance_Ticket' then
+        current_count = GET_CURRENT_ENTERANCE_COUNT(reset_type, indun_cls) or 0
+    else
+        current_count = GET_CURRENT_ENTERANCE_COUNT(reset_type) or 0
+    end
     local max_count = GET_INDUN_MAX_ENTERANCE_COUNT(reset_type) or 0
     if index == 1 then
         return string.format("{ol}{#FFFFFF}{s16}(%s)", current_count)
@@ -1535,7 +1663,6 @@ function Indun_panel_get_entrance_count(indun_type, index)
         local count = 1
         local class_name = TryGetProp(indun_cls, 'ClassName', 'None')
         if string.find(class_name, 'Challenge_') then
-            local ticket_type = TryGetProp(indun_cls, 'TicketingType', 'None')
             if ticket_type == 'Entrance_Ticket' then
                 local check_name = TryGetProp(indun_cls, 'CheckCountName', 'None')
                 local etc = GetMyEtcObject()
@@ -1548,17 +1675,19 @@ function Indun_panel_get_entrance_count(indun_type, index)
     elseif index == 4 then
         if indun_type == 1001 then
             return current_count
-        elseif indun_type == 1004 or indun_type == 1005 or indun_type == 2000 or indun_type == 2001 then
-            local class_name = TryGetProp(indun_cls, 'ClassName', 'None')
-            if string.find(class_name, 'Challenge_') then
-                local unit_per_reset = TryGetProp(indun_cls, 'UnitPerReset', 'None')
-                local check_name = TryGetProp(indun_cls, 'CheckCountName', 'None')
-                if unit_per_reset ~= 'None' and check_name ~= 'None' then
-                    if unit_per_reset == 'ACCOUNT' then
-                        return TryGetProp(GetMyAccountObj(), check_name, 0) or 0
-                    elseif unit_per_reset == 'PC' then
-                        return TryGetProp(GetMyEtcObject(), check_name, 0) or 0
-                    end
+        end
+        -- 以前は 1004/1005/2000/2001 を直接並べていたが、Lv560 の追加(1006/1007/2003)と
+        -- 1005 の削除で毎回ここを書き換えることになるので、素と同じ「チャレンジ系の
+        -- 入場券ダンジョン」という条件で判定する。
+        local class_name = TryGetProp(indun_cls, 'ClassName', 'None')
+        if string.find(class_name, 'Challenge_') and ticket_type == 'Entrance_Ticket' then
+            local unit_per_reset = TryGetProp(indun_cls, 'UnitPerReset', 'None')
+            local check_name = TryGetProp(indun_cls, 'CheckCountName', 'None')
+            if unit_per_reset ~= 'None' and check_name ~= 'None' then
+                if unit_per_reset == 'ACCOUNT' then
+                    return TryGetProp(GetMyAccountObj(), check_name, 0) or 0
+                elseif unit_per_reset == 'PC' then
+                    return TryGetProp(GetMyEtcObject(), check_name, 0) or 0
                 end
             end
         end
@@ -1630,6 +1759,15 @@ function Indun_panel_get_invitem_count(tbl)
     return count
 end
 
+-- チャレンジモードは Lv 帯ごとに「ソロ / PT / 入場券 / 買えるショップ」が別物なので、
+-- 段(tier)の表にまとめて 1 か所で回す。Lv 上限が上がるたびに段が増える。
+-- 2026-09 の Lv560 追加で実データが次のように変わっている(indun.ies / itemtradeshop.ies):
+--   * 1006(ソロ) / 1007(自動マッチング = PT ボタン) / 分裂 2003 が増えた
+--   * 540 の PT だった 1005(Challenge_Auto_Hard_Party_540) は **データごと消えた**ので段から外す
+--     (残しておくと押しても何も起きないボタンになる)
+--   * PVP_MINE_40 の売り物が 540 用から **560 用の入場券**へ差し替わった。
+--     540 の段に PVP ボタンを残すと「560 の券を買って 540 へ入ろうとする」ので、
+--     PVP ショップのボタンは 560 の段だけに置く
 local CHALLENGE_CONFIG = {
     LOW = {
         expiring = {10820019, 11030080, 641954, 641955, 641969},
@@ -1638,118 +1776,171 @@ local CHALLENGE_CONFIG = {
     HIGH = {
         expiring = {11201299, 11201300, 10820052},
         non_expiring = {11201298, 11201297}
+    },
+    TOP = {
+        -- ChallengeModeReset_560 系。並びは 540 と同じ「1日 / 7日 / TOS ショップ」→「取引不可 / 通常」
+        expiring = {11202130, 11202131, 10820054},
+        non_expiring = {11202129, 11202128}
     }
 }
+local CHALLENGE_TIERS = {{
+    label = "520",
+    solo = 1001,
+    config = "LOW",
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_315",
+    count_index = 2
+}, {
+    label = "540",
+    solo = 1004,
+    config = "HIGH",
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_320",
+    count_index = 3
+}, {
+    label = "560",
+    solo = 1006,
+    pt = 1007,
+    config = "TOP",
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_322",
+    pvp_recipe = "PVP_MINE_40",
+    count_index = 3
+}}
+local CHALLENGE_TIER_BY_INDUN = {}
+for _, tier in ipairs(CHALLENGE_TIERS) do
+    CHALLENGE_TIER_BY_INDUN[tier.solo] = tier
+    if tier.pt then
+        CHALLENGE_TIER_BY_INDUN[tier.pt] = tier
+    end
+end
+-- 段(tier)ごとに「Lv ボタン / PT ボタン / 入場回数 / USE ボタン」を左から並べる。
+-- 段の顔ぶれは CHALLENGE_TIERS 側にあるので、Lv 上限が上がったら表へ 1 段足すだけでよい。
+-- 戻り値は使った横幅。呼び元が行の右端を覚えてパネルの幅を決める。
+local function challenge_shop_button(indun_panel, name, x, y, recipe, indun_type, mode, icon, icon_text, tooltip)
+    local btn = indun_panel:CreateOrGetControl('button', name, x, y, 100, 30)
+    AUTO_CAST(btn)
+    btn:SetText(string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", icon,
+        Indun_panel_get_recipe_trade_count(recipe) or 0))
+    btn:SetTextTooltip(icon_text .. tooltip)
+    btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
+    btn:SetEventScriptArgString(ui.LBUTTONUP, mode)
+    btn:SetEventScriptArgNumber(ui.LBUTTONUP, indun_type)
+    return btn
+end
+
 function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x)
-    local low_indun_type = 1001
-    local btn_low = indun_panel:CreateOrGetControl('button', "btn_low", x + 0, y, 50, 30)
-    AUTO_CAST(btn_low)
-    btn_low:SetText("{ol}520")
-    btn_low:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
-    btn_low:SetEventScriptArgString(ui.LBUTTONUP, "1")
-    btn_low:SetEventScriptArgNumber(ui.LBUTTONUP, low_indun_type)
-    local txt_low = indun_panel:CreateOrGetControl("richtext", "txt_low", x + 50, y + 5, 40, 30)
-    txt_low:SetText(Indun_panel_get_entrance_count(low_indun_type, 2))
-    local buyuse_low = indun_panel:CreateOrGetControl('button', "buyuse_low", x + 90, y, 100, 30)
-    AUTO_CAST(buyuse_low)
-    local text_low = string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
-        Indun_panel_get_recipe_trade_count("EVENT_TOS_WHOLE_SHOP_315") or 0)
-    local count = Indun_panel_get_invitem_count(CHALLENGE_CONFIG.LOW.expiring)
-    count = count + Indun_panel_get_invitem_count(CHALLENGE_CONFIG.LOW.non_expiring)
-    local icon_text = ""
-    local item_cls = GetClassByType('Item', CHALLENGE_CONFIG.LOW.expiring[1])
-    if item_cls then
-        local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                        "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-        icon_text = string.format(fmt, item_cls.Icon, count)
+    local offset = 0
+    for _, tier in ipairs(CHALLENGE_TIERS) do
+        local suffix = "_ch" .. tier.label
+        local config = CHALLENGE_CONFIG[tier.config]
+        -- 所持数はその段の入場券だけを数える(段をまたいで合算すると別 Lv の券まで数えてしまう)
+        local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
+        local icon_text = ""
+        local item_cls = GetClassByType('Item', config.expiring[1])
+        if item_cls then
+            local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
+                            "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
+            icon_text = string.format(fmt, item_cls.Icon, count)
+        end
+        local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
+        AUTO_CAST(btn)
+        btn:SetText("{ol}" .. tier.label)
+        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
+        btn:SetEventScriptArgString(ui.LBUTTONUP, "1")
+        btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.solo)
+        offset = offset + 50
+        -- PT(自動マッチング)がある段だけボタンを出す。無い段で出すと押しても何も起きない
+        local pt_indun_type = tier.pt or tier.solo
+        if tier.pt then
+            local pt_btn = indun_panel:CreateOrGetControl('button', "pt" .. suffix, x + offset, y, 50, 30)
+            AUTO_CAST(pt_btn)
+            pt_btn:SetText("{ol}{#FFD900}PT")
+            pt_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
+            pt_btn:SetEventScriptArgString(ui.LBUTTONUP, "2")
+            pt_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.pt)
+            offset = offset + 50
+        end
+        local txt = indun_panel:CreateOrGetControl("richtext", "txt" .. suffix, x + offset, y + 5, 40, 30)
+        txt:SetText(Indun_panel_get_entrance_count(tier.solo, tier.count_index))
+        offset = offset + 40
+        local tooltip_tos
+        if tier.pt then
+            tooltip_tos = g.lang == "Japanese" and
+                              "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}3.期限なし" or
+                              "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}3.Non-expiring"
+        else
+            tooltip_tos = g.lang == "Japanese" and
+                              "{ol}優先順位{nl}1.期限付き{nl}2.期限なし{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います)" or
+                              "{ol}Priority{nl}1.Expiring{nl}2.Non-expiring{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use)"
+        end
+        local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
+            pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
+        if tier.pt then
+            tos_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
+            tos_btn:SetEventScriptArgString(ui.RBUTTONUP, "tos")
+            tos_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
+        end
+        offset = offset + 100
+        if tier.pvp_recipe then
+            local tooltip_pvp = g.lang == "Japanese" and
+                                    "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}3.期限なし" or
+                                    "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}3.Non-expiring"
+            local pvp_btn = challenge_shop_button(indun_panel, "buyuse_pvp" .. suffix, x + offset, y, tier.pvp_recipe,
+                pt_indun_type, "pvp", "pvpmine_shop_btn_total", icon_text, tooltip_pvp)
+            pvp_btn:SetText(string.format("{ol}{#FFFFFF}USEor{s16}{img %s 18 18}{#FFFFFF}%s", "pvpmine_shop_btn_total",
+                Indun_panel_get_recipe_trade_count(tier.pvp_recipe) or 0))
+            if tier.pt then
+                pvp_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
+                pvp_btn:SetEventScriptArgString(ui.RBUTTONUP, "pvp")
+                pvp_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
+            end
+            offset = offset + 100
+        end
+        offset = offset + 5
     end
-    local tooltip_low = g.lang == "Japanese" and
-                            "{ol}優先順位{nl}1.期限付き{nl}2.期限なし{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います)" or
-                            "{ol}Priority{nl}1.Expiring{nl}2.Non-expiring{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use)"
-    buyuse_low:SetTextTooltip(icon_text .. tooltip_low)
-    buyuse_low:SetText(text_low)
-    buyuse_low:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
-    buyuse_low:SetEventScriptArgNumber(ui.LBUTTONUP, low_indun_type)
-    local high_indun_type = 1004
-    local high_pt_indun_type = 1005
-    local btn_high = indun_panel:CreateOrGetControl('button', "btn_high", x + 195, y, 50, 30)
-    AUTO_CAST(btn_high)
-    btn_high:SetText("{ol}540")
-    btn_high:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
-    btn_high:SetEventScriptArgString(ui.LBUTTONUP, "1")
-    btn_high:SetEventScriptArgNumber(ui.LBUTTONUP, high_indun_type)
-    local btn_high_pt = indun_panel:CreateOrGetControl('button', "btn_high_pt", x + 250, y, 50, 30)
-    AUTO_CAST(btn_high_pt)
-    btn_high_pt:SetText("{ol}{#FFD900}PT")
-    btn_high_pt:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
-    btn_high_pt:SetEventScriptArgString(ui.LBUTTONUP, "2")
-    btn_high_pt:SetEventScriptArgNumber(ui.LBUTTONUP, high_pt_indun_type)
-    local txt_high = indun_panel:CreateOrGetControl("richtext", "txt_high", x + 300, y + 5, 40, 30)
-    txt_high:SetText(Indun_panel_get_entrance_count(high_indun_type, 3))
-    local buyuse_high_tos = indun_panel:CreateOrGetControl('button', "buyuse_high_tos", x + 340, y, 100, 30)
-    AUTO_CAST(buyuse_high_tos)
-    local count = Indun_panel_get_invitem_count(CHALLENGE_CONFIG.HIGH.expiring)
-    count = count + Indun_panel_get_invitem_count(CHALLENGE_CONFIG.HIGH.non_expiring)
-    local icon_text_high = ""
-    local item_cls = GetClassByType('Item', CHALLENGE_CONFIG.HIGH.expiring[1])
-    if item_cls then
-        local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                        "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-        icon_text_high = string.format(fmt, item_cls.Icon, count)
-    end
-    local text_high_tos = string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
-        Indun_panel_get_recipe_trade_count("EVENT_TOS_WHOLE_SHOP_320") or 0)
-    local tooltip_high_tos = g.lang == "Japanese" and
-                                 "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}3.期限なし" or
-                                 "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}3.Non-expiring"
-    buyuse_high_tos:SetText(text_high_tos)
-    buyuse_high_tos:SetTextTooltip(icon_text_high .. tooltip_high_tos)
-    buyuse_high_tos:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
-    buyuse_high_tos:SetEventScriptArgString(ui.LBUTTONUP, "tos")
-    buyuse_high_tos:SetEventScriptArgNumber(ui.LBUTTONUP, high_pt_indun_type)
-    buyuse_high_tos:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
-    buyuse_high_tos:SetEventScriptArgString(ui.RBUTTONUP, "tos")
-    buyuse_high_tos:SetEventScriptArgNumber(ui.RBUTTONUP, high_indun_type)
-    local buyuse_high_pvp = indun_panel:CreateOrGetControl('button', "buyuse_high_pvp", x + 450, y, 100, 30)
-    AUTO_CAST(buyuse_high_pvp)
-    local text_high_pvp = string.format("{ol}{#FFFFFF}USEor{s16}{img pvpmine_shop_btn_total 18 18}{#FFFFFF}%s",
-        Indun_panel_get_recipe_trade_count("PVP_MINE_40") or 0)
-    local tooltip_high_pvp = g.lang == "Japanese" and
-                                 "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}3.期限なし" or
-                                 "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}3.Non-expiring"
-    buyuse_high_pvp:SetText(text_high_pvp)
-    buyuse_high_pvp:SetTextTooltip(icon_text_high .. tooltip_high_pvp)
-    buyuse_high_pvp:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
-    buyuse_high_pvp:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
-    buyuse_high_pvp:SetEventScriptArgNumber(ui.LBUTTONUP, high_pt_indun_type)
-    buyuse_high_pvp:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
-    buyuse_high_pvp:SetEventScriptArgString(ui.RBUTTONUP, "pvp")
-    buyuse_high_pvp:SetEventScriptArgNumber(ui.RBUTTONUP, high_indun_type)
+    Indun_panel_note_row_width(offset)
 end
 
 function Indun_panel_challenge_item_use(indun_panel, ctrl, mode, indun_type)
+    local tier = CHALLENGE_TIER_BY_INDUN[indun_type]
+    if not tier then
+        g.vlog("indun_panel: チャレンジの段が見つからない indun_type=%s", tostring(indun_type))
+        return
+    end
     local entrance_count = Indun_panel_get_entrance_count(indun_type, 4)
-    if indun_type == 1001 and entrance_count > 0 then -- 520は行ける場合0行けない場合1
-        Indun_panel_process_ticket(indun_type, mode, CHALLENGE_CONFIG.LOW)
-    elseif indun_type ~= 1001 and entrance_count == 0 then -- 540は行ける場合1行けない場合0
-        Indun_panel_process_ticket(indun_type, mode, CHALLENGE_CONFIG.HIGH)
+    -- 520 は入場券ダンジョンではないので「残り回数」がそのまま返る(行けるとき > 0)。
+    -- 540 以降は入場券の消費済みフラグなので、行けるときが 1 で、0 のときに券を使う。
+    local need_ticket
+    if indun_type == 1001 then
+        need_ticket = entrance_count > 0
+    else
+        need_ticket = entrance_count == 0
+    end
+    if need_ticket then
+        Indun_panel_process_ticket(indun_type, mode, CHALLENGE_CONFIG[tier.config])
     end
 end
 
+-- その段で「買って使う」ショップの取引名を返す。無ければ空文字。
+function Indun_panel_challenge_recipe(indun_type, mode)
+    local tier = CHALLENGE_TIER_BY_INDUN[indun_type]
+    if not tier then
+        return ""
+    end
+    if mode == "pvp" then
+        return tier.pvp_recipe or ""
+    end
+    return tier.tos_recipe or ""
+end
+
 function Indun_panel_process_ticket(indun_type, mode, config)
-    local enter_mode = indun_type == 1005 and 2 or 1
+    local tier = CHALLENGE_TIER_BY_INDUN[indun_type]
+    -- PT(自動マッチング)側の indun_type で押されたときだけ ReqMoveToIndun の第 1 引数が 2 になる。
+    -- 以前は 1005 決め打ちだったが、1005 は削除され 1007 になったので段の表から引く。
+    local enter_mode = (tier and tier.pt == indun_type) and 2 or 1
     if Indun_panel_use_prioritized_ticket(config.expiring, enter_mode, indun_type) then
         return
     end
-    local recipe_name = ""
-    if indun_type == 1001 then
-        recipe_name = "EVENT_TOS_WHOLE_SHOP_315"
-    elseif mode == "tos" then
-        recipe_name = "EVENT_TOS_WHOLE_SHOP_320"
-    elseif mode == "pvp" then
-        recipe_name = "PVP_MINE_40"
-    end
-    if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
+    local recipe_name = Indun_panel_challenge_recipe(indun_type, mode)
+    if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
         Indun_panel_item_buy_use(recipe_name)
         Indun_panel_enter_reserve(enter_mode, indun_type)
         return
@@ -1757,7 +1948,8 @@ function Indun_panel_process_ticket(indun_type, mode, config)
     if Indun_panel_use_prioritized_ticket(config.non_expiring, enter_mode, indun_type) then
         return
     end
-    if recipe_name == "PVP_MINE_40" then
+    -- PVP ショップだけは上限を超えて買える枠(OverBuy)があるので、そこまで見る
+    if mode == "pvp" and recipe_name ~= "" then
         local account_obj = GetMyAccountObj()
         local recipe_cls = GetClass('ItemTradeShop', recipe_name)
         if recipe_cls then
@@ -1788,17 +1980,25 @@ function Indun_panel_use_prioritized_ticket(ticket_ids, enter_mode, indun_type)
                         priority = (life_time and life_time > 0 and life_time < 86400) and 1 or 2
                     })
                 else
+                    -- 期限の無い券は最後の手段。ショップでまだ買えるうちは温存する。
+                    -- 見るショップは段ごとに違う(540 は TOS のみ、560 は TOS と PVP)ので、
+                    -- 以前のように 540 用の取引名を直接書かず段の表から引く。
                     if indun_type == 1001 then
                         use_item = inv_item
                     else
-                        if Indun_panel_get_recipe_trade_count("EVENT_TOS_WHOLE_SHOP_320") < 1 and
-                            Indun_panel_get_recipe_trade_count("PVP_MINE_40") < 1 then
+                        local tos_recipe = Indun_panel_challenge_recipe(indun_type, "tos")
+                        local pvp_recipe = Indun_panel_challenge_recipe(indun_type, "pvp")
+                        local tos_left = tos_recipe ~= "" and Indun_panel_get_recipe_trade_count(tos_recipe) or 0
+                        local pvp_left = pvp_recipe ~= "" and Indun_panel_get_recipe_trade_count(pvp_recipe) or 0
+                        if tos_left < 1 and pvp_left < 1 then
                             use_item = inv_item
                         end
                     end
                 end
             else
-                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. use_item.Name .. ")")
+                -- ここは use_item ではなく inv_item(鍵の掛かっていた券)の名前を出す。
+                -- use_item はこの時点では nil のことがあり、そのまま参照すると落ちる
+                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. inv_item.Name .. ")")
             end
         end
     end
@@ -1834,6 +2034,10 @@ function Indun_panel_enter_challenge(indun_panel, ctrl, index, indun_type)
     ReserveScript(string.format("ReqMoveToIndun(%d,%d)", index, 0), 0.3)
 end
 
+-- 分裂特異点もチャレンジと同じく Lv 帯ごとに入場券とショップが別物なので段の表にする。
+-- 2026-09 の Lv560 追加で 2003 が増え、PVP_MINE_41 / 42 の売り物が 540 用から
+-- **560 用の入場券**へ差し替わった。540 の段に PVP ボタンを残すと
+-- 「560 の券を買って 540 へ入ろうとする」ので、PVP ショップは 560 の段だけに置く。
 local SINGULARITY_CONFIG = {
     [2000] = { -- 520
         expiring = {10820018, 11030067},
@@ -1842,87 +2046,101 @@ local SINGULARITY_CONFIG = {
     [2001] = { -- 540
         expiring = {11201303, 11201304, 10820051},
         non_expiring = {11201302, 11201301}
+    },
+    [2003] = { -- 560 (ChallengeExpertModeCountUp_560 系。並びは 540 と同じ)
+        expiring = {11202140, 11202141, 10820053},
+        non_expiring = {11202139, 11202138}
     }
 }
+local SINGULARITY_TIERS = {{
+    label = "520",
+    indun = 2000,
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_314"
+}, {
+    label = "540",
+    indun = 2001,
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_319"
+}, {
+    label = "560",
+    indun = 2003,
+    tos_recipe = "EVENT_TOS_WHOLE_SHOP_321",
+    pvp_recipes = {"PVP_MINE_41", "PVP_MINE_42"}
+}}
+local SINGULARITY_TIER_BY_INDUN = {}
+for _, tier in ipairs(SINGULARITY_TIERS) do
+    SINGULARITY_TIER_BY_INDUN[tier.indun] = tier
+end
+
+-- 他のダンジョンに入りっぱなしの状態で押されたとき、確認を出さずに
+-- 「前のを放棄して入り直す」対象かどうか。自動マッチングで入るもの
+-- (チャレンジの PT / 分裂の全段)だけが対象で、ソロ入場は確認を出す。
+-- Lv 帯が増えても段の表を直せば追従する。
+function Indun_panel_is_auto_rejoin_indun(indun_type)
+    local tier = CHALLENGE_TIER_BY_INDUN[indun_type]
+    if tier and tier.pt == indun_type then
+        return true
+    end
+    return SINGULARITY_TIER_BY_INDUN[indun_type] ~= nil
+end
+
 function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y, x)
-    local low_indun_type = 2000
-    local btn_low = indun_panel:CreateOrGetControl('button', "btn_low" .. indun_type, x, y, 50, 30)
-    AUTO_CAST(btn_low)
-    btn_low:SetText("{ol}520")
-    btn_low:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_singularity")
-    btn_low:SetEventScriptArgNumber(ui.LBUTTONUP, low_indun_type)
-    local count_low = indun_panel:CreateOrGetControl("richtext", "count_low" .. indun_type, x + 55, y + 5, 30, 30)
-    count_low:SetText("{ol}(" .. Indun_panel_get_entrance_count(low_indun_type, 4) .. ")")
-    local ticket_low = indun_panel:CreateOrGetControl('button', 'ticket_low' .. indun_type, x + 85, y, 100, 30)
-    AUTO_CAST(ticket_low)
-    local text_low = string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
-        Indun_panel_get_recipe_trade_count("EVENT_TOS_WHOLE_SHOP_314") or 0)
-    local count = Indun_panel_get_invitem_count(SINGULARITY_CONFIG[2000].expiring)
-    count = count + Indun_panel_get_invitem_count(SINGULARITY_CONFIG[2000].non_expiring)
-    local icon_text = ""
-    local item_cls = GetClassByType('Item', SINGULARITY_CONFIG[2000].expiring[1])
-    if item_cls then
-        local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                        "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-        icon_text = string.format(fmt, item_cls.Icon, count)
+    local offset = 0
+    for _, tier in ipairs(SINGULARITY_TIERS) do
+        local suffix = "_sg" .. tier.label
+        local config = SINGULARITY_CONFIG[tier.indun]
+        local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
+        local icon_text = ""
+        local item_cls = GetClassByType('Item', config.expiring[1])
+        if item_cls then
+            local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
+                            "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
+            icon_text = string.format(fmt, item_cls.Icon, count)
+        end
+        local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
+        AUTO_CAST(btn)
+        btn:SetText("{ol}" .. tier.label)
+        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_singularity")
+        btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+        offset = offset + 55
+        local count_txt = indun_panel:CreateOrGetControl("richtext", "count" .. suffix, x + offset, y + 5, 30, 30)
+        count_txt:SetText("{ol}(" .. Indun_panel_get_entrance_count(tier.indun, 4) .. ")")
+        offset = offset + 30
+        local tooltip = g.lang == "Japanese" and
+                            "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
+                            "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
+        local tos_btn = indun_panel:CreateOrGetControl('button', 'ticket_tos' .. suffix, x + offset, y, 100, 30)
+        AUTO_CAST(tos_btn)
+        tos_btn:SetText(string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
+            Indun_panel_get_recipe_trade_count(tier.tos_recipe) or 0))
+        tos_btn:SetTextTooltip(icon_text .. tooltip)
+        tos_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
+        tos_btn:SetEventScriptArgString(ui.LBUTTONUP, "tos")
+        tos_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+        offset = offset + 105
+        if tier.pvp_recipes then
+            local pvp_btn = indun_panel:CreateOrGetControl('button', 'ticket_pvp' .. suffix, x + offset, y, 140, 30)
+            AUTO_CAST(pvp_btn)
+            local tooltip_pvp = g.lang == "Japanese" and
+                                    "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
+                                    "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
+            pvp_btn:SetText(string.format("{ol}{#FFFFFF}{s16}USEor{img %s 18 18}d:%s w:%s", "pvpmine_shop_btn_total",
+                Indun_panel_get_recipe_trade_count(tier.pvp_recipes[1]) or 0,
+                Indun_panel_get_recipe_trade_count(tier.pvp_recipes[2]) or 0))
+            pvp_btn:SetTextTooltip(icon_text .. tooltip_pvp)
+            pvp_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
+            pvp_btn:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
+            pvp_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+            offset = offset + 145
+        end
     end
-    local tooltip_low = g.lang == "Japanese" and
-                            "{ol}優先順位{nl}1.期限付き{nl}2.期限なし{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います)" or
-                            "{ol}Priority{nl}1.Expiring{nl}2.Non-expiring{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use)"
-    ticket_low:SetText(text_low)
-    ticket_low:SetTextTooltip(icon_text .. tooltip_low)
-    ticket_low:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
-    ticket_low:SetEventScriptArgNumber(ui.LBUTTONUP, low_indun_type)
-    local high_indun_type = 2001
-    local btn_high = indun_panel:CreateOrGetControl('button', "btn_high" .. indun_type, x + 195, y, 50, 30)
-    AUTO_CAST(btn_high)
-    btn_high:SetText("{ol}540")
-    btn_high:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_singularity")
-    btn_high:SetEventScriptArgNumber(ui.LBUTTONUP, high_indun_type)
-    local count_high = indun_panel:CreateOrGetControl("richtext", "count_high" .. indun_type, x + 250, y + 5, 30, 30)
-    count_high:SetText("{ol}(" .. Indun_panel_get_entrance_count(high_indun_type, 4) .. ")")
-    local ticket_high_tos = indun_panel:CreateOrGetControl('button', 'ticket_high_tos' .. indun_type, x + 280, y, 100,
-        30)
-    AUTO_CAST(ticket_high_tos)
-    local text_high_tos = string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
-        Indun_panel_get_recipe_trade_count("EVENT_TOS_WHOLE_SHOP_319") or 0)
-    local count = Indun_panel_get_invitem_count(SINGULARITY_CONFIG[2001].expiring)
-    count = count + Indun_panel_get_invitem_count(SINGULARITY_CONFIG[2001].non_expiring)
-    local icon_text_high = ""
-    local item_cls = GetClassByType('Item', SINGULARITY_CONFIG[2001].expiring[1])
-    if item_cls then
-        local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                        "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-        icon_text_high = string.format(fmt, item_cls.Icon, count)
-    end
-    local tooltip_high_tos = g.lang == "Japanese" and
-                                 "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
-                                 "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
-    ticket_high_tos:SetText(text_high_tos)
-    ticket_high_tos:SetTextTooltip(icon_text_high .. tooltip_high_tos)
-    ticket_high_tos:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
-    ticket_high_tos:SetEventScriptArgString(ui.LBUTTONUP, "tos")
-    ticket_high_tos:SetEventScriptArgNumber(ui.LBUTTONUP, high_indun_type)
-    local ticket_high_pvp = indun_panel:CreateOrGetControl('button', 'ticket_high_pvp' .. indun_type, x + 390, y, 140,
-        30)
-    AUTO_CAST(ticket_high_pvp)
-    local text_high_pvp = string.format("{ol}{#FFFFFF}{s16}USEor{img %s 18 18}d:%s w:%s", "pvpmine_shop_btn_total",
-        Indun_panel_get_recipe_trade_count("PVP_MINE_41") or 0, Indun_panel_get_recipe_trade_count("PVP_MINE_42") or 0)
-    local tooltip_high_pvp = g.lang == "Japanese" and
-                                 "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
-                                 "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
-    ticket_high_pvp:SetText(text_high_pvp)
-    ticket_high_pvp:SetTextTooltip(icon_text_high .. tooltip_high_pvp)
-    ticket_high_pvp:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
-    ticket_high_pvp:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
-    ticket_high_pvp:SetEventScriptArgNumber(ui.LBUTTONUP, high_indun_type)
-    local singularity_check = indun_panel:CreateOrGetControl("checkbox", "singularity_check", x + 545, y, 25, 25)
+    local singularity_check = indun_panel:CreateOrGetControl("checkbox", "singularity_check", x + offset, y, 25, 25)
     AUTO_CAST(singularity_check)
     singularity_check:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
     singularity_check:SetTextTooltip(g.lang == "Japanese" and
                                          "{ol}チェックをすると自動マッチングボタンを押しません" or
                                          "{ol}If checked, the automatic matching button will not be pressed")
     singularity_check:SetCheck(g.indun_panel_settings.etc.singularity_check)
+    Indun_panel_note_row_width(offset + 30)
 end
 
 function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
@@ -1937,21 +2155,22 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
     if Indun_panel_try_use_ticket_list(config.expiring, indun_type) then
         return
     end
-    if mode == "tos" or indun_type == 2000 then
-        local recipe = (indun_type == 2000) and "EVENT_TOS_WHOLE_SHOP_314" or "EVENT_TOS_WHOLE_SHOP_319"
+    -- 取引名は段の表から引く。以前は 2000 かどうかで 2 つを出し分けていたが、
+    -- 段が 3 つになったので分岐では足りない。
+    local tier = SINGULARITY_TIER_BY_INDUN[indun_type]
+    if not tier then
+        g.vlog("indun_panel: 分裂の段が見つからない indun_type=%s", tostring(indun_type))
+        return
+    end
+    local recipes = {}
+    if mode == "pvp" and tier.pvp_recipes then
+        recipes = tier.pvp_recipes
+    elseif tier.tos_recipe then
+        recipes = {tier.tos_recipe}
+    end
+    for _, recipe in ipairs(recipes) do
         if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
             Indun_panel_item_buy_use(recipe)
-            ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
-            return
-        end
-    elseif mode == "pvp" then
-        if Indun_panel_get_recipe_trade_count("PVP_MINE_41") >= 1 then
-            Indun_panel_item_buy_use("PVP_MINE_41")
-            ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
-            return
-        end
-        if Indun_panel_get_recipe_trade_count("PVP_MINE_42") >= 1 then
-            Indun_panel_item_buy_use("PVP_MINE_42")
             ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
             return
         end
@@ -2018,6 +2237,8 @@ function Indun_panel_enter_singularity(frame, ctrl, str, indun_type)
 end
 
 local raid_tbl = {
+    [733] = {11210074, 11210073, 11210072}, -- 偽りの輝翼 (7日 / 取引不可 / 通常)
+    [736] = {11210078, 11210077, 11210076}, -- 堕落した審判の翼
     [729] = {11210063, 11210062, 11210061},
     [725] = {11210057, 11210056, 11210055},
     [722] = {11210053, 11210052, 11210051},
@@ -2030,6 +2251,8 @@ local raid_tbl = {
     [679] = {108020026, 11200222, 11200221, 11200220}
 }
 local buff_ids = {
+    [733] = 80049, -- 偽りの輝翼
+    [736] = 80051, -- 堕落した審判の翼
     [729] = 80047, -- ズメイ
     [725] = 80045, -- ベリオラ
     [722] = 80043, -- ライマラ
@@ -2061,14 +2284,11 @@ function Indun_panel_create_frame_onsweep(indun_panel, key, sub_key, sub_value, 
     end
     local btn_solo = indun_panel:CreateOrGetControl('button', key .. "solo", x, y, 80, 30)
     local btn_auto = indun_panel:CreateOrGetControl('button', key .. "auto", x + 85, y, 80, 30)
-    local btn_hard = indun_panel:CreateOrGetControl('button', key .. "hard", x + 215, y, 80, 30)
     local btn_sweep = indun_panel:CreateOrGetControl('button', key .. "sweep", x + 350, y, 80, 30)
     local txt_count = indun_panel:CreateOrGetControl("richtext", key .. "count", x + 170, y + 5, 50, 30)
-    local txt_hard_count = indun_panel:CreateOrGetControl("richtext", key .. "counthard", x + 300, y + 5, 50, 30)
     local txt_sweep_count = indun_panel:CreateOrGetControl("richtext", key .. "sweepcount", x + 435, y + 5, 50, 30)
     btn_solo:SetText("{ol}SOLO")
     btn_auto:SetText("{ol}{#FFD900}AUTO")
-    btn_hard:SetText("{ol}{#FF0000}HARD")
     btn_sweep:SetText("{ol}{#00FF00}ACLEAR")
     if sub_key == "s" then -- Solo
         txt_count:SetText(Indun_panel_get_entrance_count(sub_value, 2))
@@ -2081,8 +2301,15 @@ function Indun_panel_create_frame_onsweep(indun_panel, key, sub_key, sub_value, 
         btn_sweep:SetEventScriptArgNumber(ui.LBUTTONUP, sub_value)
         btn_sweep:SetEventScriptArgString(ui.LBUTTONUP, "SWEEP")
     elseif sub_key == "h" then -- Hard
+        -- HARD ボタンと回数は h を持つレイドだけに作る。以前は無条件に作っていたので、
+        -- Hard がまだ実装されていないレイド(偽りの輝翼 / 堕落した審判の翼)を足すと
+        -- 押しても何も起きない HARD ボタンが並んでしまう
         local ent_count = Indun_panel_get_entrance_count(sub_value, 2)
         if ent_count then
+            local btn_hard = indun_panel:CreateOrGetControl('button', key .. "hard", x + 215, y, 80, 30)
+            AUTO_CAST(btn_hard)
+            local txt_hard_count = indun_panel:CreateOrGetControl("richtext", key .. "counthard", x + 300, y + 5, 50, 30)
+            btn_hard:SetText("{ol}{#FF0000}HARD")
             txt_hard_count:SetText(ent_count)
             btn_hard:SetEventScript(ui.LBUTTONDOWN, "Indun_panel_enter_hard")
             btn_hard:SetEventScriptArgNumber(ui.LBUTTONDOWN, sub_value)
@@ -2413,6 +2640,10 @@ local DUNGEON_TICKET_CONFIG = {
     [728] = { --  (アシャーク)
         label = "540",
         tickets = {11200486, 11200485, 11200484}
+    },
+    [732] = { -- (共鳴の聖所: ザウラ)
+        label = "560",
+        tickets = {11210071, 11210070, 11210069}
     }
 }
 function Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
@@ -2454,6 +2685,12 @@ function Indun_panel_cemetery_frame(indun_panel, key, indun_type, y, x)
 end
 
 function Indun_panel_demonlair_frame(indun_panel, key, indun_type, y, x)
+    Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
+end
+
+-- 共鳴の聖所(SanctuartyResonance)。アシャークと同じく入場券で入るパーティダンジョンなので、
+-- 素の入場も ReqRaidAutoUIOpen で同じ経路を通る(induninfo.lua の RaidType = PartyNormal 系)
+function Indun_panel_resonance_frame(indun_panel, key, indun_type, y, x)
     Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
 end
 

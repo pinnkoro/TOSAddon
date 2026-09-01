@@ -26,6 +26,24 @@ function Save_quest_load_settings()
         settings.frame.skin = "bg2"
         changed = true
     end
+    -- 以前は「一度でも一覧に出た npc_state」を 0 で記録していた(Save_quest_SET_QUEST_CTRL_MARK の
+    -- コメントを参照)。読む側は == 1 で見ているので 0 は「無い」と同じ意味しか持たず、
+    -- 実測 471 キー / 10KB の大半がこれだった。書かなくしただけでは既存の行が残り続け、
+    -- 起動のたびに json.decode でその分を読むことになるので、ここで落とす。
+    -- **1 以外を落とすこと。** 生きている指定は 1 だけで、Release は = nil にしている。
+    if type(settings.save_quests) == "table" then
+        local dropped = 0
+        for key, val in pairs(settings.save_quests) do
+            if val ~= 1 then
+                settings.save_quests[key] = nil
+                dropped = dropped + 1
+            end
+        end
+        if dropped > 0 then
+            changed = true
+            g.vlog("save_quest: 保存済み一覧から意味のない行を %d 件落とした", dropped)
+        end
+    end
     g.save_quest_settings = settings
     if changed then
         Save_quest_save_settings()
@@ -189,9 +207,13 @@ function Save_quest_SET_QUEST_CTRL_MARK(my_frame, my_msg)
     if not npc_state then
         return
     end
-    if not g.save_quest_settings.save_quests[npc_state] then
-        g.save_quest_settings.save_quests[npc_state] = 0
-    end
+    -- **見かけただけの npc_state を表へ足さないこと。** 以前はここで 0 を入れていたが、
+    -- 読む側は 3 箇所とも == 1 で見ているので 0 は「無い」と全く同じ意味しか持たない。
+    -- クエスト一覧を描くたびに通る場所なので、置いておくと「一度でも表示したクエスト」
+    -- ぶんの意味のない行が溜まり続ける(実測 471 キー / 10KB)。
+    -- Lua のテーブルはキーを前もって作る必要が無いので、Save_quest_save の
+    -- save_quests[npc_state] = 1 はこの行が無くてもそのまま通る
+    -- (Release が = nil でキーごと消しており、その経路は現状でも成立している)。
     if g.save_quest_settings.save_quests[npc_state] == 1 then
         local save_text = ctrl:CreateOrGetControl('richtext', "save_text", 0, 0, 20, 10)
         AUTO_CAST(save_text)

@@ -132,6 +132,21 @@ function Vakarine_equip_load_settings()
             settings.maps[kind.key] = kind.default
         end
     end
+    -- 以前は「チェックを外した」印に false を書いていた。読む側にとっては「無い」と
+    -- 同じなので、読み込みのついでに落とす。放っておくと触ったバフの数だけ残り続け、
+    -- バフ通知ごとに引く表を無駄に太らせる。
+    if type(settings.buffid) == "table" then
+        local dropped = 0
+        for id_str, val in pairs(settings.buffid) do
+            if not val then
+                settings.buffid[id_str] = nil
+                dropped = dropped + 1
+            end
+        end
+        if dropped > 0 then
+            g.vlog("vakarine_equip: 自動削除リストから意味のない行を %d 件落とした", dropped)
+        end
+    end
     g.vakarine_equip_settings = settings
     Vakarine_equip_save_settings()
 end
@@ -729,21 +744,26 @@ function Vakarine_equip_stat_update()
     hptext:SetOffset(hp:GetX(), hp:GetY() - 10 - (15 - 15))
 end
 
+-- **表を pairs で舐めないこと。** ここは BUFF_ADD / BUFF_UPDATE のたびに通る。
+-- レイドではバフの通知が集中し、実測で 1 秒あたり 10 件を超える
+-- (my_buffs_control の調査で計測。addons/my_buffs_control を参照)。
+-- 表の件数ぶん tonumber と比較を回すと、指定を増やした人ほど重くなる。
+-- キーは登録側(Vakarine_equip_buff_toggle)が SetEventScriptArgString で受けた
+-- ClassID の文字列なので、tostring(buff_id) で一発引きできる。
+--
+-- 値は真偽で見る。**== true で見ないこと。** 旧い設定には「チェックを外した」印として
+-- false が入っており、それを拾うと指定なしのバフまで解除しに行くことになる。
 function Vakarine_equip_BUFF_ON_MSG(frame, msg, str, buff_id)
     if g.settings.vakarine_equip.use == 0 then
         return
     end
-    if g.vakarine_equip_settings and g.vakarine_equip_settings["buffid"] then
-        for id_str, val in pairs(g.vakarine_equip_settings["buffid"]) do
-            if tonumber(id_str) == buff_id then
-                if g.vakarine_equip_settings.auto_remove == 1 then
-                    if val and g.vakarine_equip_is_vakarine then
-                        packet.ReqRemoveBuff(buff_id) -- 良くないね
-                        return
-                    end
-                end
-            end
-        end
+    local settings = g.vakarine_equip_settings
+    if not settings or settings.auto_remove ~= 1 or not g.vakarine_equip_is_vakarine then
+        return
+    end
+    local buffid = settings["buffid"]
+    if buffid and buffid[tostring(buff_id)] then
+        packet.ReqRemoveBuff(buff_id) -- 良くないね
     end
 end
 
@@ -861,12 +881,15 @@ function Vakarine_equip_buff_aoto_remove()
     Vakarine_equip_save_settings()
 end
 
+-- **外したときは false ではなく nil にすること。** 読む側は真偽で見ているので
+-- false は「無い」と全く同じ意味しか持たない。false を書くと、触ったバフの数だけ
+-- 意味のない行が設定ファイルに残り続ける。
 function Vakarine_equip_buff_toggle(frame, ctrl, str_buff_id, num)
     local is_check = ctrl:IsChecked()
     if is_check == 1 then
         g.vakarine_equip_settings["buffid"][str_buff_id] = true
     else
-        g.vakarine_equip_settings["buffid"][str_buff_id] = false
+        g.vakarine_equip_settings["buffid"][str_buff_id] = nil
     end
     Vakarine_equip_save_settings()
 end
