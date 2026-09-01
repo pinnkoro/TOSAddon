@@ -1814,6 +1814,29 @@ end
 -- 段(tier)ごとに「Lv ボタン / PT ボタン / 入場回数 / USE ボタン」を左から並べる。
 -- 段の顔ぶれは CHALLENGE_TIERS 側にあるので、Lv 上限が上がったら表へ 1 段足すだけでよい。
 -- 戻り値は使った横幅。呼び元が行の右端を覚えてパネルの幅を決める。
+-- チャレンジの USE ボタンのツールチップを組み立てる。
+--   with_click_hint … PT ボタンがある段。左クリック=PT / 右クリック=ソロ の案内を足す
+--   hold_non_expiring … 期限の無い券をショップより後に回す段(540 以降)。
+--                       520 は期限の無い券をその場で使うので順序が入れ替わる
+function Indun_panel_ticket_tooltip(with_click_hint, hold_non_expiring, coin_img)
+    local is_jp = g.lang == "Japanese"
+    local parts = {"{ol}"}
+    if with_click_hint then
+        table.insert(parts, is_jp and "左クリック: PT入場{nl}右クリック: ソロ入場{nl}" or
+            "Left Click: PT Entry{nl}Right Click: Solo Entry{nl}")
+    end
+    table.insert(parts, is_jp and "優先順位{nl}1.期限付き{nl}" or "Priority{nl}1.Expiring{nl}")
+    local shop = is_jp and string.format("{img %s 20 20}チケット(買って使います)", coin_img) or
+                     string.format("{img %s 20 20}tickets(buy and use)", coin_img)
+    local none = is_jp and "期限なし" or "Non-expiring"
+    if hold_non_expiring then
+        table.insert(parts, "2." .. shop .. "{nl}3." .. none)
+    else
+        table.insert(parts, "2." .. none .. "{nl}3." .. shop)
+    end
+    return table.concat(parts)
+end
+
 local function challenge_shop_button(indun_panel, name, x, y, recipe, indun_type, mode, icon, icon_text, tooltip)
     local btn = indun_panel:CreateOrGetControl('button', name, x, y, 100, 30)
     AUTO_CAST(btn)
@@ -1861,16 +1884,15 @@ function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x
         local txt = indun_panel:CreateOrGetControl("richtext", "txt" .. suffix, x + offset, y + 5, 40, 30)
         txt:SetText(Indun_panel_get_entrance_count(tier.solo, tier.count_index))
         offset = offset + 40
-        local tooltip_tos
-        if tier.pt then
-            tooltip_tos = g.lang == "Japanese" and
-                              "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}3.期限なし" or
-                              "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}3.Non-expiring"
-        else
-            tooltip_tos = g.lang == "Japanese" and
-                              "{ol}優先順位{nl}1.期限付き{nl}2.期限なし{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います)" or
-                              "{ol}Priority{nl}1.Expiring{nl}2.Non-expiring{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use)"
-        end
+        -- ツールチップは 2 つの独立した要素でできている。**片方の条件でもう片方を決めないこと。**
+        --   * クリックの案内 … PT ボタンがある段だけ(tier.pt)
+        --   * 消費の優先順位 … **520 かどうか**。Indun_panel_use_prioritized_ticket が
+        --     indun_type == 1001 のときだけ期限の無い券をその場で使い、540 以降は
+        --     ショップで買えるうちは温存するため
+        -- 以前ここを tier.pt だけで分けていたので、PT が消えた 540(1005 の削除)だけが
+        -- 520 用の順序に落ちて、実際の消費順序と逆の説明を出していた。
+        local hold_non_expiring = tier.solo ~= 1001
+        local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring, "icon_item_Tos_Event_Coin")
         local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
             pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
         if tier.pt then
@@ -1880,9 +1902,8 @@ function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x
         end
         offset = offset + 100
         if tier.pvp_recipe then
-            local tooltip_pvp = g.lang == "Japanese" and
-                                    "{ol}左クリック: PT入場{nl}右クリック: ソロ入場{nl}優先順位{nl}1.期限付き{nl}2.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}3.期限なし" or
-                                    "{ol}Left Click: PT Entry{nl}Right Click: Solo Entry{nl}Priority{nl}1.Expiring{nl}2.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}3.Non-expiring"
+            local tooltip_pvp = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring,
+                "pvpmine_shop_btn_total")
             local pvp_btn = challenge_shop_button(indun_panel, "buyuse_pvp" .. suffix, x + offset, y, tier.pvp_recipe,
                 pt_indun_type, "pvp", "pvpmine_shop_btn_total", icon_text, tooltip_pvp)
             pvp_btn:SetText(string.format("{ol}{#FFFFFF}USEor{s16}{img %s 18 18}{#FFFFFF}%s", "pvpmine_shop_btn_total",
