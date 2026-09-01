@@ -403,7 +403,7 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "各種コインを取得時に自動で使用します",
         text_kr = "각종 코인 획득 시 자동 사용",
         text_en = "Automatically use various coins upon acquisition",
-        updated = core_g.VER_NEXT,
+        updated = "2.3.0",
         updated_note_jp = "サウレ（Lv560 の女神）のコインも自動で使うようになりました",
         updated_note_en = "Now also auto-uses Saule (the Lv560 goddess) coins"
     }, {
