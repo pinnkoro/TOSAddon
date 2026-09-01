@@ -55,7 +55,7 @@ jobs:
       id-token: write # claude-code-action の GitHub App 認証に必要
     steps:
       # CLAUDE.md と src を読ませるため。diff を取るので浅いクローンにはしない。
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
