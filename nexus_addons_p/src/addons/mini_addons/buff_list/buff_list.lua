@@ -56,14 +56,10 @@ function Mini_addons_buff_list_backup(frame, ctrl, str, num)
     -- 控えも .lua。json のままにすると、復元のたびに 5 秒の json.decode を通る
     -- (中身は buffs と同じ、バフ ID をキーにした平坦なテーブルなので条件が同じ)。
     g.save_lua(g.buffs_backup_path, g.buffs)
-    -- 新しい控えを .lua で書けたら、旧 json の控えは消す。Mini_addons_buff_list_restore は
-    -- .lua が読めなかったときだけ json へ落ちるので、残しておくと「今日取った控え」の
-    -- つもりで移行前の控えが戻ってくる経路が恒久的に残る(load_buffs の旧 json と同じ話)。
-    local written = io.open(g.buffs_backup_path, "rb")
-    if written then
-        written:close()
-        os.remove(g.buffs_backup_json_path)
-    end
+    -- **旧 json の控えも消さず、.lua が壊れたときの逃げ道として残す**
+    -- (理由は Mini_addons_load_buffs のコメント。復元の仕組みとは無関係)。
+    -- Mini_addons_buff_list_restore は .lua を先に見るので、新しい控えを書けていれば
+    -- 旧 json の控えが戻ってくることはない。
     core_g.vlog("mini_addons: バフ一覧をバックアップした (%s)", tostring(g.buffs_backup_path))
     ui.SysMsg(g.lang == "Japanese" and "{ol}{#00BFFF}[Nexus Addons P] バフ一覧をバックアップしました" or
                   "{ol}{#00BFFF}[Nexus Addons P] Backed up the buff list")
@@ -72,7 +68,36 @@ end
 -- 控えたチェック状態へ戻す。控えが無いときは何もしない(黙って空で上書きしないこと)。
 function Mini_addons_buff_list_restore(frame, ctrl, str, num)
     -- .lua を先に見て、無ければ旧 json の控えへ落ちる(移行前に取った控えを失わないため)。
-    local backup = g.load_lua(g.buffs_backup_path) or g.load_json(g.buffs_backup_json_path)
+    --
+    -- **旧 json へ落ちる理由は 2 通りあり、片方は事故になる。**
+    --   * .lua の控えがまだ無い … 移行前に取った控えしかない。正常な経路
+    --   * .lua の控えが**在るのに読めない** … 壊れている。移行当時の内容へ巻き戻り、
+    --     そのまま live へ書き戻されるので、以降のバフ設定の変更が黙って消える
+    -- バックアップ時に旧 json の控えを消さなくなった(逃げ道として残す)ぶん、この経路は
+    -- 恒久的に残る。**逃げ道として残す以上、使われたことを必ず知らせること。**
+    -- 判定と知らせ方は Mini_addons_load_buffs の旧 json フォールバックと揃えてある。
+    local backup = g.load_lua(g.buffs_backup_path)
+    if type(backup) ~= "table" then
+        -- 「在るのに読めなかった」のかを、json へ落ちる前に見ておく
+        local lua_file_there = false
+        local probe = io.open(g.buffs_backup_path, "rb")
+        if probe then
+            probe:close()
+            lua_file_there = true
+        end
+        backup = g.load_json(g.buffs_backup_json_path)
+        if type(backup) == "table" and lua_file_there then
+            local err_msg = string.format(
+                "mini_addons: バフ一覧の控え .lua を読めず旧 json の控えへ戻しました。控えが移行当時の内容に巻き戻っている可能性があります (%s)",
+                tostring(g.buffs_backup_path))
+            ts(err_msg)
+            core_g.log_to_file(err_msg)
+            core_g.vlog("{#FF6347}%s{/}", err_msg)
+            ui.SysMsg(g.lang == "Japanese" and
+                          "{ol}{#FF6347}[Nexus Addons P] バフ一覧の控えが読めず、古い控えから復元しました" or
+                          "{ol}{#FF6347}[Nexus Addons P] Buff list backup unreadable; restored from an older backup")
+        end
+    end
     if type(backup) ~= "table" then
         core_g.vlog("mini_addons: バフ一覧の控えが無い (%s)", tostring(g.buffs_backup_path))
         ui.SysMsg(g.lang == "Japanese" and "{ol}{#FF6347}[Nexus Addons P] バフ一覧のバックアップがありません" or

@@ -137,6 +137,9 @@ g._nexus_addons_p = {{
 }, {
     key = "auto_repair",
     category = "storage",
+    updated = "2.3.0",
+    updated_note_jp = "補充する緊急修理キットを Lv560（サウレの証商店）のものに切り替えました",
+    updated_note_en = "Switched the restocked repair kit to the Lv560 one (Saule certificate shop)",
     data = {
         use = 0,
         name = "Auto Repair",
@@ -280,6 +283,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_list_viewer",
     category = "content",
+    updated = "2.3.0",
+    updated_note_jp = "Lv560 の「偽りの輝翼」「堕落した審判の翼」を一覧に追加しました",
+    updated_note_en = "Added the Lv560 raids Light Uriel and Dark Uriel to the list",
     data = {
         use = 0,
         name = "Indun List Viewer",
@@ -290,9 +296,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = "2.2.1",
-    updated_note_jp = "「フレームを固定」にしていると、展開表示の上を押した入力が裏の画面へ抜けていたのを修正しました",
-    updated_note_en = "Fixed clicks passing through the expanded panel to the game when the frame was locked",
+    updated = "2.3.0",
+    updated_note_jp = "Lv560 の「偽りの輝翼」「堕落した審判の翼」「共鳴の聖所」とサウレショップのショートカットを追加し、チャレンジ / 分裂特異点に Lv560 の段を足しました。削除された 540 の PT ボタンも外し、共鳴の聖所の入場回数が出ないのを直しました",
+    updated_note_en = "Added the Lv560 contents (Light Uriel / Dark Uriel / Sanctuary of Resonance) and the Saule shop shortcut, plus the Lv560 tier for Challenge Mode and Division Singularity; removed the deleted 540 PT button",
     data = {
         use = 0,
         name = "Indun Panel",
@@ -438,6 +444,9 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
+    updated = "2.3.0",
+    updated_note_jp = "Lv560 の新ダンジョンでも属性に合わせたポーションへ差し替えるようにしました",
+    updated_note_en = "Swaps potions by attribute in the new Lv560 dungeons as well",
     data = {
         use = 0,
         name = "Quickslot Operate",
@@ -471,6 +480,9 @@ g._nexus_addons_p = {{
 }, {
     key = "save_quest",
     category = "content",
+    updated = "2.3.0",
+    updated_note_jp = "設定ファイルに意味のない記録が溜まり続けていたのを直しました。次回の起動で自動的に片付きます",
+    updated_note_en = "Fixed meaningless entries piling up in the settings file. They are cleaned up on the next launch",
     data = {
         use = 0,
         name = "Save Quest",
@@ -557,6 +569,9 @@ g._nexus_addons_p = {{
 }, {
     key = "vakarine_equip",
     category = "storage",
+    updated = "2.3.0",
+    updated_note_jp = "バフ自動削除の判定を軽くしました。レイドなどバフの通知が集中する場所で効きます",
+    updated_note_en = "Made the auto-remove check cheaper. It matters where buff messages pile up, such as raids",
     data = {
         use = 0,
         name = "Vakarine Equip",
