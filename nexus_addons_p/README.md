@@ -280,7 +280,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v2.3.0**
   * **Lv560 の新コンテンツに対応**しました。
     * Indun Panel: 「偽りの輝翼」「堕落した審判の翼」「共鳴の聖所」の行を追加しました。
       前の 2 つはレイドで、掃討（ACLEAR）と入場券の USE も使えます。まだ HARD が
