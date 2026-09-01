@@ -1,6 +1,22 @@
 -- ndun_list_viewer ここから
-g.ilv_RAID_KEYS = {"Z", "V", "L", "R", "N", "G", "M", "S", "U", "RO", "F", "P", "D"}
+g.ilv_RAID_KEYS = {"LU", "DU", "Z", "V", "L", "R", "N", "G", "M", "S", "U", "RO", "F", "P", "D"}
 g.ilv_RAID_INFO = {
+    -- Lv560 の 2 レイドは実装時点で Hard(パーティ) が無いので hard を持たない。
+    -- hard が無い段は Hard 列に出さない作りになっている(下の各ループの raid_info.hard 判定)
+    LU = {
+        name = "LightUriel",
+        solo = 734,
+        auto = 733,
+        icon = "icon_item_misc_boss_LightUriel",
+        sweep_buff = 80049
+    },
+    DU = {
+        name = "DarkUriel",
+        solo = 737,
+        auto = 736,
+        icon = "icon_item_misc_boss_DarkUriel",
+        sweep_buff = 80051
+    },
     Z = {
         name = "Zmei",
         hard = 731,
@@ -124,7 +140,7 @@ function Indun_list_viewer_load_settings()
     g.ilv_old_path = string.format("../addons/%s/%s/settings_2510.json", "indun_list_viewer", g.active_id)
     local settings = g.load_lua(g.ilv_path)
     local need_save = false
-    local ver = 1.2 -- ズメイ追加: 既存ユーザーの display に Zmei_H/Zmei_S を補完するため繰り上げ
+    local ver = 1.3 -- Lv560 追加: 既存ユーザーの display に LightUriel_S / DarkUriel_S を補完するため繰り上げ
     if not settings then
         settings = g.load_json(json_path)
         if settings then

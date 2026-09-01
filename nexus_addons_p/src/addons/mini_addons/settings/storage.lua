@@ -1,3 +1,13 @@
+-- ファイルが在るか。Lua に stat が無いので開いて確かめるしかない。
+local function file_exists(path)
+    local f = io.open(path, "rb")
+    if not f then
+        return false
+    end
+    f:close()
+    return true
+end
+
 -- 経過時間の物差し。imcTime が無い環境でも落ちないよう pcall で包み、取れなければ
 -- 0 を返す(その場合は計測値が全部 0 になるだけで、本体の処理には影響しない)。
 local function now_ms()
@@ -70,6 +80,11 @@ function Mini_addons_load_buffs()
     local buffs = g.load_lua(g.buffs_path)
     local lua_ok = buffs ~= nil
     local migrated = false
+    -- **「.lua が在るのに読めなかった」のかを、落ちる前に見ておくこと。**
+    -- 旧 json へ落ちる経路には正常なものと異常なものがあり、後者は黙って
+    -- 移行当日の内容へ巻き戻る(下の警告を参照)。読んだ後だと .tmp からの復旧で
+    -- 状態が変わっていることがあるので、判定はここで取る。
+    local lua_file_there = file_exists(g.buffs_path)
     if not buffs then
         -- 旧 json からの移行。**変換は 1 回だけで、この回だけは従来どおり遅い**
         -- (2806 キーで約 5 秒)。避けるには生の JSON を自前で舐めることになり、
@@ -89,21 +104,27 @@ function Mini_addons_load_buffs()
         Mini_addons_save_buffs()
     end
     local t_save = now_ms()
-    -- 変換できたら旧 json は消す。**残すと恒久的な「古い代替」になる**。
-    -- .lua の読み込みが一度でも失敗した回に変換当日の内容へ巻き戻り、それをそのまま
-    -- .lua へ書き戻すので、以降のバフ設定の変更が黙って消える。
-    -- 消す前に .lua が本当に出来ているかを確かめること(書けていない状態で消すと全部失う)。
-    if migrated then
-        local written = io.open(g.buffs_path, "rb")
-        if written then
-            written:close()
-            local removed = os.remove(g.buffs_json_path)
-            core_g.vlog("mini_addons: バフ一覧を .lua へ変換したので旧 json を%s (%s)",
-                removed and "削除した" or "{#FF6347}削除できなかった{/}", tostring(g.buffs_json_path))
-        else
-            core_g.vlog("{#FF6347}mini_addons: バフ一覧の .lua を書き出せていないので旧 json は残す{/} (%s)",
-                tostring(g.buffs_path))
-        end
+    -- **旧 json は消さず、復旧の控えとして残す。**
+    --
+    -- **バックアップ/復元とは無関係である点に注意。** 「消すと復元が壊れる」ように
+    -- 見えるが壊れない。g.copy_settings_files は元ファイルが無ければ黙って飛ばすだけで、
+    -- g.drop_superseded_lua が見るのは *書き戻したあとの* live 側の .json だから、
+    -- live から先に消えていても復元は成立する。core/30_maintenance.lua の
+    -- g.paired_lua_settings はあくまで「復元後にどちらを勝たせるか」の表であって、
+    -- live に .json が在り続けることを要求していない。
+    --
+    -- 残す理由は「.lua が壊れたときの最後の逃げ道」。ただし黙って使われると、
+    -- 移行当日の内容へ巻き戻ったまま書き戻され、以降のバフ設定の変更が消える。
+    -- **逃げ道として残す以上、使われたことを必ず知らせること。**
+    -- 正常な移行(.lua がまだ無い)と、復元直後(drop_superseded_lua が .lua を消した)は
+    -- どちらも lua_file_there が false なので、ここには来ない。
+    if migrated and lua_file_there then
+        local err_msg = string.format(
+            "mini_addons: バフ一覧の .lua を読めず旧 json へ戻しました。設定が移行当時の内容に巻き戻っている可能性があります (%s)",
+            tostring(g.buffs_path))
+        ts(err_msg)
+        core_g.log_to_file(err_msg)
+        core_g.vlog("{#FF6347}%s{/}", err_msg)
     end
     core_g.vlog("mini_addons: 計測 load_buffs 読込=%dms 書戻=%dms キー=%d 旧json移行=%s", t_load - t0,
         t_save - t_load, count_keys(g.buffs), tostring(migrated))

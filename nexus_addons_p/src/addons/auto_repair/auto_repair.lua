@@ -1,8 +1,16 @@
 -- Auto Repaire ここから
+-- Lv 上限が上がるたびに、女神の証商店で売る緊急修理キットが 1 段上のものへ変わる。
+-- 3 つは必ずセットで差し替えること(キットの ClassID / 取引名 / 商店の種別)。
+--   Lv470 GabijaCertificate_9   / QuestReward_repairPotion_470
+--   Lv490 VakarineCertificate_13 / QuestReward_repairPotion_490
+--   Lv510 RadaCertificate_13    / QuestReward_repairPotion_510
+--   Lv530 JurateCertificate_13  / QuestReward_repairPotion_530
+--   Lv550 AustejaCertificate_14 / QuestReward_repairPotion_550 (11201388)
+--   Lv560 SauleCertificate_15   / QuestReward_repairPotion_560 (11202105) ← 現在
 g.auto_repair = {
-    item_cls_id = 11201388,
-    repair_item = "AustejaCertificate_14",
-    shop_type = "AustejaCertificate"
+    item_cls_id = 11202105,
+    repair_item = "SauleCertificate_15",
+    shop_type = "SauleCertificate"
 }
 function Auto_repair_save_settings()
     g.save_json(g.auto_repair_path, g.auto_repair_settings)
