@@ -72,9 +72,6 @@ g._nexus_addons_p = {{
 }, --[[{
     key = "ancient_monster_bookshelf",
     category = "content",
-    updated = g.VER_NEXT,
-    updated_note_jp = "カードを集めるときに落ちることがあったのを直しました",
-    updated_note_en = "Fixed an error that could occur while collecting cards",
     data = {
         use = 0,
         name = "Ancient Monster Bookshelf",
@@ -606,7 +603,6 @@ g._nexus_addons_p = {{
     updated = g.VER_NEXT,
     updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのを直しました",
     updated_note_en = "Fixed an error when right-clicking a favorite without the market open",
-    updated_note_en = "Name colors and the EP13 shop list now render correctly on the Korean client",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",
