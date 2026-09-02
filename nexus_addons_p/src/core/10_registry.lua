@@ -304,9 +304,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = "2.3.0",
-    updated_note_jp = "Lv560 の「偽りの輝翼」「堕落した審判の翼」「共鳴の聖所」とサウレショップのショートカットを追加し、チャレンジ / 分裂特異点に Lv560 の段を足しました。削除された 540 の PT ボタンも外し、共鳴の聖所の入場回数が出ないのを直しました",
-    updated_note_en = "Added the Lv560 contents (Light Uriel / Dark Uriel / Sanctuary of Resonance) and the Saule shop shortcut, plus the Lv560 tier for Challenge Mode and Division Singularity; removed the deleted 540 PT button",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定画面をパネルとは別のポップアップにして画面中央へ出し、「Indun Panel の設定」と「レイド・コンテンツの表示」の 2 つに分けました。チャレンジ / 分裂特異点の段(520 / 540 / 560)を個別に出し入れできるようにし、共鳴の聖所は入場まで自動で押さず窓を開くところで止めるようにしました",
+    updated_note_en = "The settings now open as a separate centred popup split into Panel settings and content visibility; Challenge Mode / Division Singularity tiers (520 / 540 / 560) can be shown or hidden individually, and the Sanctuary of Resonance button only opens the entry window instead of entering right away",
     data = {
         use = 0,
         name = "Indun Panel",

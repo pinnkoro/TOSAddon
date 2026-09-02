@@ -215,6 +215,120 @@ local induns = {{
     }
 }}
 
+-- チャレンジ / 分裂の段(Lv 帯)の一覧は、下のほうの CHALLENGE_TIERS / SINGULARITY_TIERS が持つ。
+-- **設定の読み込みや設定ウィンドウはそれより前に定義される**ので素では見えない
+-- (Lua の local は宣言行より後ろからしか見えない。CLAUDE.md「local function は
+--  呼び出しより前で定義する」と同じ話)。段の顔ぶれを 2 か所に書かずに済ませるため、
+-- ここで前方宣言して下で代入する。
+local CHALLENGE_TIERS, SINGULARITY_TIERS
+-- 入場券型のパーティダンジョン(嘆きの墓地 / アシャーク / 共鳴の聖所)の表も同じ理由で
+-- 前方宣言する。Indun_panel_enter_solo がこの表の open_only を見るため。
+local DUNGEON_TICKET_CONFIG
+
+-- 段の表示切替(520 / 540 / 560)を持つ行。
+-- prefix は設定ウィンドウのチェックボックス名に使う。名前から段を引き直すので、
+-- **他のチェックボックス名と混ざらない綴りにすること**(Indun_panel_ischecked 参照)。
+local INDUN_PANEL_TIER_ROWS = {{
+    key = "challenge",
+    prefix = "ch",
+    jp = "チャレンジ",
+    en = "Challenge"
+}, {
+    key = "singularity",
+    prefix = "sg",
+    jp = "分裂特異点",
+    en = "Singularity"
+}}
+
+-- 行のキー → 段の表。前方宣言した local を関数越しに引くための入れ物
+-- (宣言時点では nil なので、テーブルへ直接入れておくことはできない)。
+function Indun_panel_tiers_of(row_key)
+    if row_key == "challenge" then
+        return CHALLENGE_TIERS
+    elseif row_key == "singularity" then
+        return SINGULARITY_TIERS
+    end
+    return nil
+end
+
+-- 段の設定キー。**数字だけのキーにしないこと。** "520" のような数字の文字列を
+-- JSON の object キーに使うと、実装によっては配列と取り違えられる。
+function Indun_panel_tier_key(label)
+    return "lv" .. label
+end
+
+-- その段を出すか。**設定が無いときは出す**(古い保存の取りこぼしで消えないように)。
+function Indun_panel_tier_enabled(row_key, label)
+    local tiers = g.indun_panel_settings and g.indun_panel_settings.tiers
+    local row = tiers and tiers[row_key]
+    if not row then
+        return true
+    end
+    return row[Indun_panel_tier_key(label)] ~= 0
+end
+
+-- 段のチェックボックスの見た目。**灰色は「その行そのものが OFF」の印。**
+-- 段は行にぶら下がっているので、行を非表示にしていると段をどう触っても何も出ない。
+-- 効かない設定だと分かるように色を落とす。**段それぞれのチェックの有無では色を変えない**
+-- (チェックボックスの✓で分かるうえ、上の意味とぶつかる)。
+-- 文字を作る場所を 1 か所にしておかないと、押した直後の塗り替え(Indun_panel_ischecked)と
+-- 開き直したときの色が食い違う。
+function Indun_panel_tier_label_text(label, row_enabled)
+    return string.format("{ol}%s{s16}%s", row_enabled and "{#FFFFFF}" or "{#808080}", label)
+end
+
+-- 選択中のセットで、その行を表示する設定になっているか。
+function Indun_panel_row_checked(row_key)
+    local use_tbl = g.indun_panel_settings and g.indun_panel_settings[g.indun_panel_settings.etc.use_set]
+    return use_tbl ~= nil and use_tbl[row_key] == 1
+end
+
+-- 行の ON/OFF を切り替えたときに、その行の段のチェックの色を塗り替える。
+-- 設定ウィンドウは開いたままなので、ここで直さないと開き直すまで色が古いままになる。
+function Indun_panel_tier_refresh_color(indun_panel, row_key)
+    local row = Indun_panel_tier_row_of(row_key)
+    local tiers = row and Indun_panel_tiers_of(row_key)
+    if not tiers or not indun_panel then
+        return
+    end
+    local row_enabled = Indun_panel_row_checked(row_key)
+    for _, tier in ipairs(tiers) do
+        -- パネル側から呼ばれたときは段のチェックが無い(設定ウィンドウを開いていない)ので、
+        -- 引けなければ何もしない
+        local checkbox = GET_CHILD_RECURSIVELY(indun_panel, row.prefix .. tier.label)
+        if checkbox then
+            AUTO_CAST(checkbox)
+            checkbox:SetText(Indun_panel_tier_label_text(tier.label, row_enabled))
+        end
+    end
+end
+
+-- 行のキー → INDUN_PANEL_TIER_ROWS の 1 件。段を持たない行では nil。
+function Indun_panel_tier_row_of(row_key)
+    for _, row in ipairs(INDUN_PANEL_TIER_ROWS) do
+        if row.key == row_key then
+            return row
+        end
+    end
+    return nil
+end
+
+-- 段を持つ行(チャレンジ / 分裂)を出すか。**全部の段を外したら行ごと畳む。**
+-- 残すと見出しだけの空の行になって、壊れているように見える。
+-- 段を持たない行はここでは判断しないので、そのまま true を返す。
+function Indun_panel_tier_row_visible(row_key)
+    local tiers = Indun_panel_tiers_of(row_key)
+    if not tiers then
+        return true
+    end
+    for _, tier in ipairs(tiers) do
+        if Indun_panel_tier_enabled(row_key, tier.label) then
+            return true
+        end
+    end
+    return false
+end
+
 function Indun_panel_save_settings()
     g.save_json(g.indun_panel_path, g.indun_panel_settings)
 end
@@ -324,6 +438,26 @@ function Indun_panel_load_settings()
         for _, name in ipairs(col_keys) do
             if settings.cols[name] == nil then
                 settings.cols[name] = 1
+            end
+        end
+    end
+    -- 段(520 / 540 / 560)の表示切替。**既定はここだけで作る。** 上の初期値の表に段を
+    -- 並べると CHALLENGE_TIERS / SINGULARITY_TIERS と二重に持つことになり、Lv 上限が
+    -- 上がったとき片方だけ直す事故が起きる。新規も既存もここで既定 ON(1) を補う。
+    if type(settings.tiers) ~= "table" then
+        settings.tiers = {}
+    end
+    for _, row in ipairs(INDUN_PANEL_TIER_ROWS) do
+        if type(settings.tiers[row.key]) ~= "table" then
+            settings.tiers[row.key] = {}
+        end
+        local tiers = Indun_panel_tiers_of(row.key)
+        if tiers then
+            for _, tier in ipairs(tiers) do
+                local tier_key = Indun_panel_tier_key(tier.label)
+                if settings.tiers[row.key][tier_key] == nil then
+                    settings.tiers[row.key][tier_key] = 1
+                end
             end
         end
     end
@@ -974,14 +1108,10 @@ function Indun_panel_frame_open(indun_panel)
     btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_always_init")
     btn:SetTextTooltip(g.lang == "Japanese" and "{ol}右クリック: 常時展開解除で閉じる" or
                            "{ol}Right click: Close with permanent unexpand")
+    -- **歯車は一番右(常時展開チェックの右隣)へ置く。** 畳んだ状態(Indun_panel_frame_init)は
+    -- 歯車を作らないので、ここで共通ボタンとショートカットの間へ挟むと、展開したときだけ
+    -- ショートカットが 30px 右へずれて「畳む/展開で位置が変わる」ことになる。
     local x = Indun_panel_create_common_buttons(indun_panel)
-    local configbtn = indun_panel:CreateOrGetControl('button', 'configbtn', x, 5, 30, 30)
-    AUTO_CAST(configbtn)
-    configbtn:SetSkinName("None")
-    configbtn:SetText("{img config_button_normal 30 30}")
-    configbtn:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_open")
-    configbtn:SetTextTooltip(g.lang == "Japanese" and "{ol}Indun Panel 設定" or "{ol}Indun Panel Config")
-    x = x + 30
     local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market",
                          "craft",
                          "leticia"}
@@ -1019,6 +1149,12 @@ function Indun_panel_frame_open(indun_panel)
     always_open:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
     always_open:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックすると常時展開" or
                                    "{ol}IsCheck AlwaysOpen")
+    local configbtn = indun_panel:CreateOrGetControl('button', 'configbtn', current_x + 35, 5, 30, 30)
+    AUTO_CAST(configbtn)
+    configbtn:SetSkinName("None")
+    configbtn:SetText("{img config_button_normal 30 30}")
+    configbtn:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_open")
+    configbtn:SetTextTooltip(g.lang == "Japanese" and "{ol}Indun Panel 設定" or "{ol}Indun Panel Config")
     local function indun_panel_FIELD_BOSS_TIME_TAB_SETTING()
         local induninfo = ui.GetFrame("induninfo")
         local field_boss_ranking_control = GET_CHILD_RECURSIVELY(induninfo, "field_boss_ranking_control")
@@ -1037,7 +1173,8 @@ function Indun_panel_frame_open(indun_panel)
     if g.indun_panel_settings[current_set] and g.indun_panel_settings[current_set].jsr == 1 then
         indun_panel_FIELD_BOSS_TIME_TAB_SETTING()
     end
-    local final_x = current_x + 35 -- 常時展開チェックボックス(30px)ぶんを足す
+    -- 常時展開チェック(30px) + 歯車(30px) ぶんを足す
+    local final_x = current_x + 70
     indun_panel:Resize(final_x, 40)
     indun_panel:ShowWindow(1)
     Indun_panel_frame_contents(configbtn)
@@ -1048,9 +1185,38 @@ function Indun_panel_set_toggle(indun_panel, ctrl, set_key, num)
     g.indun_panel_settings.etc.use_set = set_key
     Indun_panel_save_settings()
     if num == 1 then
+        -- 設定ウィンドウからのセット切替。並ぶ行が変わるのでパネルも作り直す
+        -- (残したままだと前のセットの行が重なる。Indun_panel_refresh_panel のコメント)
+        Indun_panel_refresh_panel()
         Indun_panel_setting_frame_open()
     else
         Indun_panel_frame_open(indun_panel)
+    end
+end
+
+-- 設定を変えたらパネルを描き直す。
+--
+-- **Indun_panel_frame_contents は「作り直し」ではない。** コントロールを名前で
+-- CreateOrGetControl して使い回すだけなので、行や段を消しても前の位置のコントロールが
+-- そのまま残り、下の行の上に重なって描かれる(網掛けの line<key> も同じ)。
+-- 以前は設定画面がパネルそのものだったので、閉じたときの Indun_panel_frame_init が
+-- 必ず作り直していて表面化しなかった。設定を別ウィンドウにして、パネルが生きたまま
+-- 1 秒ごとに再描画されるようになったので、ここで明示的に作り直す。
+-- RemoveAllChild から組み直すのは Indun_panel_frame_open 側。
+--
+-- **展開しているか畳んでいるかは変えない。** 判定は Indun_panel_frame_toggle と同じく
+-- 高さで見る(畳んだパネルは Resize(x, 40) なのでちょうど 40)。畳んでいてもショートカット
+-- ボタンの出し入れは効くので、そちらも作り直す。
+function Indun_panel_refresh_panel()
+    local panel = ui.GetFrame(addon_name_lower .. "indun_panel")
+    if not panel then
+        return
+    end
+    if panel:GetHeight() > 40 then
+        Indun_panel_frame_open(panel)
+    else
+        -- is_toggle = true で「常時展開」の自動展開を通さない(畳んだままにする)
+        Indun_panel_frame_init(true)
     end
 end
 
@@ -1061,6 +1227,8 @@ function Indun_panel_ischecked(indun_panel, ctrl)
     local use_tbl = g.indun_panel_settings[current_set]
     if use_tbl and use_tbl[ctrlname] then
         use_tbl[ctrlname] = ischeck
+        -- 段(520 / 540 / 560)を持つ行なら、ぶら下がっている段の色を合わせ直す
+        Indun_panel_tier_refresh_color(indun_panel, ctrlname)
     elseif g.indun_panel_settings.cols then
         if g.indun_panel_settings.cols[ctrlname] then
             g.indun_panel_settings.cols[ctrlname] = ischeck
@@ -1069,47 +1237,145 @@ function Indun_panel_ischecked(indun_panel, ctrl)
     if g.indun_panel_settings.etc[ctrlname] then
         g.indun_panel_settings.etc[ctrlname] = ischeck
     end
+    -- チャレンジ / 分裂の段(520 / 540 / 560)。控えは settings.tiers に持つ。
+    -- **段の表(CHALLENGE_TIERS)はこの関数より後ろの local なのでここからは見えない。**
+    -- コントロール名から「行の綴り + 段」を読み取り、控えに在るものだけを書く
+    -- (在るかどうかの判定が、そのまま知らない名前を弾く役目も果たす)。
+    local prefix, label = string.match(ctrlname, "^(%a+)(%d+)$")
+    if prefix then
+        for _, row in ipairs(INDUN_PANEL_TIER_ROWS) do
+            if row.prefix == prefix then
+                local tbl = g.indun_panel_settings.tiers and g.indun_panel_settings.tiers[row.key]
+                local tier_key = Indun_panel_tier_key(label)
+                if tbl and tbl[tier_key] ~= nil then
+                    tbl[tier_key] = ischeck
+                end
+                break
+            end
+        end
+    end
+    -- **設定ウィンドウからの変更のときだけ描き直す。** パネルの上のチェック
+    -- (singularity_check / 常時展開)から呼ばれたときにやると、Indun_panel_frame_open の
+    -- RemoveAllChild が「今まさにこのイベントを処理しているコントロール」を壊すことになる。
+    if indun_panel and indun_panel:GetName() == Indun_panel_config_frame_name() then
+        Indun_panel_refresh_panel()
+    end
     if ctrlname == "move" then
         -- 動かせるかどうかだけを切り替える。当たり判定は常に残す(Indun_panel_setup_frame 参照)。
-        local enable = g.indun_panel_settings.etc.move == 0 and 1 or 0
-        indun_panel:EnableMove(enable)
+        -- **第 1 引数はチェックの乗っているフレーム = 設定ウィンドウ**なので、
+        -- パネルは名前で引き直す(設定を別ウィンドウにしたときの取りこぼし)。
+        local panel = ui.GetFrame(addon_name_lower .. "indun_panel")
+        if panel then
+            local enable = g.indun_panel_settings.etc.move == 0 and 1 or 0
+            panel:EnableMove(enable)
+        end
     end
     Indun_panel_save_settings()
 end
 
-function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char_counts()
-    local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
-    indun_panel:SetSkinName("test_frame_low")
-    indun_panel:SetLayerLevel(90)
-    indun_panel:EnableHittestFrame(1)
-    indun_panel:SetAlpha(100)
-    indun_panel:RemoveAllChild()
-    indun_panel:ShowWindow(1)
-    local close = indun_panel:CreateOrGetControl('button', 'close', 0, 0, 30, 30)
+-- 段(520 / 540 / 560)のチェックボックスを、コンテンツ一覧のその行の右へ並べる。
+-- 段を持たない行では何もしない。
+-- **列の x を基準に置くこと。** 一覧は 2 列組みで、行の顔ぶれが変われば
+-- チャレンジ / 分裂が右の列へ回ることもある。左列なら 155〜320、右列なら
+-- 465〜630 に収まるので、どちらでも隣の列や窓の外へはみ出さない。
+function Indun_panel_tier_checkboxes(indun_panel, row_key, x, y)
+    local row = Indun_panel_tier_row_of(row_key)
+    local tiers = row and Indun_panel_tiers_of(row_key)
+    if not tiers then
+        return
+    end
+    local tooltip = g.lang == "Japanese" and
+                        "{ol}チェックを外すとその段のボタンを出しません{nl}すべて外すとその行ごと消えます{nl}灰色のときは行そのものが非表示です" or
+                        "{ol}Unchecked tiers are not shown{nl}Unchecking every tier hides the whole row{nl}Greyed out means the row itself is hidden"
+    local row_enabled = Indun_panel_row_checked(row_key)
+    local tier_x = x
+    for _, tier in ipairs(tiers) do
+        -- 名前は Indun_panel_ischecked が「綴り + 数字」で読み直す
+        -- (綴りは INDUN_PANEL_TIER_ROWS の prefix。変えるなら両方揃えること)
+        local checkbox = indun_panel:CreateOrGetControl('checkbox', row.prefix .. tier.label, tier_x, y, 25, 25)
+        AUTO_CAST(checkbox)
+        checkbox:SetCheck(Indun_panel_tier_enabled(row_key, tier.label) and 1 or 0)
+        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
+        checkbox:SetText(Indun_panel_tier_label_text(tier.label, row_enabled))
+        checkbox:SetTextTooltip(tooltip)
+        tier_x = tier_x + 55
+    end
+end
+
+-- 設定は**パネルとは別のポップアップ**として出す。
+--
+-- 以前はパネルのフレームそのものを RemoveAllChild して設定画面へ作り替えていた。
+-- パネルは画面の端に寄せて置くものなので設定もそこへ出ることになり、縦に長い一覧を
+-- 画面の端で読む形になっていた。別フレームにして中央へ出す。
+--
+-- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
+-- **素で list_frame:GetX() を呼ばないこと**(g.settings_frame_pos のコメント)。
+local INDUN_PANEL_CONFIG_W = 660
+
+function Indun_panel_config_frame_name()
+    return addon_name_lower .. "indun_panel_config"
+end
+
+-- × と ESC で同じ動きにする。**設定を変えたぶんを反映するため、閉じたらパネルを組み直す。**
+-- 片方だけ組み直すと「× なら反映されるのに ESC だと変わらない」という追いにくい差になる。
+function Indun_panel_setting_frame_close()
+    ui.DestroyFrame(Indun_panel_config_frame_name())
+    -- 開いている間の変更は Indun_panel_refresh_panel が随時反映しているが、取りこぼしが
+    -- あっても閉じたら必ず揃うよう、ここでも 1 回描き直す。
+    -- **展開 / 畳みの状態は変えない。** 以前は Indun_panel_frame_init を直に呼んでいて、
+    -- 設定を閉じるたびに展開していたパネルが畳まれていた(設定画面がパネルそのものだった
+    -- 頃の名残で、別ウィンドウにした今は畳む理由が無い)。
+    Indun_panel_refresh_panel()
+end
+
+-- セクションの見出し。戻り値は次に置ける y。
+function Indun_panel_config_section(config_frame, name, text, y)
+    local title = config_frame:CreateOrGetControl("richtext", "section_" .. name, 15, y, 400, 25)
+    AUTO_CAST(title)
+    title:SetText(string.format("{ol}{#FFD900}{s18}%s", text))
+    local line = config_frame:CreateOrGetControl("labelline", "line_" .. name, 10, y + 26,
+        INDUN_PANEL_CONFIG_W - 20, 5)
+    AUTO_CAST(line)
+    line:SetSkinName("labelline2")
+    return y + 36
+end
+
+function Indun_panel_setting_frame_open()
+    local is_jp = g.lang == "Japanese"
+    local config_frame = ui.CreateNewFrame("chat_memberlist", Indun_panel_config_frame_name())
+    AUTO_CAST(config_frame)
+    g.block_click_through(config_frame)
+    config_frame:EnableHitTest(1)
+    config_frame:SetSkinName("test_frame_low")
+    config_frame:SetLayerLevel(999)
+    -- 開き直し(セット切替・セット名変更)でも呼ばれるので、毎回作り直す
+    config_frame:RemoveAllChild()
+    local title = config_frame:CreateOrGetControl("richtext", "title", 20, 8, 300, 30)
+    AUTO_CAST(title)
+    title:SetText(is_jp and "{ol}{#FFFFFF}{s20}Indun Panel 設定" or "{ol}{#FFFFFF}{s20}Indun Panel Settings")
+    local close = config_frame:CreateOrGetControl("button", "close", 0, 0, 30, 30)
     AUTO_CAST(close)
     close:SetImage("testclose_button")
     close:SetGravity(ui.RIGHT, ui.TOP)
-    close:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_init")
-    local btn = indun_panel:CreateOrGetControl("button", "btn", 5, 5, 80, 30)
-    AUTO_CAST(btn)
-    btn:SetText("{ol}{s10}INDUNPANEL")
-    btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_init")
-    local position = indun_panel:CreateOrGetControl("button", "position", 90, 5, 60, 30)
+    close:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_close")
+
+    -- ===== セクション 1: Indun Panel の設定 =====
+    local y = Indun_panel_config_section(config_frame, "panel", is_jp and "Indun Panel の設定" or "Panel settings", 40)
+    local position = config_frame:CreateOrGetControl("button", "position", 15, y, 70, 30)
     AUTO_CAST(position)
     position:SetText("{ol}{s10}BASE POS")
     position:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_base_position")
-    position:SetTextTooltip(g.lang == "Japanese" and "{ol}ボタンを元の位置に戻す" or "Reset button position")
-    local x = 200
+    position:SetTextTooltip(is_jp and "{ol}ボタンを元の位置に戻す" or "Reset button position")
+    local set_x = 95
     for _, item in ipairs(g.indun_panel_settings.set_names) do
         for key, name in pairs(item) do
-            local btn = indun_panel:CreateOrGetControl("button", name .. key, x, 5, 80, 30)
+            local btn = config_frame:CreateOrGetControl("button", name .. key, set_x, y, 80, 30)
             AUTO_CAST(btn)
             btn:Resize(80, 30)
             btn:SetText("{ol}" .. name)
             btn:Resize(80, 30)
             btn:AdjustFontSizeByWidth(80)
-            btn:SetTextTooltip(g.lang == "Japanese" and
-                                   "{ol}左クリック: セット選択{nl}右クリック: セット名変更" or
+            btn:SetTextTooltip(is_jp and "{ol}左クリック: セット選択{nl}右クリック: セット名変更" or
                                    "{ol}Left Click: Select Set{nl}Right Click: Change Set Name")
             btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_set_toggle")
             btn:SetEventScriptArgString(ui.LBUTTONUP, key)
@@ -1119,15 +1385,16 @@ function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char
             if g.indun_panel_settings.etc.use_set == key then
                 btn:SetSkinName("test_red_button")
             end
-            x = x + 85
+            set_x = set_x + 85
         end
     end
-    local skin_change = indun_panel:CreateOrGetControl("button", "skin_change", 470, 5, 80, 30)
+    local skin_change = config_frame:CreateOrGetControl("button", "skin_change", set_x + 15, y, 100, 30)
     AUTO_CAST(skin_change)
-    local skin_text = g.lang == "Japanese" and "{ol}フレームスキン選択" or "{ol}Select Frame Skin"
     skin_change:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_skin_select")
     skin_change:SetText("{ol}SKIN SELECT")
-    skin_change:SetTextTooltip(skin_text)
+    skin_change:SetTextTooltip(is_jp and "{ol}背景を選ぶ" or "{ol}Select Frame Skin")
+    y = y + 38
+
     local shortcut_icons = {{ -- ショートカットアイコンのチェックボックス作成をループ処理に
         name = "tos",
         img = "icon_item_Tos_Event_Coin",
@@ -1174,10 +1441,9 @@ function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char
         size = 28
     }}
     local config_x = 15
-    local tooltip_always_show = g.lang == "Japanese" and "{ol}チェックすると常に表示" or
-                                    "{ol}Always visible when checked"
+    local tooltip_always_show = is_jp and "{ol}チェックすると常に表示" or "{ol}Always visible when checked"
     for _, icon_info in ipairs(shortcut_icons) do
-        local checkbox = indun_panel:CreateOrGetControl("checkbox", icon_info.name, config_x, 47, icon_info.size,
+        local checkbox = config_frame:CreateOrGetControl("checkbox", icon_info.name, config_x, y, icon_info.size,
             icon_info.size)
         AUTO_CAST(checkbox)
         checkbox:SetText(string.format("{img %s %d %d}", icon_info.img, icon_info.size, icon_info.size))
@@ -1194,42 +1460,47 @@ function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char
         checkbox:SetCheck(is_checked)
         config_x = config_x + checkbox:GetWidth() + 5
     end
-    local label_line2 = indun_panel:CreateControl('labelline', 'label_line2', 10, 77, config_x, 5)
-    AUTO_CAST(label_line2)
-    label_line2:SetSkinName("labelline2")
-    local other_settings = {{ -- その他の設定チェックボックス作成をループ処理に
+    y = y + 38
+
+    -- その他の設定。**2 列に並べる。** 1 列だと右半分が空くのに縦へ 4 行ぶん伸びて、
+    -- 下のコンテンツ一覧まで含めた窓の高さが画面へ収まりにくくなる。
+    local other_settings = {{
         name = "en_ver",
-        y = 85,
+        col = 1,
         jp = "チェックすると英語表示に変更します",
         en = "Check to display to English"
     }, {
-        name = "move",
-        y = 120,
-        jp = "チェックするとフレームを固定",
-        en = "Check to fixes the frame"
-    }, {
         name = "field_mode",
-        y = 155,
+        col = 2,
         jp = "チェックするとフィールドで表示",
         en = "Check to display in field"
     }, {
+        name = "move",
+        col = 1,
+        jp = "チェックするとフレームを固定",
+        en = "Check to fixes the frame"
+    }, {
         name = "shading",
-        y = 190,
+        col = 2,
         jp = "チェックすると網掛け表示",
         en = "Check to display shading"
     }}
-    for _, setting_info in ipairs(other_settings) do
-        local checkbox = indun_panel:CreateOrGetControl('checkbox', setting_info.name, 25, setting_info.y, 25, 25)
+    for i, setting_info in ipairs(other_settings) do
+        local col_x = setting_info.col == 1 and 25 or 340
+        local col_y = y + math.floor((i - 1) / 2) * 35
+        local checkbox = config_frame:CreateOrGetControl("checkbox", setting_info.name, col_x, col_y, 25, 25)
         AUTO_CAST(checkbox)
         checkbox:SetCheck(g.indun_panel_settings.etc[setting_info.name])
         checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-        checkbox:SetText(g.lang == "Japanese" and "{ol}" .. setting_info.jp or "{ol}" .. setting_info.en)
+        checkbox:SetText(is_jp and "{ol}" .. setting_info.jp or "{ol}" .. setting_info.en)
     end
-    local label_line = indun_panel:CreateControl('labelline', 'label_line', 10, 215, config_x, 5)
-    AUTO_CAST(label_line)
-    label_line:SetSkinName("labelline2")
-    local posy_left = 220
-    local posy_right = 220
+    y = y + math.ceil(#other_settings / 2) * 35 + 5
+
+    -- ===== セクション 2: 表示するコンテンツ =====
+    y = Indun_panel_config_section(config_frame, "contents",
+        is_jp and "レイド・コンテンツの表示 ON/OFF" or "Show / hide raids and contents", y)
+    local posy_left = y
+    local posy_right = y
     local count = #induns
     local half_count = math.ceil(count / 2)
     local current_set = g.indun_panel_settings.etc.use_set
@@ -1237,40 +1508,54 @@ function Indun_panel_setting_frame_open() -- Indun_list_viewer_save_current_char
     for i = 1, count do
         local entry = induns[i]
         for key, value in pairs(entry) do
-            local checkbox
+            -- 列の座標は段のチェックを右へ並べるのにも使うので、先に決めて持ち回す
+            local col_x, col_y
             if i <= half_count then
-                checkbox = indun_panel:CreateOrGetControl('checkbox', key, 15, posy_left, 25, 25)
-                AUTO_CAST(checkbox)
+                col_x, col_y = 15, posy_left
                 posy_left = posy_left + 35
             else
-                checkbox = indun_panel:CreateOrGetControl('checkbox', key, 325, posy_right, 25, 25)
-                AUTO_CAST(checkbox)
+                col_x, col_y = 325, posy_right
                 posy_right = posy_right + 35
             end
+            local checkbox = config_frame:CreateOrGetControl("checkbox", key, col_x, col_y, 25, 25)
+            AUTO_CAST(checkbox)
             local is_checked = use_tbl[key]
             if is_checked == nil then
                 is_checked = 0
             end
             checkbox:SetCheck(is_checked)
             checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-            local bool = g.indun_panel_settings.etc.en_ver == 0 and g.lang == "Japanese"
+            local bool = g.indun_panel_settings.etc.en_ver == 0 and is_jp
             local display_name = key
             if bool and value.jp then
                 display_name = value.jp
             end
             checkbox:SetText(bool and "{ol}{#FFFFFF}{s16}" .. display_name or "{ol}{#FFFFFF}{s20}" .. key)
-            checkbox:SetTextTooltip(g.lang == "Japanese" and "チェックすると表示" or "Check to show")
+            checkbox:SetTextTooltip(is_jp and "チェックすると表示" or "Check to show")
+            -- 段(520 / 540 / 560)を持つ行は、その行の右へ段のチェックを並べる
+            Indun_panel_tier_checkboxes(config_frame, key, col_x + 140, col_y)
         end
     end
-    local final_height = math.max(posy_left, posy_right)
-    indun_panel:Resize(660, final_height + 5)
+    local final_height = math.max(posy_left, posy_right) + 10
+    config_frame:Resize(INDUN_PANEL_CONFIG_W, final_height)
+    config_frame:SetPos(g.settings_frame_pos(INDUN_PANEL_CONFIG_W, final_height))
+    config_frame:ShowWindow(1)
+    -- **ShowWindow(1) の後に積むこと。** まだ出ていない状態で積むと、直後の同期で
+    -- 「閉じ終わった登録」と見なされてその場で捨てられる(core/00_header.lua)。
+    -- × と同じ後始末(パネルの組み直し)が要るので、esc_register_destroy ではなく esc_register。
+    g.esc_register(Indun_panel_config_frame_name(), "Indun_panel_setting_frame_close")
 end
-
-function Indun_panel_frame_base_position(indun_panel)
-    indun_panel:SetPos(665, 30)
+-- 戻すのは**パネル**の位置。**引数のフレームを動かさないこと。**
+-- このボタンは設定ウィンドウの上にあるので、第 1 引数は設定ウィンドウ自身で、
+-- 素で動かすと設定ウィンドウのほうが飛んでいく(設定を別ウィンドウにしたときの取りこぼし)。
+function Indun_panel_frame_base_position()
     g.indun_panel_settings.etc.x = 665
     g.indun_panel_settings.etc.y = 30
     Indun_panel_save_settings()
+    local panel = ui.GetFrame(addon_name_lower .. "indun_panel")
+    if panel then
+        panel:SetPos(665, 30)
+    end
 end
 
 function Indun_panel_INPUT_STRING_BOX(frame, ctrl, set_key, num)
@@ -1340,8 +1625,12 @@ end
 function Indun_panel_frame_skin_select_(skin_name)
     g.indun_panel_settings.etc.skin_name = skin_name
     Indun_panel_save_settings()
+    -- パネルを描き直して、選んだ背景をその場で見せる。設定ウィンドウは別フレームなので
+    -- 開いたまま残る(以前はパネル自身を設定画面にしていたため、ここで設定が閉じていた)。
     local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
-    Indun_panel_frame_open(indun_panel)
+    if indun_panel then
+        Indun_panel_frame_open(indun_panel)
+    end
 end
 
 -- 各行の描画関数が「この行は横 n px 使った」と申告する先。
@@ -1419,7 +1708,9 @@ function Indun_panel_frame_contents(configbtn)
     local lasy_y = 0
     for i, entry in ipairs(induns) do
         local key, value = next(entry)
-        if use_tbl[key] == 1 then
+        -- 段(520 / 540 / 560)を全部外した行は、見出しだけの空の行になるので畳む。
+        -- 段を持たない行では Indun_panel_tier_row_visible が常に true を返す。
+        if use_tbl[key] == 1 and Indun_panel_tier_row_visible(key) then
             if g.indun_panel_settings.etc.shading == 1 then
                 local line = indun_panel:CreateOrGetControl("picture", "line" .. key, 5, y - 2, 740, 33)
                 -- 縞の幅はパネルの幅が確定してから合わせ直す(行を描く前は幅が分からない)
@@ -1783,7 +2074,8 @@ local CHALLENGE_CONFIG = {
         non_expiring = {11202129, 11202128}
     }
 }
-local CHALLENGE_TIERS = {{
+-- 前方宣言してある(ファイル上部)。ここは代入なので local を付けないこと
+CHALLENGE_TIERS = {{
     label = "520",
     solo = 1001,
     config = "LOW",
@@ -1852,70 +2144,74 @@ end
 function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x)
     local offset = 0
     for _, tier in ipairs(CHALLENGE_TIERS) do
-        local suffix = "_ch" .. tier.label
-        local config = CHALLENGE_CONFIG[tier.config]
-        -- 所持数はその段の入場券だけを数える(段をまたいで合算すると別 Lv の券まで数えてしまう)
-        local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
-        local icon_text = ""
-        local item_cls = GetClassByType('Item', config.expiring[1])
-        if item_cls then
-            local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                            "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-            icon_text = string.format(fmt, item_cls.Icon, count)
-        end
-        local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
-        AUTO_CAST(btn)
-        btn:SetText("{ol}" .. tier.label)
-        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
-        btn:SetEventScriptArgString(ui.LBUTTONUP, "1")
-        btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.solo)
-        offset = offset + 50
-        -- PT(自動マッチング)がある段だけボタンを出す。無い段で出すと押しても何も起きない
-        local pt_indun_type = tier.pt or tier.solo
-        if tier.pt then
-            local pt_btn = indun_panel:CreateOrGetControl('button', "pt" .. suffix, x + offset, y, 50, 30)
-            AUTO_CAST(pt_btn)
-            pt_btn:SetText("{ol}{#FFD900}PT")
-            pt_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
-            pt_btn:SetEventScriptArgString(ui.LBUTTONUP, "2")
-            pt_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.pt)
+        -- 設定で外した段は描かない(パネルは frame_init が RemoveAllChild してから
+        -- 組み直すので、描かなければコントロールごと残らない)
+        if Indun_panel_tier_enabled("challenge", tier.label) then
+            local suffix = "_ch" .. tier.label
+            local config = CHALLENGE_CONFIG[tier.config]
+            -- 所持数はその段の入場券だけを数える(段をまたいで合算すると別 Lv の券まで数えてしまう)
+            local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
+            local icon_text = ""
+            local item_cls = GetClassByType('Item', config.expiring[1])
+            if item_cls then
+                local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
+                                "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
+                icon_text = string.format(fmt, item_cls.Icon, count)
+            end
+            local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
+            AUTO_CAST(btn)
+            btn:SetText("{ol}" .. tier.label)
+            btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
+            btn:SetEventScriptArgString(ui.LBUTTONUP, "1")
+            btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.solo)
             offset = offset + 50
-        end
-        local txt = indun_panel:CreateOrGetControl("richtext", "txt" .. suffix, x + offset, y + 5, 40, 30)
-        txt:SetText(Indun_panel_get_entrance_count(tier.solo, tier.count_index))
-        offset = offset + 40
-        -- ツールチップは 2 つの独立した要素でできている。**片方の条件でもう片方を決めないこと。**
-        --   * クリックの案内 … PT ボタンがある段だけ(tier.pt)
-        --   * 消費の優先順位 … **520 かどうか**。Indun_panel_use_prioritized_ticket が
-        --     indun_type == 1001 のときだけ期限の無い券をその場で使い、540 以降は
-        --     ショップで買えるうちは温存するため
-        -- 以前ここを tier.pt だけで分けていたので、PT が消えた 540(1005 の削除)だけが
-        -- 520 用の順序に落ちて、実際の消費順序と逆の説明を出していた。
-        local hold_non_expiring = tier.solo ~= 1001
-        local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring, "icon_item_Tos_Event_Coin")
-        local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
-            pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
-        if tier.pt then
-            tos_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
-            tos_btn:SetEventScriptArgString(ui.RBUTTONUP, "tos")
-            tos_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
-        end
-        offset = offset + 100
-        if tier.pvp_recipe then
-            local tooltip_pvp = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring,
-                "pvpmine_shop_btn_total")
-            local pvp_btn = challenge_shop_button(indun_panel, "buyuse_pvp" .. suffix, x + offset, y, tier.pvp_recipe,
-                pt_indun_type, "pvp", "pvpmine_shop_btn_total", icon_text, tooltip_pvp)
-            pvp_btn:SetText(string.format("{ol}{#FFFFFF}USEor{s16}{img %s 18 18}{#FFFFFF}%s", "pvpmine_shop_btn_total",
-                Indun_panel_get_recipe_trade_count(tier.pvp_recipe) or 0))
+            -- PT(自動マッチング)がある段だけボタンを出す。無い段で出すと押しても何も起きない
+            local pt_indun_type = tier.pt or tier.solo
             if tier.pt then
-                pvp_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
-                pvp_btn:SetEventScriptArgString(ui.RBUTTONUP, "pvp")
-                pvp_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
+                local pt_btn = indun_panel:CreateOrGetControl('button', "pt" .. suffix, x + offset, y, 50, 30)
+                AUTO_CAST(pt_btn)
+                pt_btn:SetText("{ol}{#FFD900}PT")
+                pt_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_challenge")
+                pt_btn:SetEventScriptArgString(ui.LBUTTONUP, "2")
+                pt_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.pt)
+                offset = offset + 50
+            end
+            local txt = indun_panel:CreateOrGetControl("richtext", "txt" .. suffix, x + offset, y + 5, 40, 30)
+            txt:SetText(Indun_panel_get_entrance_count(tier.solo, tier.count_index))
+            offset = offset + 40
+            -- ツールチップは 2 つの独立した要素でできている。**片方の条件でもう片方を決めないこと。**
+            --   * クリックの案内 … PT ボタンがある段だけ(tier.pt)
+            --   * 消費の優先順位 … **520 かどうか**。Indun_panel_use_prioritized_ticket が
+            --     indun_type == 1001 のときだけ期限の無い券をその場で使い、540 以降は
+            --     ショップで買えるうちは温存するため
+            -- 以前ここを tier.pt だけで分けていたので、PT が消えた 540(1005 の削除)だけが
+            -- 520 用の順序に落ちて、実際の消費順序と逆の説明を出していた。
+            local hold_non_expiring = tier.solo ~= 1001
+            local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring, "icon_item_Tos_Event_Coin")
+            local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
+                pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
+            if tier.pt then
+                tos_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
+                tos_btn:SetEventScriptArgString(ui.RBUTTONUP, "tos")
+                tos_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
             end
             offset = offset + 100
+            if tier.pvp_recipe then
+                local tooltip_pvp = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring,
+                    "pvpmine_shop_btn_total")
+                local pvp_btn = challenge_shop_button(indun_panel, "buyuse_pvp" .. suffix, x + offset, y, tier.pvp_recipe,
+                    pt_indun_type, "pvp", "pvpmine_shop_btn_total", icon_text, tooltip_pvp)
+                pvp_btn:SetText(string.format("{ol}{#FFFFFF}USEor{s16}{img %s 18 18}{#FFFFFF}%s", "pvpmine_shop_btn_total",
+                    Indun_panel_get_recipe_trade_count(tier.pvp_recipe) or 0))
+                if tier.pt then
+                    pvp_btn:SetEventScript(ui.RBUTTONUP, "Indun_panel_challenge_item_use")
+                    pvp_btn:SetEventScriptArgString(ui.RBUTTONUP, "pvp")
+                    pvp_btn:SetEventScriptArgNumber(ui.RBUTTONUP, tier.solo)
+                end
+                offset = offset + 100
+            end
+            offset = offset + 5
         end
-        offset = offset + 5
     end
     Indun_panel_note_row_width(offset)
 end
@@ -2073,7 +2369,8 @@ local SINGULARITY_CONFIG = {
         non_expiring = {11202139, 11202138}
     }
 }
-local SINGULARITY_TIERS = {{
+-- 前方宣言してある(ファイル上部)。ここは代入なので local を付けないこと
+SINGULARITY_TIERS = {{
     label = "520",
     indun = 2000,
     tos_recipe = "EVENT_TOS_WHOLE_SHOP_314"
@@ -2107,51 +2404,54 @@ end
 function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y, x)
     local offset = 0
     for _, tier in ipairs(SINGULARITY_TIERS) do
-        local suffix = "_sg" .. tier.label
-        local config = SINGULARITY_CONFIG[tier.indun]
-        local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
-        local icon_text = ""
-        local item_cls = GetClassByType('Item', config.expiring[1])
-        if item_cls then
-            local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
-                            "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
-            icon_text = string.format(fmt, item_cls.Icon, count)
-        end
-        local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
-        AUTO_CAST(btn)
-        btn:SetText("{ol}" .. tier.label)
-        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_singularity")
-        btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
-        offset = offset + 55
-        local count_txt = indun_panel:CreateOrGetControl("richtext", "count" .. suffix, x + offset, y + 5, 30, 30)
-        count_txt:SetText("{ol}(" .. Indun_panel_get_entrance_count(tier.indun, 4) .. ")")
-        offset = offset + 30
-        local tooltip = g.lang == "Japanese" and
-                            "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
-                            "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
-        local tos_btn = indun_panel:CreateOrGetControl('button', 'ticket_tos' .. suffix, x + offset, y, 100, 30)
-        AUTO_CAST(tos_btn)
-        tos_btn:SetText(string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
-            Indun_panel_get_recipe_trade_count(tier.tos_recipe) or 0))
-        tos_btn:SetTextTooltip(icon_text .. tooltip)
-        tos_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
-        tos_btn:SetEventScriptArgString(ui.LBUTTONUP, "tos")
-        tos_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
-        offset = offset + 105
-        if tier.pvp_recipes then
-            local pvp_btn = indun_panel:CreateOrGetControl('button', 'ticket_pvp' .. suffix, x + offset, y, 140, 30)
-            AUTO_CAST(pvp_btn)
-            local tooltip_pvp = g.lang == "Japanese" and
-                                    "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
-                                    "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
-            pvp_btn:SetText(string.format("{ol}{#FFFFFF}{s16}USEor{img %s 18 18}d:%s w:%s", "pvpmine_shop_btn_total",
-                Indun_panel_get_recipe_trade_count(tier.pvp_recipes[1]) or 0,
-                Indun_panel_get_recipe_trade_count(tier.pvp_recipes[2]) or 0))
-            pvp_btn:SetTextTooltip(icon_text .. tooltip_pvp)
-            pvp_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
-            pvp_btn:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
-            pvp_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
-            offset = offset + 145
+        -- 設定で外した段は描かない(理由は Indun_panel_challenge_frame と同じ)
+        if Indun_panel_tier_enabled("singularity", tier.label) then
+            local suffix = "_sg" .. tier.label
+            local config = SINGULARITY_CONFIG[tier.indun]
+            local count = Indun_panel_get_invitem_count(config.expiring) + Indun_panel_get_invitem_count(config.non_expiring)
+            local icon_text = ""
+            local item_cls = GetClassByType('Item', config.expiring[1])
+            if item_cls then
+                local fmt = g.lang == "Japanese" and "{ol}{img %s 25 25 } %d枚持っています{nl} {nl}" or
+                                "{ol}{img %s 25 25 } Quantity in Inventory: %d{nl} {nl}"
+                icon_text = string.format(fmt, item_cls.Icon, count)
+            end
+            local btn = indun_panel:CreateOrGetControl('button', "btn" .. suffix, x + offset, y, 50, 30)
+            AUTO_CAST(btn)
+            btn:SetText("{ol}" .. tier.label)
+            btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_enter_singularity")
+            btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+            offset = offset + 55
+            local count_txt = indun_panel:CreateOrGetControl("richtext", "count" .. suffix, x + offset, y + 5, 30, 30)
+            count_txt:SetText("{ol}(" .. Indun_panel_get_entrance_count(tier.indun, 4) .. ")")
+            offset = offset + 30
+            local tooltip = g.lang == "Japanese" and
+                                "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img icon_item_Tos_Event_Coin 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
+                                "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img icon_item_Tos_Event_Coin 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
+            local tos_btn = indun_panel:CreateOrGetControl('button', 'ticket_tos' .. suffix, x + offset, y, 100, 30)
+            AUTO_CAST(tos_btn)
+            tos_btn:SetText(string.format("{ol}{#EE7800}USEor{s16}{img %s 15 15}{#FFFFFF}%s", "icon_item_Tos_Event_Coin",
+                Indun_panel_get_recipe_trade_count(tier.tos_recipe) or 0))
+            tos_btn:SetTextTooltip(icon_text .. tooltip)
+            tos_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
+            tos_btn:SetEventScriptArgString(ui.LBUTTONUP, "tos")
+            tos_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+            offset = offset + 105
+            if tier.pvp_recipes then
+                local pvp_btn = indun_panel:CreateOrGetControl('button', 'ticket_pvp' .. suffix, x + offset, y, 140, 30)
+                AUTO_CAST(pvp_btn)
+                local tooltip_pvp = g.lang == "Japanese" and
+                                        "{ol}優先順位{nl}1.24時間以内の期限付きチケット{nl}2.期限付きチケット{nl}3.{img pvpmine_shop_btn_total 20 20}チケット(買って使います){nl}4.期限の無いチケット" or
+                                        "{ol}Priority{nl}1.Limited-time tickets (under 24 hours){nl}2.Limited-time tickets{nl}3.{img pvpmine_shop_btn_total 20 20}tickets(buy and use){nl}4.Tickets without an expiration date"
+                pvp_btn:SetText(string.format("{ol}{#FFFFFF}{s16}USEor{img %s 18 18}d:%s w:%s", "pvpmine_shop_btn_total",
+                    Indun_panel_get_recipe_trade_count(tier.pvp_recipes[1]) or 0,
+                    Indun_panel_get_recipe_trade_count(tier.pvp_recipes[2]) or 0))
+                pvp_btn:SetTextTooltip(icon_text .. tooltip_pvp)
+                pvp_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
+                pvp_btn:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
+                pvp_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
+                offset = offset + 145
+            end
         end
     end
     local singularity_check = indun_panel:CreateOrGetControl("checkbox", "singularity_check", x + offset, y, 25, 25)
@@ -2414,6 +2714,14 @@ function Indun_panel_enter_solo(indun_panel, ctrl, str, indun_type)
         CREATE_PARTY_BTN()
     end
     ReqRaidAutoUIOpen(indun_type)
+    -- open_only の付いたダンジョン(共鳴の聖所)は**窓を開くところで止める**。
+    -- 押す前に中身を選びたいものがあるため、入場は利用者に任せる。
+    -- 表に無い indun_type(config が nil)は今までどおり続けて入場を押す。
+    local config = DUNGEON_TICKET_CONFIG[indun_type]
+    if config and config.open_only then
+        g.vlog("indun_panel: indun %d は窓を開くところで止める(入場は押さない)", indun_type)
+        return
+    end
     ReserveScript(string.format("ReqMoveToIndun(%d,%d)", 1, 0), 0.3)
 end
 
@@ -2653,7 +2961,8 @@ function Indun_panel_enter_velnice_solo(indun_panel, ctrl, str, indun_type)
     end
 end
 
-local DUNGEON_TICKET_CONFIG = {
+-- 前方宣言してある(ファイル上部)。ここは代入なので local を付けないこと
+DUNGEON_TICKET_CONFIG = {
     [684] = { -- (嘆きの墓地)
         label = "490",
         tickets = {11200276, 11200275, 11200274}
@@ -2664,7 +2973,9 @@ local DUNGEON_TICKET_CONFIG = {
     },
     [732] = { -- (共鳴の聖所: ザウラ)
         label = "560",
-        tickets = {11210071, 11210070, 11210069}
+        tickets = {11210071, 11210070, 11210069},
+        -- **入場はこちらで押さない。** 窓を開くところで止める(Indun_panel_enter_solo)
+        open_only = true
     }
 }
 function Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
