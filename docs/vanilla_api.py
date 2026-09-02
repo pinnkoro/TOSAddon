@@ -54,6 +54,7 @@ GitHub Actions のランナーにゲームは入らないので、素との突�
 終了コード: 0 = 一致 / 1 = 食い違いあり / 2 = 実行できなかった
 """
 import argparse
+import bisect
 import glob
 import json
 import os
@@ -376,6 +377,11 @@ DEF_DOTTED_ASSIGN = re.compile(
     r"^[ \t]*([A-Za-z_]\w*)\.([A-Za-z_]\w*)[ \t]*=[ \t]*function[ \t]*\(([^)]*)\)", re.M)
 NS_CALL = re.compile(r"(?<![\w.:])([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\(")
 BARE_CALL = re.compile(r"(?<![\w.:])([A-Za-z_]\w*)\s*\(")
+# 字下げ 0 の function ... end を「関数 1 つ」とみなすための目印。ローカルの見える範囲を
+# ここで区切る（check_frame_hittest.py も同じ切り方をしている）。
+# `Xxx = function()` の形（mini_addons に実在）も関数の始まりとして拾う。
+FUNC = re.compile(r"^(?:(?:local\s+)?function\b|[\w.:]+\s*=\s*function\b)")
+FUNC_END = re.compile(r"^end\b")
 
 
 def scan_client(root, wanted=None):
@@ -475,22 +481,41 @@ def scan_src():
     """
     bodies = {}
     with_strings = {}
+    line_index = {}      # ファイル -> 各行の先頭位置（呼び出し位置から行番号を引くため）
     own_globals = set()
-    # **ローカルはファイルごとに持つこと。** src 全体の和集合にすると、どこか 1 ファイルの
-    # `local item = items[i]` が、別ファイルの本物の `item.UnEquip(...)` まで検査対象から
-    # 落としてしまう（実際に item / info / control / config / market / pc など 79 記号が
-    # 隠れていた）。防ぎたい事故をツール自身が起こすことになる。
-    file_locals = {}
-    # ただし bundle は全ファイルを 1 チャンクへ連結するので、**字下げ 0 の local は
-    # 後続のファイルからも見える**。こちらだけは全体で共有する（core/00_header.lua の
-    # チャンクローカルを、後のアドオンが呼ぶ形が実在する）。
+    # **ローカルは「見える範囲」で判定すること。** src 全体の和集合にすると、どこか
+    # 1 ファイルの `local item = items[i]` が別ファイルの本物の `item.UnEquip(...)` まで
+    # 落とす。ファイル単位にしても足りず、同じファイルの**別の関数**にある
+    # `local item` / `local market` / `local info` が、そのファイル全体の
+    # `item.Equip` / `market.ReqRegisterItem` / `info.GetPositionInMap` を隠していた。
+    # 一覧から漏れた API は --verify-client の照合対象にすらならないので、
+    # 防ぎたい事故をツール自身が起こすことになる。
+    #
+    # そこで**字下げ 0 の function ... end を 1 つの入れ物**とみなし、その中で宣言した
+    # ローカルは「同じ入れ物の、宣言行より後ろ」だけで効かせる。Lua の本当のブロック
+    # スコープより広いが（入れ子の関数で宣言したものが、その関数の残りにも効く）、
+    # 隠しすぎる向きの誤差が 1 関数の中に収まる。
+    block_locals = {}    # ファイル -> [{名前: 宣言行}]。0 番はチャンク直下
+    block_of_line = {}   # ファイル -> [行 -> 入れ物の番号]
+    # bundle は全ファイルを 1 チャンクへ連結するので、**字下げ 0 の local は後続の
+    # ファイルからも見える**。こちらだけは全体で共有する（mini_addons の hair_enchant /
+    # skill_reroll がファイルをまたいで呼び合っている）。
     chunk_locals = set()
+
+    def add_local(blocks, bid, name, line):
+        if name in LUA_KEYWORDS:
+            return
+        cur = blocks[bid].get(name)
+        if cur is None or line < cur:
+            blocks[bid][name] = line
+
     for path in src_files():
         rel = path.relative_to(SRC).as_posix()
         text = path.read_text(encoding="utf-8")
         body = strip_lua(text)
         bodies[rel] = body
         with_strings[rel] = strip_lua(text, keep_strings=True)
+        line_index[rel] = [0] + [m.end() for m in re.finditer("\n", body)]
         for m in DEF_FUNC.finditer(body):
             own_globals.add(m.group(1))
         for m in DEF_ASSIGN.finditer(body):
@@ -503,28 +528,35 @@ def scan_src():
         for m in re.finditer(r"_G\[\s*[\"']?([A-Za-z_]\w*)[\"']?\s*\]?\s*=",
                              with_strings[rel]):
             own_globals.add(m.group(1))
-        here = set()
-        # `local function f` も字下げ 0 なら後続ファイルから見える（分割した src を
-        # 1 チャンクへ連結するため。mini_addons の hair_enchant / skill_reroll が実際に
-        # ファイルをまたいで呼び合っている）。
-        for m in re.finditer(r"^([ \t]*)local[ \t]+function[ \t]+([A-Za-z_]\w*)", body, re.M):
-            here.add(m.group(2))
-            if m.group(1) == "":
-                chunk_locals.add(m.group(2))
-        for m in re.finditer(r"^([ \t]*)local[ \t]+([A-Za-z_][\w \t,]*)", body, re.M):
-            for nm in m.group(2).split(","):
-                nm = nm.strip()
-                if re.fullmatch(r"[A-Za-z_]\w*", nm) and nm not in LUA_KEYWORDS:
-                    here.add(nm)
-                    if m.group(1) == "":
-                        chunk_locals.add(nm)
-        # 仮引数もローカル扱い（`function f(ctrl)` の ctrl を呼ぶ形がある）。
-        for m in re.finditer(r"function[^(\n]*\(([^)]*)\)", body):
-            for nm in m.group(1).split(","):
-                nm = nm.strip()
-                if re.fullmatch(r"[A-Za-z_]\w*", nm):
-                    here.add(nm)
-        file_locals[rel] = here
+
+        blocks = [{}]          # 0 番 = チャンク直下
+        owner = []             # 行ごとの入れ物の番号
+        bid = 0
+        for i, line in enumerate(body.split("\n")):
+            # 字下げ 0 の function で入れ物が始まり、字下げ 0 の end で閉じる。
+            # `Xxx = function()`（mini_addons に実在）も関数の始まりとして扱う。
+            if FUNC.match(line):
+                blocks.append({})
+                bid = len(blocks) - 1
+            owner.append(bid)
+            m = re.match(r"([ \t]*)local[ \t]+(?:function[ \t]+)?([A-Za-z_][\w \t,]*)", line)
+            if m:
+                for nm in m.group(2).split(","):
+                    nm = nm.strip()
+                    if re.fullmatch(r"[A-Za-z_]\w*", nm):
+                        add_local(blocks, bid, nm, i)
+                        if m.group(1) == "" and nm not in LUA_KEYWORDS:
+                            chunk_locals.add(nm)
+            # 仮引数もローカル扱い（`function f(ctrl)` の ctrl を呼ぶ形がある）。
+            for pm in re.finditer(r"function[^(\n]*\(([^)]*)\)", line):
+                for nm in pm.group(1).split(","):
+                    nm = nm.strip()
+                    if re.fullmatch(r"[A-Za-z_]\w*", nm):
+                        add_local(blocks, bid, nm, i)
+            if bid != 0 and FUNC_END.match(line):
+                bid = 0
+        block_locals[rel] = blocks
+        block_of_line[rel] = owner
 
     hooks = {}
     uses = {}
@@ -536,19 +568,40 @@ def scan_src():
             rec["arities"].add(nargs)
 
     for rel, body in bodies.items():
-        here = file_locals[rel] | chunk_locals
+        starts = line_index[rel]
+        blocks = block_locals[rel]
+        owner = block_of_line[rel]
+
+        def shadowed(name, pos, starts=starts, blocks=blocks, owner=owner):
+            """その呼び出し位置から、その名前のローカルが見えているか。
+
+            見えているなら素の API ではない（同名のローカルを呼んでいる）。
+            **入れ物と宣言行の両方を見ること。** 同じファイルの別の関数にある
+            `local item` で、こちらの `item.Equip(...)` を消してはいけない。
+            """
+            if name in chunk_locals:
+                return True
+            line = bisect.bisect_right(starts, pos) - 1
+            bid = owner[line] if line < len(owner) else 0
+            decl = blocks[bid].get(name)
+            return decl is not None and decl <= line
+
         for pat in (HOOK_RE, HOOK_EVENT_RE):
             for m in pat.finditer(with_strings[rel]):
                 hooks.setdefault(m.group(1), set()).add(rel)
         for m in NS_CALL.finditer(body):
             ns, name = m.group(1), m.group(2)
-            if ns in OWN_NS or ns in LUA_STD_NS or ns in here or ns in own_globals:
+            if ns in OWN_NS or ns in LUA_STD_NS or ns in own_globals:
+                continue
+            if shadowed(ns, m.start()):
                 continue
             add(f"{ns}.{name}", rel, count_args(body, m.end() - 1))
         for m in BARE_CALL.finditer(body):
             name = m.group(1)
-            if (name in own_globals or name in here or name in LUA_STD
+            if (name in own_globals or name in LUA_STD
                     or name in LUA_STD_NS or name in OWN_NS or name in LUA_KEYWORDS):
+                continue
+            if shadowed(name, m.start()):
                 continue
             add(name, rel, count_args(body, m.end() - 1))
 
