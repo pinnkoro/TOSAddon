@@ -10,6 +10,9 @@ name: CI
 #   3'. core のロジック回帰            … ゲーム API をスタブ化して動かせる範囲のみ
 #   3''. .ipf 暗号化の復号照合         … 自前実装(docs/ipf_crypt.py)が壊れると
 #        クライアントが読めない .ipf を配ることになる
+#   3'''. 素の API 一覧との食い違い    … docs/vanilla_api.json に固定した「素の
+#        クライアント API をどう使っているか」と src がずれていないか。素そのものと
+#        の突き合わせはゲーム本体が要るのでローカル専用(docs/VANILLA_API.md)
 #
 # version-freeze ジョブ（main への PR で毎回）
 #   6. リリース前の先行採番            … main だけ版数が上がると、アドオンマネージャーが
@@ -100,6 +103,13 @@ jobs:
       # 巻き込む。復帰・素の戻り値・項目の差し替えを機械で見る。
       - name: mini_addons のメニュー横取りテスト
         run: luajit docs/tests/test_mini_addons_menu.lua
+
+      # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
+      # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
+      # 素そのものとの突き合わせは手元の --verify-client でしかできない）。
+      # 新しい素の API を使い始めたら、手元で --update / --verify-client を流すこと。
+      - name: 素のクライアント API 一覧との一致
+        run: python3 docs/vanilla_api.py --check
 
       # バフ表は「非表示リスト」(載っていない = 表示)。表示のバフを書き戻すと許可リストへ
       # 逆戻りして .dat が全件(実測 3816 行)へ膨らみ、レイドで重くなる原因が戻る。
