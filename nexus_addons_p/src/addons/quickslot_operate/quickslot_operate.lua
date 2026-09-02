@@ -11,6 +11,11 @@ g.quickslot_operate_raid_list = {
     -- 732 = 共鳴の聖所: ザウラ。レイドではないが同じくボス戦で、ザウラの RaceType も Widling。
     Widling = {677, 676, 678, 729, 730, 731, 732}
 }
+-- 差し替えの対象マップ(手書き)。**新レイドのたびにここへ足す必要は無い。**
+-- レイドのマップは Quickslot_operate_build_map_race が raid_list から自動で拾う。
+-- 残しているのは、そこから拾えない次の 2 つのため:
+--   11257 / 11267 … ギルドイベントのマップ(quickslot_guild_eventmap 側で種族を決める)
+-- 併せて「対象マップではあるが種族を決められない」状態を数えない判定にも使う。
 g.quickslot_operate_zone_list = {11208, 11230, 11250, 11252, 11256, 11257, 11261, 11263, 11266, 11267, 11270, 11276,
                                  11277, 11278, 11285, 11286, 11291}
 -- 11267=ドラグーン 11257=バウバス 11290=アシャーク
@@ -138,6 +143,14 @@ function Quickslot_operate_init_logic()
     g.quickslot_operate_no_item_ticks = 0
     g.quickslot_operate_no_map_ticks = 0
     g.quickslot_operate_slot_fails = 0
+    -- マップ ID -> 種族。raid_list から毎回組み立てるので手入れは要らない。
+    -- Indun / Map のクラスが引ければよく、街でも作れる(マップ移動のたびに作り直す)。
+    if not g.quickslot_operate_map_race then
+        local ok = pcall(Quickslot_operate_build_map_race)
+        if not ok then
+            g.vlog("{#FF6347}quickslot_operate: マップ種族表を作れなかった{/}")
+        end
+    end
     Quickslot_operate_reset_rshift()
     quickslot_operate_map_timer:Start(3.0)
     if g.quickslot_operate_settings.rshift then
@@ -731,23 +744,32 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
     -- 「載っていた」ことだけ憶えて、失敗ログは両方を試したあとで出す（そうしないと
     -- 正しく差し替えたマップに失敗ログが出るうえ、共有の unknown_map を消費して
     -- 「未登録のレイドマップ」の診断まで潰してしまう）。
-    local in_zone_list = false
+    -- マップから種族を引けるならそこも対象マップとして扱う。zone_list は手書きの
+    -- マップ ID の一覧で、新レイドのたびに足す必要があった(Lv560 の 3 マップが抜けていた)。
+    local map_race = Quickslot_operate_get_potion_type_by_map(g.map_id)
+    local in_zone_list = map_race ~= nil
     for _, zone_id in ipairs(g.quickslot_operate_zone_list) do
         if zone_id == g.map_id then
             in_zone_list = true
-            local potion_type = Quickslot_operate_get_potion_type(g.quickslot_operate_indun_type)
-            if potion_type then
-                g.vlog("quickslot_operate: map=%s indun_type=%s -> %s", tostring(g.map_id),
-                    tostring(g.quickslot_operate_indun_type), potion_type)
-                quickslotnexpbar:SetUserValue("POT_TYPE", potion_type)
-                -- ここは 3 秒周期のタイマーから呼ばれる。RunUpdateScript を挟むと
-                -- 実行が観測できなかった（実機ログで差し替えが一度も走らなかった）ので直接呼ぶ。
-                -- 差し替えに成功すれば check_all_slots がこのタイマーを止める。第 2 引数の
-                -- retryable は「空振りなら確定させず次の 3 秒に回してよい」の印(get_potion 参照)。
-                Quickslot_operate_get_potion(quickslotnexpbar, true)
-                return
-            end
             break
+        end
+    end
+    if in_zone_list then
+        -- 入場ダイアログで覚えた indun_type を優先し、無ければマップから引く。
+        -- ダイアログを通らない経路(パーティリーダーに飛ばされた / 再入場した /
+        -- レイド内で再ログイン / Indun Panel の SOLO・AUTO)はここでだけ救える。
+        local by_indun = Quickslot_operate_get_potion_type(g.quickslot_operate_indun_type)
+        local potion_type = by_indun or map_race
+        if potion_type then
+            g.vlog("quickslot_operate: map=%s indun_type=%s -> %s (%s)", tostring(g.map_id),
+                tostring(g.quickslot_operate_indun_type), potion_type, by_indun and "indun_type" or "マップ")
+            quickslotnexpbar:SetUserValue("POT_TYPE", potion_type)
+            -- ここは 3 秒周期のタイマーから呼ばれる。RunUpdateScript を挟むと
+            -- 実行が観測できなかった（実機ログで差し替えが一度も走らなかった）ので直接呼ぶ。
+            -- 差し替えに成功すれば check_all_slots がこのタイマーを止める。第 2 引数の
+            -- retryable は「空振りなら確定させず次の 3 秒に回してよい」の印(get_potion 参照)。
+            Quickslot_operate_get_potion(quickslotnexpbar, true)
+            return
         end
     end -- 11285, 11286
     for _, eventmap_id in ipairs(g.quickslot_guild_eventmap) do
@@ -825,6 +847,62 @@ function Quickslot_operate_get_potion_type(indun_type)
         end
     end
     return nil
+end
+
+-- マップ ID から種族を引く表を quickslot_operate_raid_list から組み立てる。
+--
+-- **indun_type だけでは足りない。** 種族を決める indun_type を載せているのは入場
+-- ダイアログ(Quickslot_operate_SHOW_INDUNENTER_DIALOG)だけで、次の経路はそこを通らない。
+--   * パーティリーダーに飛ばされた / 再入場した / レイドの中で再ログインした
+--   * Indun Panel の SOLO / AUTO(ReqRaidAutoUIOpen 経由。素の Lua に実体が無く、
+--     サーバーがダイアログを出すかは静的に確かめられない)
+-- そういう人は差し替えが一度も走らない。マップに居ることは分かっているので、
+-- indun_type が取れないときはマップから引く。
+--
+-- **表は手で持たない。** 手書きのマップ ID の一覧(quickslot_operate_zone_list)は
+-- 新レイドのたびに足す必要があり、実際 Lv560 の 3 マップが抜けていた。
+-- raid_list は種族ごとに indun ID を持っているので、Indun -> MapName -> Map の
+-- ClassID を辿れば同じ表を毎回作れる。**raid_list に足せばこちらは自動で追随する。**
+function Quickslot_operate_build_map_race()
+    local map_race = {}
+    for potion_type, indun_list in pairs(g.quickslot_operate_raid_list) do
+        for _, indun_id in ipairs(indun_list) do
+            local indun_cls = GetClassByType("Indun", indun_id)
+            local map_name = indun_cls and TryGetProp(indun_cls, "MapName", "None")
+            if map_name and map_name ~= "None" and map_name ~= "" then
+                local map_cls = GetClass("Map", map_name)
+                if map_cls then
+                    local map_id = tonumber(TryGetProp(map_cls, "ClassID", 0))
+                    -- 同じマップを複数のレイドが使うことがある(格動の核 = ファロウロス
+                    -- と変質の伝播者)。先に入ったほうを残さず、**種族が食い違うことだけ
+                    -- 記録して差し替えない**。誤った種族を当てるより何もしないほうがよい。
+                    if map_id and map_id > 0 then
+                        if map_race[map_id] == nil then
+                            map_race[map_id] = potion_type
+                        elseif map_race[map_id] ~= potion_type and map_race[map_id] ~= false then
+                            g.vlog("quickslot_operate: map=%d に種族が 2 つ(%s / %s)。マップからは決めない",
+                                map_id, tostring(map_race[map_id]), tostring(potion_type))
+                            map_race[map_id] = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+    g.quickslot_operate_map_race = map_race
+end
+
+-- マップから引いた種族。食い違いのあるマップ(false)は決めない
+function Quickslot_operate_get_potion_type_by_map(map_id)
+    local map_race = g.quickslot_operate_map_race
+    if not map_race then
+        return nil
+    end
+    local race = map_race[map_id]
+    if race == false then
+        return nil
+    end
+    return race
 end
 
 -- retryable = マップ監視タイマーから呼ばれた（＝空振りしても 3 秒後にまた来る）ことの印。
