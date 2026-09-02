@@ -747,7 +747,15 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
     -- マップから種族を引けるならそこも対象マップとして扱う。zone_list は手書きの
     -- マップ ID の一覧で、新レイドのたびに足す必要があった(Lv560 の 3 マップが抜けていた)。
     local map_race = Quickslot_operate_get_potion_type_by_map(g.map_id)
-    local in_zone_list = map_race ~= nil
+    -- **「対象マップか」と「種族が一意に決まったか」は別物。**
+    -- 種族が食い違うマップ(表に false が入っている)も *対象マップではある* ので、
+    -- map_race が nil であることを理由に弾いてはいけない。弾くと
+    --   * ダイアログ経由で覚えた by_indun のフォールバックまで届かない
+    --   * 「対象外」と数えられて 15 秒ほどでマップ監視が止まる
+    --   * 診断ログも「未登録のレイドマップ」になる(登録はされているのに)
+    -- となる。所属は表にキーがあるか(~= nil)で見る。
+    local map_race_tbl = g.quickslot_operate_map_race
+    local in_zone_list = map_race_tbl ~= nil and map_race_tbl[g.map_id] ~= nil
     for _, zone_id in ipairs(g.quickslot_operate_zone_list) do
         if zone_id == g.map_id then
             in_zone_list = true
