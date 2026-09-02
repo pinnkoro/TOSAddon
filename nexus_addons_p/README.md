@@ -207,6 +207,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Easy Buff](src/addons/easy_buff/README.md) | メシ屋・バフ屋・修理屋での操作を自動化 |
 | [Muteki](src/addons/muteki/README.md) | 切らしたくないバフだけを大きなゲージ／アイコンで表示 |
 | [My Buffs Control](src/addons/my_buffs_control/README.md) | バフ欄を移動可能にして、選んだバフを非表示にする |
+| [Party Icon Only](src/addons/party_icon_only/README.md) | パーティ情報を職業アイコンだけにして、クリック判定もアイコンの範囲だけに |
 | [Party Marker](src/addons/party_marker/README.md) | パーティーメンバーの頭上にアイコンを表示 |
 | [Quickslot Operate](src/addons/quickslot_operate/README.md) | 女神ポーションをレイドの種族に合わせて自動で差し替え。スロット保存／読込 |
 | [Revival Timer](src/addons/revival_timer/README.md) | 繰り返しカウントダウンするタイマー（PT チャット通知つき） |
@@ -281,6 +282,17 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * **Party Icon Only を追加しました。** パーティ情報を「小さな見出し + 職業アイコンの
+    縦一列」にします。素のパーティ情報は 1 人あたり横 700px の帯がそのまま当たり判定に
+    なっていて、名前やバフ欄が出ていない余白を押してもクリックが 3D 画面へ抜けません
+    でした。表示を畳むのと同時にフレームも同じ大きさへ縮めるので、**その外は素どおり
+    下へ抜けます**。ウィンドウは**見出しの帯をドラッグ**して動かせます。
+  * Mini Addons（パーティー情報フレームを小さくする / パーティーメンバーの場所表示）:
+    **Party Icon Only が ON のあいだは何もしないようにしました。** 前者は
+    「パーティー情報フレームを小さくする」が **OFF のときも** `partyinfo` を素の幅
+    （700px）へ戻していて、しかも 5 秒ごとの更新から呼ばれるため、Party Icon Only が
+    畳んだ直後に広げ直していました（表示は畳まれたままなのに、アイコンの右と下に
+    押せる帯が現れる）。
   * Mini Addons（ヘアアクセサリーのエンチャント自動付与）: v2.3.1 で入れた修正の副作用で、
     **「ランクアップ時に停止」が効かなくなることがあった**のを直しました。ランクを控え直す
     処理が、対象を載せ替えたときだけでなく**同じ髪がランクアップしたときにも走っていた**

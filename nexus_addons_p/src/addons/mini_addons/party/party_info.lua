@@ -1,5 +1,14 @@
 -- パーティー情報フレームを小さくする
 function Mini_addons_PARTY_BUFFLIST_UPDATE(frame, msg)
+    -- **Party Icon Only が ON のときは触らない。** あちらは partyinfo を
+    -- 「掴み代 + アイコンの列」(横 50px)まで縮めて当たり判定ごと畳んでいる。ここで
+    -- 広げ直すと**見た目は畳んだままなのに当たり判定だけ広がる**という一番分かりにくい
+    -- 形になる。しかも下の OFF 側の分岐も GetOriginalWidth() = 700px へ戻すので、
+    -- **この機能(party_info)を使っていなくても**起きる。この関数は 5 秒ごとの更新からも
+    -- 呼ばれ、あちらは 0.5 秒周期で畳み直すため、押せる帯が点滅するように現れていた。
+    if core_g.settings and core_g.settings.party_icon_only and core_g.settings.party_icon_only.use == 1 then
+        return
+    end
     local party_info = ui.GetFrame("partyinfo")
     local list = session.party.GetPartyMemberList(PARTY_NORMAL)
     local member_count = list:Count()

@@ -430,6 +430,17 @@ g._nexus_addons_p = {{
         old_init_func = "OTHER_CHARACTER_SKILL_LIST_ON_INIT"
     }
 }, {
+    key = "party_icon_only",
+    category = "battle",
+    since = g.VER_NEXT,
+    data = {
+        use = 0,
+        name = "Party Icon Only",
+        frame_use = false,
+        config_func = "",
+        old_init_func = ""
+    }
+}, {
     key = "party_marker",
     category = "battle",
     data = {
@@ -695,6 +706,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}エーテルジェムの付け替えを自動化{nl}キャラ毎の設定が必要です",
         etc = "{ol}Automate Aethergem equipping/swapping{nl}Settings are required for each character",
         kr = "{ol}에테르 젬 교체 자동화{nl}캐릭터별 설정이 필요합니다"
+    },
+    ["party_icon_only"] = {
+        ja = "{ol}パーティ情報を職業アイコンだけにします{nl}クリック判定もアイコンの範囲だけになります",
+        etc = "{ol}Reduce the party info to job icons only{nl}Clicks pass through everywhere except the icons",
+        kr = "{ol}파티 정보를 직업 아이콘만 표시{nl}클릭 판정도 아이콘 범위로 축소"
     },
     ["party_marker"] = {
         ja = "{ol}Charbonさん作成{nl}パーティーメンバーの頭上にアイコンを付けます",
