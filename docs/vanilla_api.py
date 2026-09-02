@@ -25,6 +25,10 @@
 
     --update         … 一覧を作り直す。ゲーム本体があれば素の事実ごと、
                        無ければ src 側の事実だけ（既知の記号に限る）を更新する。
+                       **書き換える前に必ず突き合わせる**（--verify-client と同じ判定）。
+                       素が変わっているときは一覧を書き換えずに止まるので、
+                       「--update で黙って飲み込む」ことは起きない。承知のうえで
+                       取り込むときだけ --accept-client-changes を付ける。
 
 ■ なぜ CI では素のクライアントを見られないのか
 
@@ -110,9 +114,10 @@ EXPECTED_NOT_IN_CLIENT = {
         "無ければ新しい方（COMMON_BUFF_MSG）へ落ちる",
 }
 
-# 素に見当たらず、**こちらの書き間違いだと分かっている**もの。--verify-client では
-# 「既知」として報告するが落とさない（新しく出たものと区別するため）。
-# 直したらここから消すこと。
+# 素に見当たらず、**こちら側で対応が要る**もの（書き間違い、実機で確かめないと
+# 決められないもの）。--verify-client では「既知」として報告するが落とさない
+# ＝新しく出たものと区別するための控え。片付いたらここから消すこと。
+# 「素に無くてよい」と結論が出たものは EXPECTED_NOT_IN_CLIENT へ移す。
 KNOWN_ISSUES = {
     "cc_helper_take_item":
         "Cc_helper_take_item の書き間違い（cc_helper.lua:2240）。"
@@ -125,6 +130,10 @@ KNOWN_ISSUES = {
     "deepcopy":
         "Ancient_monster_bookshelf_deepcopy の書き間違い"
         "（ancient_monster_bookshelf.lua:450 / 453）。カードを集める経路で落ちる",
+    "info.GetMonsterClassName":
+        "boss_direction.lua:167。素の Lua は geMonsterTable.GetMonsterClassNameByType しか"
+        "持たず、この名前は素のどこにも現れない。実在するネイティブかどうかは実機でしか"
+        "確かめられないので、確認するまでここに置く（矢印のボス名が出るかを見る）",
 }
 
 
@@ -467,7 +476,15 @@ def scan_src():
     bodies = {}
     with_strings = {}
     own_globals = set()
-    locals_ = set()
+    # **ローカルはファイルごとに持つこと。** src 全体の和集合にすると、どこか 1 ファイルの
+    # `local item = items[i]` が、別ファイルの本物の `item.UnEquip(...)` まで検査対象から
+    # 落としてしまう（実際に item / info / control / config / market / pc など 79 記号が
+    # 隠れていた）。防ぎたい事故をツール自身が起こすことになる。
+    file_locals = {}
+    # ただし bundle は全ファイルを 1 チャンクへ連結するので、**字下げ 0 の local は
+    # 後続のファイルからも見える**。こちらだけは全体で共有する（core/00_header.lua の
+    # チャンクローカルを、後のアドオンが呼ぶ形が実在する）。
+    chunk_locals = set()
     for path in src_files():
         rel = path.relative_to(SRC).as_posix()
         text = path.read_text(encoding="utf-8")
@@ -482,18 +499,28 @@ def scan_src():
             own_globals.add(m.group(1))
         for m in re.finditer(r"_G\[\s*[\"']?([A-Za-z_]\w*)[\"']?\s*\]?\s*=", body):
             own_globals.add(m.group(1))
-        locals_ |= set(DEF_LOCAL.findall(body))
-        for m in re.finditer(r"\blocal\s+([A-Za-z_][\w \t,]*)", body):
-            for nm in m.group(1).split(","):
+        here = set()
+        # `local function f` も字下げ 0 なら後続ファイルから見える（分割した src を
+        # 1 チャンクへ連結するため。mini_addons の hair_enchant / skill_reroll が実際に
+        # ファイルをまたいで呼び合っている）。
+        for m in re.finditer(r"^([ \t]*)local[ \t]+function[ \t]+([A-Za-z_]\w*)", body, re.M):
+            here.add(m.group(2))
+            if m.group(1) == "":
+                chunk_locals.add(m.group(2))
+        for m in re.finditer(r"^([ \t]*)local[ \t]+([A-Za-z_][\w \t,]*)", body, re.M):
+            for nm in m.group(2).split(","):
                 nm = nm.strip()
                 if re.fullmatch(r"[A-Za-z_]\w*", nm) and nm not in LUA_KEYWORDS:
-                    locals_.add(nm)
+                    here.add(nm)
+                    if m.group(1) == "":
+                        chunk_locals.add(nm)
         # 仮引数もローカル扱い（`function f(ctrl)` の ctrl を呼ぶ形がある）。
         for m in re.finditer(r"function[^(\n]*\(([^)]*)\)", body):
             for nm in m.group(1).split(","):
                 nm = nm.strip()
                 if re.fullmatch(r"[A-Za-z_]\w*", nm):
-                    locals_.add(nm)
+                    here.add(nm)
+        file_locals[rel] = here
 
     hooks = {}
     uses = {}
@@ -505,17 +532,18 @@ def scan_src():
             rec["arities"].add(nargs)
 
     for rel, body in bodies.items():
+        here = file_locals[rel] | chunk_locals
         for pat in (HOOK_RE, HOOK_EVENT_RE):
             for m in pat.finditer(with_strings[rel]):
                 hooks.setdefault(m.group(1), set()).add(rel)
         for m in NS_CALL.finditer(body):
             ns, name = m.group(1), m.group(2)
-            if ns in OWN_NS or ns in LUA_STD_NS or ns in locals_ or ns in own_globals:
+            if ns in OWN_NS or ns in LUA_STD_NS or ns in here or ns in own_globals:
                 continue
             add(f"{ns}.{name}", rel, count_args(body, m.end() - 1))
         for m in BARE_CALL.finditer(body):
             name = m.group(1)
-            if (name in own_globals or name in locals_ or name in LUA_STD
+            if (name in own_globals or name in here or name in LUA_STD
                     or name in LUA_STD_NS or name in OWN_NS or name in LUA_KEYWORDS):
                 continue
             add(name, rel, count_args(body, m.end() - 1))
@@ -668,19 +696,13 @@ def cmd_check(args):
     return 0
 
 
-def cmd_verify_client(args):
-    """ローカル専用。記録した素の事実が今のクライアントと合っているかを見る。"""
-    lock = load_lock()
-    if lock is None:
-        print(f"NG: {LOCK.name} が無い。--update で作ること")
-        return 2
-    try:
-        cg, cn = scan_client(args.client_root, wanted=set(lock["symbols"]))
-    except FileNotFoundError as e:
-        print(f"NG: {e}")
-        print("    --client-root か環境変数 TOS_CLIENT_ROOT で導入先を指定できる。")
-        return 2
+def compare_with_client(lock, cg, cn):
+    """一覧に記録した素の事実と、今のクライアントを突き合わせる。
 
+    戻り値は (problems, notices, known)。**--update からも呼ぶこと。**
+    --update は記録を今のクライアントで上書きするので、先に突き合わせておかないと
+    素の変化を黙って飲み込んでしまう（それでは検査にならない）。
+    """
     problems = []   # 実機で壊れる（落とす）
     notices = []    # 素の変化の手掛かり（落とさない）
     known = []      # KNOWN_ISSUES に控えてある既知の不具合（落とさない）
@@ -743,6 +765,10 @@ def cmd_verify_client(args):
                 f"素の API なら綴りを、そうでないなら EXPECTED_NOT_IN_CLIENT / "
                 f"KNOWN_ISSUES へ理由付きで足すこと")
 
+    return problems, notices, known
+
+
+def report(problems, notices, known):
     if known:
         print(f"既知（KNOWN_ISSUES / 直したら消すこと）: {len(known)} 件")
         for k in known:
@@ -754,12 +780,30 @@ def cmd_verify_client(args):
             print("  -", k)
         print()
     if problems:
-        print(f"NG: 素のクライアントと食い違っている: {len(problems)} 件")
+        print(f"素のクライアントと食い違っている: {len(problems)} 件")
         for p in problems:
             print("  -", p)
         print()
         print("見方: 「定義が消えた」「仮引数が変わった」は実機で確実に壊れる。")
         print("      「使わなくなった」は素の作りが変わった合図で、まだ動く場合もある。")
+
+
+def cmd_verify_client(args):
+    """ローカル専用。記録した素の事実が今のクライアントと合っているかを見る。"""
+    lock = load_lock()
+    if lock is None:
+        print(f"NG: {LOCK.name} が無い。--update で作ること")
+        return 2
+    try:
+        cg, cn = scan_client(args.client_root, wanted=set(lock["symbols"]))
+    except FileNotFoundError as e:
+        print(f"NG: {e}")
+        print("    --client-root か環境変数 TOS_CLIENT_ROOT で導入先を指定できる。")
+        return 2
+
+    problems, notices, known = compare_with_client(lock, cg, cn)
+    report(problems, notices, known)
+    if problems:
         print("      確かめたうえで src を直し、--update で一覧を作り直すこと。")
         return 1
     print(f"OK: 素のクライアント（{args.client_root}）と一致。{len(lock['symbols'])} 件を照合")
@@ -771,7 +815,8 @@ def cmd_update(args):
     previous = load_lock()
     cg = cn = None
     try:
-        cg, cn = scan_client(args.client_root, wanted=set(uses))
+        cg, cn = scan_client(args.client_root, wanted=set(uses) | set(
+            (previous or {}).get("symbols", {})))
     except FileNotFoundError as e:
         if previous is None:
             print(f"NG: 一覧が無く、素のクライアントも読めない: {e}")
@@ -784,6 +829,25 @@ def cmd_update(args):
             print(f"    ({e})")
             return 2
         print(f"! 素のクライアントを読めないので、src 側の事実だけ更新する（{e}）")
+
+    # **書き換える前に突き合わせること。** --update は記録を今のクライアントで
+    # 上書きするので、黙って上書きすると「素が変わった」という一番知りたい事実が
+    # 消える（json の差分には出るが、検査としては素通りしてしまう）。
+    # 実機で壊れる種類の食い違いが在るときは、--accept-client-changes を明示しない限り
+    # 書き換えない。
+    if previous is not None and cg is not None:
+        # 既知（KNOWN_ISSUES）はここでは出さない。--update のたびに毎回並ぶと、
+        # 今回の更新で新しく出た食い違いが埋もれる。
+        problems, notices, _known = compare_with_client(previous, cg, cn)
+        if problems or notices:
+            print("書き換える前に、今のクライアントと突き合わせた結果:")
+            print()
+            report(problems, notices, [])
+        if problems and not args.accept_client_changes:
+            print("一覧は書き換えなかった。まず上の食い違いを確かめて src を直すこと。")
+            print("素の変化を承知のうえで取り込むなら --accept-client-changes を付ける。")
+            return 1
+
     lock = build_lock(uses, hooks, cg, cn, previous)
     save_lock(lock)
     n_lua = sum(1 for v in lock["symbols"].values() if v.get("kind") == "client_lua")
@@ -798,6 +862,8 @@ def main(argv=None):
     ap.add_argument("--verify-client", action="store_true",
                     help="素のクライアントと突き合わせる（ローカル専用）")
     ap.add_argument("--update", action="store_true", help="一覧を作り直す")
+    ap.add_argument("--accept-client-changes", action="store_true",
+                    help="--update で、素が変わっていても承知のうえで取り込む")
     ap.add_argument("--client-root",
                     default=os.environ.get("TOS_CLIENT_ROOT", DEFAULT_CLIENT_ROOT),
                     help="ゲームの導入先（既定は Steam の標準の場所 / 環境変数 TOS_CLIENT_ROOT）")
