@@ -104,6 +104,12 @@ jobs:
       - name: mini_addons のメニュー横取りテスト
         run: luajit docs/tests/test_mini_addons_menu.lua
 
+      # 装備錬成の自動化は 2 秒おきに自分を呼び直す。打ち切り条件が抜けると素材が
+      # 尽きた後も要求を送り続け、窓を閉じるまで止まらない（実機では原因に辿り着けない）。
+      # 目標到達・素材切れ・窓を閉じた、のどれでも止まることを見る。
+      - name: mini_addons の装備錬成テスト
+        run: luajit docs/tests/test_equip_upgrade.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。
