@@ -767,8 +767,15 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
         -- (この取り違えは今回の変更以前から成立していた)。
         local remembered = g.quickslot_operate_indun_type
         local by_indun = nil
-        if remembered and Quickslot_operate_indun_map_id(remembered) == g.map_id then
-            by_indun = Quickslot_operate_get_potion_type(remembered)
+        if remembered then
+            -- **捨てるのは「解決できて、別のマップだった」ときだけ。**
+            -- 解決に失敗した(nil)ものまで捨てると、MapName を引けないレイドで
+            -- ダイアログを正しく通ったのに差し替わらなくなる。そういうレイドは
+            -- map_race にも載らない(同じ解決を使っている)ので、ここが最後の拠り所になる。
+            local remembered_map = Quickslot_operate_indun_map_id(remembered)
+            if remembered_map == nil or remembered_map == g.map_id then
+                by_indun = Quickslot_operate_get_potion_type(remembered)
+            end
         end
         local potion_type = map_race or by_indun
         if potion_type then
@@ -913,6 +920,14 @@ function Quickslot_operate_build_map_race()
                 end
             end
         end
+    end
+    -- **1 件も解決できなかったときは確定させない。** raid_list は静的な非空リテラルなので、
+    -- 空になるのは Indun / Map のクラスをまだ引けないときだけ。空表も Lua では真なので、
+    -- そのまま入れると呼び出し側の「まだ作っていなければ作る」判定を素通りしてしまい、
+    -- **そのセッション中ずっと空のまま**になる。入れなければ次のマップ移動でやり直せる。
+    if next(map_race) == nil then
+        g.vlog("{#FF6347}quickslot_operate: マップ種族表が空。次のマップ移動でやり直す{/}")
+        return
     end
     g.quickslot_operate_map_race = map_race
 end
