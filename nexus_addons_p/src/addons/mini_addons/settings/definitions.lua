@@ -183,7 +183,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = core_g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "連続付与が、振る前から付いていたオプションを指して 1 回で止まることがあったのを修正しました",
     updated_note_en = "Fixed auto-enchant stopping after one roll, citing an option the item already had before the roll"
 }, {
@@ -203,7 +203,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "インベントリのスロットを少し改造",
     text_kr = "인벤토리 슬롯을 약간 개조했습니다",
     text_en = "Slightly modified the inventory slots",
-    updated = core_g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "Lv560 のイコルと肩・ベルトが「格下」の枠で出ていたのと、Lv560 のエーテルジェムに枠が付かなかったのを直しました",
     updated_note_en = "Fixed Lv560 ichors and shoulder/belt gear being drawn with the lower-tier frame"
 }, {
