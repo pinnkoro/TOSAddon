@@ -2006,8 +2006,17 @@ function Another_warehouse_setting_icon_clear(parent, ctrl, str, num)
 end
 
 function Another_warehouse_setting_count_change(frame, ctrl, strr, num)
-    local slot_index = tonumber(string.gsub(ctrl:GetName(), "slot", ""))
+    -- **string.gsub の戻り値をそのまま tonumber へ渡さないこと。**
+    -- gsub は (置換後の文字列, 置換回数) の 2 つを返すので、`tonumber(string.gsub(...))` と
+    -- 書くと置換回数が**基数**として渡り、`base out of range` でその場で落ちる
+    -- (1 も 0 も基数として不正。2〜36 しか通らない)。
+    -- 左SHIFT+右クリックの個数変更が**必ず**無反応だったのはこれ。UI のイベントから出る
+    -- エラーは debug_log にも残らないので、詳細ログが「個数変更へ」で途切れる形でしか
+    -- 見えなかった。**一度変数へ受けて 1 つに切ること**(実機のログで確認済み)
+    local slot_name = string.gsub(ctrl:GetName(), "slot", "")
+    local slot_index = tonumber(slot_name)
     if slot_index == nil then
+        g.vlog("another_warehouse: 設定スロットの名前から番号を取れない(%s)", tostring(ctrl:GetName()))
         return
     end
     local slotset_name = ctrl:GetParent():GetName()

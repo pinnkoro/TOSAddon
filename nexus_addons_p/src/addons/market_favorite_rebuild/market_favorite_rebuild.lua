@@ -1197,7 +1197,13 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
                         -- match は nil を返し、そのまま string.gsub へ渡すとその場で落ちる。
                         -- ここは通る範囲を EP17 限定から全段へ広げたので、素通りさせる側に倒す
                         local raw_number = string.match(strInfo, "([%+%,%d]+)$")
-                        local number_part = raw_number ~= nil and tonumber(string.gsub(raw_number, ",", "")) or nil
+                        local number_part = nil
+                        if raw_number ~= nil then
+                            -- **gsub の戻り値を直に tonumber へ渡さないこと。** 2 つ目の
+                            -- 置換回数が基数として渡り `base out of range` で落ちる
+                            local cleaned = string.gsub(raw_number, ",", "")
+                            number_part = tonumber(cleaned)
+                        end
                         local middle_part = strInfo
                         if tag_part then
                             middle_part = string.gsub(middle_part, "({.-})", "", 1)
