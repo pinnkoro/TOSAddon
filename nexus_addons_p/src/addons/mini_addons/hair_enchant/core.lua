@@ -206,14 +206,22 @@ local function hair_enchant_refresh_if_changed(reroll_option)
     end
     core_g.vlog("mini_addons: ヘアエンチャント 対象が変わったので組み直す(%s → %s)",
         tostring(reroll_option:GetUserValue("BUILD_SIG")), tostring(sig))
-    -- **控えているランクを新しい対象のものへ入れ直す。** 前の対象のランクが残っていると、
-    -- 次の回で「ランクが変わった」＝ランクアップと誤判定する。回している最中なら
-    -- 「ランクアップ時に停止」が ON のときにそこで止まり、OFF でも実際には下がった
-    -- 対象について「ランクアップ」とログへ出る(A の髪から B の髪へ替えたときに実際に出た)
-    if reroll_option:GetUserValue("RANK") ~= item_rank then
-        core_g.vlog("mini_addons: ヘアエンチャント 控えていたランクを入れ直す(%s → %s)",
+    -- **控えているランクを入れ直すのは「対象そのものが変わったとき」だけにすること。**
+    -- BUILD_SIG にはランクも入っているので、**同じ髪がランクアップしたときもここを通る**。
+    -- そこで RANK を新しいランクへ書き換えると、連続付与の tick が befor_rank を読む前に
+    -- 上書きしてしまい(この監視は 0.3 秒ごと、tick は「演出を待たずに実行」が OFF だと
+    -- 演出の 0.5 秒後にようやく READY が立つ)、ランクアップが無かったことになって
+    -- **「ランクアップ時に停止」が効かなくなる**。判別はヘアアクセ本体の GUID で行う。
+    -- あわせて ROLLED も落とす。載せ替えた先の「振る前から付いていたオプション」で
+    -- 止まってしまうため(1 回で止まる症状の再発)
+    local high_hairenchant = ui.GetFrame("high_hairenchant")
+    local target_guid = high_hairenchant ~= nil and high_hairenchant:GetUserValue("itemIES") or "None"
+    if target_guid ~= reroll_option:GetUserValue("TARGET_GUID") then
+        core_g.vlog("mini_addons: ヘアエンチャント 対象が別のアクセになったので控えを入れ直す(ランク %s → %s)",
             tostring(reroll_option:GetUserValue("RANK")), tostring(item_rank))
+        reroll_option:SetUserValue("TARGET_GUID", target_guid)
         reroll_option:SetUserValue("RANK", item_rank)
+        reroll_option:SetUserValue("ROLLED", "no")
     end
     -- **プリセットを選んでいるなら、保存内容から入れ直す。**
     -- 低いランクのアクセで読み込むと、そのランクで出ないオプションは g.need_options から
