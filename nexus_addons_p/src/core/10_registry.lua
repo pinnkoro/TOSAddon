@@ -444,9 +444,9 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
-    updated = "2.3.0",
-    updated_note_jp = "Lv560 の新ダンジョンでも属性に合わせたポーションへ差し替えるようにしました",
-    updated_note_en = "Swaps potions by attribute in the new Lv560 dungeons as well",
+    updated = g.VER_NEXT,
+    updated_note_jp = "パーティリーダーに飛ばされた・再入場した・レイド内で再ログインしたときにもポーションを差し替えるようにしました",
+    updated_note_en = "Now also swaps potions when you were pulled in by the party leader, re-entered, or relogged inside a raid",
     data = {
         use = 0,
         name = "Quickslot Operate",

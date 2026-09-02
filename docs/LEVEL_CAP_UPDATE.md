@@ -75,7 +75,7 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 | ファイル | 足すもの |
 | --- | --- |
 | `addons/indun_list_viewer/indun_list_viewer.lua` | `ilv_RAID_KEYS` / `ilv_RAID_INFO`（`icon` は `icon_item_misc_boss_<ボス>`）。**`ver` を繰り上げる** |
-| `addons/quickslot_operate/quickslot_operate.lua` | `quickslot_operate_raid_list` の該当 `RaceType` へ indun ID |
+| `addons/quickslot_operate/quickslot_operate.lua` | `quickslot_operate_raid_list` の該当 `RaceType` へ indun ID。**ここだけでよい**（マップの一覧はこれ から自動生成される） |
 | `addons/auto_repair/auto_repair.lua` | `g.auto_repair` の 3 つ（キットの ClassID / 取引名 / 商店の種別）を**セットで** |
 | `addons/mini_addons/settings/definitions.lua` | `COIN_ITEM` に新しい女神のコイン **8 個ひと組**（1p〜1000000p の 7 個 + `dummy_*`） |
 | `core/10_registry.lua` | `updated` / `updated_note_jp` / `updated_note_en`（`g.VER_NEXT` を書く） |
@@ -108,6 +108,22 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 * **`bundle_from_src.py --bless` は bundle を書き出さない。** golden sha だけ更新して抜けるので、
   **必ず引数なしでもう一度実行**して `wrote ... (CHANGED)` を確認する。忘れると古い bundle を
   `.ipf` に詰めたまま、後続のチェックも `sha256 OK` と言って素通りする。
+* **「対応した」の範囲を経路まで確かめる。** Quickslot Operate は Lv560 対応で
+  `quickslot_operate_raid_list` に indun ID を足したが、**それだけでは効かない経路が
+  あった**。種族を決める `indun_type` を載せているのは入場ダイアログだけで、
+  パーティリーダーに飛ばされた・入り直した・レイド内で再ログインした人はそこを通らない。
+  Indun Panel の SOLO / AUTO が通るかも、`ReqRaidAutoUIOpen` がクライアント Lua に
+  実体を持たない（サーバー側）ため静的には確かめられない。
+  **表に足して終わりにせず、その表を読む側が全経路で呼ばれるかまで追うこと。**
+  この件は「マップ ID からも種族を引く」経路を足して塞いだ。
+* **マップ ID の手書きの一覧は増やさない。** 同じ理由で
+  `quickslot_operate_zone_list` に Lv560 の 3 マップとテルハルシャのマップが
+  抜けていた。`raid_list` から `Indun -> MapName -> Map` を辿れば同じ表を作れるので、
+  `Quickslot_operate_build_map_race` が毎回組み立てる。**手で足す一覧を見つけたら、
+  既存のデータから導けないかを先に疑うこと。**
+  ただし 1 つのマップを 2 つのレイドが使うことがある（`raid_castle_ep14_2` =
+  変質の伝播者 / 高位ファルオロス）ので、種族が食い違うマップは**決めない**扱いにする
+  （誤った種族を当てるより、何もしないほうがよい）。
 * **新クラスはたいてい何もしなくてよい。** クラス一覧は `GetClassList("Job")` から引いている。
   確認が要るのは `skill_gem_tooltip` の `job_name_fix_map` だけで、
   **スキルの `ClassName` の接頭辞が Job の `EngName` と食い違うクラスだけ**登録する。
