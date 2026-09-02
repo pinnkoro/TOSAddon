@@ -755,14 +755,25 @@ function Quickslot_operate_map_change(_nexus_addons_p, Quickslot_operate_map_tim
         end
     end
     if in_zone_list then
-        -- 入場ダイアログで覚えた indun_type を優先し、無ければマップから引く。
-        -- ダイアログを通らない経路(パーティリーダーに飛ばされた / 再入場した /
-        -- レイド内で再ログイン / Indun Panel の SOLO・AUTO)はここでだけ救える。
-        local by_indun = Quickslot_operate_get_potion_type(g.quickslot_operate_indun_type)
-        local potion_type = by_indun or map_race
+        -- **今いるマップから引いた種族を優先する。**
+        -- g.quickslot_operate_indun_type は入場ダイアログの 1 箇所でしか代入されず、
+        -- どこでもクリアされないので**セッション中ずっと残る**(古い記憶になる)。
+        -- クリアはできない。ダイアログは街で発火し、その後のマップ移動で init_logic が
+        -- 走るので、そこで消すと**到着時に消えて本来効く経路まで壊れる**。
+        -- 代わりに、マップ由来(= 今いる場所から導いた確実な情報)を先に見て、
+        -- 記憶のほうは**そのマップのものだったときだけ**使う。これをしないと、
+        -- 種族 X のレイドへダイアログ経由で入ったあと、ダイアログを通らない経路で
+        -- 種族 Y のレイドへ入ったときに X のポーションへ差し替えてしまう
+        -- (この取り違えは今回の変更以前から成立していた)。
+        local remembered = g.quickslot_operate_indun_type
+        local by_indun = nil
+        if remembered and Quickslot_operate_indun_map_id(remembered) == g.map_id then
+            by_indun = Quickslot_operate_get_potion_type(remembered)
+        end
+        local potion_type = map_race or by_indun
         if potion_type then
             g.vlog("quickslot_operate: map=%s indun_type=%s -> %s (%s)", tostring(g.map_id),
-                tostring(g.quickslot_operate_indun_type), potion_type, by_indun and "indun_type" or "マップ")
+                tostring(remembered), potion_type, map_race and "マップ" or "indun_type")
             quickslotnexpbar:SetUserValue("POT_TYPE", potion_type)
             -- ここは 3 秒周期のタイマーから呼ばれる。RunUpdateScript を挟むと
             -- 実行が観測できなかった（実機ログで差し替えが一度も走らなかった）ので直接呼ぶ。
@@ -863,28 +874,42 @@ end
 -- 新レイドのたびに足す必要があり、実際 Lv560 の 3 マップが抜けていた。
 -- raid_list は種族ごとに indun ID を持っているので、Indun -> MapName -> Map の
 -- ClassID を辿れば同じ表を毎回作れる。**raid_list に足せばこちらは自動で追随する。**
+-- indun_type からそのダンジョンのマップ ID を引く。引けなければ nil
+function Quickslot_operate_indun_map_id(indun_type)
+    if not indun_type then
+        return nil
+    end
+    local indun_cls = GetClassByType("Indun", indun_type)
+    local map_name = indun_cls and TryGetProp(indun_cls, "MapName", "None")
+    if not map_name or map_name == "None" or map_name == "" then
+        return nil
+    end
+    local map_cls = GetClass("Map", map_name)
+    if not map_cls then
+        return nil
+    end
+    local map_id = tonumber(TryGetProp(map_cls, "ClassID", 0))
+    if map_id and map_id > 0 then
+        return map_id
+    end
+    return nil
+end
+
 function Quickslot_operate_build_map_race()
     local map_race = {}
     for potion_type, indun_list in pairs(g.quickslot_operate_raid_list) do
         for _, indun_id in ipairs(indun_list) do
-            local indun_cls = GetClassByType("Indun", indun_id)
-            local map_name = indun_cls and TryGetProp(indun_cls, "MapName", "None")
-            if map_name and map_name ~= "None" and map_name ~= "" then
-                local map_cls = GetClass("Map", map_name)
-                if map_cls then
-                    local map_id = tonumber(TryGetProp(map_cls, "ClassID", 0))
-                    -- 同じマップを複数のレイドが使うことがある(格動の核 = ファロウロス
-                    -- と変質の伝播者)。先に入ったほうを残さず、**種族が食い違うことだけ
-                    -- 記録して差し替えない**。誤った種族を当てるより何もしないほうがよい。
-                    if map_id and map_id > 0 then
-                        if map_race[map_id] == nil then
-                            map_race[map_id] = potion_type
-                        elseif map_race[map_id] ~= potion_type and map_race[map_id] ~= false then
-                            g.vlog("quickslot_operate: map=%d に種族が 2 つ(%s / %s)。マップからは決めない",
-                                map_id, tostring(map_race[map_id]), tostring(potion_type))
-                            map_race[map_id] = false
-                        end
-                    end
+            local map_id = Quickslot_operate_indun_map_id(indun_id)
+            -- 同じマップを複数のレイドが使うことがある(格動の核 = ファロウロス
+            -- と変質の伝播者)。先に入ったほうを残さず、**種族が食い違うことだけ
+            -- 記録して差し替えない**。誤った種族を当てるより何もしないほうがよい。
+            if map_id then
+                if map_race[map_id] == nil then
+                    map_race[map_id] = potion_type
+                elseif map_race[map_id] ~= potion_type and map_race[map_id] ~= false then
+                    g.vlog("quickslot_operate: map=%d に種族が 2 つ(%s / %s)。マップからは決めない", map_id,
+                        tostring(map_race[map_id]), tostring(potion_type))
+                    map_race[map_id] = false
                 end
             end
         end
