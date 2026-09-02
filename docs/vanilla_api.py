@@ -130,12 +130,21 @@ KNOWN_ISSUES = {
 
 # ===== Lua の下ごしらえ =====
 
+STR_FILLER = "~"  # 文字列リテラルの埋め草。下記のとおり空白にはしないこと
+
+
 def strip_lua(text, keep_strings=False):
-    """コメントと文字列を空白へ潰す。
+    """コメントを空白へ、文字列リテラルを埋め草（`~`）へ潰す。
 
     名前を正規表現で拾う前に必ず通すこと。文字列の中の `ui.GetFrame(` や、
     コメントアウトした古い実装まで「使っている」と数えてしまうため。
     長さを変えないので、位置の対応はそのまま残る。
+
+    **文字列を空白にしないこと。** 空白にすると `ClMsg("hello")` の括弧の中が
+    空白だけになり、count_args が「引数 0 個」と数えてしまう。文字列だけを渡す
+    呼び出しは山ほどあるので、まさに見たい「引数の数の変化」を取り逃がす。
+    埋め草は識別子にも括弧にもカンマにもならない文字にする（`.` はネームスペース
+    呼び出しの正規表現に引っかかるので使わない）。
 
     `keep_strings=True` はコメントだけを落とす。フックの登録
     （`g.setup_hook(f, "ORIGIN")`）のように、**素の関数名が文字列として
@@ -144,20 +153,21 @@ def strip_lua(text, keep_strings=False):
     out = list(text)
     i, n = 0, len(text)
 
-    def blank(a, b):
+    def blank(a, b, fill=" "):
         for k in range(a, b):
             if out[k] != "\n":
-                out[k] = " "
+                out[k] = fill
 
     while i < n:
         c = text[i]
         # 長括弧 [[ ]] / [=[ ]=]（文字列とコメントの両方で使う）
-        m = re.match(r"--\[(=*)\[", text[i:]) or re.match(r"\[(=*)\[", text[i:])
+        comment = re.match(r"--\[(=*)\[", text[i:])
+        m = comment or re.match(r"\[(=*)\[", text[i:])
         if m:
             close = "]" + m.group(1) + "]"
             end = text.find(close, i + m.end())
             end = n if end < 0 else end + len(close)
-            blank(i, end)
+            blank(i, end, " " if comment else STR_FILLER)
             i = end
             continue
         if text.startswith("--", i):
@@ -180,7 +190,7 @@ def strip_lua(text, keep_strings=False):
             # コメントの始まりと誤解すると、その行の後半（フックの登録など）を
             # 丸ごと落としてしまう。
             if not keep_strings:
-                blank(i, min(j, n))
+                blank(i, min(j, n), STR_FILLER)
             i = j
             continue
         i += 1
@@ -193,6 +203,10 @@ def count_args(text, open_paren):
     入れ子の呼び出し・テーブルの中のカンマは数えない。閉じ括弧が見つからない
     ときは None を返す。渡すのは strip_lua を通した文字列なので、文字列の中の
     カンマは考えなくてよい。
+
+    `seen`（= 引数が 1 つでも在るか）は**開き括弧でも立てる**こと。`f({1, 2})` の
+    ように括弧で始まる引数だけを渡すと、深さ 1 に括弧以外が現れず「0 個」に
+    なってしまう。文字列だけの引数は strip_lua の埋め草が受け持つ。
     """
     depth = 0
     args = 0
@@ -202,6 +216,8 @@ def count_args(text, open_paren):
     while i < n:
         c = text[i]
         if c in "([{":
+            if depth >= 1:
+                seen = True
             depth += 1
         elif c in ")]}":
             depth -= 1
@@ -583,8 +599,40 @@ def save_lock(lock):
 
 # 一覧に載せない名前。素の API ではないと分かっているもの（素の側にも同名が
 # 定義されていないため、突き合わせても情報が増えない）はここで落とす。
+# 下ごしらえと引数の数え方の自己検査。**ここが静かに壊れると、一覧は「全部一致」の
+# まま中身が嘘になる**（実際、文字列だけの引数を 0 個と数えていた）。--check の頭で
+# 毎回走らせて、CI でも必ず通るようにしておく。
+SELF_TEST_CASES = [
+    ('ClMsg("hello")', 1),          # 文字列だけの引数（埋め草が無いと 0 になる）
+    ('f("a", "b")', 2),
+    ("f()", 0),
+    ("f({1,2})", 1),                # 括弧で始まる引数（seen を括弧でも立てる）
+    ('f({1,2}, "x")', 2),
+    ("f(a, g(b, c))", 2),           # 入れ子のカンマは数えない
+    ('f("a--b", c)', 2),            # 文字列の中の -- をコメントと誤解しない
+    ("f([[x]], y)", 2),             # 長括弧の文字列
+    ("f(a) --[[ f(b, c) ]]", 1),    # コメントの中は数えない
+]
+
+
+def self_test():
+    bad = []
+    for src, want in SELF_TEST_CASES:
+        body = strip_lua(src)
+        got = count_args(body, body.index("("))
+        if got != want:
+            bad.append(f"{src} → {got}（期待 {want}） / 下ごしらえ後: {body}")
+    return bad
+
+
 def cmd_check(args):
     """ゲーム本体なしで走る検査。src と一覧の食い違いだけを見る。"""
+    bad = self_test()
+    if bad:
+        print(f"NG: 引数の数え方が壊れている: {len(bad)} 件")
+        for b in bad:
+            print("  -", b)
+        return 2
     lock = load_lock()
     if lock is None:
         print(f"NG: {LOCK.name} が無い。`python docs/vanilla_api.py --update` で作ること")
