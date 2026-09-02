@@ -849,7 +849,11 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
     slot:SetEventScriptArgString(ui.RBUTTONUP, inv_item:GetIESID())
     if g.awh_settings.etc.display_change == 1 then
         if baseid_cls.TreeGroup == "Material" and slotset_name == "sset_Misc_Special" then
-            if string.find(item_cls.ClassName, "GoddessIcor") and not string.find(item_cls.ClassName, "EP17") then
+            -- **段は g.ICOR_TOP_EP(core/00_header.lua)で見ること。** "EP17" 決め打ちだったので、
+            -- Lv560(EP18)のイコルのかけらが「格下」の枠で出ていた。
+            -- **かけら(piece_*)は UseLv が 1 なので、EP 名でしか段を判別できない**
+            if string.find(item_cls.ClassName, "GoddessIcor") and
+                not string.find(item_cls.ClassName, g.ICOR_TOP_EP) then
                 slot:SetSkinName("invenslot_rare")
             end
         end
@@ -901,7 +905,8 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
             end
         elseif baseid_cls.ClassName == "Gem_High_Color" then
             local cls_name = item_cls.ClassName
-            if string.find(cls_name, "540") then
+            -- Lv560 のエーテルジェムも女神等級(これ以上の枠は無いので 540 と同じ)
+            if string.find(cls_name, "560") or string.find(cls_name, "540") then
                 slot:SetSkinName("invenslot_pic_goddess")
             elseif string.find(cls_name, "520") then
                 slot:SetSkinName("invenslot_legend")
@@ -915,14 +920,16 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
         end
         if string.find(baseid_cls.ClassName, "OPTMisc_GoddessIcor") then
             local cls_name = item_cls.ClassName
-            local is_special = string.find(cls_name, "EP17") or string.find(cls_name, "Weapon2") or
-                                   string.find(cls_name, "Armor2")
+            -- 最上位の段(g.ICOR_TOP_EP)を足す。**古い段を外さないこと**
+            -- (外すと今まで格下扱いでなかったものが急に格下の枠になる)
+            local is_special = string.find(cls_name, g.ICOR_TOP_EP) or string.find(cls_name, "EP17") or
+                                   string.find(cls_name, "Weapon2") or string.find(cls_name, "Armor2")
             if not is_special then
                 slot:SetSkinName("invenslot_rare")
             end
         elseif string.find(baseid_cls.ClassName, "Armor") then
             local cls_name = item_cls.ClassName
-            local is_special = string.find(cls_name, "EP17") or
+            local is_special = string.find(cls_name, g.ICOR_TOP_EP) or string.find(cls_name, "EP17") or
                                    (string.find(cls_name, "EP16") and string.find(cls_name, "high")) or
                                    (string.find(cls_name, "EP13") and string.find(cls_name, "high2"))
             if not is_special and (string.find(cls_name, "belt") or string.find(cls_name, "shoulder")) then

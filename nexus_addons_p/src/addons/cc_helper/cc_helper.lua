@@ -838,6 +838,12 @@ function Cc_helper_slot_create(gbox, name, x, y, width, height, skin, text, clsi
         elseif string.find(gem_name, "540") then
             lv_text:SetText("{ol}{s14}LV540")
             slot:SetSkinName("invenslot_pic_goddess")
+        elseif string.find(gem_name, "560") then
+            -- **段が増えたらここへ足すこと。** 表に無い段は下の else へ落ちて
+            -- 「LV460」と出る(Lv560 のジェムで実際にそうなっていた)。
+            -- 女神等級より上の枠は無いので 540 と同じ枠を使う
+            lv_text:SetText("{ol}{s14}LV560")
+            slot:SetSkinName("invenslot_pic_goddess")
         else
             lv_text:SetText("{ol}{s14}LV460")
         end

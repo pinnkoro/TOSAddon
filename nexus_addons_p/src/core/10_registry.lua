@@ -42,6 +42,11 @@ g._nexus_addons_p_sections = {{
 g._nexus_addons_p = {{
     key = "aethergem_manager",
     category = "gear",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
+    updated = g.VER_NEXT,
+    updated_note_jp = "Lv560 のエーテルジェムを枠へ登録できなかったのを直しました",
+    updated_note_en = "Fixed Lv560 aether gems not being registerable in a slot",
     data = {
         use = 0,
         name = "Aethergem Manager",
@@ -84,9 +89,9 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = "2.2.0",
-    updated_note_jp = "アイテムを取り出した後に一覧が更新されないことがあったのを修正しました",
-    updated_note_en = "Fixed the list not refreshing after taking items out",
+    updated = g.VER_NEXT,
+    updated_note_jp = "Lv560 のイコル / かけら / 肩・ベルトが「格下」の枠で出ていたのと、Lv560 のエーテルジェムに枠が付かなかったのを直しました",
+    updated_note_en = "Fixed Lv560 ichors, their pieces and Lv560 shoulder/belt gear being drawn with the lower-tier frame",
     data = {
         use = 0,
         name = "Another Warehouse",
@@ -191,8 +196,8 @@ g._nexus_addons_p = {{
     key = "cc_helper",
     category = "char",
     updated = g.VER_NEXT,
-    updated_note_jp = "武器を 4 ヶ所着けていないときの案内で落ちていたのを直しました",
-    updated_note_en = "Fixed an error shown when fewer than 4 weapon slots are equipped",
+    updated_note_jp = "武器を 4 ヶ所着けていないときの案内で落ちていたのと、Lv560 のジェムが「LV460」と出ていたのを直しました",
+    updated_note_en = "Fixed an error shown when fewer than 4 weapon slots are equipped, and Lv560 gems being labelled LV460",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -263,6 +268,9 @@ g._nexus_addons_p = {{
 }, {
     key = "goddess_icor_manager",
     category = "gear",
+    updated = g.VER_NEXT,
+    updated_note_jp = "Lv560 のイコルに段の表記と枠の色が付かなかったのを直しました",
+    updated_note_en = "Fixed the tier label and frame color missing for Lv560 ichors",
     data = {
         use = 0,
         name = "Goddess Icor Manager",
@@ -601,8 +609,8 @@ g._nexus_addons_p = {{
     key = "market_favorite_rebuild",
     category = "storage",
     updated = g.VER_NEXT,
-    updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのを直しました",
-    updated_note_en = "Fixed an error when right-clicking a favorite without the market open",
+    updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのと、Lv560 のイコルにオプションの％/最大値/色分けが付かず名前も「格下」の赤で出ていたのを直しました",
+    updated_note_en = "Fixed an error when right-clicking a favorite without the market open, and Lv560 ichors getting no option %/max/colour and a lower-tier red name",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",

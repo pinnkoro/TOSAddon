@@ -920,27 +920,6 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_EQUIP(my_frame, my_msg)
     MARKET_SET_PAGE_CONTROL(frame, "pagecontrol")
 end
 
-local icor_table = { -- { "オプション名", "category", 武器突破, 武器通常, 防具突破, 防具通常 },
-{"revenge", "ATK", 90000, 60000, nil, nil}, {"perfection", "ATK", 14040, 9360, nil, nil},
-{"AllMaterialType_Atk", "ATK", 4746, 3164, 3804, 2536}, {"AllRace_Atk", "ATK", 4746, 3164, 3804, 2536},
-{"Add_Damage_Atk", "ATK", 8385, 5590, 5583, 3722}, {"ADD_SMALLSIZE", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_PARAMUNE", "ATK", 5583, 3722, 4473, 2982}, {"ADD_IRON", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_VELIAS", "ATK", 5583, 3722, 4473, 2982}, {"ADD_GHOST", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_MIDDLESIZE", "ATK", 5583, 3722, 4473, 2982}, {"ADD_FORESTER", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_CLOTH", "ATK", 5583, 3722, 4473, 2982}, {"ADD_LARGESIZE", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_WIDLING", "ATK", 5583, 3722, 4473, 2982}, {"ADD_KLAIDA", "ATK", 5583, 3722, 4473, 2982},
-{"ADD_LEATHER", "ATK", 5583, 3722, 4473, 2982}, {"ResAdd_Damage", "DEF", 8385, 5590, 5583, 3722},
-{"MiddleSize_Def", "DEF", 5583, 3722, 4473, 2982}, {"Iron_Def", "DEF", 5583, 3722, 4473, 2982},
-{"Leather_Def", "DEF", 5583, 3722, 4473, 2982}, {"Cloth_Def", "DEF", 5583, 3722, 4473, 2982},
-{"portion_expansion", "DEF", nil, nil, 116707, 77805}, {"high_lighting_res", "DEF", nil, nil, 798, 532},
-{"high_poison_res", "DEF", nil, nil, 798, 532}, {"stun_res", "DEF", nil, nil, 798, 532},
-{"high_laceration_res", "DEF", nil, nil, 798, 532}, {"high_freezing_res", "DEF", nil, nil, 798, 532},
-{"high_fire_res", "DEF", nil, nil, 798, 532}, {"RHP", "UTIL", 2793, 1862, 2230, 1487},
-{"ADD_HR", "UTIL", 2793, 1862, 2230, 1487}, {"ADD_DR", "UTIL", 2793, 1862, 2230, 1487},
-{"CRTHR", "UTIL", 2793, 1862, 2230, 1487}, {"BLK_BREAK", "UTIL", 2793, 1862, 2230, 1487},
-{"CRTDR", "UTIL", 2793, 1862, 2230, 1487}, {"BLK", "UTIL", 2793, 1862, 2230, 1487}, {"INT", "STAT", 834, 556, 663, 442},
-{"CON", "STAT", 834, 556, 663, 442}, {"STR", "STAT", 834, 556, 663, 442}, {"DEX", "STAT", 834, 556, 663, 442},
-{"MNA", "STAT", 834, 556, 663, 442}}
 function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
     local frame = g.get_event_args(my_msg)
     if g.settings.op_text == 0 then
@@ -992,12 +971,14 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
         MARKET_CTRLSET_SET_ICON(ctrlSet, itemObj, marketItem);
         local name = GET_CHILD_RECURSIVELY(ctrlSet, "name");
         local real_name = dictionary.ReplaceDicIDInCompStr(GET_FULL_NAME(itemObj))
-        -- 名前で色を分ける。**「540」は数字なのでどの言語でも同じだが、「上級」は訳される。**
-        -- 日本語の語だけを見ていたので、他の言語ではオレンジ表示に入らなかった(Issue #68)。
-        -- 韓国語の語は素のデータ(ies.ipf の名前)にある "상급" で確かめてある。
+        -- 名前で色を分ける。**段は名前の文字ではなく UseLv で見ること。**
+        -- 「540」を名前から探していたので、**Lv560 のイコルが「格下」として赤く出ていた**
+        -- (実際に報告された)。最上位の段は g.ICOR_TOP_LV(core/00_header.lua)1 箇所で持つ。
+        -- 「上級」は訳されるので日本語と韓国語の両方を見る。韓国語の語は素のデータ
+        -- (ies.ipf の名前)にある "상급" で確かめてある(Issue #68)。
         -- **英語クライアントの語は未確認**。分かったらここへ足すこと(表示色だけの話なので、
         -- 確かめられない語を推測で入れない)。
-        if not string.find(real_name, "540") then
+        if TryGetProp(itemObj, "UseLv", 0) < core_g.ICOR_TOP_LV then
             real_name = ScpArgMsg("PropDown") .. "{ol}{#FF0000}" .. real_name
         elseif string.find(real_name, "上級") or string.find(real_name, "상급") then
             real_name = "{ol}{#FFA500}" .. real_name
@@ -1195,10 +1176,28 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
                 if propItem[propValue] ~= 0 and propItem[propName] ~= "None" then
                     local opName = string.format("%s %s", ClMsg(clientMessage), ScpArgMsg(propItem[propName]));
                     local strInfo = ABILITY_DESC_NO_PLUS(opName, propItem[propValue], 0);
-                    if not string.find(opName, "_bless_") and string.find(itemObj.StringArg, "EP17") then
+                    -- オプションの最大値は**素の shared_item_goddess_icor から引く**。
+                    -- **自前の表を持たないこと。** 以前は Lv540(EP17)の最大値を書き写した表を
+                    -- 持ち、判定も `string.find(itemObj.StringArg, "EP17")` だったため、
+                    -- **Lv560(EP18)のイコルには ％も MAX も色分けも一切付かなかった**
+                    -- (実際に報告された)。素の関数はレベル(UseLv)・部位(StringArg2)・
+                    -- 上級/下級(NumberArg1)から範囲を返すので、段が増えても直さずに追従する。
+                    -- 素のツールチップ(DRAW_EQUIP_GODDESS_ICOR)が使っているのと同じ関数。
+                    local op_max = nil
+                    if not string.find(opName, "_bless_") and shared_item_goddess_icor ~= nil then
+                        local _, max_value = shared_item_goddess_icor.get_option_value_range_icor(propItem,
+                            propItem[propName], true)
+                        if max_value ~= nil and max_value > 0 then
+                            op_max = max_value
+                        end
+                    end
+                    if op_max ~= nil then
                         local tag_part = string.match(strInfo, "({.-})")
-                        local number_part = string.gsub(string.match(strInfo, "([%+%,%d]+)$"), ",", "")
-                        number_part = tonumber(number_part)
+                        -- **末尾の数字が取れないことを考えに入れること。** 素の書式が変われば
+                        -- match は nil を返し、そのまま string.gsub へ渡すとその場で落ちる。
+                        -- ここは通る範囲を EP17 限定から全段へ広げたので、素通りさせる側に倒す
+                        local raw_number = string.match(strInfo, "([%+%,%d]+)$")
+                        local number_part = raw_number ~= nil and tonumber(string.gsub(raw_number, ",", "")) or nil
                         local middle_part = strInfo
                         if tag_part then
                             middle_part = string.gsub(middle_part, "({.-})", "", 1)
@@ -1208,58 +1207,36 @@ function Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC(my_frame, my_msg)
                         end
                         middle_part = string.gsub(middle_part, "!@#$PropUp#@!", "")
                         middle_part = middle_part:match("^%s*(.-)%s*$")
-                        local pattern = "^%!@#%$(.-)%#@%!$"
-                        local extracted_text = string.match(middle_part, pattern)
                         local per_text = ""
-                        for i, row_data in ipairs(icor_table) do
-                            local op_name = row_data[1]
-                            if extracted_text == op_name then
-                                if string.find(itemObj.StringArg, "Weapon") then
-                                    local op_break_limit = row_data[3]
-                                    local op_max = row_data[4]
-                                    local per = string.sub(tonumber(propItem[propValue]) / op_max * 100, 1, 4) .. "%"
-                                    if g.settings.max_value == 1 then
-                                        per_text = "{nl}{@st66}{s10}  (" .. per .. "/" .. GET_COMMAED_STRING(op_max) ..
-                                                       ")"
-                                    else
-                                        per_text = "{nl}{@st66}{s12}  (" .. per .. ")"
-                                    end
-                                    local optionText = GET_CHILD_RECURSIVELY(ctrlSet, "randomoption_" .. j - 1)
-                                    optionText:Resize(250, 36)
-                                    if number_part == op_break_limit then
-                                        number_part = "{#9932CC}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    elseif number_part == op_max then
-                                        number_part = "{#98FB98}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    elseif number_part >= math.ceil(op_max * 0.9) then
-                                        number_part = "{#FFA500}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    else
-                                        number_part = GET_COMMAED_STRING(number_part)
-                                    end
-                                elseif string.find(itemObj.StringArg, "Armor") then
-                                    local op_break_limit = row_data[5]
-                                    local op_max = row_data[6]
-                                    local per = string.sub(tonumber(propItem[propValue]) / op_max * 100, 1, 4) .. "%"
-                                    if g.settings.max_value == 1 then
-                                        per_text = "{nl}{@st66}{s10}  (" .. per .. "/" .. GET_COMMAED_STRING(op_max) ..
-                                                       ")"
-                                    else
-                                        per_text = "{nl}{@st66}{s12}  (" .. per .. ")"
-                                    end
-                                    local optionText = GET_CHILD_RECURSIVELY(ctrlSet, "randomoption_" .. j - 1)
-                                    optionText:Resize(250, 36)
-                                    if number_part == op_break_limit then
-                                        number_part = "{#9932CC}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    elseif number_part == op_max then
-                                        number_part = "{#98FB98}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    elseif number_part >= math.ceil(op_max * 0.9) then
-                                        number_part = "{#FFA500}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
-                                    else
-                                        number_part = GET_COMMAED_STRING(number_part)
-                                    end
-                                end
-                            end
+                        local per = string.sub(tonumber(propItem[propValue]) / op_max * 100, 1, 4) .. "%"
+                        if g.settings.max_value == 1 then
+                            per_text = "{nl}{@st66}{s10}  (" .. per .. "/" .. GET_COMMAED_STRING(op_max) .. ")"
+                        else
+                            per_text = "{nl}{@st66}{s12}  (" .. per .. ")"
                         end
-                        strInfo = number_part .. "" .. tag_part .. "" .. middle_part .. per_text
+                        local optionText = GET_CHILD_RECURSIVELY(ctrlSet, "randomoption_" .. j - 1)
+                        optionText:Resize(250, 36)
+                        -- 突破(最大値を超えた値)の閾値は素と同じ `floor(max * 1.5) - 1`
+                        -- (素の DRAW_EQUIP_GODDESS_ICOR の判定)。**== で見ないこと。**
+                        -- 突破の値がちょうど閾値にならない段だと色が付かない
+                        local op_break_limit = math.floor(op_max * 1.5) - 1
+                        if number_part == nil then
+                            -- 数字を取り出せなかった(素の書式が変わった)。色は付けずに素の表記へ戻す
+                            number_part = ""
+                            per_text = ""
+                        elseif number_part >= op_break_limit then
+                            number_part = "{#9932CC}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
+                        elseif number_part >= op_max then
+                            number_part = "{#98FB98}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
+                        elseif number_part >= math.ceil(op_max * 0.9) then
+                            number_part = "{#FFA500}{ol}" .. GET_COMMAED_STRING(number_part) .. "{/}{/}"
+                        else
+                            number_part = GET_COMMAED_STRING(number_part)
+                        end
+                        if number_part ~= "" then
+                            -- tag_part は書式指定が無ければ nil。そのまま繋ぐと落ちるので空文字にする
+                            strInfo = number_part .. "" .. (tag_part or "") .. "" .. middle_part .. per_text
+                        end
                     end
                     SET_MARKET_EQUIP_CTRLSET_OPTION_TEXT(ctrlSet, strInfo);
                 end

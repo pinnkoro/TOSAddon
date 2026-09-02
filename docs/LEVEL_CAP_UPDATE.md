@@ -78,6 +78,9 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 | `addons/quickslot_operate/quickslot_operate.lua` | `quickslot_operate_raid_list` の該当 `RaceType` へ indun ID。**ここだけでよい**（マップの一覧はこれ から自動生成される） |
 | `addons/auto_repair/auto_repair.lua` | `g.auto_repair` の 3 つ（キットの ClassID / 取引名 / 商店の種別）を**セットで** |
 | `addons/mini_addons/settings/definitions.lua` | `COIN_ITEM` に新しい女神のコイン **8 個ひと組**（1p〜1000000p の 7 個 + `dummy_*`） |
+| `core/00_header.lua` | **`g.ICOR_TOP_LV` / `g.ICOR_TOP_EP`**（最上位のガディス装備 / イコルの段）。イコルとエーテルジェムの見た目を出すアドオンはここを見ている |
+| `addons/aethergem_manager/aethergem_manager.lua` | `AETHERGEM_LEVELS` / `AETHERGEM_SKINS` の**先頭**へ新しい段。**表に無い段のジェムは枠へ入れても登録されない** |
+| `addons/cc_helper/cc_helper.lua` | ジェムのレベル表記の分岐（`LV540` の並び）。足さないと**新しい段が「LV460」と出る** |
 | `core/10_registry.lua` | `updated` / `updated_note_jp` / `updated_note_en`（`g.VER_NEXT` を書く） |
 | `nexus_addons_p/README.md` | 更新履歴の `（次回リリース）` へ追記 |
 | 各アドオンの `README.md` | 対応表・ID・alt テキスト |
@@ -86,6 +89,17 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 
 ## 3. 罠（全部このリポジトリで実際に踏んだもの）
 
+* **「段」を EP 番号やレベルの数字で決め打ちしない。** イコル / ガディス装備 / エーテルジェムの
+  見た目を出す箇所が `string.find(cls_name, "EP17")` や `string.find(name, "540")` と書かれていて、
+  Lv560 で**まとめて取り残された**（最新のイコルが「格下」の赤や rare 枠で出る、
+  市場のオプション表示に％も最大値も付かない、エーテルジェムが「LV460」と出る、
+  Aethergem Manager では**枠へ入れても登録されない**）。段は
+  `core/00_header.lua` の `g.ICOR_TOP_LV` / `g.ICOR_TOP_EP` か、アイテムの `UseLv` で見ること。
+  **かけら（`piece_*`）は `UseLv` が 1** なので、そこだけは EP 名でしか判別できない。
+* **オプションの最大値を書き写さない。** 市場のイコル表示が Lv540 の最大値を表で持っていて、
+  段が増えると数字ごと古くなる作りだった。素の
+  `shared_item_goddess_icor.get_option_value_range_icor(item, option_name, true)` が
+  レベル・部位・上級/下級から範囲を返すので、そちらを引けば追従は要らない。
 * **ID は増えるだけでなく消える。** Lv560 で `1005`（540 チャレンジの PT）が**データごと削除**された。
   古い ID を残すと「押しても何も起きないボタン」になる。**既存の ID も生きているか毎回確かめること。**
 * **ショップの売り物が差し替わる。** `PVP_MINE_40/41/42` の `TargetItem` が 540 用から 560 用の
