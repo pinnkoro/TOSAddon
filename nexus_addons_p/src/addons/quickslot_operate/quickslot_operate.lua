@@ -146,9 +146,9 @@ function Quickslot_operate_init_logic()
     -- マップ ID -> 種族。raid_list から毎回組み立てるので手入れは要らない。
     -- Indun / Map のクラスが引ければよく、街でも作れる(マップ移動のたびに作り直す)。
     if not g.quickslot_operate_map_race then
-        local ok = pcall(Quickslot_operate_build_map_race)
+        local ok, err = pcall(Quickslot_operate_build_map_race)
         if not ok then
-            g.vlog("{#FF6347}quickslot_operate: マップ種族表を作れなかった{/}")
+            g.vlog("{#FF6347}quickslot_operate: マップ種族表を作れなかった: %s{/}", tostring(err))
         end
     end
     -- **覚えている indun_type は「そのダンジョンのマップに居る間」だけ有効にする。**
@@ -907,6 +907,14 @@ end
 -- 新レイドのたびに足す必要があり、実際 Lv560 の 3 マップが抜けていた。
 -- raid_list は種族ごとに indun ID を持っているので、Indun -> MapName -> Map の
 -- ClassID を辿れば同じ表を毎回作れる。**raid_list に足せばこちらは自動で追随する。**
+local function Quickslot_operate_count_keys(tbl)
+    local n = 0
+    for _ in pairs(tbl) do
+        n = n + 1
+    end
+    return n
+end
+
 -- indun_type からそのダンジョンのマップ ID を引く。引けなければ nil
 function Quickslot_operate_indun_map_id(indun_type)
     if not indun_type then
@@ -930,9 +938,17 @@ end
 
 function Quickslot_operate_build_map_race()
     local map_race = {}
+    local tried, resolved = 0, 0
+    local first_failed = nil
     for potion_type, indun_list in pairs(g.quickslot_operate_raid_list) do
         for _, indun_id in ipairs(indun_list) do
+            tried = tried + 1
             local map_id = Quickslot_operate_indun_map_id(indun_id)
+            if map_id then
+                resolved = resolved + 1
+            elseif not first_failed then
+                first_failed = indun_id
+            end
             -- 同じマップを複数のレイドが使うことがある(格動の核 = ファロウロス
             -- と変質の伝播者)。先に入ったほうを残さず、**種族が食い違うことだけ
             -- 記録して差し替えない**。誤った種族を当てるより何もしないほうがよい。
@@ -952,9 +968,13 @@ function Quickslot_operate_build_map_race()
     -- そのまま入れると呼び出し側の「まだ作っていなければ作る」判定を素通りしてしまい、
     -- **そのセッション中ずっと空のまま**になる。入れなければ次のマップ移動でやり直せる。
     if next(map_race) == nil then
-        g.vlog("{#FF6347}quickslot_operate: マップ種族表が空。次のマップ移動でやり直す{/}")
+        g.vlog(
+            "{#FF6347}quickslot_operate: マップ種族表が空(%d 件中 %d 件しか解決できず、最初の失敗 indun_id=%s)。次のマップ移動でやり直す{/}",
+            tried, resolved, tostring(first_failed))
         return
     end
+    g.vlog("quickslot_operate: マップ種族表を作成 (%d 件中 %d 件を解決、マップ %d 件)", tried, resolved,
+        Quickslot_operate_count_keys(map_race))
     g.quickslot_operate_map_race = map_race
 end
 
