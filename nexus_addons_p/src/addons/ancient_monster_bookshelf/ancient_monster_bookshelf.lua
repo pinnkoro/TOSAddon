@@ -447,10 +447,10 @@ function Ancient_monster_bookshelf_get_selected_cards(compactinvitem)
                         if tostring(v.guid) == tostring(guid) then
                             found = true
                             if compactinvitem then
-                                table.insert(cards, deepcopy(v))
+                                table.insert(cards, Ancient_monster_bookshelf_deepcopy(v))
                             else
                                 for k = 1, v.count do
-                                    local c = deepcopy(v)
+                                    local c = Ancient_monster_bookshelf_deepcopy(v)
                                     c.count = 1
                                     table.insert(cards, c)
                                 end

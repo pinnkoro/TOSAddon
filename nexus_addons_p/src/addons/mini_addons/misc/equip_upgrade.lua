@@ -75,5 +75,5 @@ function Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS_CONTINUE()
     if parent:IsVisible() == 0 then
         return
     end
-    mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS_(parent, nil, nil, nil)
+    Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS(parent, nil, nil, nil)
 end

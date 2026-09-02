@@ -2558,7 +2558,10 @@ function Market_favorite_rebuild_ON_RCLICK(frame, slot, argstr, argnum)
         Market_favorite_rebuild_TOGGLE_FRAME("true")
     else
         if (ui.GetFrame('market'):IsVisible() == 0) then
-            CHAT_SYSTEM(L_("HavntopenMarket"))
+            -- 素にも本家にも L_ は無く、ここは呼ぶと落ちていた。素の ClMsg で引ける
+            -- メッセージキーも見当たらないので、他のアドオンと同じ書き方で自前で出す
+            CHAT_SYSTEM(g.lang == "Japanese" and "市場を開いてから使ってください" or
+                            "Open the market first")
             return
         end
         local frame = ui.GetFrame('market')

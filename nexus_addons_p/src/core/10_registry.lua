@@ -190,9 +190,9 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
-    updated = "2.2.0",
-    updated_note_jp = "Monster Card Changer と連携して、搬出のときにカードプリセットの{nl}着け直しまで自動でできるようになりました（設定画面の「MCC 連携」）",
-    updated_note_en = "Works with Monster Card Changer: card presets can now be re-equipped{nl}automatically when hauling out (see \"MCC link\" in the settings)",
+    updated = g.VER_NEXT,
+    updated_note_jp = "武器を 4 ヶ所着けていないときの案内で落ちていたのを直しました",
+    updated_note_en = "Fixed an error shown when fewer than 4 weapon slots are equipped",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -586,6 +586,9 @@ g._nexus_addons_p = {{
     -- ここで自分自身を誤検出することはない。
     key = "mini_addons",
     category = "misc",
+    updated = g.VER_NEXT,
+    updated_note_jp = "装備錬成の自動化が、目標値に届く前に黙って止まっていたのを直しました",
+    updated_note_en = "Fixed equipment upgrade automation silently stopping before reaching the target",
     data = {
         use = 0,
         name = "Mini Addons",
@@ -597,9 +600,9 @@ g._nexus_addons_p = {{
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
     category = "storage",
-    updated = "2.1.0",
-    updated_note_jp = "名前の色分けと EP13 ショップの一覧が、韓国語クライアントでも正しく出るようになりました",
-    updated_note_en = "Name colors and the EP13 shop list now render correctly on the Korean client",
+    updated = g.VER_NEXT,
+    updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのを直しました",
+    updated_note_en = "Fixed an error when right-clicking a favorite without the market open",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",
