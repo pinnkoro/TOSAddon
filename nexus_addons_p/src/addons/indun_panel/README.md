@@ -29,7 +29,7 @@ ON にして街に入ると `INDUNPANEL` ボタンが出ます。
 各行にはアイコン・名前・入場回数・**入場券の所持数**が出て、
 クリックでそのコンテンツへ入場できます。
 
-![展開した Indun Panel。上段に INDUNPANEL ボタンと共通ボタン、SET A / SET B / SET C の切り替えが並び、その下にコンテンツごとの行が SOLO・AUTO・HARD・ACLEAR・USE のボタンと回数付きで並ぶ。チャレンジと分裂特異点の行は 520 / 540 / 560 の段が横に並ぶ](images/01-panel.png)
+![展開した Indun Panel。上段は左から INDUNPANEL ボタン・共通ボタン・ショートカット・SET A / SET B / SET C の切り替え・常時展開のチェック・設定の歯車の順に並び、その下にコンテンツごとの行が SOLO・AUTO・HARD・ACLEAR・USE のボタンと回数付きで並ぶ。チャレンジと分裂特異点の行は 520 / 540 / 560 の段が横に並ぶ](images/01-panel.png)
 
 ### 共通ボタン
 
