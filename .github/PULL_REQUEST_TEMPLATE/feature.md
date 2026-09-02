@@ -34,8 +34,9 @@
 - [ ] **バージョン情報を変更していない**（`00_header.lua` の `ver` / `addons.json` の
       `fileVersion` / `.ipf` のファイル名。手元での確認は `python docs/check_version_freeze.py`）
 - [ ] **`nexus_addons_p/README.md` の更新履歴に追記した**（`（次回リリース）` 見出しへ / CLAUDE.md ルール）
-- [ ] 素のクライアント API の使い方を変えた場合、`python docs/vanilla_api.py --update` で
-      一覧を更新し、**手元で `python docs/vanilla_api.py --verify-client` を流した**
+- [ ] 素のクライアント API の使い方を変えた場合、**手元で
+      `python docs/vanilla_api.py --verify-client` を先に流し**、
+      `python docs/vanilla_api.py --update` で一覧を更新した
       （素との突き合わせはローカルでしかできない / [docs/VANILLA_API.md](../../docs/VANILLA_API.md)）
 
 ### 採番 PR（`release-prep/vX.Y.Z` -> main）のときだけ

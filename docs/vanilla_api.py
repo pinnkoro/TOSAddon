@@ -497,7 +497,11 @@ def scan_src():
             own_globals.add(m.group(1))
         for m in re.finditer(r"function[ \t]+_G\.([A-Za-z_]\w*)", body):
             own_globals.add(m.group(1))
-        for m in re.finditer(r"_G\[\s*[\"']?([A-Za-z_]\w*)[\"']?\s*\]?\s*=", body):
+        # **こちらは文字列を残した方を見る。** `_G["INSTANTCC_ON_INIT"] = ...` の名前は
+        # 文字列なので、埋め草へ潰した body には残っていない（拾えないまま「素の API を
+        # 使っている」と誤検出することになる）。
+        for m in re.finditer(r"_G\[\s*[\"']?([A-Za-z_]\w*)[\"']?\s*\]?\s*=",
+                             with_strings[rel]):
             own_globals.add(m.group(1))
         here = set()
         # `local function f` も字下げ 0 なら後続ファイルから見える（分割した src を
@@ -674,6 +678,15 @@ def cmd_check(args):
         problems.append(
             f"一覧に無い素の API を使っている: {key}"
             f"（{', '.join(fresh[key]['used_by'])}）")
+    # 素に定義も使用も見当たらないまま一覧へ入った記号は、ここでも落とす。
+    # --update の側でも止めているが、CI は素を見られないぶん一覧が唯一の頼りなので、
+    # 「素と照らして結論が出ていない記号が混じったまま」を通さない。
+    for key in sorted(set(old) & set(fresh)):
+        kind = old[key].get("kind")
+        if kind in (None, "unknown"):
+            problems.append(
+                f"{key}: 素と照らした結論が一覧に無い（kind={kind}）。"
+                f"ゲームのある環境で --update を流し直すこと")
     for key in sorted(set(old) - set(fresh)):
         problems.append(f"一覧に残っているが src から消えている: {key}")
     for key in sorted(set(old) & set(fresh)):
@@ -849,6 +862,25 @@ def cmd_update(args):
             return 1
 
     lock = build_lock(uses, hooks, cg, cn, previous)
+
+    # **作った一覧そのものも突き合わせること。** 上の突き合わせは previous（= commit 済みの
+    # 一覧）しか見ないので、**今回はじめて出てきた記号は 1 度も判定を通らない**。
+    # 素の API 名を打ち間違えた呼び出しを足して --update すると、kind: "unknown" のまま
+    # 保存されて OK が返る、という一番まずい抜け方をしていた（KNOWN_ISSUES に控えてある
+    # 既存の打ち間違いは、まさにこの種類）。
+    if cg is not None:
+        problems, _notices, _known = compare_with_client(lock, cg, cn)
+        added = [p for p in problems if p.split(":")[0] not in (previous or {}).get("symbols", {})]
+        if added and not args.accept_client_changes:
+            print("新しく使い始めた素の API に食い違いがある:")
+            print()
+            for p in added:
+                print("  -", p)
+            print()
+            print("一覧は書き換えなかった。綴りを確かめるか、素に無くてよいものなら")
+            print("EXPECTED_NOT_IN_CLIENT / KNOWN_ISSUES へ理由付きで足すこと。")
+            return 1
+
     save_lock(lock)
     n_lua = sum(1 for v in lock["symbols"].values() if v.get("kind") == "client_lua")
     n_nat = sum(1 for v in lock["symbols"].values() if v.get("kind") == "native")
