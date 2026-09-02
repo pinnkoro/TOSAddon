@@ -120,17 +120,6 @@ EXPECTED_NOT_IN_CLIENT = {
 # ＝新しく出たものと区別するための控え。片付いたらここから消すこと。
 # 「素に無くてよい」と結論が出たものは EXPECTED_NOT_IN_CLIENT へ移す。
 KNOWN_ISSUES = {
-    "cc_helper_take_item":
-        "Cc_helper_take_item の書き間違い（cc_helper.lua:2240）。"
-        "武器 4 ヶ所が揃っていないときの案内経路で nil を呼ぶ",
-    "mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS_":
-        "Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS の書き間違い"
-        "（mini_addons/misc/equip_upgrade.lua:78）。錬成の続行が黙って止まる",
-    "L_": "素にもこちらにも定義が無い（market_favorite_rebuild.lua:2561）。"
-          "本家から引き継いだ呼び出しで、市場を開いていないときの案内で落ちる",
-    "deepcopy":
-        "Ancient_monster_bookshelf_deepcopy の書き間違い"
-        "（ancient_monster_bookshelf.lua:450 / 453）。カードを集める経路で落ちる",
     "info.GetMonsterClassName":
         "boss_direction.lua:167。素の Lua は geMonsterTable.GetMonsterClassNameByType しか"
         "持たず、この名前は素のどこにも現れない。実在するネイティブかどうかは実機でしか"
@@ -902,9 +891,13 @@ def cmd_update(args):
     # 実機で壊れる種類の食い違いが在るときは、--accept-client-changes を明示しない限り
     # 書き換えない。
     if previous is not None and cg is not None:
+        # **もう使っていない記号は見ない。** 呼び出しをやめた（＝書き間違いを直した）
+        # ものまで照合すると、直した本人が --update できなくなる。ここで見たいのは
+        # 「今も使っている素の API が変わっていないか」だけ。
+        still_used = {"symbols": {k: v for k, v in previous["symbols"].items() if k in uses}}
         # 既知（KNOWN_ISSUES）はここでは出さない。--update のたびに毎回並ぶと、
         # 今回の更新で新しく出た食い違いが埋もれる。
-        problems, notices, _known = compare_with_client(previous, cg, cn)
+        problems, notices, _known = compare_with_client(still_used, cg, cn)
         if problems or notices:
             print("書き換える前に、今のクライアントと突き合わせた結果:")
             print()

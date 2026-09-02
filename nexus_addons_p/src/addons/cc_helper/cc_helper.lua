@@ -2237,7 +2237,7 @@ function Cc_helper_out_btn_agm_reserve(out_btn)
                     "{ol}Please equip weapons in 4 slots"
     ui.SysMsg(msg)
     out_btn:StopUpdateScript("Cc_helper_out_btn_agm_reserve")
-    cc_helper_take_item(nil, out_btn, nil, 6)
+    Cc_helper_take_item(nil, out_btn, nil, 6)
     return 0
 end
 
