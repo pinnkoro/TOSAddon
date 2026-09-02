@@ -1,4 +1,13 @@
 -- Aethergem Manager　ここから
+
+-- エーテルジェムの段と、段ごとの枠。**新しい段が出たら先頭へ足すこと**
+-- (core/00_header.lua の g.ICOR_TOP_LV を直すのと同じタイミングで見直す)。
+-- **表に無い段のジェムは、レベル表記も枠も付かないうえ、枠へ入れても登録されない**
+-- (登録はこの表に当たったときだけ行っているため。Lv560 のジェムで実際にそうなっていた)。
+-- 女神等級より上の枠は無いので、560 も 540 と同じ invenslot_pic_goddess を使う。
+local AETHERGEM_LEVELS = {"560", "540", "520", "500", "480", "460"}
+local AETHERGEM_SKINS = {"invenslot_pic_goddess", "invenslot_pic_goddess", "invenslot_legend", "invenslot_unique",
+                         "invenslot_rare", "invenslot_nomal"}
 function Aethergem_manager_save_settings()
     g.save_json(g.aethergem_manager_path, g.aethergem_manager_settings)
 end
@@ -193,9 +202,8 @@ function Aethergem_manager_gem_setting(inventory, btn_pic, str, num)
                     local name = item_cls.ClassName
                     CreateIcon(slot)
                     SET_SLOT_ITEM_CLS(slot, item_cls)
-                    local levels = {"540", "520", "500", "480", "460"}
-                    local skins = {"invenslot_pic_goddess", "invenslot_legend", "invenslot_unique", "invenslot_rare",
-                                   "invenslot_nomal"}
+                    local levels = AETHERGEM_LEVELS
+                    local skins = AETHERGEM_SKINS
                     local lv_text = slot:CreateOrGetControl('richtext', 'lv_text', 0, 25, 25, 25)
                     AUTO_CAST(lv_text)
                     for i, lv in ipairs(levels) do
@@ -256,9 +264,8 @@ function Aethergem_manager_INV_RBTN(item_obj, slot, guid)
                     local name = item_cls.ClassName
                     CreateIcon(slot)
                     SET_SLOT_ITEM_CLS(slot, item_cls)
-                    local levels = {"540", "520", "500", "480", "460"}
-                    local skins = {"invenslot_pic_goddess", "invenslot_legend", "invenslot_unique", "invenslot_rare",
-                                   "invenslot_nomal"}
+                    local levels = AETHERGEM_LEVELS
+                    local skins = AETHERGEM_SKINS
                     local lv_text = slot:CreateOrGetControl('richtext', 'lv_text', 0, 25, 25, 25)
                     AUTO_CAST(lv_text)
                     for i, lv in ipairs(levels) do

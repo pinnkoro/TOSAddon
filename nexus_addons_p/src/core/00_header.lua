@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.3.0"
+local ver = "2.3.1"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -1915,6 +1915,18 @@ end
 -- **seen_ver が無いときは 0.0.0 扱い**にする(= since / updated が付いている項目は全部出る)。
 -- 既に使っている人が更新したときにここが空になるので、ver で埋めてしまうと
 -- 「印を導入した版の新着が誰にも出ない」ことになる。初回インストールのときだけ ver を入れる。
+
+-- 今の最上位のガディス装備 / ガディスイコルの段。**Lv 上限が上がったらここだけ直す**
+-- ([docs/LEVEL_CAP_UPDATE.md](../../../docs/LEVEL_CAP_UPDATE.md) の手順に入れてある)。
+--
+-- * `ICOR_TOP_LV` … アイテムの `UseLv`(イコル本体・肩/ベルトなどの装備に入っている)
+-- * `ICOR_TOP_EP` … `ClassName` / `StringArg` に入る接頭辞。**かけら(piece_*)は
+--   `UseLv` が 1 なので、そちらはこの EP 名でしか段を判別できない**
+--
+-- **段を決め打ちで書かないこと。** 「EP17 なら最新」「名前に 540 が入っていれば最新」と
+-- 書いた箇所が Lv560 で全部取り残され、最新のイコルが「格下」表示になった(実際に報告された)。
+g.ICOR_TOP_LV = 560
+g.ICOR_TOP_EP = "EP18"
 
 -- まだ採番していない版を指す印。**main へ入れる PR では版を上げない**(CLAUDE.md の
 -- 「バージョン情報はリリース時にだけ上げる」)ので、開発中の since / updated はこれを書く。

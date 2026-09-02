@@ -81,8 +81,31 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN(my_frame, my_msg)
         -- 1 発も撃たないまま同じ停止メッセージを出す無限ループになる。
         -- 指紋の未設定値は "None"(大文字始まり)にする
         -- (hair_enchant_option_fingerprint が返しうる "none" と衝突させないため)
-        reroll_option:SetUserValue("READY", "yes")
-        reroll_option:SetUserValue("FIRED_FP", "None")
+        --
+        -- **「続けますか？」の『はい』から来たときは、既に 1 発撃った後**なので、
+        -- 上の立て方をしてはいけない。関門(READY / FIRED_FP)が素通りになり、飛んでいる
+        -- 1 発の結果が届く前に**振る前のオプションを見て止める**ことになる
+        -- (「1 回で止まり、元のオプションを指して止まる」形で報告された)。
+        -- 撃った後の状態は PENDING_FP で受け取る。**呼び出しから戻った後で立て直す形に
+        -- しないこと。** RunUpdateScript がその場で 1 回走ると、立て直しより先に
+        -- 1 tick 目が入って同じことが起きる
+        local pending_fp = reroll_option:GetUserValue("PENDING_FP")
+        if pending_fp ~= "None" then
+            reroll_option:SetUserValue("READY", "no")
+            reroll_option:SetUserValue("FIRED_FP", pending_fp)
+            reroll_option:SetUserValue("ROLLED", "yes")
+            reroll_option:SetUserValue("PENDING_FP", "None")
+        else
+            reroll_option:SetUserValue("READY", "yes")
+            reroll_option:SetUserValue("FIRED_FP", "None")
+            -- **この回でまだ 1 発も撃っていない目印。** 停止判定は振った結果に対して
+            -- 行うものなので、これが "yes" になるまで希望オプションでは止めない
+            reroll_option:SetUserValue("ROLLED", "no")
+            -- **控えているランクも捨てる。** 前の対象のランクが残っていると、
+            -- 別のアクセを乗せて回し始めた 1 tick 目で「ランクが変わった」と誤判定し、
+            -- 「ランクアップ時に停止」が ON だと 1 発も撃たずに止まる
+            reroll_option:SetUserValue("RANK", "None")
+        end
         reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
         frame:RunUpdateScript("Mini_addons_HIGH_HAIRENCHANT_OK_BTN_", HAIR_ENCHANT_TICK)
         -- 素の付与ボタンを「停止」に変える(押されたら止められるように)
@@ -333,18 +356,19 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
         end
         reroll_option:SetUserValue("ASKING", "None")
         if boolean == "YES" then
-            local fired_fp = hair_enchant_option_fingerprint(itemIES)
+            -- **撃つ前の指紋を控えて、OK_BTN へ渡してから撃つこと。**
+            -- OK_BTN は「1 回目はすぐ撃つ」ために READY / FIRED_FP を素通りの値へ
+            -- 立てるので、ここで撃った 1 発を知らせないと、その結果が届く前に
+            -- 1 tick 目が動いて**振る前のオプションで止める**
+            -- (呼び出しから戻った後で立て直す形だと、RunUpdateScript がその場で
+            --  1 回走ったときに間に合わない)
+            reroll_option:SetUserValue("PENDING_FP", hair_enchant_option_fingerprint(itemIES))
             item.DoPremiumItemEnchantchip(itemIES, enchantGuid)
             reroll_option:SetUserValue("REPERT", reroll_option:GetUserIValue("REPERT") + 1)
             Mini_addons_HIGH_HAIRENCHANT_OK_BTN(nil, "HIGH_HAIRENCHANT_OK_BTN")
-            -- ここでは既に 1 回撃っている。OK_BTN が「1 回目はすぐ撃つ」ために立てた
-            -- READY / FIRED_AT / FIRED_FP を、撃った後の状態へ立て直すこと。
-            -- **FIRED_FP も忘れないこと。** OK_BTN は "None" を入れるので、
-            -- 立て直さないとこの 1 回だけ指紋の見張りが効かず、結果を待たずに
-            -- 次を撃って当たりを潰す(「演出を待たずに実行」のときに出る)
-            reroll_option:SetUserValue("READY", "no")
-            reroll_option:SetUserValue("FIRED_AT", tostring(os.time()))
-            reroll_option:SetUserValue("FIRED_FP", fired_fp)
+            -- OK_BTN が窓を見ずに素へ流した経路(設定画面が閉じている)への後始末。
+            -- 残すと次に回し始めたときへ持ち越して、1 発目の関門が誤って効く
+            reroll_option:SetUserValue("PENDING_FP", "None")
         else
             Mini_addons_HIGH_HAIRENCHANT_CLOSE_BTN(nil, "")
         end
@@ -356,8 +380,20 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     local retio = width / ui.GetClientInitialWidth()
     -- 目標ランクを指定しているときは希望オプションで止めない。
     -- 全スキル系(下の ALLSKILL_ 分岐)も同じく素通りさせる
+    --
+    -- **この回でまだ 1 発も撃っていないなら、ここは見ない。** 停止判定は
+    -- obj["HatPropName_1..3"](＝今アイテムに付いているもの)を読むので、振る前に見ると
+    -- **元から付いていたオプションを指して、1 発も撃たないまま止まる**
+    -- (「ロール 1 回で停止し、元のオプションを参照して止まった」として報告された)。
+    -- 撃つのはこのすぐ下なので、飛ばしても 1 回ぶん回るだけで空撃ちにはならない
+    local rolled = reroll_option:GetUserValue("ROLLED") == "yes"
+    if not rolled then
+        core_g.vlog(
+            "mini_addons: ヘアエンチャント まだ 1 発も撃っていないので、今付いているオプション(%s)では止めない",
+            tostring(hair_enchant_option_fingerprint(itemIES)))
+    end
     for key, value in pairs(g.need_options) do
-        if rank_until_index == nil and value.is_check == 1 then
+        if rolled and rank_until_index == nil and value.is_check == 1 then
             local target_text = value.text
             for i = 1, 3 do
                 local propName = "HatPropName_" .. i
@@ -408,6 +444,8 @@ function Mini_addons_HIGH_HAIRENCHANT_OK_BTN_(frame, ctrl)
     reroll_option:SetPos(reroll_option:GetX(), frame:GetY())
     -- 撃つ前の中身を控える。次の回でこれと同じなら結果がまだ届いていない
     reroll_option:SetUserValue("FIRED_FP", hair_enchant_option_fingerprint(itemIES))
+    -- ここから先の結果は「振った結果」なので、次の回から希望オプションで止めてよい
+    reroll_option:SetUserValue("ROLLED", "yes")
     item.DoPremiumItemEnchantchip(itemIES, enchantGuid)
     repeatCount:SetTextByKey("value", string.format("%s : %d", ClMsg("REPEAT"), set_repeat_num - count))
     reroll_option:SetUserValue("REPERT", reroll_option:GetUserIValue("REPERT") + 1)

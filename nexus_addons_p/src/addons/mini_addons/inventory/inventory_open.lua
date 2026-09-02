@@ -209,7 +209,9 @@ function Mini_addons_inventory_open_func(frame, msg)
                                 if item_cls then
                                     if g.settings.inventory_mod == 1 then
                                         local cls_name = item_cls.ClassName
-                                        if string.find(cls_name, 540) then
+                                        -- Lv560 のエーテルジェムも女神等級
+                                        -- (これ以上の枠は無いので 540 と同じ扱い)
+                                        if string.find(cls_name, 560) or string.find(cls_name, 540) then
                                             slot:SetSkinName("invenslot_pic_goddess")
                                         elseif string.find(cls_name, 520) then
                                             slot:SetSkinName("invenslot_legend")
@@ -288,8 +290,11 @@ function Mini_addons_inventory_open_func(frame, msg)
                                 if item_cls then
                                     local cls_name = item_cls.ClassName
                                     if g.settings.inventory_mod == 1 then
+                                        -- 最上位の段(core_g.ICOR_TOP_EP)を足す。**古い段は外さない**
+                                        -- ("EP17" 決め打ちだったので Lv560 のイコルが格下の枠で出ていた)
                                         local is_special_item =
-                                            string.find(cls_name, "EP17") or string.find(cls_name, "Weapon2") or
+                                            string.find(cls_name, core_g.ICOR_TOP_EP) or
+                                                string.find(cls_name, "EP17") or string.find(cls_name, "Weapon2") or
                                                 string.find(cls_name, "Armor2")
                                         if not is_special_item then
                                             slot:SetSkinName("invenslot_rare")
@@ -338,7 +343,8 @@ function Mini_addons_inventory_open_func(frame, msg)
                                     if g.settings.inventory_mod == 1 then
                                         local cls_name = item_cls.ClassName
                                         local is_special_item =
-                                            string.find(cls_name, "EP17") or
+                                            string.find(cls_name, core_g.ICOR_TOP_EP) or
+                                                string.find(cls_name, "EP17") or
                                                 (string.find(cls_name, "EP16") and string.find(cls_name, "high")) or
                                                 (string.find(cls_name, "EP13") and string.find(cls_name, "high2"))
                                         if not is_special_item and
