@@ -151,6 +151,24 @@ function Quickslot_operate_init_logic()
             g.vlog("{#FF6347}quickslot_operate: マップ種族表を作れなかった{/}")
         end
     end
+    -- **覚えている indun_type は「そのダンジョンのマップに居る間」だけ有効にする。**
+    -- クリアしないとセッション中ずっと残るので、同じマップを共有する別レイド
+    -- (raid_castle_ep14_2 = 変質の伝播者 / 高位ファルオロス)へダイアログを通らずに
+    -- 入ったとき、前回のレイドの種族を当ててしまう。マップが同じなので
+    -- map_change 側のマップ一致ガードでは弾けない。
+    --
+    -- **ここは入場直後には走らない。** 入場ダイアログは街で発火し、その後の
+    -- マップ移動で初めてここへ来るので、正しい記憶(これから入るレイドのもの)は消えない。
+    -- 消えるのは「そのレイドを出て別のマップへ移った」ときだけ。
+    -- 解決できない(nil)ものは判断材料が無いので触らない。
+    if g.quickslot_operate_indun_type and g.map_id then
+        local remembered_map = Quickslot_operate_indun_map_id(g.quickslot_operate_indun_type)
+        if remembered_map and remembered_map ~= g.map_id then
+            g.vlog("quickslot_operate: 覚えていた indun_type=%s は別マップ(%s)のものなので忘れる (現在 map=%s)",
+                tostring(g.quickslot_operate_indun_type), tostring(remembered_map), tostring(g.map_id))
+            g.quickslot_operate_indun_type = nil
+        end
+    end
     Quickslot_operate_reset_rshift()
     quickslot_operate_map_timer:Start(3.0)
     if g.quickslot_operate_settings.rshift then
