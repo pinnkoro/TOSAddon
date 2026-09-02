@@ -44,7 +44,7 @@ g._nexus_addons_p = {{
     category = "gear",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "Lv560 のエーテルジェムを枠へ登録できなかったのを直しました",
     updated_note_en = "Fixed Lv560 aether gems not being registerable in a slot",
     data = {
@@ -89,7 +89,7 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "設定ウィンドウで左SHIFT+右クリックの個数変更ができないことがあったのと、Lv560 のイコル / かけら / 肩・ベルトが「格下」の枠で出ていたのを直しました",
     updated_note_en = "Fixed the SHIFT+right-click count change in the settings window, and Lv560 ichors/pieces/gear drawn with the lower-tier frame",
     data = {
@@ -195,7 +195,7 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "武器を 4 ヶ所着けていないときの案内で落ちていたのと、Lv560 のジェムが「LV460」と出ていたのを直しました",
     updated_note_en = "Fixed an error shown when fewer than 4 weapon slots are equipped, and Lv560 gems being labelled LV460",
     data = {
@@ -268,7 +268,7 @@ g._nexus_addons_p = {{
 }, {
     key = "goddess_icor_manager",
     category = "gear",
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "Lv560 のイコルに段の表記と枠の色が付かなかったのを直しました",
     updated_note_en = "Fixed the tier label and frame color missing for Lv560 ichors",
     data = {
@@ -452,7 +452,7 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "パーティリーダーに飛ばされた・再入場した・レイド内で再ログインしたときにもポーションを差し替えるようにしました",
     updated_note_en = "Now also swaps potions when you were pulled in by the party leader, re-entered, or relogged inside a raid",
     data = {
@@ -594,7 +594,7 @@ g._nexus_addons_p = {{
     -- ここで自分自身を誤検出することはない。
     key = "mini_addons",
     category = "misc",
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "装備錬成の自動化が、目標値に届く前に黙って止まっていたのを直しました。{nl}素材が尽きたときは自動継続を打ち切るようにしています",
     updated_note_en = "Fixed equipment upgrade automation silently stopping before reaching the target.{nl}It now also stops on its own when materials run out",
     data = {
@@ -608,7 +608,7 @@ g._nexus_addons_p = {{
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
     category = "storage",
-    updated = g.VER_NEXT,
+    updated = "2.3.1",
     updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのと、Lv560 のイコルにオプションの％/最大値/色分けが付かず名前も「格下」の赤で出ていたのを直しました",
     updated_note_en = "Fixed an error when right-clicking a favorite without the market open, and Lv560 ichors getting no option %/max/colour and a lower-tier red name",
     data = {
