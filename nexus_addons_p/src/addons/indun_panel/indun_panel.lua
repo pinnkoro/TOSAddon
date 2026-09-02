@@ -1627,10 +1627,9 @@ function Indun_panel_frame_skin_select_(skin_name)
     Indun_panel_save_settings()
     -- パネルを描き直して、選んだ背景をその場で見せる。設定ウィンドウは別フレームなので
     -- 開いたまま残る(以前はパネル自身を設定画面にしていたため、ここで設定が閉じていた)。
-    local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
-    if indun_panel then
-        Indun_panel_frame_open(indun_panel)
-    end
+    -- **frame_open を直に呼ばないこと。** 畳んでいるパネルが背景を選んだ瞬間に展開する。
+    -- 設定からの変更は展開 / 畳みの状態を変えない方針で揃えてある。
+    Indun_panel_refresh_panel()
 end
 
 -- 各行の描画関数が「この行は横 n px 使った」と申告する先。

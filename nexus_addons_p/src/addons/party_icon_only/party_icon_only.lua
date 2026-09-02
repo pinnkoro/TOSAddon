@@ -248,6 +248,9 @@ function Party_icon_only_apply()
     -- 「当たり判定もアイコンまで」の実体で、この外を押した入力は素どおり下へ抜ける。
     partyinfo:Resize(PARTY_ICON_ONLY_SIZE, y)
     partyinfo:Invalidate()
+    -- **畳んだ印。** これが立っていないと Party_icon_only_restore は何もしない
+    -- (機能を一度も ON にしていない利用者の partyinfo を触らないため)
+    g.party_icon_only_folded = true
     -- 0.5 秒ごとに走るので、判断の材料になった値を 1 回だけ出す(CLAUDE.md「出しすぎない」)。
     if not g.party_icon_only_logged then
         g.party_icon_only_logged = true
@@ -260,6 +263,15 @@ end
 -- 素の ON_PARTYINFO_UPDATE に組み立て直させる(CLAUDE.md「素の関数を書き写さない」。
 -- 素が変われば戻し方も自動で追従する)。
 function Party_icon_only_restore()
+    -- **一度も畳んでいないなら何もしない。**
+    -- <key>_on_teardown は use == 0 のときセッションに 1 回必ず呼ばれる契約なので
+    -- (core/20_lifecycle.lua の _nexus_addons_p_resolve_init_func)、この印が無いと
+    -- **この機能を一度も ON にしていない利用者の環境でも**素の partyinfo の行を
+    -- 破棄して組み立て直すことになる(mini_addons が足した location<n> も道連れ)。
+    if not g.party_icon_only_folded then
+        return
+    end
+    g.party_icon_only_folded = nil
     local partyinfo = ui.GetFrame("partyinfo")
     if not partyinfo then
         return
