@@ -90,8 +90,8 @@ g._nexus_addons_p = {{
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
     updated = g.VER_NEXT,
-    updated_note_jp = "Lv560 のイコル / かけら / 肩・ベルトが「格下」の枠で出ていたのと、Lv560 のエーテルジェムに枠が付かなかったのを直しました",
-    updated_note_en = "Fixed Lv560 ichors, their pieces and Lv560 shoulder/belt gear being drawn with the lower-tier frame",
+    updated_note_jp = "設定ウィンドウで左SHIFT+右クリックの個数変更ができないことがあったのと、Lv560 のイコル / かけら / 肩・ベルトが「格下」の枠で出ていたのを直しました",
+    updated_note_en = "Fixed the SHIFT+right-click count change in the settings window, and Lv560 ichors/pieces/gear drawn with the lower-tier frame",
     data = {
         use = 0,
         name = "Another Warehouse",
