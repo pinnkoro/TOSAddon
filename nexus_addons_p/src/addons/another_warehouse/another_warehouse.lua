@@ -849,7 +849,11 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
     slot:SetEventScriptArgString(ui.RBUTTONUP, inv_item:GetIESID())
     if g.awh_settings.etc.display_change == 1 then
         if baseid_cls.TreeGroup == "Material" and slotset_name == "sset_Misc_Special" then
-            if string.find(item_cls.ClassName, "GoddessIcor") and not string.find(item_cls.ClassName, "EP17") then
+            -- **段は g.ICOR_TOP_EP(core/00_header.lua)で見ること。** "EP17" 決め打ちだったので、
+            -- Lv560(EP18)のイコルのかけらが「格下」の枠で出ていた。
+            -- **かけら(piece_*)は UseLv が 1 なので、EP 名でしか段を判別できない**
+            if string.find(item_cls.ClassName, "GoddessIcor") and
+                not string.find(item_cls.ClassName, g.ICOR_TOP_EP) then
                 slot:SetSkinName("invenslot_rare")
             end
         end
@@ -901,7 +905,8 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
             end
         elseif baseid_cls.ClassName == "Gem_High_Color" then
             local cls_name = item_cls.ClassName
-            if string.find(cls_name, "540") then
+            -- Lv560 のエーテルジェムも女神等級(これ以上の枠は無いので 540 と同じ)
+            if string.find(cls_name, "560") or string.find(cls_name, "540") then
                 slot:SetSkinName("invenslot_pic_goddess")
             elseif string.find(cls_name, "520") then
                 slot:SetSkinName("invenslot_legend")
@@ -915,14 +920,16 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
         end
         if string.find(baseid_cls.ClassName, "OPTMisc_GoddessIcor") then
             local cls_name = item_cls.ClassName
-            local is_special = string.find(cls_name, "EP17") or string.find(cls_name, "Weapon2") or
-                                   string.find(cls_name, "Armor2")
+            -- 最上位の段(g.ICOR_TOP_EP)を足す。**古い段を外さないこと**
+            -- (外すと今まで格下扱いでなかったものが急に格下の枠になる)
+            local is_special = string.find(cls_name, g.ICOR_TOP_EP) or string.find(cls_name, "EP17") or
+                                   string.find(cls_name, "Weapon2") or string.find(cls_name, "Armor2")
             if not is_special then
                 slot:SetSkinName("invenslot_rare")
             end
         elseif string.find(baseid_cls.ClassName, "Armor") then
             local cls_name = item_cls.ClassName
-            local is_special = string.find(cls_name, "EP17") or
+            local is_special = string.find(cls_name, g.ICOR_TOP_EP) or string.find(cls_name, "EP17") or
                                    (string.find(cls_name, "EP16") and string.find(cls_name, "high")) or
                                    (string.find(cls_name, "EP13") and string.find(cls_name, "high2"))
             if not is_special and (string.find(cls_name, "belt") or string.find(cls_name, "shoulder")) then
@@ -1870,6 +1877,36 @@ function Another_warehouse_setting_help()
     ui.OpenContextMenu(context)
 end
 
+-- 設定スロットの持ち主(team / char)のテーブルを引く。**スロット名から引き直すこと。**
+-- 設定画面は team_slotset と char_slotset の 2 つがあり、どちらのスロットを押したかは
+-- スロットの親の名前でしか分からない
+local function another_warehouse_setting_items(slotset_name)
+    if slotset_name == "char_slotset" then
+        return g.awh_settings.chars[g.cid].items
+    end
+    return g.awh_settings.items
+end
+
+-- 設定スロットへアイテムを載せる。**ITEM_CLSID を必ず一緒に入れること。**
+-- 左SHIFT+右クリックの個数変更はこの控えから ClassID を読むので、入れ忘れると
+-- GetClassByType が nil を返し、その先の itemcls.MaxStack で落ちて**何も起きない**。
+-- 窓を開き直すと組み直しで入るため、「登録した直後のスロットだけ効かない」という
+-- 分かりにくい形で出ていた(利用者から報告)
+local function another_warehouse_setting_slot_fill(slot, item_cls, count)
+    if slot == nil or item_cls == nil then
+        return
+    end
+    slot:SetUserValue("ITEM_CLSID", item_cls.ClassID)
+    SET_SLOT_ITEM_CLS(slot, item_cls)
+    -- **0 のときは消すこと。** SET_SLOT_ITEM_CLS は数字を消さないので、
+    -- 5 → 0 に変えても古い「5」が残り、「個数を変えられない」ように見える
+    if count ~= nil and tonumber(count) ~= 0 then
+        SET_SLOT_COUNT_TEXT(slot, tonumber(count))
+    else
+        slot:ClearText()
+    end
+end
+
 function Another_warehouse_setting_slot_set(parent, slot_set_name)
     local slotset = parent:CreateOrGetControl('slotset', slot_set_name, 10, 10, 0, 0)
     AUTO_CAST(slotset)
@@ -1895,14 +1932,7 @@ function Another_warehouse_setting_slot_set(parent, slot_set_name)
         local str_index = tostring(i)
         for key, value in pairs(items) do
             if key == str_index then
-                local clsid = value.clsid
-                local count = value.count
-                local itemcls = GetClassByType("Item", clsid)
-                slot:SetUserValue("ITEM_CLSID", clsid)
-                SET_SLOT_ITEM_CLS(slot, itemcls)
-                if count ~= 0 then
-                    SET_SLOT_COUNT_TEXT(slot, count)
-                end
+                another_warehouse_setting_slot_fill(slot, GetClassByType("Item", value.clsid), value.count)
             end
         end
     end
@@ -1946,10 +1976,17 @@ function Another_warehouse_setting_swap_item(parent, slot, str, num)
 end
 
 function Another_warehouse_setting_icon_clear(parent, ctrl, str, num)
+    -- 設定スロットの右クリック。左SHIFT を押していれば個数変更、押していなければ設定消去。
+    -- **どちらへ入ったかを出しておくこと。** 「個数変更ができない」と報告されたとき、
+    -- SHIFT を取れていないのか、その先で止まっているのかがログでしか分けられない
     if keyboard.IsKeyPressed("LSHIFT") == 1 then
+        g.vlog("another_warehouse: 設定スロット %s/%s を左SHIFT+右クリック → 個数変更へ",
+            tostring(parent:GetName()), tostring(ctrl:GetName()))
         Another_warehouse_setting_count_change(parent, ctrl, str, num)
         return
     end
+    g.vlog("another_warehouse: 設定スロット %s/%s を右クリック → 設定消去へ", tostring(parent:GetName()),
+        tostring(ctrl:GetName()))
     local items = {}
     if parent:GetName() == 'team_slotset' then
         items = g.awh_settings.items
@@ -1969,17 +2006,46 @@ function Another_warehouse_setting_icon_clear(parent, ctrl, str, num)
 end
 
 function Another_warehouse_setting_count_change(frame, ctrl, strr, num)
-    local slot_index = tonumber(string.gsub(ctrl:GetName(), "slot", ""))
-    if slot_index then
-        local cls_id = ctrl:GetUserIValue("ITEM_CLSID")
-        local itemcls = GetClassByType("Item", cls_id)
-        local awh_setting = ui.GetFrame(addon_name_lower .. "awh_setting")
-        awh_setting:SetUserValue("SLOT_NAME", ctrl:GetParent():GetName())
-        local msg = g.lang == "Japanese" and "インベントリに残す数を入力" or
-                        "Enter the number to be left in the inventory"
-        INPUT_NUMBER_BOX(awh_setting, msg, "Another_warehouse_setting_item_count", 0, 0, tonumber(itemcls.MaxStack),
-            cls_id, tostring(slot_index), nil)
+    -- **string.gsub の戻り値をそのまま tonumber へ渡さないこと。**
+    -- gsub は (置換後の文字列, 置換回数) の 2 つを返すので、`tonumber(string.gsub(...))` と
+    -- 書くと置換回数が**基数**として渡り、`base out of range` でその場で落ちる
+    -- (1 も 0 も基数として不正。2〜36 しか通らない)。
+    -- 左SHIFT+右クリックの個数変更が**必ず**無反応だったのはこれ。UI のイベントから出る
+    -- エラーは debug_log にも残らないので、詳細ログが「個数変更へ」で途切れる形でしか
+    -- 見えなかった。**一度変数へ受けて 1 つに切ること**(実機のログで確認済み)
+    local slot_name = string.gsub(ctrl:GetName(), "slot", "")
+    local slot_index = tonumber(slot_name)
+    if slot_index == nil then
+        g.vlog("another_warehouse: 設定スロットの名前から番号を取れない(%s)", tostring(ctrl:GetName()))
+        return
     end
+    local slotset_name = ctrl:GetParent():GetName()
+    local cls_id = ctrl:GetUserIValue("ITEM_CLSID")
+    -- **スロットに控えが無ければ設定から引き直すこと。** 登録した直後のスロットには
+    -- ITEM_CLSID が入っておらず(窓を開き直すまで入らなかった)、0 のまま
+    -- GetClassByType へ渡していたので nil が返り、その先で落ちて**何も起きなかった**
+    if cls_id == nil or cls_id == 0 then
+        local data = another_warehouse_setting_items(slotset_name)[tostring(slot_index)]
+        cls_id = data ~= nil and data.clsid or 0
+        if cls_id ~= 0 then
+            ctrl:SetUserValue("ITEM_CLSID", cls_id)
+        end
+    end
+    local itemcls = cls_id ~= 0 and GetClassByType("Item", cls_id) or nil
+    if itemcls == nil then
+        -- 空きスロットを押した / 設定にも控えが無い。黙って何も起きないのは分かりにくいので出す
+        g.vlog("another_warehouse: 設定スロット %s/%d の個数変更 → アイテムの控えが無いので何もしない",
+            tostring(slotset_name), slot_index)
+        return
+    end
+    local awh_setting = ui.GetFrame(addon_name_lower .. "awh_setting")
+    awh_setting:SetUserValue("SLOT_NAME", slotset_name)
+    local msg = g.lang == "Japanese" and "インベントリに残す数を入力" or
+                    "Enter the number to be left in the inventory"
+    g.vlog("another_warehouse: 設定スロット %s/%d の個数変更を開く(ClassID=%d / MaxStack=%s)",
+        tostring(slotset_name), slot_index, cls_id, tostring(itemcls.MaxStack))
+    INPUT_NUMBER_BOX(awh_setting, msg, "Another_warehouse_setting_item_count", 0, 0, tonumber(itemcls.MaxStack),
+        cls_id, tostring(slot_index), nil)
 end
 
 function Another_warehouse_setting_item_count(awh_setting, count, input_frame)
@@ -1994,15 +2060,15 @@ function Another_warehouse_setting_item_count(awh_setting, count, input_frame)
         items = g.awh_settings.items
     end
     local slotset = GET_CHILD_RECURSIVELY(awh_setting, user_value)
-    local slot = GET_CHILD_RECURSIVELY(slotset, "slot" .. index)
+    local slot = slotset ~= nil and GET_CHILD_RECURSIVELY(slotset, "slot" .. index) or nil
     items[tostring(index)] = {
         clsid = clsid,
-        count = tonumber(count)
+        count = tonumber(count) or 0
     }
-    SET_SLOT_ITEM_CLS(slot, item_cls)
-    if tonumber(count) ~= 0 then
-        SET_SLOT_COUNT_TEXT(slot, tonumber(count))
-    end
+    -- ITEM_CLSID を入れ直すのも、0 のときに数字を消すのもここに入っている
+    another_warehouse_setting_slot_fill(slot, item_cls, count)
+    g.vlog("another_warehouse: 設定スロット %s/%s に ClassID=%s / 残す数=%s を入れた", tostring(user_value),
+        tostring(index), tostring(clsid), tostring(count))
     Another_warehouse_save_settings()
     input_frame:ShowWindow(0)
 end
@@ -2079,7 +2145,9 @@ function Another_warehouse_setting_rbtn(item_obj, slot)
             clsid = cls_id,
             count = 0
         }
-        SET_SLOT_ITEM_CLS(ctrl, item_cls)
+        -- **ここでも ITEM_CLSID を入れること。** 入れないと、登録した直後のスロットで
+        -- 左SHIFT+右クリックの個数変更が効かない(窓を開き直すまで直らない)
+        another_warehouse_setting_slot_fill(ctrl, item_cls, 0)
         Another_warehouse_save_settings()
     end
 end

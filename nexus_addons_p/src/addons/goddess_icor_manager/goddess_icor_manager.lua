@@ -203,24 +203,31 @@ function Goddess_icor_manager_list_gb_init(gim, page)
                     local temp_cls = GetClassByType("Item", spot_data)
                     if temp_cls then
                         local cls_name = temp_cls.ClassName
-                        if string.find(cls_name, "EP17", 1, true) then
-                            if string.find(cls_name, "high", 1, true) then
-                                temp_name = g.lang == "Japanese" and " [540]上級" or " [540]Advanced"
-                            else
-                                temp_name = " [540]"
-                            end
+                        -- **段は ClassName の EP 番号ではなく UseLv で見ること。**
+                        -- EP17 / EP16 決め打ちだったので、Lv560(EP18)のイコルには
+                        -- [段] の表記も枠の色も付かなかった。UseLv なら段が増えても追従する。
+                        -- 最上位の段は g.ICOR_TOP_LV(core/00_header.lua)1 箇所で持つ。
+                        local icor_lv = TryGetProp(temp_cls, "UseLv", 0)
+                        local is_high = string.find(cls_name, "high", 1, true) ~= nil
+                        if string.find(cls_name, "Weapon2", 1, true) or string.find(cls_name, "Armor2", 1, true) then
+                            -- 継承イコル(Lv500 の Weapon2 / Armor2)。上級しか無いので段だけ出す
+                            temp_name = string.format(g.lang == "Japanese" and " [%d]継承" or " [%d]Succession",
+                                icor_lv)
                             manage_bg:SetColorTone("FFFFD700")
-                        elseif string.find(cls_name, "EP16", 1, true) then
-                            if string.find(cls_name, "high", 1, true) then
-                                temp_name = g.lang == "Japanese" and " [520]上級" or " [520]Advanced"
+                        elseif icor_lv > 0 and string.find(cls_name, "GoddessIcor", 1, true) then
+                            if is_high then
+                                temp_name = string.format(g.lang == "Japanese" and " [%d]上級" or " [%d]Advanced",
+                                    icor_lv)
                             else
-                                temp_name = " [520]"
+                                temp_name = string.format(" [%d]", icor_lv)
                             end
-                            manage_bg:SetColorTone("FFDAA520")
-                        elseif string.find(cls_name, "EP15", 1, true) and
-                            (string.find(cls_name, "Weapon2", 1, true) or string.find(cls_name, "Armor2", 1, true)) then
-                            temp_name = g.lang == "Japanese" and " [500]継承" or " [500]Succession"
-                            manage_bg:SetColorTone("FFFFD700")
+                            -- 最上位は金、その 1 つ下は暗い金。それより古い段は色を付けない
+                            -- (段は 20 レベル刻み。480 / 500 / 520 / 540 / 560)
+                            if icor_lv >= g.ICOR_TOP_LV then
+                                manage_bg:SetColorTone("FFFFD700")
+                            elseif icor_lv >= g.ICOR_TOP_LV - 20 then
+                                manage_bg:SetColorTone("FFDAA520")
+                            end
                         end
                     end
                 end

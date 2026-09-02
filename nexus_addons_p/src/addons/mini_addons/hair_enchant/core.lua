@@ -206,6 +206,15 @@ local function hair_enchant_refresh_if_changed(reroll_option)
     end
     core_g.vlog("mini_addons: ヘアエンチャント 対象が変わったので組み直す(%s → %s)",
         tostring(reroll_option:GetUserValue("BUILD_SIG")), tostring(sig))
+    -- **控えているランクを新しい対象のものへ入れ直す。** 前の対象のランクが残っていると、
+    -- 次の回で「ランクが変わった」＝ランクアップと誤判定する。回している最中なら
+    -- 「ランクアップ時に停止」が ON のときにそこで止まり、OFF でも実際には下がった
+    -- 対象について「ランクアップ」とログへ出る(A の髪から B の髪へ替えたときに実際に出た)
+    if reroll_option:GetUserValue("RANK") ~= item_rank then
+        core_g.vlog("mini_addons: ヘアエンチャント 控えていたランクを入れ直す(%s → %s)",
+            tostring(reroll_option:GetUserValue("RANK")), tostring(item_rank))
+        reroll_option:SetUserValue("RANK", item_rank)
+    end
     -- **プリセットを選んでいるなら、保存内容から入れ直す。**
     -- 低いランクのアクセで読み込むと、そのランクで出ないオプションは g.need_options から
     -- 落ちる。そのまま組み直すと「落ちた後の状態」が元になるので、ランクの高いアクセに
