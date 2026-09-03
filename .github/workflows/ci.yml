@@ -116,6 +116,11 @@ jobs:
       - name: mini_addons の特性並べ替えテスト
         run: luajit docs/tests/test_ability_sort.lua
 
+      # indun_panel の並べ替え(設定ウィンドウの▲▼)。番号を持たない行の扱いと table.sort の
+      # 不安定さで静かに壊れる(「押しても動かない」「後から足した行が真ん中へ割り込む」)。
+      - name: indun_panel の並べ替えテスト
+        run: luajit docs/tests/test_indun_panel_order.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。

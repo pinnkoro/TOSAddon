@@ -19,7 +19,7 @@ local induns = {{
     -- Uriel 系は monster.ies の Icon が 9 体すべて "boss_uriel" の 1 枚で、
     -- ボスの画像にすると偽りの輝翼と堕落した審判の翼が同じ絵になって見分けが付かない。
     -- 入場券なら item_Boss_LightUriel_Auto_Enter / item_Boss_DarkUriel_Auto_Enter で別絵になる。
-    -- 参照する ID は raid_tbl の期限なし(通常)の券。アシャーク / 共鳴の聖所と同じ持ち方。
+    -- 参照する ID は raid_tbl の期限なし(通常)の券。嘆きの墓地 / 共鳴の聖所と同じ持ち方。
     light_uriel = {
         s = 734,
         a = 733,
@@ -195,17 +195,11 @@ local induns = {{
         icon = {"Item", 960213}
     }
 }, {
-    -- Lv560。アシャークと同じ「入場券で入るパーティダンジョン」型
+    -- Lv560。嘆きの墓地と同じ「入場券で入るパーティダンジョン」型
     zawra = {
         id = 732,
         jp = "共鳴の聖所",
         icon = {"Item", 11210069}
-    }
-}, {
-    ashaq = {
-        id = 728,
-        jp = "アシャーク",
-        icon = {"Item", 11200484}
     }
 }, {
     jsr = {
@@ -215,13 +209,243 @@ local induns = {{
     }
 }}
 
+-- パネルの右側へ並べるショートカット。
+--
+-- **並びの出どころはここ 1 つにする。** 以前はパネル側(展開 / 畳みの 2 か所)に
+-- button_keys のべた書き、設定ウィンドウ側にアイコンの表、と 3 か所に同じ並びがあった。
+-- 利用者が▲▼で並べ替えられるようにすると、ずれた瞬間に「どのチェックがどのボタンか
+-- 分からない」状態になるので、定義をここへ寄せて全員がここを見る。
+--
+-- city = 都市に居るときだけ出るボタン(Indun_panel_create_shortcut_button の g.get_map_type 判定)。
+-- **足したときは Indun_panel_create_shortcut_button の分岐と、設定の既定 / バックフィル
+--  (Indun_panel_load_settings の col_keys)にも足すこと。**
+local INDUN_PANEL_SHORTCUTS = {{
+    key = "tos",
+    img = "icon_item_Tos_Event_Coin",
+    size = 25,
+    city = true,
+    jp = "TOSイベントショップ",
+    en = "TOS Event Shop"
+}, {
+    key = "gabija",
+    img = "goddess_shop_btn",
+    size = 29,
+    city = true,
+    jp = "ガビヤショップ",
+    en = "Gabija Shop"
+}, {
+    key = "vakarine",
+    img = "goddess2_shop_btn",
+    size = 29,
+    city = true,
+    jp = "ヴァカリネショップ",
+    en = "Vakarine Shop"
+}, {
+    key = "rada",
+    img = "goddess3_shop_btn",
+    size = 29,
+    city = true,
+    jp = "ラダショップ",
+    en = "Rada Shop"
+}, {
+    key = "jurate",
+    img = "goddess4_shop_btn",
+    size = 29,
+    city = true,
+    jp = "ユラテショップ",
+    en = "Jurate Shop"
+}, {
+    key = "austeja",
+    img = "goddess5_shop_btn",
+    size = 29,
+    jp = "アウステヤショップ",
+    en = "Austeja Shop"
+}, {
+    key = "saule",
+    img = "icon_item_season_coin_Saule",
+    size = 29,
+    jp = "サウレショップ",
+    en = "Saule Shop"
+}, {
+    key = "pvp_mine",
+    img = "pvpmine_shop_btn_total",
+    size = 29,
+    jp = "傭兵団ショップ",
+    en = "Mercenary Shop"
+}, {
+    key = "market",
+    img = "market_shortcut_btn02",
+    size = 29,
+    city = true,
+    jp = "マーケット",
+    en = "Market"
+}, {
+    key = "craft",
+    img = "icon_fullscreen_menu_equipment_processing",
+    size = 28,
+    city = true,
+    jp = "装備加工",
+    en = "Equipment Processing"
+}, {
+    key = "leticia",
+    img = "icon_fullscreen_menu_letica",
+    size = 28,
+    city = true,
+    jp = "レティーシャへ移動",
+    en = "Leticia Move"
+}}
+
+-- ===== 並べ替え(▲▼) =====
+--
+-- 控えは settings.col_order(ショートカット)と settings.row_order(コンテンツの行)に
+-- 「キー → 何番目か」で持つ。**セットとは無関係の共通設定**にしてある(段の設定と同じ)。
+-- セットごとに順番まで変えられると、セットを切り替えるたびに並びが動いて位置を覚えられない。
+--
+-- **番号を持たないキーは末尾へ回す。** 新しいダンジョンやショートカットを足したとき、
+-- 既に並べ替えている利用者の並びの真ん中へ知らない行が割り込まないようにするため
+-- (core/90_addons_menu.lua の Addons Menu の並べ替えと同じ考え方)。
+-- table.sort は安定ではないので、元の位置(idx)を最後の決め手にする。
+local function Indun_panel_order_tbl(name)
+    local settings = g.indun_panel_settings
+    if not settings then
+        return {}
+    end
+    if type(settings[name]) ~= "table" then
+        settings[name] = {}
+    end
+    return settings[name]
+end
+
+-- items = {{key = "...", ...}, ...} を利用者の並びへ直した写しを返す。
+-- **元のテーブルを並べ替えないこと**(定義の並びは「まだ並べ替えていない人」の既定)。
+local function Indun_panel_sort_by_order(items, order_name)
+    local order = Indun_panel_order_tbl(order_name)
+    local sorted = {}
+    for idx, item in ipairs(items) do
+        sorted[idx] = {
+            item = item,
+            idx = idx,
+            order = tonumber(order[item.key]) or (10000 + idx)
+        }
+    end
+    table.sort(sorted, function(a, b)
+        if a.order ~= b.order then
+            return a.order < b.order
+        end
+        return a.idx < b.idx
+    end)
+    local out = {}
+    for i, row in ipairs(sorted) do
+        out[i] = row.item
+    end
+    return out
+end
+
+-- 利用者の並びに直したショートカットの一覧。
+local function Indun_panel_ordered_shortcuts()
+    return Indun_panel_sort_by_order(INDUN_PANEL_SHORTCUTS, "col_order")
+end
+
+-- 利用者の並びに直したコンテンツの行。induns は {key = value} が 1 組ずつ入った
+-- 配列なので、並べ替えに使えるよう {key = ..., def = ...} へならしてから渡す。
+local function Indun_panel_ordered_induns()
+    local items = {}
+    for i, entry in ipairs(induns) do
+        local key, value = next(entry)
+        items[i] = {
+            key = key,
+            def = value
+        }
+    end
+    return Indun_panel_sort_by_order(items, "row_order")
+end
+
+-- ▲▼ を押したときの並べ直し。**一覧全体へ 1 から番号を振り直す。**
+-- 隣と番号を入れ替えるだけだと、番号を持たない行(まだ並べ替えていないもの)が
+-- 混ざったときに「押しても動かない」組み合わせが残る。
+--
+-- is_visible を渡すと、**そこで偽になる行を飛ばして次の行と入れ替える**。
+-- 設定の「ON のものだけ表示」で絞っている間に使う。隠れている行と素直に入れ替えると、
+-- 画面上は何も動かないので「押しても効かない」ように見える。
+-- 飛ばされた行はその場に留まる(画面に出ていないものを勝手に動かさない)。
+--
+-- 戻り値は動かせたかどうか(端では何もしない)。
+local function Indun_panel_move_in_order(ordered, order_name, key, delta, is_visible)
+    local at
+    for idx, item in ipairs(ordered) do
+        if item.key == key then
+            at = idx
+            break
+        end
+    end
+    if not at then
+        return false
+    end
+    local to = at + delta
+    if is_visible then
+        while to >= 1 and to <= #ordered and not is_visible(ordered[to]) do
+            to = to + delta
+        end
+    end
+    if to < 1 or to > #ordered then
+        return false
+    end
+    ordered[at], ordered[to] = ordered[to], ordered[at]
+    local order = Indun_panel_order_tbl(order_name)
+    for idx, item in ipairs(ordered) do
+        order[item.key] = idx
+    end
+    g.vlog("indun_panel: %s の %s を %d 番目から %d 番目へ動かした", order_name, tostring(key), at, to)
+    return true
+end
+
+-- パネルの背景。**選べるものはここ 1 か所に持つ。**
+-- 以前は `SKIN SELECT` ボタン → コンテキストメニューで選ぶ作りだったが、
+-- **今どれを使っているのかが画面のどこにも出ていなかった**(押してみるまで分からず、
+-- メニューにも印が付かない)。設定では 3 つを横に並べて、選んでいるものを赤くする。
+local INDUN_PANEL_SKINS = {{
+    key = "chat_window_2",
+    jp = "いつもの",
+    en = "The usual"
+}, {
+    key = "bg",
+    jp = "黒",
+    en = "Solid black"
+}, {
+    key = "bg2",
+    jp = "透明度高め",
+    en = "High transparency"
+}}
+
+-- 行の絵。**パネルと設定で同じものを出す**(設定の一覧で「パネルのどの行か」を
+-- 目で追い直さずに済むように)。ボス協同戦だけは相手が週ごとに変わるので、
+-- 固定の ID ではなくその週のフィールドボスから引く。
+function Indun_panel_row_icon_class(key, def)
+    if key == "jsr" then
+        local fieldbossPattern = session.fieldboss.GetPatternInfo()
+        return GetClass("Monster", fieldbossPattern.MonsterClassName)
+    elseif def and def.icon and def.icon[1] then
+        return GetClassByType(def.icon[1], def.icon[2])
+    end
+    return nil
+end
+
+-- 並べ替えの規則は実機でしか目に見えず、「番号を持たない行の扱い」と「table.sort が
+-- 安定ではないこと」で静かに壊れる。docs/tests/test_indun_panel_order.lua から呼べるよう
+-- g へも載せておく(呼び出し側は上のローカルをそのまま使う。
+--  core/90_addons_menu.lua の g.addons_menu_collect_items と同じやり方)。
+g.indun_panel_shortcut_defs = INDUN_PANEL_SHORTCUTS
+g.indun_panel_ordered_shortcuts = Indun_panel_ordered_shortcuts
+g.indun_panel_ordered_induns = Indun_panel_ordered_induns
+g.indun_panel_move_in_order = Indun_panel_move_in_order
+
 -- チャレンジ / 分裂の段(Lv 帯)の一覧は、下のほうの CHALLENGE_TIERS / SINGULARITY_TIERS が持つ。
 -- **設定の読み込みや設定ウィンドウはそれより前に定義される**ので素では見えない
 -- (Lua の local は宣言行より後ろからしか見えない。CLAUDE.md「local function は
 --  呼び出しより前で定義する」と同じ話)。段の顔ぶれを 2 か所に書かずに済ませるため、
 -- ここで前方宣言して下で代入する。
 local CHALLENGE_TIERS, SINGULARITY_TIERS
--- 入場券型のパーティダンジョン(嘆きの墓地 / アシャーク / 共鳴の聖所)の表も同じ理由で
+-- 入場券型のパーティダンジョン(嘆きの墓地 / 共鳴の聖所)の表も同じ理由で
 -- 前方宣言する。Indun_panel_enter_solo がこの表の open_only を見るため。
 local DUNGEON_TICKET_CONFIG
 
@@ -340,7 +564,7 @@ function Indun_panel_load_settings()
     local indun_keys = {"challenge", "singularity", "light_uriel", "dark_uriel", "zmei", "belliora", "laimara",
                         "ledania", "neringa", "golem", "merregina", "slogutis", "upinis", "roze", "falouros",
                         "reservoir", "jellyzele", "delmore", "telharsha", "bernice", "giltine", "memory", "wailing",
-                        "zawra", "ashaq", "jsr"}
+                        "zawra", "jsr"}
     local json_to_indun_map = {
         veliora = "belliora",
         limara = "laimara",
@@ -348,7 +572,6 @@ function Indun_panel_load_settings()
         spreader = "reservoir",
         velnice = "bernice",
         cemetery = "wailing",
-        demonlair = "ashaq",
         earring = "memory"
     }
     if not settings then
@@ -855,13 +1078,11 @@ function Indun_panel_frame_init(is_toggle, msg)
     btn:SetTextTooltip(g.lang == "Japanese" and "{ol}右クリック: 常時展開で開く" or
                            "{ol}Right click: Open in Always Expand")
     local x = Indun_panel_create_common_buttons(indun_panel)
-    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market",
-                         "craft",
-                         "leticia"}
-    for _, key_name in ipairs(button_keys) do
-        local value = g.indun_panel_settings.cols[key_name]
+    -- 並びは設定ウィンドウの▲▼で決まる(INDUN_PANEL_SHORTCUTS の順が既定)
+    for _, def in ipairs(Indun_panel_ordered_shortcuts()) do
+        local value = g.indun_panel_settings.cols[def.key]
         if value == 1 then
-            if Indun_panel_create_shortcut_button(indun_panel, key_name, x) then
+            if Indun_panel_create_shortcut_button(indun_panel, def.key, x) then
                 x = x + 30
             end
         end
@@ -1146,13 +1367,11 @@ function Indun_panel_frame_open(indun_panel)
     -- 歯車を作らないので、ここで共通ボタンとショートカットの間へ挟むと、展開したときだけ
     -- ショートカットが 30px 右へずれて「畳む/展開で位置が変わる」ことになる。
     local x = Indun_panel_create_common_buttons(indun_panel)
-    local button_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market",
-                         "craft",
-                         "leticia"}
-    for _, key_name in ipairs(button_keys) do
-        local value = g.indun_panel_settings.cols[key_name]
+    -- 並びは設定ウィンドウの▲▼で決まる(INDUN_PANEL_SHORTCUTS の順が既定)
+    for _, def in ipairs(Indun_panel_ordered_shortcuts()) do
+        local value = g.indun_panel_settings.cols[def.key]
         if value == 1 then
-            if Indun_panel_create_shortcut_button(indun_panel, key_name, x) then
+            if Indun_panel_create_shortcut_button(indun_panel, def.key, x) then
                 x = x + 30
             end
         end
@@ -1209,6 +1428,12 @@ function Indun_panel_frame_open(indun_panel)
     end
     -- 常時展開チェック(30px) + 歯車(30px) ぶんを足す
     local final_x = current_x + 70
+    -- **上段に要る幅を控えておく。** 展開すると Indun_panel_frame_contents が行の幅で
+    -- パネルを resize し直すので、ここで控えないと上段のほうが広いときに右端が切れる
+    -- (実機で発生。下の panel_width のコメント参照)。
+    g.indun_panel_header_width = final_x
+    -- 幅が足りているかを実機で確かめる材料。展開のたびに 1 行だけ(毎フレームではない)。
+    g.vlog("indun_panel: 上段の幅 %d (ショートカットの右端 %d / SET の右端 %d)", final_x, x, current_x)
     indun_panel:Resize(final_x, 40)
     indun_panel:ShowWindow(1)
     Indun_panel_frame_contents(configbtn)
@@ -1221,8 +1446,10 @@ function Indun_panel_set_toggle(indun_panel, ctrl, set_key, num)
     if num == 1 then
         -- 設定ウィンドウからのセット切替。並ぶ行が変わるのでパネルも作り直す
         -- (残したままだと前のセットの行が重なる。Indun_panel_refresh_panel のコメント)
+        -- **設定ウィンドウは開き直さず中身だけ入れ替える。** 開き直すと ESC の登録を
+        -- 積み直すことになり、タブの選択も作り直しに巻き込まれる。
         Indun_panel_refresh_panel()
-        Indun_panel_setting_frame_open()
+        Indun_panel_config_rebuild()
     else
         Indun_panel_frame_open(indun_panel)
     end
@@ -1299,7 +1526,14 @@ function Indun_panel_ischecked(indun_panel, ctrl)
     -- **設定ウィンドウからの変更のときだけ描き直す。** パネルの上のチェック
     -- (singularity_check / 常時展開)から呼ばれたときにやると、Indun_panel_frame_open の
     -- RemoveAllChild が「今まさにこのイベントを処理しているコントロール」を壊すことになる。
-    if indun_panel and indun_panel:GetName() == Indun_panel_config_frame_name() then
+    --
+    -- 発火元の名前を出しておく。**ここの判定を落とすとパネルが組み直されず、消したはずの
+    -- 行が残って次の行と重なる**(一覧を枠に入れたとき第 1 引数がその枠になり、実際に踏んだ)。
+    -- 押したときだけなのでログは流れない。
+    local from_config = Indun_panel_from_config(indun_panel)
+    g.vlog("indun_panel: チェック %s = %s (発火元 %s / 設定から %s)", tostring(ctrlname), tostring(ischeck),
+        indun_panel and indun_panel:GetName() or "nil", tostring(from_config))
+    if from_config then
         Indun_panel_refresh_panel()
     end
     if ctrlname == "move" then
@@ -1313,13 +1547,24 @@ function Indun_panel_ischecked(indun_panel, ctrl)
         end
     end
     Indun_panel_save_settings()
+    -- 「ON のものだけ表示」で絞っているときは、**外した行をその場で一覧から消す**。
+    -- 絞り込みは「今 ON のものだけ」を見せるための表示なので、外したものが残っていると
+    -- 件数(n / m)と中身が食い違う。
+    --
+    -- **必ず一番最後に呼ぶこと。** 中身を作り直す = 今このイベントを処理している
+    -- チェックそのものを壊すので、ctrl と設定を見終わってからでなければならない
+    -- (押した直後にコントロールが消える形は core/90_addons_menu.lua の☆と同じ)。
+    if from_config and (g.indun_panel_sc_only_on == true or g.indun_panel_row_only_on == true) then
+        Indun_panel_config_rebuild()
+    end
 end
 
 -- 段(520 / 540 / 560)のチェックボックスを、コンテンツ一覧のその行の右へ並べる。
 -- 段を持たない行では何もしない。
 -- **列の x を基準に置くこと。** 一覧は 2 列組みで、行の顔ぶれが変われば
--- チャレンジ / 分裂が右の列へ回ることもある。左列なら 155〜320、右列なら
--- 465〜630 に収まるので、どちらでも隣の列や窓の外へはみ出さない。
+-- チャレンジ / 分裂が右の列へ回ることもある。呼び出し側が渡すのは「行の x + 196」
+-- (▲▼ 50px + チェックと名前 140px の右)で、左列(15)なら 211〜376、
+-- 右列(400)なら 596〜761 に収まる。どちらでも隣の列や窓(800)の外へはみ出さない。
 function Indun_panel_tier_checkboxes(indun_panel, row_key, x, y)
     local row = Indun_panel_tier_row_of(row_key)
     local tiers = row and Indun_panel_tiers_of(row_key)
@@ -1350,12 +1595,94 @@ end
 -- パネルは画面の端に寄せて置くものなので設定もそこへ出ることになり、縦に長い一覧を
 -- 画面の端で読む形になっていた。別フレームにして中央へ出す。
 --
--- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
--- **素で list_frame:GetX() を呼ばないこと**(g.settings_frame_pos のコメント)。
-local INDUN_PANEL_CONFIG_W = 660
+-- **中身はタブで分ける。** ショートカットに名前と▲▼を、コンテンツの行にも▲▼を付けた
+-- ことで 1 枚には収まらなくなったため。分け方は「パネルそのものの設定」と
+-- 「どのコンテンツを出すか」で、後者はセットごとに保存される設定でもある。
+--
+-- **タブは tab コントロールではなくボタンで作る。** ゲーム標準の tab は skin の縦幅に
+-- 合わせて窓ごと大きくする必要があり、この土台(chat_memberlist)と馴染まない
+-- (core/90_addons_menu.lua の設定画面が同じ理由でボタン式にしている)。
+local INDUN_PANEL_CONFIG_TABS = {{
+    key = "panel",
+    jp = "パネル",
+    en = "Panel"
+}, {
+    key = "contents",
+    jp = "コンテンツ",
+    en = "Contents"
+}}
+
+-- 窓の幅。**タブで変えないこと。**
+--
+-- タブごとに幅を変えていたとき、窓を画面の右端へ寄せていると、広いタブへ切り替えた
+-- ところではみ出したぶんだけ左へ戻され、狭いタブへ戻しても元の位置には復帰しなかった
+-- (切り替えるたびに少しずつ左へ寄っていく)。幅を揃えれば丸めが起きない。
+--
+-- 500 はコンテンツ側の 1 行「▲▼(56) + チェックと名前(186) + 絵(35) + 段 3 つ(165)」から。
+-- パネル側もこの幅に収まるよう、2 列組みの右列を寄せてある。
+local INDUN_PANEL_CONFIG_W = 500
+-- コンテンツ側の窓の高さ(固定)。行はコンテンツが増えるたびに伸びるので、窓の背丈で
+-- 受け止めると画面へ収まらなくなる。一覧はこの中でスクロールする。
+-- (パネル側の高さは中身から決める。ショートカットの数だけ下へ伸びる)
+local INDUN_PANEL_CONFIG_CONTENTS_H = 640
+-- タイトルとタブのぶん。中身(body)はこの下から始まる。
+local INDUN_PANEL_CONFIG_BODY_Y = 78
+-- 中身を入れる枠の名前。**チェックのイベントの第 1 引数はこの groupbox になる**ので、
+-- 「設定ウィンドウから来たか」を見る Indun_panel_from_config がこの名前を知っている必要がある。
+local INDUN_PANEL_CONFIG_BODY = "config_body"
+-- コンテンツの一覧(スクロールする枠)の名前。**行のチェックはこの中に入っている**ので、
+-- こちらも Indun_panel_from_config が知っている必要がある。
+--
+-- **入れ物を増やしたらここへ足すこと。** 足し忘れると「設定から来た」と見なされず、
+-- チェックを外してもパネルを組み直さなくなる。パネルは名前でコントロールを使い回すので、
+-- 組み直さないと消したはずの行がその場に残り、次の行と重なって描かれる(実機で発生)。
+local INDUN_PANEL_CONFIG_ROWS = "rows_gb"
 
 function Indun_panel_config_frame_name()
     return addon_name_lower .. "indun_panel_config"
+end
+
+-- そのイベントが設定ウィンドウから来たか。
+-- **タブ化で第 1 引数が groupbox(body)になった。** パネルの上のチェック
+-- (常時展開 / 分裂)と区別が付かないと、イベント処理中に自分を壊すことになる
+-- (Indun_panel_ischecked のコメント参照)。
+function Indun_panel_from_config(frame)
+    if not frame then
+        return false
+    end
+    local name = frame:GetName()
+    return name == Indun_panel_config_frame_name() or name == INDUN_PANEL_CONFIG_BODY or name ==
+               INDUN_PANEL_CONFIG_ROWS
+end
+
+-- 今のタブ。知らない値が入っていたら既定へ落とす。
+local function Indun_panel_config_tab()
+    for _, def in ipairs(INDUN_PANEL_CONFIG_TABS) do
+        if def.key == g.indun_panel_config_tab then
+            return def.key
+        end
+    end
+    return "panel"
+end
+
+-- 位置の丸め。**タブとセットで窓の大きさが変わる**ので、前の位置のままだと画面からはみ出す。
+local function Indun_panel_config_clamp_pos(x, y, width, height)
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    if x + width > screen_w then
+        x = screen_w - width
+    end
+    if y + height > screen_h then
+        y = screen_h - height
+    end
+    if x < 0 then
+        x = 0
+    end
+    if y < 0 then
+        y = 0
+    end
+    return x, y
 end
 
 -- × と ESC で同じ動きにする。**設定を変えたぶんを反映するため、閉じたらパネルを組み直す。**
@@ -1371,47 +1698,238 @@ function Indun_panel_setting_frame_close()
 end
 
 -- セクションの見出し。戻り値は次に置ける y。
-function Indun_panel_config_section(config_frame, name, text, y)
-    local title = config_frame:CreateOrGetControl("richtext", "section_" .. name, 15, y, 400, 25)
+function Indun_panel_config_section(body, name, text, y, w)
+    local title = body:CreateOrGetControl("richtext", "section_" .. name, 15, y, 400, 25)
     AUTO_CAST(title)
     title:SetText(string.format("{ol}{#FFD900}{s18}%s", text))
-    local line = config_frame:CreateOrGetControl("labelline", "line_" .. name, 10, y + 26,
-        INDUN_PANEL_CONFIG_W - 20, 5)
+    local line = body:CreateOrGetControl("labelline", "line_" .. name, 10, y + 26, w - 20, 5)
     AUTO_CAST(line)
     line:SetSkinName("labelline2")
     return y + 36
 end
 
-function Indun_panel_setting_frame_open()
-    local is_jp = g.lang == "Japanese"
-    local config_frame = ui.CreateNewFrame("chat_memberlist", Indun_panel_config_frame_name())
-    AUTO_CAST(config_frame)
-    g.block_click_through(config_frame)
-    config_frame:EnableHitTest(1)
-    config_frame:SetSkinName("test_frame_low")
-    config_frame:SetLayerLevel(999)
-    -- 開き直し(セット切替・セット名変更)でも呼ばれるので、毎回作り直す
-    config_frame:RemoveAllChild()
-    local title = config_frame:CreateOrGetControl("richtext", "title", 20, 8, 300, 30)
-    AUTO_CAST(title)
-    title:SetText(is_jp and "{ol}{#FFFFFF}{s20}Indun Panel 設定" or "{ol}{#FFFFFF}{s20}Indun Panel Settings")
-    local close = config_frame:CreateOrGetControl("button", "close", 0, 0, 30, 30)
-    AUTO_CAST(close)
-    close:SetImage("testclose_button")
-    close:SetGravity(ui.RIGHT, ui.TOP)
-    close:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_close")
+-- 説明文。設定そのものより一段落とした色で置く(どこまでが操作する項目か分かるように)。
+local function Indun_panel_config_note(body, name, text, y, w)
+    local note = body:CreateOrGetControl("richtext", "note_" .. name, 15, y, w - 30, 20)
+    AUTO_CAST(note)
+    note:SetText("{ol}{#CCCCCC}{s15}" .. text)
+    return y + 22
+end
 
-    -- ===== セクション 1: Indun Panel の設定 =====
-    local y = Indun_panel_config_section(config_frame, "panel", is_jp and "Indun Panel の設定" or "Panel settings", 40)
-    local position = config_frame:CreateOrGetControl("button", "position", 15, y, 70, 30)
+-- ▲▼ の 2 つ。押せない端は灰色にして、押しても何も起きないことを見せる。
+-- 動かす対象がショートカットと行で違うので、呼ぶ関数名は呼び出し側から渡す。
+local function Indun_panel_config_move_buttons(body, prefix, idx, count, key, x, y, script)
+    local is_jp = g.lang == "Japanese"
+    local up = body:CreateOrGetControl("button", prefix .. "_up_" .. idx, x, y, 24, 26)
+    AUTO_CAST(up)
+    up:SetSkinName("None")
+    up:SetTextAlign("center", "center")
+    local can_up = idx > 1
+    up:SetText(can_up and "{ol}{s18}{#FFFFFF}▲" or "{ol}{s18}{#555555}▲")
+    if can_up then
+        up:SetTextTooltip(is_jp and "{ol}1 つ前へ" or "{ol}Move up")
+        up:SetEventScript(ui.LBUTTONUP, script)
+        up:SetEventScriptArgString(ui.LBUTTONUP, key)
+        up:SetEventScriptArgNumber(ui.LBUTTONUP, -1)
+    end
+    local down = body:CreateOrGetControl("button", prefix .. "_down_" .. idx, x + 26, y, 24, 26)
+    AUTO_CAST(down)
+    down:SetSkinName("None")
+    down:SetTextAlign("center", "center")
+    local can_down = idx < count
+    down:SetText(can_down and "{ol}{s18}{#FFFFFF}▼" or "{ol}{s18}{#555555}▼")
+    if can_down then
+        down:SetTextTooltip(is_jp and "{ol}1 つ後ろへ" or "{ol}Move down")
+        down:SetEventScript(ui.LBUTTONUP, script)
+        down:SetEventScriptArgString(ui.LBUTTONUP, key)
+        down:SetEventScriptArgNumber(ui.LBUTTONUP, 1)
+    end
+end
+
+-- 「ON のものだけ表示」の絞り込み。**保存しない**(画面の見せ方だけなので、
+-- 起動のたびに「すべて表示」から始まる。core/90_addons_menu.lua のショートカットタブと同じ)。
+-- 絞っている間の▲▼は、隠れている行を飛び越して**見えている次の行と入れ替える**
+-- (見えない行と入れ替えると「押しても動かない」ように見える。Indun_panel_move_in_order 参照)。
+local function Indun_panel_config_filter_button(body, name, only_on, shown, total, y, script)
+    local is_jp = g.lang == "Japanese"
+    local btn = body:CreateOrGetControl("button", "filter_" .. name, 15, y, 190, 26)
+    AUTO_CAST(btn)
+    btn:SetSkinName(only_on and "test_pvp_btn" or "test_gray_button")
+    -- 文字は**押すと何が起きるか**にする(core/90_addons_menu.lua の表示切り替えと同じ書き方)
+    btn:SetText(only_on and (is_jp and "{ol}{s14}すべて表示" or "{ol}{s14}Show all") or
+                    (is_jp and "{ol}{s14}ON のものだけ表示" or "{ol}{s14}Show only enabled"))
+    btn:SetTextTooltip(is_jp and "{ol}チェックを入れているものだけに絞ります{nl}絞っている間の▲▼は、隠れている行を飛ばして動きます" or
+                          "{ol}Show only the checked entries{nl}While filtered, the arrows skip over hidden rows")
+    btn:SetEventScript(ui.LBUTTONUP, script)
+    local count = body:CreateOrGetControl("richtext", "count_" .. name, 215, y + 4, 10, 20)
+    AUTO_CAST(count)
+    count:SetText(string.format(is_jp and "{ol}{s14}{#FFFFFF}%d / %d 件" or "{ol}{s14}{#FFFFFF}%d of %d", shown,
+        total))
+    return y + 32
+end
+
+-- ===== タブ 1: パネル =====
+-- 位置・背景・表示まわりと、パネルへ並べるショートカット。戻り値は中身の高さ。
+local function Indun_panel_config_build_panel(body, w)
+    local is_jp = g.lang == "Japanese"
+    local y = Indun_panel_config_section(body, "panel", is_jp and "Indun Panel の設定" or "Panel settings", 8, w)
+    local position = body:CreateOrGetControl("button", "position", 15, y, 70, 30)
     AUTO_CAST(position)
     position:SetText("{ol}{s10}BASE POS")
     position:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_base_position")
     position:SetTextTooltip(is_jp and "{ol}ボタンを元の位置に戻す" or "Reset button position")
-    local set_x = 95
+    -- **セット(A / B / C)のボタンはここには置かない。** セットが選ぶのは「表示する
+    -- コンテンツの組み合わせ」なので、コンテンツのタブの、効く一覧のすぐ上へ置く。
+    --
+    -- 背景は**3 つを横に並べて、今使っているものを赤くする**(セットのボタンと同じ見せ方)。
+    -- 以前は `SKIN SELECT` の 1 ボタンからコンテキストメニューを開く作りで、
+    -- 今どれなのかが画面に出ていなかった。
+    -- **見出しは上の行、ボタンはその下の行**に置く(BASE POS と同じ行に押し込むと、
+    -- 何に対する 3 択なのかが読み取りにくい)。
+    y = y + 38
+    local skin_label = body:CreateOrGetControl("richtext", "skin_label", 15, y, 100, 20)
+    AUTO_CAST(skin_label)
+    skin_label:SetText(is_jp and "{ol}{s16}{#FFFFFF}背景" or "{ol}{s16}{#FFFFFF}Skin")
+    y = y + 24
+    local current_skin = g.indun_panel_settings.etc.skin_name or "chat_window_2"
+    for i, skin in ipairs(INDUN_PANEL_SKINS) do
+        local btn = body:CreateOrGetControl("button", "skin_" .. skin.key, 15 + (i - 1) * 95, y, 90, 30)
+        AUTO_CAST(btn)
+        btn:Resize(90, 30)
+        btn:SetText("{ol}" .. (is_jp and skin.jp or skin.en))
+        btn:AdjustFontSizeByWidth(90)
+        btn:SetTextTooltip(is_jp and "{ol}パネルの背景を変えます" or "{ol}Change the panel background")
+        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_skin_ctrl")
+        btn:SetEventScriptArgString(ui.LBUTTONUP, skin.key)
+        if current_skin == skin.key then
+            btn:SetSkinName("test_red_button")
+        end
+    end
+    y = y + 38
+
+    -- 表示まわりの設定。**2 列に並べる。** 1 列だと右半分が空くのに縦へ 4 行ぶん伸びる。
+    --
+    -- **文字から「チェックすると」を落としてある。** チェックボックスなのは見れば分かるので、
+    -- 4 行すべての先頭に同じ 7 文字が並ぶだけになり、肝心の違いが右へ押し出されていた。
+    -- **語尾は名詞止めで揃える**(「〜します」「〜する」を混ぜない)。何が起きるのかの
+    -- 補足はツールチップへ回す。
+    local etc_label = body:CreateOrGetControl("richtext", "etc_label", 15, y, 200, 20)
+    AUTO_CAST(etc_label)
+    etc_label:SetText(is_jp and "{ol}{s16}{#FFFFFF}表示・操作" or "{ol}{s16}{#FFFFFF}Display and controls")
+    y = y + 24
+    local other_settings = {{
+        name = "en_ver",
+        col = 1,
+        jp = "英語で表示",
+        en = "Display in English",
+        jp_tip = "コンテンツ名を英語(内部の名前)で表示します",
+        en_tip = "Show content names in English (internal keys)"
+    }, {
+        name = "field_mode",
+        col = 2,
+        jp = "フィールドでも表示",
+        en = "Show in fields too",
+        jp_tip = "街以外でもパネルを出します",
+        en_tip = "Show the panel outside cities as well"
+    }, {
+        name = "move",
+        col = 1,
+        jp = "フレームを固定",
+        en = "Lock the frame",
+        jp_tip = "ドラッグで動かせなくします",
+        en_tip = "Stops the panel from being dragged"
+    }, {
+        name = "shading",
+        col = 2,
+        jp = "網掛けで表示",
+        en = "Shade the rows",
+        jp_tip = "行を 1 行おきに網掛けします",
+        en_tip = "Shades every other row"
+    }}
+    for i, setting_info in ipairs(other_settings) do
+        -- 左 25 / 右 270 は、文字が長い「フィールドでも表示」が右の列と重ならず、
+        -- かつ右端(窓 500)からはみ出さない間隔。窓を狭めるならここも詰めること。
+        local col_x = setting_info.col == 1 and 25 or 270
+        local col_y = y + math.floor((i - 1) / 2) * 35
+        local checkbox = body:CreateOrGetControl("checkbox", setting_info.name, col_x, col_y, 25, 25)
+        AUTO_CAST(checkbox)
+        checkbox:SetCheck(g.indun_panel_settings.etc[setting_info.name])
+        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
+        checkbox:SetText(is_jp and "{ol}" .. setting_info.jp or "{ol}" .. setting_info.en)
+        checkbox:SetTextTooltip("{ol}" .. (is_jp and setting_info.jp_tip or setting_info.en_tip))
+    end
+    y = y + math.ceil(#other_settings / 2) * 35 + 5
+
+    -- ===== パネルに並べるショートカット =====
+    --
+    -- **アイコンだけを横一列に並べていたのをやめた。** 何のチェックなのか見た目からは
+    -- 分からず、女神が増えるたびに右へ伸びて枠の外へ出ていた(サウレを足したときに
+    -- 「レティーシャへ移動」が見切れた)。名前を添えて 1 行 1 つの縦並びにすると、
+    -- 数が増えても下へ伸びるだけで破綻しない。
+    y = Indun_panel_config_section(body, "shortcut", is_jp and "パネルに並べるショートカット" or
+                                       "Shortcut buttons on the panel", y, w)
+    y = Indun_panel_config_note(body, "shortcut", is_jp and "チェックしたものを、この順番で並べます" or
+                                    "Checked buttons are shown in this order", y, w)
+    local all = Indun_panel_ordered_shortcuts()
+    local only_on = g.indun_panel_sc_only_on == true
+    local shortcuts = {}
+    for _, def in ipairs(all) do
+        if not only_on or g.indun_panel_settings.cols[def.key] == 1 then
+            table.insert(shortcuts, def)
+        end
+    end
+    y = Indun_panel_config_filter_button(body, "sc", only_on, #shortcuts, #all, y,
+        "Indun_panel_shortcut_filter_ctrl")
+    for idx, def in ipairs(shortcuts) do
+        Indun_panel_config_move_buttons(body, "sc", idx, #shortcuts, def.key, 15, y + 1, "Indun_panel_shortcut_move")
+        local checkbox = body:CreateOrGetControl("checkbox", def.key, 72, y, 25, 25)
+        AUTO_CAST(checkbox)
+        local label = is_jp and def.jp or def.en
+        -- 都市でだけ出るボタンはその場で分かるようにする。ツールチップだけだと
+        -- 「チェックを入れたのに出ない」と読まれる(素の判定は g.get_map_type() == "City")。
+        if def.city then
+            label = label .. (is_jp and "  {s13}{#999999}(都市)" or "  {s13}{#999999}(cities)")
+        end
+        checkbox:SetText(string.format("{ol}{s16}{#FFFFFF}{img %s %d %d} %s", def.img, def.size, def.size, label))
+        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
+        checkbox:SetEventScriptArgString(ui.LBUTTONUP, "config")
+        checkbox:SetTextTooltip(is_jp and "{ol}チェックするとパネルに表示" or "{ol}Check to show on the panel")
+        local is_checked = 0
+        for k, v in pairs(g.indun_panel_settings.cols) do
+            if k == def.key then
+                is_checked = v
+                break
+            end
+        end
+        checkbox:SetCheck(is_checked)
+        y = y + 30
+    end
+    if #shortcuts == 0 then
+        local empty = body:CreateOrGetControl("richtext", "sc_empty", 20, y + 4, 10, 20)
+        AUTO_CAST(empty)
+        empty:SetText(is_jp and "{ol}{#FFA500}{s15}ON のショートカットがありません" or
+                          "{ol}{#FFA500}{s15}No shortcut is enabled")
+        y = y + 30
+    end
+    return y + 10
+end
+
+-- ===== タブ 2: コンテンツ =====
+--
+-- セットの切り替えと、行ごとの表示 ON/OFF。戻り値は中身の高さ。
+--
+-- **1 列 + 縦スクロールにしてある。** 以前は 2 列に折り返していたが、▲▼ を付けたら
+-- 「右の列の先頭で▲を押すと左の列の末尾へ飛ぶ」ことになり、並べ替えの操作が読めなくなる。
+-- パネルは縦 1 列なので、設定も同じ 1 列にして上下だけで考えられるようにした。
+local function Indun_panel_config_build_contents(body, w, body_h)
+    local is_jp = g.lang == "Japanese"
+    -- セット(A / B / C)は**一覧の上**へ置く。選ぶのは下に並ぶチェックの組み合わせなので、
+    -- 効く範囲の直前に置いて対応が分かるようにする。
+    local y = 10
+    local set_x = 15
     for _, item in ipairs(g.indun_panel_settings.set_names) do
         for key, name in pairs(item) do
-            local btn = config_frame:CreateOrGetControl("button", name .. key, set_x, y, 80, 30)
+            local btn = body:CreateOrGetControl("button", name .. key, set_x, y, 80, 30)
             AUTO_CAST(btn)
             btn:Resize(80, 30)
             btn:SetText("{ol}" .. name)
@@ -1430,163 +1948,236 @@ function Indun_panel_setting_frame_open()
             set_x = set_x + 85
         end
     end
-    local skin_change = config_frame:CreateOrGetControl("button", "skin_change", set_x + 15, y, 100, 30)
-    AUTO_CAST(skin_change)
-    skin_change:SetEventScript(ui.LBUTTONUP, "Indun_panel_frame_skin_select")
-    skin_change:SetText("{ol}SKIN SELECT")
-    skin_change:SetTextTooltip(is_jp and "{ol}背景を選ぶ" or "{ol}Select Frame Skin")
-    y = y + 38
-
-    local shortcut_icons = {{ -- ショートカットアイコンのチェックボックス作成をループ処理に
-        name = "tos",
-        img = "icon_item_Tos_Event_Coin",
-        size = 25
-    }, {
-        name = "gabija",
-        img = "goddess_shop_btn",
-        size = 29
-    }, {
-        name = "vakarine",
-        img = "goddess2_shop_btn",
-        size = 29
-    }, {
-        name = "rada",
-        img = "goddess3_shop_btn",
-        size = 29
-    }, {
-        name = "jurate",
-        img = "goddess4_shop_btn",
-        size = 29
-    }, {
-        name = "austeja",
-        img = "goddess5_shop_btn",
-        size = 29
-    }, {
-        name = "saule",
-        img = "icon_item_season_coin_Saule",
-        size = 29
-    }, {
-        name = "pvp_mine",
-        img = "pvpmine_shop_btn_total",
-        size = 29
-    }, {
-        name = "market",
-        img = "market_shortcut_btn02",
-        size = 29
-    }, {
-        name = "craft",
-        img = "icon_fullscreen_menu_equipment_processing",
-        size = 28
-    }, {
-        name = "leticia",
-        img = "icon_fullscreen_menu_letica",
-        size = 28
-    }}
-    local config_x = 15
-    local tooltip_always_show = is_jp and "{ol}チェックすると常に表示" or "{ol}Always visible when checked"
-    for _, icon_info in ipairs(shortcut_icons) do
-        local checkbox = config_frame:CreateOrGetControl("checkbox", icon_info.name, config_x, y, icon_info.size,
-            icon_info.size)
-        AUTO_CAST(checkbox)
-        checkbox:SetText(string.format("{img %s %d %d}", icon_info.img, icon_info.size, icon_info.size))
-        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-        checkbox:SetEventScriptArgString(ui.LBUTTONUP, "config")
-        checkbox:SetTextTooltip(tooltip_always_show)
-        local is_checked = 0
-        for k, v in pairs(g.indun_panel_settings.cols) do
-            if k == icon_info.name then
-                is_checked = v
-                break
-            end
-        end
-        checkbox:SetCheck(is_checked)
-        config_x = config_x + checkbox:GetWidth() + 5
-    end
-    y = y + 38
-
-    -- その他の設定。**2 列に並べる。** 1 列だと右半分が空くのに縦へ 4 行ぶん伸びて、
-    -- 下のコンテンツ一覧まで含めた窓の高さが画面へ収まりにくくなる。
-    local other_settings = {{
-        name = "en_ver",
-        col = 1,
-        jp = "チェックすると英語表示に変更します",
-        en = "Check to display to English"
-    }, {
-        name = "field_mode",
-        col = 2,
-        jp = "チェックするとフィールドで表示",
-        en = "Check to display in field"
-    }, {
-        name = "move",
-        col = 1,
-        jp = "チェックするとフレームを固定",
-        en = "Check to fixes the frame"
-    }, {
-        name = "shading",
-        col = 2,
-        jp = "チェックすると網掛け表示",
-        en = "Check to display shading"
-    }}
-    for i, setting_info in ipairs(other_settings) do
-        local col_x = setting_info.col == 1 and 25 or 340
-        local col_y = y + math.floor((i - 1) / 2) * 35
-        local checkbox = config_frame:CreateOrGetControl("checkbox", setting_info.name, col_x, col_y, 25, 25)
-        AUTO_CAST(checkbox)
-        checkbox:SetCheck(g.indun_panel_settings.etc[setting_info.name])
-        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-        checkbox:SetText(is_jp and "{ol}" .. setting_info.jp or "{ol}" .. setting_info.en)
-    end
-    y = y + math.ceil(#other_settings / 2) * 35 + 5
-
-    -- ===== セクション 2: 表示するコンテンツ =====
-    y = Indun_panel_config_section(config_frame, "contents",
-        is_jp and "レイド・コンテンツの表示 ON/OFF" or "Show / hide raids and contents", y)
-    local posy_left = y
-    local posy_right = y
-    local count = #induns
-    local half_count = math.ceil(count / 2)
+    y = Indun_panel_config_note(body, "set", is_jp and "下のチェックはセットごとに保存 (右クリックで改名)" or
+                                   "Saved per set (right click to rename)", y + 34, w)
+    y = Indun_panel_config_section(body, "contents", is_jp and "レイド・コンテンツの表示 ON/OFF" or
+                                       "Show / hide raids and contents", y + 4, w)
+    -- 並べ替えは**セットに関わらず共通**。セットごとに順番まで変わると、切り替えるたびに
+    -- 並びが動いて位置を覚えられない(段の設定と同じ持ち方)。
+    y = Indun_panel_config_note(body, "contents", is_jp and "▲▼ で並ぶ順番を変えられます (セット共通)" or
+                                    "Reorder with the arrows (shared by all sets)", y, w)
     local current_set = g.indun_panel_settings.etc.use_set
     local use_tbl = g.indun_panel_settings[current_set]
-    for i = 1, count do
-        local entry = induns[i]
-        for key, value in pairs(entry) do
-            -- 列の座標は段のチェックを右へ並べるのにも使うので、先に決めて持ち回す
-            local col_x, col_y
-            if i <= half_count then
-                col_x, col_y = 15, posy_left
-                posy_left = posy_left + 35
-            else
-                col_x, col_y = 325, posy_right
-                posy_right = posy_right + 35
-            end
-            local checkbox = config_frame:CreateOrGetControl("checkbox", key, col_x, col_y, 25, 25)
-            AUTO_CAST(checkbox)
-            local is_checked = use_tbl[key]
-            if is_checked == nil then
-                is_checked = 0
-            end
-            checkbox:SetCheck(is_checked)
-            checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-            local bool = g.indun_panel_settings.etc.en_ver == 0 and is_jp
-            local display_name = key
-            if bool and value.jp then
-                display_name = value.jp
-            end
-            checkbox:SetText(bool and "{ol}{#FFFFFF}{s16}" .. display_name or "{ol}{#FFFFFF}{s20}" .. key)
-            checkbox:SetTextTooltip(is_jp and "チェックすると表示" or "Check to show")
-            -- 段(520 / 540 / 560)を持つ行は、その行の右へ段のチェックを並べる
-            Indun_panel_tier_checkboxes(config_frame, key, col_x + 140, col_y)
+    local all = Indun_panel_ordered_induns()
+    local only_on = g.indun_panel_row_only_on == true
+    local rows = {}
+    for _, entry in ipairs(all) do
+        if not only_on or use_tbl[entry.key] == 1 then
+            table.insert(rows, entry)
         end
     end
-    local final_height = math.max(posy_left, posy_right) + 10
-    config_frame:Resize(INDUN_PANEL_CONFIG_W, final_height)
-    config_frame:SetPos(g.settings_frame_pos(INDUN_PANEL_CONFIG_W, final_height))
+    y = Indun_panel_config_filter_button(body, "row", only_on, #rows, #all, y, "Indun_panel_row_filter_ctrl")
+
+    -- 一覧は枠の中へ入れて縦スクロールさせる。行数はコンテンツが増えるたびに伸びるので、
+    -- 窓の背丈で受け止めると画面へ収まらなくなる。
+    local gb = body:CreateOrGetControl("groupbox", INDUN_PANEL_CONFIG_ROWS, 8, y, w - 16,
+        math.max(body_h - y - 8, 100))
+    AUTO_CAST(gb)
+    gb:SetSkinName("bg")
+    gb:RemoveAllChild()
+    gb:EnableScrollBar(1)
+    local row_h = 32
+    local ry = 5
+    for idx, entry in ipairs(rows) do
+        local key, def = entry.key, entry.def
+        Indun_panel_config_move_buttons(gb, "row", idx, #rows, key, 8, ry + 2, "Indun_panel_row_move")
+        local checkbox = gb:CreateOrGetControl("checkbox", key, 64, ry, 25, 25)
+        AUTO_CAST(checkbox)
+        local is_checked = use_tbl[key]
+        if is_checked == nil then
+            is_checked = 0
+        end
+        checkbox:SetCheck(is_checked)
+        checkbox:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
+        local bool = g.indun_panel_settings.etc.en_ver == 0 and is_jp
+        local display_name = key
+        if bool and def.jp then
+            display_name = def.jp
+        end
+        checkbox:SetText(bool and "{ol}{#FFFFFF}{s16}" .. display_name or "{ol}{#FFFFFF}{s20}" .. key)
+        checkbox:SetTextTooltip(is_jp and "チェックすると表示" or "Check to show")
+        -- **名前の右にパネルと同じ絵を置く。** 名前だけだと、パネルのどの行のことなのかを
+        -- 目で追い直すことになる(パネル側は絵が先頭に付いている)。
+        local icon_cls = Indun_panel_row_icon_class(key, def)
+        if icon_cls then
+            local icon = gb:CreateOrGetControl("picture", "row_icon_" .. key, 250, ry + 2, 22, 22)
+            AUTO_CAST(icon)
+            icon:SetImage(icon_cls.Icon)
+            icon:SetEnableStretch(1)
+            icon:EnableHitTest(0)
+        end
+        -- 段(520 / 540 / 560)を持つ行は、その行の右へ段のチェックを並べる
+        Indun_panel_tier_checkboxes(gb, key, 285, ry)
+        ry = ry + row_h
+    end
+    if #rows == 0 then
+        local empty = gb:CreateOrGetControl("richtext", "row_empty", 12, 10, 10, 20)
+        AUTO_CAST(empty)
+        empty:SetText(is_jp and "{ol}{#FFA500}表示 ON のコンテンツがありません" or
+                          "{ol}{#FFA500}No content is enabled")
+    end
+    -- 控えておいたスクロール位置へ戻す。**先に InvalidateScrollBar を呼ぶこと。**
+    -- 順番が逆だと、作り直す前(中身が空だったとき)の範囲で丸められて先頭に貼り付く
+    -- (core/90_addons_menu.lua のショートカットタブと同じ理由)。
+    local prev_scroll = g.indun_panel_rows_scroll or 0
+    local scroll_max = ry - gb:GetHeight()
+    if scroll_max < 0 then
+        scroll_max = 0
+    end
+    if prev_scroll > scroll_max then
+        prev_scroll = scroll_max
+    end
+    pcall(function()
+        gb:InvalidateScrollBar()
+    end)
+    pcall(function()
+        gb:SetScrollPos(prev_scroll)
+    end)
+    return body_h
+end
+
+-- タブとその中身を作る。**開き直しでもタブ切り替えでもここを通る**ので、中身は毎回作り直す。
+-- keep_pos = true なら今の位置を保つ(画面からはみ出したぶんだけ戻す)。
+local function Indun_panel_config_build(config_frame, keep_pos)
+    local is_jp = g.lang == "Japanese"
+    local tab = Indun_panel_config_tab()
+    local w = INDUN_PANEL_CONFIG_W
+    local title = config_frame:CreateOrGetControl("richtext", "title", 20, 8, 300, 30)
+    AUTO_CAST(title)
+    title:SetText(is_jp and "{ol}{#FFFFFF}{s20}Indun Panel 設定" or "{ol}{#FFFFFF}{s20}Indun Panel Settings")
+    local close = config_frame:CreateOrGetControl("button", "close", 0, 0, 30, 30)
+    AUTO_CAST(close)
+    close:SetImage("testclose_button")
+    close:SetGravity(ui.RIGHT, ui.TOP)
+    close:SetEventScript(ui.LBUTTONUP, "Indun_panel_setting_frame_close")
+    for i, def in ipairs(INDUN_PANEL_CONFIG_TABS) do
+        local btn = config_frame:CreateOrGetControl("button", "tab_" .. def.key, 15 + (i - 1) * 110, 42, 105, 28)
+        AUTO_CAST(btn)
+        btn:SetSkinName(def.key == tab and "test_pvp_btn" or "test_gray_button")
+        btn:SetText("{ol}{s16}" .. (is_jp and def.jp or def.en))
+        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_config_tab_ctrl")
+        btn:SetEventScriptArgString(ui.LBUTTONUP, def.key)
+    end
+    local body = config_frame:CreateOrGetControl("groupbox", INDUN_PANEL_CONFIG_BODY, 0, INDUN_PANEL_CONFIG_BODY_Y, w,
+        100)
+    AUTO_CAST(body)
+    body:SetSkinName("None")
+    body:EnableScrollBar(0)
+    -- **中身を壊す前にスクロール位置を控える。** ここを飛ばすと、▲▼ を押して組み立て直した
+    -- 瞬間に一覧の先頭へ戻る(下のほうの行を触れない)。控えるのは RemoveAllChild より前で
+    -- なければならない(壊した後の枠は必ず 0 を返す)。
+    local rows_gb = GET_CHILD_RECURSIVELY(config_frame, INDUN_PANEL_CONFIG_ROWS)
+    if rows_gb then
+        g.indun_panel_rows_scroll = g.scroll_cur_pos(rows_gb)
+    end
+    -- **中身は毎回捨てて作り直す。** タブによって並ぶものが違い、名前で使い回すと
+    -- 前のタブのコントロールが残って重なる(CreateOrGetControl は名前で引き当てるだけ)。
+    body:RemoveAllChild()
+    local content_h
+    if tab == "contents" then
+        content_h = INDUN_PANEL_CONFIG_CONTENTS_H - INDUN_PANEL_CONFIG_BODY_Y
+        Indun_panel_config_build_contents(body, w, content_h)
+    else
+        content_h = Indun_panel_config_build_panel(body, w)
+    end
+    body:Resize(w, content_h)
+    local h = INDUN_PANEL_CONFIG_BODY_Y + content_h
+    config_frame:Resize(w, h)
+    local pos_x, pos_y
+    if keep_pos then
+        pos_x, pos_y = Indun_panel_config_clamp_pos(config_frame:GetX(), config_frame:GetY(), w, h)
+    else
+        pos_x, pos_y = g.settings_frame_pos(w, h)
+    end
+    config_frame:SetPos(pos_x, pos_y)
+    g.vlog("indun_panel: 設定のタブ %s を組み立てた(%dx%d / 位置 %d,%d / %s)", tab, w, h, pos_x, pos_y,
+        keep_pos and "位置を引き継ぎ" or "初回")
+end
+
+-- 設定画面が開いていれば中身を作り直す。開いていなければ何もしない。
+-- **グローバルにしておくこと。** これより前で定義しているセット切替(Indun_panel_set_toggle)から
+-- 呼ぶので、local だと見えない(CLAUDE.md「local function は呼び出しより前で定義する」)。
+function Indun_panel_config_rebuild()
+    local frame = ui.GetFrame(Indun_panel_config_frame_name())
+    if frame and frame:IsVisible() == 1 then
+        AUTO_CAST(frame)
+        Indun_panel_config_build(frame, true)
+    end
+end
+
+-- タブの切り替え。窓はそのままで中身だけ入れ替える。
+function Indun_panel_config_tab_ctrl(frame, ctrl, tab_key, num)
+    g.indun_panel_config_tab = tab_key
+    Indun_panel_config_rebuild()
+end
+
+-- 「ON のものだけ表示」の切り替え。画面の見せ方だけなので保存しない。
+function Indun_panel_shortcut_filter_ctrl(frame, ctrl, str, num)
+    g.indun_panel_sc_only_on = not (g.indun_panel_sc_only_on == true)
+    Indun_panel_config_rebuild()
+end
+
+function Indun_panel_row_filter_ctrl(frame, ctrl, str, num)
+    g.indun_panel_row_only_on = not (g.indun_panel_row_only_on == true)
+    Indun_panel_config_rebuild()
+end
+
+-- ショートカットの▲▼。並べ替えたらパネルもその場で並べ直す。
+function Indun_panel_shortcut_move(frame, ctrl, key, delta)
+    delta = tonumber(delta) or 0
+    -- 絞り込み中は、隠れている行を飛ばして「見えている次の行」と入れ替える
+    local visible
+    if g.indun_panel_sc_only_on == true then
+        visible = function(item)
+            return g.indun_panel_settings.cols[item.key] == 1
+        end
+    end
+    if delta == 0 or
+        not Indun_panel_move_in_order(Indun_panel_ordered_shortcuts(), "col_order", key, delta, visible) then
+        return
+    end
+    Indun_panel_save_settings()
+    Indun_panel_refresh_panel()
+    Indun_panel_config_rebuild()
+end
+
+-- コンテンツの行の▲▼。
+function Indun_panel_row_move(frame, ctrl, key, delta)
+    delta = tonumber(delta) or 0
+    local visible
+    if g.indun_panel_row_only_on == true then
+        local use_tbl = g.indun_panel_settings[g.indun_panel_settings.etc.use_set]
+        visible = function(item)
+            return use_tbl and use_tbl[item.key] == 1
+        end
+    end
+    if delta == 0 or not Indun_panel_move_in_order(Indun_panel_ordered_induns(), "row_order", key, delta, visible) then
+        return
+    end
+    Indun_panel_save_settings()
+    Indun_panel_refresh_panel()
+    Indun_panel_config_rebuild()
+end
+
+function Indun_panel_setting_frame_open()
+    -- **開き直しで中央へ戻さないこと。** この関数はセット名の変更からも呼ばれる。
+    -- 毎回 g.settings_frame_pos を通していたので、押すたびに窓が画面中央へ飛んでいた。
+    local prev_frame = ui.GetFrame(Indun_panel_config_frame_name())
+    local keep_pos = (prev_frame ~= nil and prev_frame:IsVisible() == 1)
+    local config_frame = ui.CreateNewFrame("chat_memberlist", Indun_panel_config_frame_name())
+    AUTO_CAST(config_frame)
+    g.block_click_through(config_frame)
+    config_frame:EnableHitTest(1)
+    config_frame:SetSkinName("test_frame_low")
+    config_frame:SetLayerLevel(999)
+    Indun_panel_config_build(config_frame, keep_pos)
     config_frame:ShowWindow(1)
     -- **ShowWindow(1) の後に積むこと。** まだ出ていない状態で積むと、直後の同期で
     -- 「閉じ終わった登録」と見なされてその場で捨てられる(core/00_header.lua)。
     -- × と同じ後始末(パネルの組み直し)が要るので、esc_register_destroy ではなく esc_register。
     g.esc_register(Indun_panel_config_frame_name(), "Indun_panel_setting_frame_close")
 end
+
 -- 戻すのは**パネル**の位置。**引数のフレームを動かさないこと。**
 -- このボタンは設定ウィンドウの上にあるので、第 1 引数は設定ウィンドウ自身で、
 -- 素で動かすと設定ウィンドウのほうが飛んでいく(設定を別ウィンドウにしたときの取りこぼし)。
@@ -1641,27 +2232,14 @@ function Indun_panel_save_setname(inputstring, ctrl, set_key, num)
         end
     end
     Indun_panel_save_settings()
-    Indun_panel_setting_frame_open()
+    -- 名前を変えたボタンを出し直す(窓は開いたままなので中身だけ)
+    Indun_panel_config_rebuild()
 end
 
-function Indun_panel_frame_skin_select()
-    local context = ui.CreateContextMenu("indun_panel_skin_select", "{ol}Skin Select", 0, 0, 0, 0)
-    ui.AddContextMenuItem(context, " ")
-    local skin_tbl = {"chat_window_2", "bg", "bg2"}
-    for _, skin_name in ipairs(skin_tbl) do
-        local str_scp
-        str_scp = string.format("Indun_panel_frame_skin_select_('%s')", skin_name)
-        local text
-        if skin_name == "chat_window_2" then
-            text = g.lang == "Japanese" and "{ol}いつもの" or "The usual"
-        elseif skin_name == "bg" then
-            text = g.lang == "Japanese" and "{ol}黒" or "Solid black"
-        elseif skin_name == "bg2" then
-            text = g.lang == "Japanese" and "{ol}透明度高め" or "High transparency"
-        end
-        ui.AddContextMenuItem(context, text, str_scp)
-    end
-    ui.OpenContextMenu(context)
+-- 背景のボタン。押した直後に設定の一覧も組み直して、赤い印を押したものへ移す。
+function Indun_panel_skin_ctrl(frame, ctrl, skin_name, num)
+    Indun_panel_frame_skin_select_(skin_name)
+    Indun_panel_config_rebuild()
 end
 
 function Indun_panel_frame_skin_select_(skin_name)
@@ -1747,8 +2325,9 @@ function Indun_panel_frame_contents(configbtn)
     local index = 1
     local index_remainder = 0
     local lasy_y = 0
-    for i, entry in ipairs(induns) do
-        local key, value = next(entry)
+    -- 並びは設定ウィンドウの▲▼で決まる(induns の定義順が既定)
+    for _, entry in ipairs(Indun_panel_ordered_induns()) do
+        local key, value = entry.key, entry.def
         -- 段(520 / 540 / 560)を全部外した行は、見出しだけの空の行になるので畳む。
         -- 段を持たない行では Indun_panel_tier_row_visible が常に true を返す。
         if use_tbl[key] == 1 and Indun_panel_tier_row_visible(key) then
@@ -1766,14 +2345,7 @@ function Indun_panel_frame_contents(configbtn)
             if key == "jsr" or value.icon then
                 local img_icon = indun_panel:CreateOrGetControl("picture", "img_icon" .. key, x - 140, y + 5, 20, 20)
                 AUTO_CAST(img_icon)
-                local icon_cls = nil
-                if key == "jsr" then
-                    local fieldbossPattern = session.fieldboss.GetPatternInfo()
-                    local icon_cls_name = fieldbossPattern.MonsterClassName
-                    icon_cls = GetClass("Monster", icon_cls_name)
-                elseif value.icon then
-                    icon_cls = GetClassByType(value.icon[1], value.icon[2])
-                end
+                local icon_cls = Indun_panel_row_icon_class(key, value)
                 if icon_cls then
                     img_icon:SetImage(icon_cls.Icon)
                     img_icon:SetEnableStretch(1)
@@ -1829,8 +2401,6 @@ function Indun_panel_frame_contents(configbtn)
                     Indun_panel_cemetery_frame(indun_panel, key, value.id, y, x)
                 elseif key == "zawra" then
                     Indun_panel_resonance_frame(indun_panel, key, value.id, y, x)
-                elseif key == "ashaq" then
-                    Indun_panel_demonlair_frame(indun_panel, key, value.id, y, x)
                 elseif key == "jsr" then
                     Indun_panel_jsr_frame(indun_panel, y, x)
                 end
@@ -1856,7 +2426,12 @@ function Indun_panel_frame_contents(configbtn)
         line:SetColorTone(prefix .. (index_remainder == 1 and "696969" or "A9A9A9"))
     end
     indun_panel:SetLayerLevel(80)
-    local panel_width = x + (g.indun_panel_row_width or 600)
+    -- **上段(ボタンの並び)より狭くしないこと。** 行の幅だけで決めていたので、
+    -- ショートカットを全部出すと歯車が枠の外へ出ていた(実機で発生)。
+    -- ショートカットが 10 個までは上段が 750px でちょうど行の幅と並んでいたが、
+    -- 「レティーシャへ移動」を出せるようにして 11 個になった時点で 780px 要る。
+    -- ショートカットは今後も増えるので、上段の幅は Indun_panel_frame_open が控える。
+    local panel_width = math.max(x + (g.indun_panel_row_width or 600), g.indun_panel_header_width or 0)
     for _, line in ipairs(shading_lines) do
         line:Resize(panel_width - 10, 33)
     end
@@ -1975,10 +2550,10 @@ function Indun_panel_get_entrance_count(indun_type, index)
     -- ただし素が第 2 引数を実際に使うのは **ClassName が Challenge_ か
     -- SanctuartyResonance_ で始まるときだけ**なので、効くのは
     -- チャレンジ(1004/1006/1007)・分裂(2000/2001/2003)・共鳴の聖所(732)の 7 つ。
-    -- アシャーク(728, DemonLair_Ashark)は TicketingType が Entrance_Ticket でも
-    -- 素の分岐に載らず、PlayPerResetType 側の経路へ落ちる。**これは素の induninfo も
-    -- 同じ**(素も Entrance_Ticket なら cls を渡すが、同じ理由で使われない)ので、
-    -- ここで CheckCountName を自前で読んでゲームの表示とずらすことはしない。
+    -- それ以外は TicketingType が Entrance_Ticket でも素の分岐に載らず、
+    -- PlayPerResetType 側の経路へ落ちる。**これは素の induninfo も同じ**(素も
+    -- Entrance_Ticket なら cls を渡すが、同じ理由で使われない)ので、ここで
+    -- CheckCountName を自前で読んでゲームの表示とずらすことはしない。
     local ticket_type = TryGetProp(indun_cls, 'TicketingType', 'None')
     local current_count
     if ticket_type == 'Entrance_Ticket' then
@@ -3008,10 +3583,6 @@ DUNGEON_TICKET_CONFIG = {
         label = "490",
         tickets = {11200276, 11200275, 11200274}
     },
-    [728] = { --  (アシャーク)
-        label = "540",
-        tickets = {11200486, 11200485, 11200484}
-    },
     [732] = { -- (共鳴の聖所: ザウラ)
         label = "560",
         tickets = {11210071, 11210070, 11210069},
@@ -3057,11 +3628,7 @@ function Indun_panel_cemetery_frame(indun_panel, key, indun_type, y, x)
     Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
 end
 
-function Indun_panel_demonlair_frame(indun_panel, key, indun_type, y, x)
-    Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
-end
-
--- 共鳴の聖所(SanctuartyResonance)。アシャークと同じく入場券で入るパーティダンジョンなので、
+-- 共鳴の聖所(SanctuartyResonance)。嘆きの墓地と同じく入場券で入るパーティダンジョンなので、
 -- 素の入場も ReqRaidAutoUIOpen で同じ経路を通る(induninfo.lua の RaidType = PartyNormal 系)
 function Indun_panel_resonance_frame(indun_panel, key, indun_type, y, x)
     Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)

@@ -67,7 +67,7 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 | 描画の振り分け（`Indun_panel_frame_contents`） | レイドなら onsweep の分岐へキーを追加 |
 | `raid_tbl` | 入場券 3 種。並びは **`{7日, 取引不可, 通常}`**（期限付き優先） |
 | `buff_ids` | Auto の indun ID → 掃討バフ ID |
-| `DUNGEON_TICKET_CONFIG` | 入場券型のパーティダンジョン（アシャーク / 共鳴の聖所）だけ |
+| `DUNGEON_TICKET_CONFIG` | 入場券型のパーティダンジョン（嘆きの墓地 / 共鳴の聖所）だけ |
 | `CHALLENGE_CONFIG` / `CHALLENGE_TIERS` | チャレンジの段 |
 | `SINGULARITY_CONFIG` / `SINGULARITY_TIERS` | 分裂の段 |
 | ショートカットの `button_keys`（2 か所）/ 描画分岐 / 設定チェック / `shop_props` ほか | 新しい女神ショップ |
