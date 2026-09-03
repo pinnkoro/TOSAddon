@@ -652,28 +652,33 @@ def scan_src():
 # 開くのは function / if / do の 3 つだけでよい。for と while は必ず do を伴うので
 # 一緒に数えると二重になる。elseif は新しいブロックを開かない（\b で弾く）。
 # repeat ... until は end を使わないので数えなくてよい。
-BLOCK_OPEN = re.compile(r"\b(?:function|if|do)\b")
-BLOCK_CLOSE = re.compile(r"\bend\b")
 BLOCK_TOKEN = re.compile(r"\b(?:function|if|do|end)\b")
 
 
 def function_body(text, name):
     """`function name(` から対応する end までを返す。見つからなければ None。
 
-    **コメントは落とし、文字列は残す**(strip_lua の keep_strings)。素のコメントが
-    増えただけで「変わった」と騒ぐと、本当の変化のときに信用されなくなる。逆に
-    文字列は表示や判定に効くので落とさない。
+    ハッシュに含めるのは**コメントを落とし、文字列は残した**本文
+    (strip_lua の keep_strings)。素のコメントが増えただけで「変わった」と騒ぐと、
+    本当の変化のときに信用されなくなる。逆に文字列は表示や判定に効くので落とさない。
     """
     # **先に改行を正規化すること。** 素の Lua は CRLF。正規化しないと行単位の判定が
     # 行末の \r に阻まれる。ハッシュが改行コードに左右されなくなる利点もある。
-    body = strip_lua(text.replace("\r\n", "\n").replace("\r", "\n"), keep_strings=True)
-    m = re.search(r"^[ \t]*function[ \t]+" + re.escape(name) + r"[ \t]*\(", body, re.M)
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    # **走査は文字列も潰した版で行うこと。** 文字列を残したまま end / if / do を
+    # 数えると、`local s = "the end of it"` のようなごく普通の文字列でブロックが
+    # 閉じたと誤判定する。本体の途中で切れてもハッシュ自体は安定するので、
+    # 「見ている範囲が本体の一部だけ」のまま緑になり、取り逃がしても気付けない。
+    # strip_lua は長さを変えないので、位置は切り出し用とそのまま共用できる。
+    scan = strip_lua(normalized)
+    body = strip_lua(normalized, keep_strings=True)
+    m = re.search(r"^[ \t]*function[ \t]+" + re.escape(name) + r"[ \t]*\(", scan, re.M)
     if not m:
         return None
     # 見つけた function を深さ 1 として、対応する end を探す
     depth = 0
     end = None
-    for tok in BLOCK_TOKEN.finditer(body, m.start()):
+    for tok in BLOCK_TOKEN.finditer(scan, m.start()):
         if tok.group(0) == "end":
             depth -= 1
             if depth == 0:
@@ -856,6 +861,11 @@ FUNC_BODY_CASES = [
     ("function J()\n  x()\nend\nfunction K()\n  y()\nend\n", "J", 3),
     # CRLF でも同じ結果になること(素の Lua は CRLF)
     ("function L()\r\n  x()\r\nend\r\n", "L", 3),
+    # **文字列の中の end / if / do を数えないこと。** 数えると本体の途中で切れたり
+    # (M)、深さが 0 に戻らず missing になったりする(N)。素のメッセージ文字列には
+    # 普通に出てくる語なので、見張りが静かに効かなくなる。
+    ('function M()\n  local s = "the end of it"\n  x()\nend\n', "M", 4),
+    ('function N()\n  ClMsg("if you do this")\nend\n', "N", 3),
 ]
 
 
