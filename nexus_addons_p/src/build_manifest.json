@@ -127,6 +127,7 @@
       "addons/mini_addons/misc/minimized_close.lua",
       "addons/mini_addons/sound/toggle.lua",
       "addons/mini_addons/misc/reroll_option.lua",
+      "addons/mini_addons/misc/ability_sort.lua",
       "addons/mini_addons/inventory/inventory_open.lua",
       "addons/mini_addons/footer.lua",
       "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
@@ -135,6 +136,6 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "6ab7e2139dc91f5629ca9054b192b4af5b61b7cb0f710cbea0d7d47e3dd2404b"
+    "_nexus_addons_p.lua": "1081c67dd07edff0d76a01a99d5dc654c87c50a0b5676d23f1f86a81a1665908"
   }
 }
