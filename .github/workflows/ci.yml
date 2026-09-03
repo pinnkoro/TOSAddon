@@ -110,6 +110,12 @@ jobs:
       - name: mini_addons の装備錬成テスト
         run: luajit docs/tests/test_equip_upgrade.lua
 
+      # 特性をスキル順に並べる機能。実機では素の並びが不安定ソート由来で毎回同じとは
+      # 限らず、目視では「なんとなく揃った」までしか分からない。規則どおりに決まることと、
+      # OFF / Common タブで素を触らないことを見る。
+      - name: mini_addons の特性並べ替えテスト
+        run: luajit docs/tests/test_ability_sort.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。

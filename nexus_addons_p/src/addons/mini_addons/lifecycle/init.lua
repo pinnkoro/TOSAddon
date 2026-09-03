@@ -124,6 +124,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     -- 決闘の申し込みを自動で受ける(設定 auto_accept_duel。OFF なら元の確認ダイアログのまま)
     g.setup_hook(Mini_addons_ASKED_FRIENDLY_FIGHT, "ASKED_FRIENDLY_FIGHT")
     g.setup_hook(Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT, "ASKED_ANCIENT_FRIENDLY_FIGHT")
+    -- 特性をスキル順に並べる(設定 ability_sort。OFF と Common タブは素のまま)
+    g.setup_hook(Mini_addons_SKILLABILITY_FILL_ABILITY_GB, "SKILLABILITY_FILL_ABILITY_GB")
     -- 装備錬成を自動化
     g.setup_hook(Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS, "COMMON_EQUIP_UPGRADE_PROGRESS")
     g.setup_hook_and_event(g.addon, "COMMON_EQUIP_UPGRADE_OPEN", "Mini_addons_COMMON_EQUIP_UPGRADE_OPEN", true)

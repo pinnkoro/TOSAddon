@@ -19,6 +19,7 @@
 | [coin_shop.lua](coin_shop.lua) | `coin_count` | 各コイン商店の購入数上限を 99999 まで広げる |
 | [indun_enter.lua](indun_enter.lua) | `under_staff` / `velnice` | 4 人以下の入場確認をスキップ。ヴェルニケの前回の階層を覚える |
 | [equip_upgrade.lua](equip_upgrade.lua) | `status_upgrade` | 装備錬成（武器防具のステータス付与）を自動化する |
+| [ability_sort.lua](ability_sort.lua) | `ability_sort` | スキルと特性のウィンドウで、特性をスキル順に並べ直す（素が作った行を `SetPos` で動かすだけ） |
 | [market_sell.lua](market_sell.lua) | — | マーケット出店時に、持っている最大数を自動で入れる |
 | [raid_record.lua](raid_record.lua) | `raid_record` | レイドレコードが 2 度呼ばれる不具合を直し、サイズと位置を変えられるようにする |
 | [effect_settings.lua](effect_settings.lua) | `my_effect` / `other_effect` / `boss_effect` | 自分 / 他人 / ボスのエフェクト量（1〜100）を覚えて戻す |
