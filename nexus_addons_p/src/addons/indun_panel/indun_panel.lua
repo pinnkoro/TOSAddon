@@ -491,6 +491,12 @@ function indun_panel_on_init()
     if g.settings.indun_panel.use == 0 then
         ui.DestroyFrame(addon_name_lower .. "indun_panel")
         ui.DestroyFrame(addon_name_lower .. "indun_panel_map")
+        -- **設定ウィンドウも一緒に畳むこと。** 設定はパネルとは別フレームなので、
+        -- パネルだけ消すと設定ウィンドウが画面に残る(一覧のチェックを外した瞬間に起きる)。
+        -- ここで Indun_panel_setting_frame_close を呼ばないのは、あちらが
+        -- Indun_panel_refresh_panel 経由でパネルを組み直してしまうため。
+        -- ESC スタックの登録は g.esc_top が「死んだ登録」として自分で掃除する。
+        ui.DestroyFrame(Indun_panel_config_frame_name())
         return
     end
     g.register_msg("ESCAPE_PRESSED", "Indun_panel_frame_init")
@@ -797,6 +803,9 @@ function Indun_panel_frame_init(is_toggle, msg)
         end
         if g.indun_panel_settings.etc.field_mode ~= 1 then
             ui.DestroyFrame(addon_name_lower .. "indun_panel")
+            -- 上と同じ理由で設定ウィンドウも畳む。**ここは Indun_panel_frame_init の中**なので、
+            -- Indun_panel_setting_frame_close を呼ぶと refresh 経由でここへ戻ってくる。
+            ui.DestroyFrame(Indun_panel_config_frame_name())
             return
         end
     end
