@@ -607,6 +607,11 @@ function Indun_panel_challenge(_nexus_addons_p)
     local is_solo_challenge_map = session.IsSoloChallengeMap()
     if is_auto_challenge_map == true or is_solo_challenge_map == true then
         ui.DestroyFrame(addon_name_lower .. "indun_panel")
+        -- **設定ウィンドウも一緒に畳む。** 設定はパネルとは別フレームなので、パネルを
+        -- 破棄する経路すべてで畳まないと、設定を開いたまま挑戦マップへ入ったときに
+        -- 中央のポップアップだけが残る。パネルを破棄するのはここを含めて 3 か所
+        -- (アドオン OFF / フィールドで非表示 / ここ)。
+        ui.DestroyFrame(Indun_panel_config_frame_name())
         _nexus_addons_p:StopUpdateScript("Indun_panel_challenge")
         g.indun_panel_challenge_start_time = nil
         if g.indun_panel_settings.etc.base_date ~= "" then
