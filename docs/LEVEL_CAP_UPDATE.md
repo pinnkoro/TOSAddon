@@ -31,8 +31,12 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 
 * **アイテムは 1 枚の表ではない。** `item.ies` / `item_ep13.ies` / `item_event.ies` … に分かれている。
   目当てが見つからないときは全 `item*.ies` を舐める。
-* **ゲーム起動中は `data/` のアドオン `.ipf` だけロックされる**（素のクライアントの `.ipf` は読める）。
-  ロックされたものは PowerShell の `[System.IO.File]::Open(..., FileShare::ReadWrite)` で複製すれば読める。
+* **ゲーム起動中はロックされる `.ipf` がある。** 素の `.ipf` でも `data/addon.ipf` は
+  掴まれていて、素の `open()` で読もうとすると `PermissionError` になる
+  （`docs/vanilla_api.py --verify-client` がこれで止まる。2026-09-03 に実測）。
+  PowerShell の `[System.IO.File]::Open(..., FileShare::ReadWrite)` で複製すれば読めるので、
+  `tos_extract.py` 経由の調査はこの方法で続けられる。**クライアントを終了できるなら
+  そのほうが早い。**
 
 ---
 
@@ -81,6 +85,7 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 | `core/00_header.lua` | **`g.ICOR_TOP_LV` / `g.ICOR_TOP_EP`**（最上位のガディス装備 / イコルの段）。イコルとエーテルジェムの見た目を出すアドオンはここを見ている |
 | `addons/aethergem_manager/aethergem_manager.lua` | `AETHERGEM_LEVELS` / `AETHERGEM_SKINS` の**先頭**へ新しい段。**表に無い段のジェムは枠へ入れても登録されない** |
 | `addons/cc_helper/cc_helper.lua` | ジェムのレベル表記の分岐（`LV540` の並び）。足さないと**新しい段が「LV460」と出る** |
+| `addons/another_warehouse/another_warehouse.lua` / `addons/mini_addons/inventory/inventory_open.lua` | エーテルジェムの枠色分け（レベル別の分岐）。イコル / 肩・ベルトの「格下」判定は `g.ICOR_TOP_EP` を見るので追従するが、**ジェムの分岐だけは段を 1 行足す**必要がある |
 | `core/10_registry.lua` | `updated` / `updated_note_jp` / `updated_note_en`（`g.VER_NEXT` を書く） |
 | `nexus_addons_p/README.md` | 更新履歴の `（次回リリース）` へ追記 |
 | 各アドオンの `README.md` | 対応表・ID・alt テキスト |

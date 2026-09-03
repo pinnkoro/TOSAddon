@@ -1,6 +1,13 @@
 /junks
 /prototype
-.claude/
+# .claude/ は個人設定(settings.local.json など)が入るので無視するが、
+# **skills だけは追跡する**。このリポジトリの作業手順(docs/*.md)を辿るための
+# 入口で、手元だけに置くと他の端末や他の人が同じ手順に乗れない。
+#
+# 末尾が「/」だと git がその中へ降りないので、除外は「.claude/*」と書くこと
+# (「.claude/」のままでは下の否定パターンが効かない)。
+.claude/*
+!.claude/skills/
 .serena/
 ipf_unpack.exe
 

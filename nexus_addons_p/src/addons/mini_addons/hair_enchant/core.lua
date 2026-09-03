@@ -177,6 +177,18 @@ end
 -- attempt to call a nil value になり、監視そのものが死ぬ
 local hair_enchant_sync_send_button
 
+-- 今セットされているヘアアクセ本体の GUID。**BUILD_SIG と対で控えること**
+-- (hair_enchant_build_reroll_body / hair_enchant_refresh_if_changed の両方から引く)。
+-- 素の窓が無いときは "None" を返す。控えと同じ形にしておかないと、
+-- 「窓が無い間だけ別のアクセになった」と誤判定する。
+local function hair_enchant_target_guid()
+    local high_hairenchant = ui.GetFrame("high_hairenchant")
+    if high_hairenchant == nil then
+        return "None"
+    end
+    return high_hairenchant:GetUserValue("itemIES")
+end
+
 -- 「今の中身は何を元に組んだか」の印。ヘアアクセや魔法付与スクロールを差し替えると
 -- 選べるオプションもランクも変わるので、これが変わったら組み直す
 local function hair_enchant_build_signature(item_grade, item_rank)
@@ -206,14 +218,26 @@ local function hair_enchant_refresh_if_changed(reroll_option)
     end
     core_g.vlog("mini_addons: ヘアエンチャント 対象が変わったので組み直す(%s → %s)",
         tostring(reroll_option:GetUserValue("BUILD_SIG")), tostring(sig))
-    -- **控えているランクを新しい対象のものへ入れ直す。** 前の対象のランクが残っていると、
-    -- 次の回で「ランクが変わった」＝ランクアップと誤判定する。回している最中なら
-    -- 「ランクアップ時に停止」が ON のときにそこで止まり、OFF でも実際には下がった
-    -- 対象について「ランクアップ」とログへ出る(A の髪から B の髪へ替えたときに実際に出た)
-    if reroll_option:GetUserValue("RANK") ~= item_rank then
-        core_g.vlog("mini_addons: ヘアエンチャント 控えていたランクを入れ直す(%s → %s)",
+    -- **控えているランクを入れ直すのは「対象そのものが変わったとき」だけにすること。**
+    -- BUILD_SIG にはランクも入っているので、**同じ髪がランクアップしたときもここを通る**。
+    -- そこで RANK を新しいランクへ書き換えると、連続付与の tick が befor_rank を読む前に
+    -- 上書きしてしまい(この監視は 0.3 秒ごと、tick は「演出を待たずに実行」が OFF だと
+    -- 演出の 0.5 秒後にようやく READY が立つ)、ランクアップが無かったことになって
+    -- **「ランクアップ時に停止」が効かなくなる**。判別はヘアアクセ本体の GUID で行う。
+    -- あわせて ROLLED も落とす。載せ替えた先の「振る前から付いていたオプション」で
+    -- 止まってしまうため(1 回で止まる症状の再発)
+    -- 控えは組み立て時(hair_enchant_build_reroll_body)に BUILD_SIG と一緒に入る。
+    -- **片方だけ入れないこと。** TARGET_GUID が空のままだと、窓を開いてから最初に
+    -- BUILD_SIG が変わった回(多くは「同じ髪がランクアップした回」)で必ず
+    -- 「別のアクセになった」と判定され、下の入れ直しが走って
+    -- 「ランクアップ時に停止」が 1 回目だけ効かなくなる
+    local target_guid = hair_enchant_target_guid()
+    if target_guid ~= reroll_option:GetUserValue("TARGET_GUID") then
+        core_g.vlog("mini_addons: ヘアエンチャント 対象が別のアクセになったので控えを入れ直す(ランク %s → %s)",
             tostring(reroll_option:GetUserValue("RANK")), tostring(item_rank))
+        reroll_option:SetUserValue("TARGET_GUID", target_guid)
         reroll_option:SetUserValue("RANK", item_rank)
+        reroll_option:SetUserValue("ROLLED", "no")
     end
     -- **プリセットを選んでいるなら、保存内容から入れ直す。**
     -- 低いランクのアクセで読み込むと、そのランクで出ないオプションは g.need_options から

@@ -73,6 +73,8 @@ local DEFAULT_SETTINGS = {
     skill_cool_sound = 0,
     inventory_mod = 0,
     reroll_option = 0,
+    -- スキルと特性のウィンドウで、特性をスキル順に並べる
+    ability_sort = 0,
     hair_enchant = 0,
     -- ヘアエンチャントの「高度な設定」窓を、素材を乗せた時点で自動で開くか
     hair_enchant_auto_open = 0,
@@ -119,7 +121,7 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
                        "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
                        "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
-                       "auto_accept_duel"}
+                       "auto_accept_duel", "ability_sort"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -183,9 +185,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = "2.3.1",
-    updated_note_jp = "連続付与が、振る前から付いていたオプションを指して 1 回で止まることがあったのを修正しました",
-    updated_note_en = "Fixed auto-enchant stopping after one roll, citing an option the item already had before the roll"
+    updated = "2.4.0",
+    updated_note_jp = "「ランクアップ時に停止」が効かないことがあったのと、回している最中に別のヘアアクセへ載せ替えると 1 回で止まることがあったのを修正しました",
+    updated_note_en = "Fixed \"stop on rank up\" sometimes not working, and stopping after one roll when you swap to another hair accessory mid-run"
 }, {
     name = "skill_reroll",
     text_jp = "スキル錬成を希望スキルが出るまで回せるように",
@@ -198,6 +200,13 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "オプション設定の数値表を常に表示",
     text_kr = "옵션 설정의 수치 표를 항상 표시합니다",
     text_en = "Always display the numerical table for option settings"
+}, {
+    name = "ability_sort",
+    text_jp = "特性をスキル順に並べる",
+    text_kr = "특성을 스킬 순서로 정렬",
+    text_en = "Sort abilities in skill order",
+    -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+    since = "2.4.0"
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",
@@ -479,7 +488,7 @@ local SETTING_SECTIONS = {{
     names = {"raid_record", "mini_btn", "market_display", "restart_move", "restart_colony", "automatch_layer",
              "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "pt_info", "party_buff",
              "cupole_portion", "separated_buff", "pet_ring", "daily_quest", "inventory_mod", "icor_status_search",
-             "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo"},
+             "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort"},
     text_jp = "フレーム関連",
     text_kr = "프레임 관련",
     text_en = "Frame-related"

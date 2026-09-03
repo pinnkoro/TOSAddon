@@ -905,8 +905,9 @@ function Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cl
             end
         elseif baseid_cls.ClassName == "Gem_High_Color" then
             local cls_name = item_cls.ClassName
-            -- Lv560 のエーテルジェムも女神等級(これ以上の枠は無いので 540 と同じ)
-            if string.find(cls_name, "560") or string.find(cls_name, "540") then
+            -- 最上位の段のエーテルジェムも女神等級(これ以上の枠は無いので 540 と同じ)。
+            -- **ここも数字を決め打ちしないこと**(docs/LEVEL_CAP_UPDATE.md の罠)
+            if string.find(cls_name, tostring(g.ICOR_TOP_LV)) or string.find(cls_name, "540") then
                 slot:SetSkinName("invenslot_pic_goddess")
             elseif string.find(cls_name, "520") then
                 slot:SetSkinName("invenslot_legend")

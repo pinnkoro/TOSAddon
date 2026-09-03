@@ -884,5 +884,11 @@ hair_enchant_build_reroll_body = function(reroll_option, item_grade, item_rank)
     -- 「何を元に組んだか」を最後に記録する。これが hair_enchant_refresh_if_changed の
     -- 比較対象になるので、組み直したら必ず更新すること(忘れると毎回組み直し続ける)
     reroll_option:SetUserValue("BUILD_SIG", hair_enchant_build_signature(item_grade, item_rank))
+    -- **BUILD_SIG と対で控えること。** hair_enchant_refresh_if_changed は
+    -- 「対象が別のアクセに載せ替わったか」を TARGET_GUID で見て、そのときだけ
+    -- 控えたランクを入れ直す。ここで入れないと控えが空のままなので、窓を開いてから
+    -- 最初に BUILD_SIG が変わった回で必ず「別のアクセ」と判定され、
+    -- 「ランクアップ時に停止」が 1 回目だけ効かなくなる
+    reroll_option:SetUserValue("TARGET_GUID", hair_enchant_target_guid())
 end
 

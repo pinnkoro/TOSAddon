@@ -43,6 +43,7 @@
       "addons/lets_go_home/lets_go_home.lua",
       "addons/debuff_notice/debuff_notice.lua",
       "addons/boss_gauge/boss_gauge.lua",
+      "addons/party_icon_only/party_icon_only.lua",
       "addons/party_marker/party_marker.lua",
       "addons/aethergem_manager/aethergem_manager.lua",
       "addons/job_change_helper/job_change_helper.lua",
@@ -126,6 +127,7 @@
       "addons/mini_addons/misc/minimized_close.lua",
       "addons/mini_addons/sound/toggle.lua",
       "addons/mini_addons/misc/reroll_option.lua",
+      "addons/mini_addons/misc/ability_sort.lua",
       "addons/mini_addons/inventory/inventory_open.lua",
       "addons/mini_addons/footer.lua",
       "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
@@ -134,6 +136,6 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "6cef031c5986e7eeaa0a26d914b2f20a0a28d2dcc449c7bab173f4da25c52048"
+    "_nexus_addons_p.lua": "3ceb04084e775c24fbe0038ff66b636d77b12fd37bfc5079de670d2dc5bcda18"
   }
 }
