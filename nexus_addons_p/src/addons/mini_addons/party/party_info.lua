@@ -6,7 +6,9 @@ function Mini_addons_PARTY_BUFFLIST_UPDATE(frame, msg)
     -- 形になる。しかも下の OFF 側の分岐も GetOriginalWidth() = 700px へ戻すので、
     -- **この機能(party_info)を使っていなくても**起きる。この関数は 5 秒ごとの更新からも
     -- 呼ばれ、あちらは 0.5 秒周期で畳み直すため、押せる帯が点滅するように現れていた。
-    if core_g.settings and core_g.settings.party_icon_only and core_g.settings.party_icon_only.use == 1 then
+    -- **展開表示のときは触ってよい。** あちらが畳んでいる(格納)ときだけ待避する。
+    local pio = core_g.settings and core_g.settings.party_icon_only
+    if pio and pio.use == 1 and pio.expanded ~= 1 then
         return
     end
     local party_info = ui.GetFrame("partyinfo")
