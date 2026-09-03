@@ -643,28 +643,47 @@ def scan_src():
 
 # ===== 一覧（lock）の組み立てと比較 =====
 
-FUNC_BODY_END = re.compile(r"^end[ \t]*$", re.M)
+# ブロックの開き閉じ。**字下げで終わりを決めないこと。**
+# 素には字下げが崩れた関数があり、本体の途中に桁 0 の `end` が現れる
+# （例: shared_item_goddess_icor.lua の make_icor_option_range は else 節の直前）。
+# 「行頭の end」で切ると、そこから先の変更が見張りから漏れる＝この仕組みの目的が
+# 静かに損なわれる。深さを数えて対応する end を探す。
+#
+# 開くのは function / if / do の 3 つだけでよい。for と while は必ず do を伴うので
+# 一緒に数えると二重になる。elseif は新しいブロックを開かない（\b で弾く）。
+# repeat ... until は end を使わないので数えなくてよい。
+BLOCK_OPEN = re.compile(r"\b(?:function|if|do)\b")
+BLOCK_CLOSE = re.compile(r"\bend\b")
+BLOCK_TOKEN = re.compile(r"\b(?:function|if|do|end)\b")
 
 
 def function_body(text, name):
-    """`function name(` から対応する行頭 end までを返す。見つからなければ None。
+    """`function name(` から対応する end までを返す。見つからなければ None。
 
     **コメントは落とし、文字列は残す**(strip_lua の keep_strings)。素のコメントが
     増えただけで「変わった」と騒ぐと、本当の変化のときに信用されなくなる。逆に
     文字列は表示や判定に効くので落とさない。
     """
-    # **先に改行を正規化すること。** 素の Lua は CRLF なので、`^end[ \t]*$` は
-    # 行末の \r に阻まれて一致しない。素のままだと関数の終わりを取り違えて、
-    # ずっと先の(たまたま \r の無い)行まで拾う(実際 28 行の関数が 2234 行になった)。
-    # ハッシュが改行コードに左右されなくなる利点もある。
+    # **先に改行を正規化すること。** 素の Lua は CRLF。正規化しないと行単位の判定が
+    # 行末の \r に阻まれる。ハッシュが改行コードに左右されなくなる利点もある。
     body = strip_lua(text.replace("\r\n", "\n").replace("\r", "\n"), keep_strings=True)
     m = re.search(r"^[ \t]*function[ \t]+" + re.escape(name) + r"[ \t]*\(", body, re.M)
     if not m:
         return None
-    m2 = FUNC_BODY_END.search(body, m.end())
-    if not m2:
+    # 見つけた function を深さ 1 として、対応する end を探す
+    depth = 0
+    end = None
+    for tok in BLOCK_TOKEN.finditer(body, m.start()):
+        if tok.group(0) == "end":
+            depth -= 1
+            if depth == 0:
+                end = tok.end()
+                break
+        else:
+            depth += 1
+    if end is None:
         return None
-    chunk = body[m.start():m2.end()]
+    chunk = body[m.start():end]
     # 字下げと空行の揺れは無視する
     return "\n".join(line.strip() for line in chunk.split("\n") if line.strip())
 
@@ -701,15 +720,20 @@ def compare_copies(lock, client_copies, require_record=True):
     for our, spec in COPIES.items():
         cur = client_copies.get(our) or {}
         rec = old.get(our)
+        # **記録の有無より先に見ること。** 抽出できていない(missing)まま記録を作ると、
+        # sha256 の無いレコードが commit され、--check はキーが在る限り緑のままになる。
+        # 見張りが最初から効かない状態で固定されるので、ここは require_record に
+        # 関わらず必ず問題にする。
+        if cur.get("missing"):
+            problems.append(
+                f"{our}: 写し元の {spec['vanilla']} を素から取り出せない"
+                f"(素から消えたか、抽出に失敗している)。{spec['src']} の写しは呼ばれ続けるので、"
+                f"このままでは素の変更に追随できない")
+            continue
         if rec is None:
             if require_record:
                 problems.append(
                     f"{our}: 写し元({spec['vanilla']})の記録が一覧に無い。--update で作ること")
-            continue
-        if cur.get("missing"):
-            problems.append(
-                f"{our}: 写し元の {spec['vanilla']} が素から消えている"
-                f"({spec['src']} の写しは呼ばれ続けるので、素の変更に追随できない)")
             continue
         if rec.get("sha256") != cur.get("sha256"):
             problems.append(
@@ -820,6 +844,21 @@ SELF_TEST_CASES = [
 ]
 
 
+# function_body の自己検査。**素のクライアントが無くても走る**ので CI でも回る。
+# 見張り(COPIES)の土台なので、ここが静かに壊れると「ハッシュは安定しているが
+# 見ている範囲が本体の一部だけ」になり、変更を取り逃がしても気付けない。
+# 1 件目がまさにその形（素には字下げが崩れた関数があり、本体の途中に桁 0 の end が出る）。
+FUNC_BODY_CASES = [
+    ("function F()\n\tif a then\n\t\tx()\nend\n\ty()\nend\n", "F", 6),
+    ("function G()\n  for i=1,2 do\n    if a then z() end\n  end\n  while b do c() end\nend\n", "G", 6),
+    ("function H()\n  if a then\n  elseif b then\n  else\n  end\nend\n", "H", 6),
+    ("function I()\n  repeat\n    x()\n  until a\nend\n", "I", 5),
+    ("function J()\n  x()\nend\nfunction K()\n  y()\nend\n", "J", 3),
+    # CRLF でも同じ結果になること(素の Lua は CRLF)
+    ("function L()\r\n  x()\r\nend\r\n", "L", 3),
+]
+
+
 def self_test():
     bad = []
     for src, want in SELF_TEST_CASES:
@@ -827,6 +866,11 @@ def self_test():
         got = count_args(body, body.index("("))
         if got != want:
             bad.append(f"{src} → {got}（期待 {want}） / 下ごしらえ後: {body}")
+    for src, name, want in FUNC_BODY_CASES:
+        chunk = function_body(src, name)
+        got = len(chunk.split("\n")) if chunk else None
+        if got != want:
+            bad.append(f"function_body({name}) → {got} 行（期待 {want}） / 取れた本文: {chunk!r}")
     return bad
 
 
@@ -875,10 +919,17 @@ def cmd_check(args):
             problems.append(
                 f"{our}: 写しの定義が {spec['src']} に無い。"
                 f"素を呼ぶ形へ書き換えたなら COPIES から外すこと（Issue #94）")
-        if our not in recorded:
+        rec = recorded.get(our)
+        if rec is None:
             problems.append(
                 f"{our}: 写し元（{spec['vanilla']}）の記録が一覧に無い。"
                 f"ゲームのある環境で --update を流すこと")
+        elif not rec.get("sha256"):
+            # **キーの有無だけを見ないこと。** 抽出に失敗した {"missing": true} が
+            # 記録されると、キーは在るのでハッシュ照合が一度も走らないまま緑になる。
+            problems.append(
+                f"{our}: 写し元（{spec['vanilla']}）のハッシュが記録されていない"
+                f"（{rec}）。見張りが効いていないので、--update を流し直すこと")
     for key in sorted(set(old) & set(fresh)):
         for field, label in (("used_by", "使っている場所"),
                              ("our_arities", "渡している引数の数"),
