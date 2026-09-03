@@ -70,6 +70,8 @@ function party_icon_only_on_init()
     -- 職業構成はキャラを跨ぐと変わる。初期化のたびに引き直す(判定は Party_icon_only_fold_title)。
     g.party_icon_only_summon_ui = nil
     g.party_icon_only_logged = nil
+    -- フレームはキャラ切替などで作り直されうる。印を落として張り直させる
+    g.party_icon_only_ctx_bound = nil
 end
 
 -- 機能 OFF にされたときの後始末(core/20_lifecycle.lua が use==0 のとき on_init の代わりに呼ぶ)。
@@ -212,6 +214,13 @@ function Party_icon_only_apply()
         -- 召喚獣情報へ切り替えている間は素が partyinfo を隠す。そのときは触らない。
         return
     end
+    -- 受け口は展開・格納のどちらでも張っておく(展開中もメニューから戻せるように)
+    Party_icon_only_bind_context(partyinfo)
+    if g.settings.party_icon_only.expanded == 1 then
+        -- 展開表示。畳まずに素のままにする(既に畳んでいたら 1 回だけ戻す)
+        Party_icon_only_unfold()
+        return
+    end
     local rows = 0
     local title_gbox = nil
     for i = 0, partyinfo:GetChildCount() - 1 do
@@ -259,10 +268,14 @@ function Party_icon_only_apply()
     end
 end
 
--- 素の見た目へ戻す。隠した子や縮めた大きさを 1 つずつ覚えて戻すのではなく、行を捨てて
--- 素の ON_PARTYINFO_UPDATE に組み立て直させる(CLAUDE.md「素の関数を書き写さない」。
+-- 畳んだ見た目だけを素へ戻す。**右クリックの受け口は外さない**(展開表示のときも
+-- メニューから格納へ戻せる必要があるため)。機能ごと OFF にするときは
+-- Party_icon_only_restore を使うこと。
+--
+-- 隠した子や縮めた大きさを 1 つずつ覚えて戻すのではなく、行を捨てて素の
+-- ON_PARTYINFO_UPDATE に組み立て直させる(CLAUDE.md「素の関数を書き写さない」。
 -- 素が変われば戻し方も自動で追従する)。
-function Party_icon_only_restore()
+function Party_icon_only_unfold()
     -- **一度も畳んでいないなら何もしない。**
     -- <key>_on_teardown は use == 0 のときセッションに 1 回必ず呼ばれる契約なので
     -- (core/20_lifecycle.lua の _nexus_addons_p_resolve_init_func)、この印が無いと
@@ -302,5 +315,60 @@ function Party_icon_only_restore()
         ON_PARTYINFO_UPDATE(partyinfo)
     end
     g.vlog("party_icon_only: 素の partyinfo へ戻した")
+end
+
+-- 機能 OFF のときの後始末。見た目を戻したうえで、張った右クリックも素へ返す。
+function Party_icon_only_restore()
+    Party_icon_only_unfold()
+    local partyinfo = ui.GetFrame("partyinfo")
+    if partyinfo and g.party_icon_only_ctx_bound then
+        -- 素は partyinfo フレームに RBUTTONUP を張らないので、"None" へ戻すのが素の状態
+        partyinfo:SetEventScript(ui.RBUTTONUP, "None")
+        g.party_icon_only_ctx_bound = nil
+    end
+end
+
+-- 右クリックの受け口をフレームへ張る。**コントロールではなくフレームに張ること。**
+-- 掴み代(titlegbox)は hittestbox="false" で、あの帯を押した入力は下のフレームが
+-- 受けている。そこへ hittest を持つコントロールを置いて右クリックを取ると、
+-- 左ドラッグまで奪って**窓を動かせなくなる**。フレームに RBUTTONUP だけを張れば、
+-- 左ドラッグは素のまま・右クリックだけこちらへ来る。
+-- アイコンの上は controlset の CONTEXT_PARTY が先に受けるので、メンバーのメニューは壊れない。
+function Party_icon_only_bind_context(partyinfo)
+    if g.party_icon_only_ctx_bound then
+        return
+    end
+    partyinfo:SetEventScript(ui.RBUTTONUP, "Party_icon_only_context")
+    g.party_icon_only_ctx_bound = true
+end
+
+-- 展開 / 格納を選ぶメニュー。掴み代の帯を右クリックすると出る。
+-- **今の状態の項目は出さない。** 押しても何も起きない項目が並ぶと、
+-- どちらが今の状態なのか読み取れない(出ているほうが「これから変わる先」になる)。
+function Party_icon_only_context()
+    local is_jp = g.lang == "Japanese"
+    local context = ui.CreateContextMenu("party_icon_only_context", "", 0, 0, 160, 100)
+    if g.settings.party_icon_only.expanded == 1 then
+        ui.AddContextMenuItem(context, is_jp and "{ol}格納する" or "{ol}Collapse",
+            "Party_icon_only_set_expanded(0)")
+    else
+        ui.AddContextMenuItem(context, is_jp and "{ol}展開する" or "{ol}Expand",
+            "Party_icon_only_set_expanded(1)")
+    end
+    ui.OpenContextMenu(context)
+end
+
+-- 展開 / 格納の切り替え。**展開は「畳むのをやめる」だけ**で、素の見た目へ戻す。
+-- Mini Addons の「パーティー情報フレームを小さくする」「パーティーメンバーの場所表示」も
+-- 展開中は動く(あちらの待避はこの値まで見ている)。
+function Party_icon_only_set_expanded(expanded)
+    g.settings.party_icon_only.expanded = expanded
+    _nexus_addons_p_save_settings()
+    if expanded == 1 then
+        Party_icon_only_unfold()
+    else
+        Party_icon_only_apply()
+    end
+    g.vlog("party_icon_only: %s へ切り替えた", expanded == 1 and "展開" or "格納")
 end
 -- Party Icon Only ここまで

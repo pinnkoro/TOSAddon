@@ -433,12 +433,19 @@ g._nexus_addons_p = {{
     key = "party_icon_only",
     category = "battle",
     since = "2.4.0",
+    updated = g.VER_NEXT,
+    updated_note_jp = "掴み代の帯を右クリックすると「展開する / 格納する」を選べるようにしました。展開中は素の表示に戻り、Mini Addons のパーティ情報まわりも動きます",
+    updated_note_en = "Right-click the header band to choose Expand / Collapse; while expanded the vanilla display returns and the Mini Addons party info features work again",
     data = {
         use = 0,
         name = "Party Icon Only",
         frame_use = false,
         config_func = "",
-        old_init_func = ""
+        old_init_func = "",
+        -- 展開表示か(0 = 格納 = アイコンだけ)。掴み代の帯の右クリックで切り替える。
+        -- **data に置くのは利用者の設定として settings.json へ残すため**
+        -- (既定に無いキーはプルーニングで消える)。
+        expanded = 0
     }
 }, {
     key = "party_marker",

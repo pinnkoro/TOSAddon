@@ -3,9 +3,11 @@ function Mini_addons_partymember_get_map()
     if g.settings.pt_info == 0 then
         return
     end
-    -- **Party Icon Only が ON のときは触らない。** あちらは行をアイコンだけに畳むので、
+    -- **Party Icon Only が「格納」のときは触らない。** あちらは行をアイコンだけに畳むので、
     -- ここで足す location<n> は 5 秒ごとに作られては 0.5 秒後に隠される、の繰り返しになる。
-    if core_g.settings and core_g.settings.party_icon_only and core_g.settings.party_icon_only.use == 1 then
+    -- 「展開」に切り替えられているときは素の表示へ戻っているので、こちらも普通に出す。
+    local pio = core_g.settings and core_g.settings.party_icon_only
+    if pio and pio.use == 1 and pio.expanded ~= 1 then
         return
     end
     local list = session.party.GetPartyMemberList(PARTY_NORMAL)
