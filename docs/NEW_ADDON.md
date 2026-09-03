@@ -1,8 +1,8 @@
 # 新しいアドオンを追加する手順
 
 アドオンを 1 本足すと、**コードのほかに 5 か所へ登録が要る**。どれか 1 つ抜けると
-「一覧に出ない」「毎回設定が消える」「ビルドから黙って脱落する」という形になり、
-どれも実機で触るまで気付けない。手順と、実際に踏んだ罠をここにまとめる。
+「一覧に出ない」「毎回設定が消える」という形になり、**大半は実機で触るまで気付けない**
+（機械で止まるのは manifest の登録漏れだけ。§1-4）。手順と、実際に踏んだ罠をここにまとめる。
 
 2026-09-03 に `party_icon_only` を追加したときの流れが元。
 
@@ -70,8 +70,11 @@ end
 
 * `since` / `updated` は **`data` の中ではなくエントリ側**に書く。`data` はそのまま
   `settings.json` へ写され、既定に無いキーはプルーニングで消える。
-* `old_init_func` は「本家や旧個別版が同じ名前を公開していたら自分を無効化する」判定に使う。
-  **新規アドオンには対応する旧版が無いので `""`**。
+* `old_init_func` は「**個別配布されている旧版**が同じ名前を公開していたら自分を無効化する」
+  判定に使う（`core/20_lifecycle.lua` の `_nexus_addons_p_origin_addon_present`）。
+  **本家の検出はこれとは別経路**で、`guard_open.lua` / `guard_close.lua` の
+  `g.detect_origin_addon()` と `_NEXUS_ADDONS_P_ON_INIT` が担う（CLAUDE.md の
+  「本家との共存対策」）。**新規アドオンには対応する旧版が無いので `""`**。
 
 **説明**（`g._nexus_addons_p_trans`）: `ja` / `etc` / `kr` の 3 言語。改行は `{nl}`。
 
@@ -80,8 +83,9 @@ end
 `targets` の `_nexus_addons_p.lua` の配列へ 1 行足す。**`guard_open.lua` と
 `guard_close.lua` の間**（他のアドオンが並んでいるところ）。
 
-* **足し忘れるとビルドから黙って脱落する**……ということはなく、
-  `bundle_from_src.py` が「manifest 未登録の src ファイル」を検出して失敗する。
+* **足し忘れは機械で止まる。** `bundle_from_src.py` が「manifest 未登録の src ファイル」を
+  検出して失敗する（CI の `bundle` ジョブでも走る）。この 5 か所のうち、**抜けをその場で
+  教えてくれるのはここだけ**。
 * `mini_addons` / `market_favorite_rebuild` は conclude スコープ（後ろのブロック）に
   居る。**普通の新規アドオンは前のブロックへ**。
 
@@ -184,7 +188,10 @@ python docs/check_frame_hittest.py        # 窓の裏抜け
 python docs/check_version_freeze.py       # 版を上げていないこと
 python docs/vanilla_api.py --check        # 素の API の使い方が一覧と一致するか
 
-# 素の API を新しく使い始めたら（ゲームを終了してから。起動中は .ipf がロックされる）
+# 素の API を新しく使い始めたら
+#   **クライアントを終了してから流すこと。** vanilla_api.py は data/ の素の .ipf を
+#   素の open() で読むが、ゲーム起動中は data/addon.ipf がロックされていて
+#   PermissionError で止まる（2026-09-03 に実測。--verify-client / --update の両方）
 python docs/vanilla_api.py --verify-client   # **先にこれ**
 python docs/vanilla_api.py --update
 
@@ -201,8 +208,11 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
     --require _nexus_addons_p/_nexus_addons_p.lua --encrypt
 ```
 
-* ファイル名は **`<名前>-⛄-<版>.ipf`**（⛄ = U+26C4）。この形でないと読み込まれない。
-  テスト用は末尾に **`-dev`** を付けて配布版と見分ける。
+* **ファイル名に `-⛄-`（⛄ = U+26C4）が入っていないと読み込まれない。**
+  2026-08-21 に実測: 中身が同じでも `test_addon-dev.ipf` は読み込まれず（初期化のチャットも
+  出ない）、`test_addon-⛄-v1.0.0.ipf` へ改名したらそのまま読み込まれた。
+  配布物は `<名前>-⛄-vX.Y.Z.ipf`、テスト用は**その後ろへ** `-dev` を足す
+  （`_nexus_addons_p-⛄-v2.3.1-dev.ipf`）。`-dev` を足しても `-⛄-` は残るので読み込まれる。
 * ゲームの `data\` 直下へコピーする。**nexus 系は常に 1 本だけ**にする
   （2 本あると二重に読み込まれる）。
 * **コピー前にクライアントを終了する**（起動中はロックされて失敗する）。

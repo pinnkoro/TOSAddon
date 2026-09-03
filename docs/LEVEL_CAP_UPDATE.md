@@ -31,8 +31,12 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 
 * **アイテムは 1 枚の表ではない。** `item.ies` / `item_ep13.ies` / `item_event.ies` … に分かれている。
   目当てが見つからないときは全 `item*.ies` を舐める。
-* **ゲーム起動中は `data/` のアドオン `.ipf` だけロックされる**（素のクライアントの `.ipf` は読める）。
-  ロックされたものは PowerShell の `[System.IO.File]::Open(..., FileShare::ReadWrite)` で複製すれば読める。
+* **ゲーム起動中はロックされる `.ipf` がある。** 素の `.ipf` でも `data/addon.ipf` は
+  掴まれていて、素の `open()` で読もうとすると `PermissionError` になる
+  （`docs/vanilla_api.py --verify-client` がこれで止まる。2026-09-03 に実測）。
+  PowerShell の `[System.IO.File]::Open(..., FileShare::ReadWrite)` で複製すれば読めるので、
+  `tos_extract.py` 経由の調査はこの方法で続けられる。**クライアントを終了できるなら
+  そのほうが早い。**
 
 ---
 
