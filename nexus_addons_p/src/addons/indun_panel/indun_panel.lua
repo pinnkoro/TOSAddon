@@ -782,6 +782,27 @@ function Indun_panel_challenge_map_close(frame)
     ui.DestroyFrame(frame:GetName())
 end
 
+-- 今のマップでパネルをどう扱うか。**判定は 1 か所にまとめること。**
+-- 以前は Indun_panel_frame_init だけが持っていて、Indun_panel_frame_open には無かった。
+-- そのため展開中に「フィールドで表示」を OFF にすると、畳んでいれば消えるのに
+-- 展開していると残る、という非対称な挙動になっていた。
+--   "ok"   … 出してよい(街、またはフィールドで「フィールドで表示」が ON)
+--   "keep" … 触らない(インスタンス / ヴェルニケ。素の窓と取り合いにならないよう放置する)
+--   "hide" … 消す(フィールドで「フィールドで表示」が OFF)
+function Indun_panel_map_verdict()
+    local map_type = g.get_map_type()
+    if map_type == "City" then
+        return "ok"
+    end
+    if map_type == "Instance" or g.map_id == g.MAP_VELNIKE then
+        return "keep"
+    end
+    if g.indun_panel_settings.etc.field_mode ~= 1 then
+        return "hide"
+    end
+    return "ok"
+end
+
 function Indun_panel_frame_init(is_toggle, msg)
     if msg == "ESCAPE_PRESSED" then
         if g.indun_panel_settings.etc.always_open == 1 then
@@ -797,17 +818,16 @@ function Indun_panel_frame_init(is_toggle, msg)
             return
         end
     end
-    if g.get_map_type() ~= "City" then
-        if g.get_map_type() == "Instance" or g.map_id == g.MAP_VELNIKE then
-            return
-        end
-        if g.indun_panel_settings.etc.field_mode ~= 1 then
-            ui.DestroyFrame(addon_name_lower .. "indun_panel")
-            -- 上と同じ理由で設定ウィンドウも畳む。**ここは Indun_panel_frame_init の中**なので、
-            -- Indun_panel_setting_frame_close を呼ぶと refresh 経由でここへ戻ってくる。
-            ui.DestroyFrame(Indun_panel_config_frame_name())
-            return
-        end
+    local map_verdict = Indun_panel_map_verdict()
+    if map_verdict == "keep" then
+        return
+    end
+    if map_verdict == "hide" then
+        ui.DestroyFrame(addon_name_lower .. "indun_panel")
+        -- 設定ウィンドウも畳む。**ここは Indun_panel_frame_init の中**なので、
+        -- Indun_panel_setting_frame_close を呼ぶと refresh 経由でここへ戻ってくる。
+        ui.DestroyFrame(Indun_panel_config_frame_name())
+        return
     end
     --[[if g.get_map_type() ~= "City" and
         (g.indun_panel_settings.etc.field_mode ~= 1 and g.get_map_type() == "Instance" and g.map_id == g.MAP_VELNIKE) then
@@ -1219,6 +1239,14 @@ end
 function Indun_panel_refresh_panel()
     local panel = ui.GetFrame(addon_name_lower .. "indun_panel")
     if not panel then
+        return
+    end
+    -- **マップの判定を飛ばさないこと。** 展開中に呼ぶ Indun_panel_frame_open には
+    -- この判定が無いので、素通りするとフィールドで「フィールドで表示」を OFF にしたとき
+    -- パネルが消えずに残る(畳んでいるときだけ消える、という非対称になる)。
+    -- "keep" も "hide" も後始末は Indun_panel_frame_init 側が持っているので、そちらへ回す。
+    if Indun_panel_map_verdict() ~= "ok" then
+        Indun_panel_frame_init(true)
         return
     end
     if panel:GetHeight() > 40 then
