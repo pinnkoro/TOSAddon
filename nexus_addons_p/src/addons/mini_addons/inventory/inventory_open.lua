@@ -209,9 +209,11 @@ function Mini_addons_inventory_open_func(frame, msg)
                                 if item_cls then
                                     if g.settings.inventory_mod == 1 then
                                         local cls_name = item_cls.ClassName
-                                        -- Lv560 のエーテルジェムも女神等級
-                                        -- (これ以上の枠は無いので 540 と同じ扱い)
-                                        if string.find(cls_name, 560) or string.find(cls_name, 540) then
+                                        -- 最上位の段のエーテルジェムも女神等級
+                                        -- (これ以上の枠は無いので 540 と同じ扱い)。
+                                        -- **数字を決め打ちしないこと**(docs/LEVEL_CAP_UPDATE.md の罠)
+                                        if string.find(cls_name, tostring(core_g.ICOR_TOP_LV)) or
+                                            string.find(cls_name, "540") then
                                             slot:SetSkinName("invenslot_pic_goddess")
                                         elseif string.find(cls_name, 520) then
                                             slot:SetSkinName("invenslot_legend")

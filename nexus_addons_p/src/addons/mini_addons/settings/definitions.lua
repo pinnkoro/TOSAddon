@@ -183,9 +183,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = "2.3.1",
-    updated_note_jp = "連続付与が、振る前から付いていたオプションを指して 1 回で止まることがあったのを修正しました",
-    updated_note_en = "Fixed auto-enchant stopping after one roll, citing an option the item already had before the roll"
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "「ランクアップ時に停止」が効かないことがあったのと、回している最中に別のヘアアクセへ載せ替えると 1 回で止まることがあったのを修正しました",
+    updated_note_en = "Fixed \"stop on rank up\" sometimes not working, and stopping after one roll when you swap to another hair accessory mid-run"
 }, {
     name = "skill_reroll",
     text_jp = "スキル錬成を希望スキルが出るまで回せるように",
