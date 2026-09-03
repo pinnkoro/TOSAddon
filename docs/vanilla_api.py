@@ -56,6 +56,7 @@ GitHub Actions のランナーにゲームは入らないので、素との突�
 import argparse
 import bisect
 import glob
+import hashlib
 import json
 import os
 import re
@@ -124,6 +125,44 @@ KNOWN_ISSUES = {
         "boss_direction.lua:167。素の Lua は geMonsterTable.GetMonsterClassNameByType しか"
         "持たず、この名前は素のどこにも現れない。実在するネイティブかどうかは実機でしか"
         "確かめられないので、確認するまでここに置く（矢印のボス名が出るかを見る）",
+}
+
+# 素を呼ばずに**中身を書き写している**置換方式フック。Issue #94。
+#
+# CLAUDE.md「素の関数を書き写さない」に反する形だが、素の途中で表示を絞る作りのため
+# 「素を呼んでから加工」に素直に落ちない。**書き換えるまでの間、素が変わったことに
+# 気付けるようにするのがここの役目。**
+#
+# vanilla_api.py の本来の検査（名前と仮引数）はこれらを守れない。**呼んでいないから**で、
+# 素の中身だけが変わっても名前も引数も変わらず素通りする。そこで写し元の**本文の
+# ハッシュ**を記録して --verify-client で照合する。
+#
+# **本文そのものを持たないこと。** 素の Lua は再配布できないので、記録するのは
+# ハッシュと行数だけにする（#53 のときは client_snapshots/*.lua を置いたが、
+# 書き写しを解消したときに丸ごと消している）。
+#
+# 素が変わったら --verify-client が落ちる。そのとき初めて「写しを直す」か
+# 「素を呼ぶ形へ書き換える」かを判断すればよい。
+#   our     … こちらの関数名（src の中の定義）
+#   vanilla … 写し元の素の関数名
+#   src     … こちらの定義があるファイル（nexus_addons_p/src/ からの相対）
+COPIES = {
+    "Mini_addons_ON_PARTYINFO_BUFFLIST_UPDATE": {
+        "vanilla": "ON_PARTYINFO_BUFFLIST_UPDATE",
+        "src": "addons/mini_addons/buff_list/buff_list.lua",
+    },
+    "Mini_addons_ON_UPDATE_QUESTINFOSET_2": {
+        "vanilla": "ON_UPDATE_QUESTINFOSET_2",
+        "src": "addons/mini_addons/quest/quest.lua",
+    },
+    "Mini_addons_INDUNENTER_REQ_UNDERSTAFF_ENTER_ALLOW": {
+        "vanilla": "INDUNENTER_REQ_UNDERSTAFF_ENTER_ALLOW",
+        "src": "addons/mini_addons/misc/indun_enter.lua",
+    },
+    "Goddess_icor_manager__GODDESS_MGR_RANDOMOPTION_ENGRAVE_ICOR_EXEC": {
+        "vanilla": "_GODDESS_MGR_RANDOMOPTION_ENGRAVE_ICOR_EXEC",
+        "src": "addons/goddess_icor_manager/goddess_icor_manager.lua",
+    },
 }
 
 
@@ -604,7 +643,85 @@ def scan_src():
 
 # ===== 一覧（lock）の組み立てと比較 =====
 
-def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=None):
+FUNC_BODY_END = re.compile(r"^end[ \t]*$", re.M)
+
+
+def function_body(text, name):
+    """`function name(` から対応する行頭 end までを返す。見つからなければ None。
+
+    **コメントは落とし、文字列は残す**(strip_lua の keep_strings)。素のコメントが
+    増えただけで「変わった」と騒ぐと、本当の変化のときに信用されなくなる。逆に
+    文字列は表示や判定に効くので落とさない。
+    """
+    # **先に改行を正規化すること。** 素の Lua は CRLF なので、`^end[ \t]*$` は
+    # 行末の \r に阻まれて一致しない。素のままだと関数の終わりを取り違えて、
+    # ずっと先の(たまたま \r の無い)行まで拾う(実際 28 行の関数が 2234 行になった)。
+    # ハッシュが改行コードに左右されなくなる利点もある。
+    body = strip_lua(text.replace("\r\n", "\n").replace("\r", "\n"), keep_strings=True)
+    m = re.search(r"^[ \t]*function[ \t]+" + re.escape(name) + r"[ \t]*\(", body, re.M)
+    if not m:
+        return None
+    m2 = FUNC_BODY_END.search(body, m.end())
+    if not m2:
+        return None
+    chunk = body[m.start():m2.end()]
+    # 字下げと空行の揺れは無視する
+    return "\n".join(line.strip() for line in chunk.split("\n") if line.strip())
+
+
+def scan_client_copies(root, client_globals):
+    """COPIES の写し元について、今の素の本文のハッシュと行数を返す。"""
+    files = client_lua(root)
+    out = {}
+    for our, spec in COPIES.items():
+        name = spec["vanilla"]
+        info = client_globals.get(name)
+        rec = {"vanilla": name}
+        text = files.get(info["file"]) if info else None
+        chunk = function_body(text, name) if text else None
+        if chunk is None:
+            rec["missing"] = True
+        else:
+            rec["defined_in"] = info["file"]
+            rec["lines"] = len(chunk.split("\n"))
+            rec["sha256"] = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+        out[our] = rec
+    return out
+
+
+def compare_copies(lock, client_copies, require_record=True):
+    """記録した写し元のハッシュと、今の素を突き合わせる。戻り値は problems。
+
+    `require_record=False` は「記録がまだ無い」を問題にしない。**--update から
+    呼ぶときはこちら**。記録を作るのが --update の仕事なので、無いことを理由に
+    止めると初回に自分の初期化を拒む(実際そうなった)。
+    """
+    problems = []
+    old = lock.get("copies") or {}
+    for our, spec in COPIES.items():
+        cur = client_copies.get(our) or {}
+        rec = old.get(our)
+        if rec is None:
+            if require_record:
+                problems.append(
+                    f"{our}: 写し元({spec['vanilla']})の記録が一覧に無い。--update で作ること")
+            continue
+        if cur.get("missing"):
+            problems.append(
+                f"{our}: 写し元の {spec['vanilla']} が素から消えている"
+                f"({spec['src']} の写しは呼ばれ続けるので、素の変更に追随できない)")
+            continue
+        if rec.get("sha256") != cur.get("sha256"):
+            problems.append(
+                f"{our}: **写し元の {spec['vanilla']} が変わっている**"
+                f"({rec.get('lines')} 行 → {cur.get('lines')} 行 / "
+                f"{str(rec.get('sha256'))[:12]} → {str(cur.get('sha256'))[:12]})。"
+                f"{spec['src']} の写しを素へ合わせるか、素を呼ぶ形へ書き換えること(Issue #94)")
+    return problems
+
+
+def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=None,
+               client_copies=None):
     prev_symbols = (previous or {}).get("symbols", {})
     symbols = {}
     for key in sorted(uses):
@@ -641,9 +758,15 @@ def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=N
                 if k in prev:
                     entry[k] = prev[k]
         symbols[key] = entry
+    # 写し元(COPIES)の記録。素を見ていないときは前回の記録をそのまま持ち越す。
+    if client_copies is not None:
+        copies = {k: client_copies[k] for k in sorted(client_copies)}
+    else:
+        copies = dict((previous or {}).get("copies") or {})
     return {
         "_readme": "docs/vanilla_api.py が作る一覧。手で編集せず --update で作り直すこと。",
         "symbols": symbols,
+        "copies": copies,
     }
 
 
@@ -665,6 +788,14 @@ def save_lock(lock):
     items = list(lock["symbols"].items())
     for i, (key, entry) in enumerate(items):
         tail = "" if i == len(items) - 1 else ","
+        lines.append(f'    {json.dumps(key, ensure_ascii=False)}: '
+                     f'{json.dumps(entry, ensure_ascii=False)}{tail}')
+    lines += ["  },"]
+    # 写し元の記録(Issue #94)。1 件 1 行。
+    lines.append('  "copies": {')
+    citems = list((lock.get("copies") or {}).items())
+    for i, (key, entry) in enumerate(citems):
+        tail = "" if i == len(citems) - 1 else ","
         lines.append(f'    {json.dumps(key, ensure_ascii=False)}: '
                      f'{json.dumps(entry, ensure_ascii=False)}{tail}')
     lines += ["  }", "}"]
@@ -731,6 +862,23 @@ def cmd_check(args):
                 f"ゲームのある環境で --update を流し直すこと")
     for key in sorted(set(old) - set(fresh)):
         problems.append(f"一覧に残っているが src から消えている: {key}")
+    # 書き写しフック(COPIES)。素は見られないので、**こちら側の定義が在るか**と
+    # **写し元の記録が在るか**だけを見る。素を呼ぶ形へ書き換えたなら COPIES から
+    # 外すこと(外し忘れると、もう存在しない写しを見張り続ける)。
+    recorded = lock.get("copies") or {}
+    for our, spec in COPIES.items():
+        path = SRC / spec["src"]
+        if not path.is_file():
+            problems.append(f"{our}: 写しのファイルが無い（{spec['src']}）")
+        elif not re.search(r"^[ 	]*function[ 	]+" + re.escape(our) + r"[ 	]*\(",
+                           path.read_text(encoding="utf-8"), re.M):
+            problems.append(
+                f"{our}: 写しの定義が {spec['src']} に無い。"
+                f"素を呼ぶ形へ書き換えたなら COPIES から外すこと（Issue #94）")
+        if our not in recorded:
+            problems.append(
+                f"{our}: 写し元（{spec['vanilla']}）の記録が一覧に無い。"
+                f"ゲームのある環境で --update を流すこと")
     for key in sorted(set(old) & set(fresh)):
         for field, label in (("used_by", "使っている場所"),
                              ("our_arities", "渡している引数の数"),
@@ -747,7 +895,7 @@ def cmd_check(args):
         print("直し方: ゲームを導入した環境で `python docs/vanilla_api.py --update` を流し、")
         print("        併せて `--verify-client` で素が変わっていないかを確かめてから commit する。")
         return 1
-    print(f"OK: 素の API {len(fresh)} 件、一覧と一致")
+    print(f"OK: 素の API {len(fresh)} 件、一覧と一致（書き写しの見張り {len(COPIES)} 件）")
     return 0
 
 
@@ -857,11 +1005,15 @@ def cmd_verify_client(args):
         return 2
 
     problems, notices, known = compare_with_client(lock, cg, cn)
+    # 写し元(COPIES)の本文が変わっていないか。**呼んでいる API の検査では守れない**ので
+    # 別立てで見る(詳しくは COPIES のコメント)。
+    problems = problems + compare_copies(lock, scan_client_copies(args.client_root, cg))
     report(problems, notices, known)
     if problems:
         print("      確かめたうえで src を直し、--update で一覧を作り直すこと。")
         return 1
-    print(f"OK: 素のクライアント（{args.client_root}）と一致。{len(lock['symbols'])} 件を照合")
+    print(f"OK: 素のクライアント（{args.client_root}）と一致。"
+          f"{len(lock['symbols'])} 件 + 写し元 {len(COPIES)} 件を照合")
     return 0
 
 
@@ -902,12 +1054,24 @@ def cmd_update(args):
             print("書き換える前に、今のクライアントと突き合わせた結果:")
             print()
             report(problems, notices, [])
+        # 写し元(COPIES)も同じ扱いで先に見る。ここを飛ばすと、素の本文が変わったのに
+        # ハッシュだけ黙って上書きされ、**一番知りたい事実が消える**。
+        copy_problems = compare_copies(previous, scan_client_copies(args.client_root, cg),
+                                       require_record=False)
+        if copy_problems:
+            print("書き写しの元が変わっている:")
+            print()
+            for cp in copy_problems:
+                print("  -", cp)
+            print()
+            problems = problems + copy_problems
         if problems and not args.accept_client_changes:
             print("一覧は書き換えなかった。まず上の食い違いを確かめて src を直すこと。")
             print("素の変化を承知のうえで取り込むなら --accept-client-changes を付ける。")
             return 1
 
-    lock = build_lock(uses, hooks, cg, cn, previous)
+    client_copies = scan_client_copies(args.client_root, cg) if cg is not None else None
+    lock = build_lock(uses, hooks, cg, cn, previous, client_copies)
 
     # **作った一覧そのものも突き合わせること。** 上の突き合わせは previous（= commit 済みの
     # 一覧）しか見ないので、**今回はじめて出てきた記号は 1 度も判定を通らない**。
