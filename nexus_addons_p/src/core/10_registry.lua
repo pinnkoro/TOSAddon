@@ -304,9 +304,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = "2.4.0",
-    updated_note_jp = "設定画面をパネルとは別のポップアップにして画面中央へ出し、「Indun Panel の設定」と「レイド・コンテンツの表示」の 2 つに分けました。チャレンジ / 分裂特異点の段(520 / 540 / 560)を個別に出し入れできるようにし、共鳴の聖所は入場まで自動で押さず窓を開くところで止めるようにしました",
-    updated_note_en = "The settings now open as a separate centred popup split into Panel settings and content visibility; Challenge Mode / Division Singularity tiers (520 / 540 / 560) can be shown or hidden individually, and the Sanctuary of Resonance button only opens the entry window instead of entering right away",
+    updated = "2.5.0",
+    updated_note_jp = "設定画面をタブ(パネル / コンテンツ)に分けました。ショートカットはアイコン＋名前の一覧になり、右端で見切れて押せなかった「レティーシャへ移動」が押せます。ショートカットとレイドの行を▲▼で並べ替えられるようになり、セット(SET A / B / C)のボタンはコンテンツタブの一覧の上へ移しました。セットを切り替えても設定ウィンドウが画面中央へ戻らなくなりました。ショートカットを全部出したときにパネルの右端で歯車が切れていたのも直しました。コンテンツの一覧は縦 1 列 + スクロールになり、名前の右にパネルと同じ絵が付きます。「ON のものだけ表示」で絞り込めます。入場できなくなったアシャークは一覧から外しました。背景は SKIN SELECT のメニューをやめ、3 つのボタンを横に並べて今使っているものを赤くしました",
+    updated_note_en = "The settings window is now split into Panel and Contents tabs; shortcuts became an icon + name list so the Leticia entry that was clipped off the right edge is reachable, shortcuts and raid rows can be reordered with the arrows, the set buttons (SET A / B / C) moved above the content list, switching sets no longer recentres the window, the gear button no longer gets clipped off the right edge of the panel when every shortcut is shown, and the content list is a single scrolling column with each row's panel icon next to its name plus a Show only enabled filter; Ashaq was removed because it can no longer be entered, and the skin picker is now three buttons with the active one highlighted",
     data = {
         use = 0,
         name = "Indun Panel",
@@ -433,12 +433,19 @@ g._nexus_addons_p = {{
     key = "party_icon_only",
     category = "battle",
     since = "2.4.0",
+    updated = "2.5.0",
+    updated_note_jp = "掴み代の帯を右クリックすると「展開する / 格納する」を選べるようにしました。展開中は素の表示に戻り、Mini Addons のパーティ情報まわりも動きます",
+    updated_note_en = "Right-click the header band to choose Expand / Collapse; while expanded the vanilla display returns and the Mini Addons party info features work again",
     data = {
         use = 0,
         name = "Party Icon Only",
         frame_use = false,
         config_func = "",
-        old_init_func = ""
+        old_init_func = "",
+        -- 展開表示か(0 = 格納 = アイコンだけ)。掴み代の帯の右クリックで切り替える。
+        -- **data に置くのは利用者の設定として settings.json へ残すため**
+        -- (既定に無いキーはプルーニングで消える)。
+        expanded = 0
     }
 }, {
     key = "party_marker",
