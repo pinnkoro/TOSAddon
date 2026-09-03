@@ -185,7 +185,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = core_g.VER_NEXT,
+    updated = "2.4.0",
     updated_note_jp = "「ランクアップ時に停止」が効かないことがあったのと、回している最中に別のヘアアクセへ載せ替えると 1 回で止まることがあったのを修正しました",
     updated_note_en = "Fixed \"stop on rank up\" sometimes not working, and stopping after one roll when you swap to another hair accessory mid-run"
 }, {
@@ -206,7 +206,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "특성을 스킬 순서로 정렬",
     text_en = "Sort abilities in skill order",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    since = core_g.VER_NEXT
+    since = "2.4.0"
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",

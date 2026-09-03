@@ -304,7 +304,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.4.0",
     updated_note_jp = "設定画面をパネルとは別のポップアップにして画面中央へ出し、「Indun Panel の設定」と「レイド・コンテンツの表示」の 2 つに分けました。チャレンジ / 分裂特異点の段(520 / 540 / 560)を個別に出し入れできるようにし、共鳴の聖所は入場まで自動で押さず窓を開くところで止めるようにしました",
     updated_note_en = "The settings now open as a separate centred popup split into Panel settings and content visibility; Challenge Mode / Division Singularity tiers (520 / 540 / 560) can be shown or hidden individually, and the Sanctuary of Resonance button only opens the entry window instead of entering right away",
     data = {
@@ -432,7 +432,7 @@ g._nexus_addons_p = {{
 }, {
     key = "party_icon_only",
     category = "battle",
-    since = g.VER_NEXT,
+    since = "2.4.0",
     data = {
         use = 0,
         name = "Party Icon Only",
