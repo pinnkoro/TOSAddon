@@ -18,12 +18,25 @@
 -- 一番早いスキルの位置に置く。
 
 -- 並びの決め方(純ロジック。docs/tests/test_ability_sort.lua が検査する)。
---   rows       … {{skills = {スキル名, ...}, is_default = bool, pos = 素の並び}, ...}
+--   rows       … {{skills = {スキル名, ...}, is_default = bool, pos = 素の並び,
+--                  active_group = ActiveGroup("None" なら単独)}, ...}
 --   skill_rank … {[スキル名] = 表示順(小さいほど先)}
 -- 戻り値は並べ替えた rows(要素はそのまま)。table.sort は安定ではないので、
 -- 同じ順位の中は pos を最後の決め手にして素の並びを保つ。
+--
+-- **同じ ActiveGroup の特性は必ず隣り合わせにする。** 素の
+-- SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP は「隣接する連なり」単位で括弧枠を描き、
+-- 分断されると同名のコントロールを 2 回作るうえ、区間の要素数が 1 になって中央の
+-- ON 画像が出なくなる。同じ ActiveGroup でも紐付くスキルが違う組(Desperado22/23、
+-- Thaumaturge22/23、Schwarzereiter31/34 など)があるので、ActiveGroup ごとに
+-- 「一番早いスキルの順位」と「一番早い素の並び」を共有させて、まとまりを崩さない。
 function Mini_addons_ability_sort_order(rows, skill_rank)
-    local keyed = {}
+    local function has_group(row)
+        return row.active_group ~= nil and row.active_group ~= "None" and not row.is_default
+    end
+    -- ActiveGroup ごとの代表値(一番早いスキル順位 / 一番早い素の並び)
+    local group_rank = {}
+    local group_pos = {}
     for i, row in ipairs(rows) do
         local rank = nil
         for _, skill in ipairs(row.skills or {}) do
@@ -32,6 +45,28 @@ function Mini_addons_ability_sort_order(rows, skill_rank)
                 rank = r
             end
         end
+        row._rank = rank
+        if has_group(row) then
+            local key = row.active_group
+            if rank ~= nil and (group_rank[key] == nil or rank < group_rank[key]) then
+                group_rank[key] = rank
+            end
+            local pos = row.pos or i
+            if group_pos[key] == nil or pos < group_pos[key] then
+                group_pos[key] = pos
+            end
+        end
+    end
+    local keyed = {}
+    for i, row in ipairs(rows) do
+        local rank = row._rank
+        local pos = row.pos or i
+        local head = pos
+        if has_group(row) then
+            rank = group_rank[row.active_group]
+            head = group_pos[row.active_group]
+        end
+        row._rank = nil
         local group
         if row.is_default then
             group = 3
@@ -40,7 +75,7 @@ function Mini_addons_ability_sort_order(rows, skill_rank)
         else
             group = 2
         end
-        keyed[#keyed + 1] = {row = row, group = group, rank = rank or 0, pos = row.pos or i}
+        keyed[#keyed + 1] = {row = row, group = group, rank = rank or 0, head = head, pos = pos}
     end
     table.sort(keyed, function(a, b)
         if a.group ~= b.group then
@@ -48,6 +83,9 @@ function Mini_addons_ability_sort_order(rows, skill_rank)
         end
         if a.rank ~= b.rank then
             return a.rank < b.rank
+        end
+        if a.head ~= b.head then
+            return a.head < b.head
         end
         return a.pos < b.pos
     end)
@@ -123,6 +161,12 @@ end
 
 local ABILITY_ROW_PREFIX = "skillability_ability_"
 
+-- 素の括弧枠の描き直し。pcall に直接渡さず関数で包むのは、docs/vanilla_api.py が
+-- 「素の API を直接呼んでいる箇所」だけを拾うため(値として渡すと一覧から消える)
+local function ability_sort_make_group(abilitylist_gb, cls_list, height)
+    SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP(abilitylist_gb, cls_list, height)
+end
+
 -- 置換方式フック。素を呼んで行を作らせた後、並べ直す。
 -- Common(アカウント特性)タブは素が別の関数で組むので触らない。
 function Mini_addons_SKILLABILITY_FILL_ABILITY_GB(skillability_job, ability_gb, jobClsName)
@@ -135,7 +179,8 @@ function Mini_addons_SKILLABILITY_FILL_ABILITY_GB(skillability_job, ability_gb, 
     end
     local ok, err = pcall(Mini_addons_ability_sort_apply, skillability_job, ability_gb, jobClsName)
     if not ok then
-        -- 並べ直しに失敗しても素の並びのまま残るので、機能を巻き込んで落とさない
+        -- 行を動かす前に失敗すれば素の並びのまま。動かした後の失敗は apply 側で行を戻す。
+        -- どちらでも素の描画は残るので、機能を巻き込んで落とさない
         core_g.vlog("{#FF6347}mini_addons: 特性の並べ替えに失敗 job=%s: %s{/}", tostring(jobClsName),
             tostring(err))
     end
@@ -168,6 +213,7 @@ function Mini_addons_ability_sort_apply(skillability_job, ability_gb, jobClsName
                     cls = abil_cls,
                     skills = Mini_addons_ability_sort_split_skills(TryGetProp(abil_cls, "SkillCategory", "None")),
                     is_default = IS_ABILITY_KEYWORD(abil_cls, "DEFAULT_ABIL"),
+                    active_group = TryGetProp(abil_cls, "ActiveGroup", "None"),
                     pos = child:GetY()
                 }
             end
@@ -175,6 +221,16 @@ function Mini_addons_ability_sort_apply(skillability_job, ability_gb, jobClsName
     end
     if #rows == 0 then
         core_g.vlog("mini_addons: 特性の並べ替え: 行が無い job=%s", tostring(jobClsName))
+        return
+    end
+
+    -- 括弧枠を描き直す素の関数が無ければ、行を動かす前に諦める(IMC 側のパッチで
+    -- 消える・名前が変わるのは構文チェックを通り抜けて実機でだけ分かる。消してから
+    -- 描き直しに失敗すると枠が無いまま残るので、触る前に確かめる)
+    if type(_G["SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP"]) ~= "function" or
+        type(_G["DESTROY_CHILD_BYNAME"]) ~= "function" then
+        core_g.vlog("{#FF6347}mini_addons: 特性の並べ替え: 素の括弧枠の関数が無いので触らない job=%s{/}",
+            tostring(jobClsName))
         return
     end
 
@@ -189,9 +245,21 @@ function Mini_addons_ability_sort_apply(skillability_job, ability_gb, jobClsName
 
     -- ActiveGroup の括弧枠と中央のアイコンは行の位置に合わせて素が描いているので、
     -- 消してから素の関数に新しい順で描き直させる(center_active_group_* も同じ
-    -- 前方一致で消える)。
+    -- 前方一致で消える)。描き直しに失敗したら行を素の位置へ戻し、素の順で枠も
+    -- 描き直しておく(枠まで戻せなくても、行だけ入れ替わった中途半端な姿は残さない)
     DESTROY_CHILD_BYNAME(abilitylist_gb, "active_group_")
-    SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP(abilitylist_gb, cls_list, height)
+    local ok, err = pcall(ability_sort_make_group, abilitylist_gb, cls_list, height)
+    if not ok then
+        table.sort(rows, function(a, b) return a.pos < b.pos end)
+        local origin_cls = {}
+        for i, row in ipairs(rows) do
+            row.ctrl:SetPos(row.ctrl:GetX(), row.pos)
+            origin_cls[i] = row.cls
+        end
+        DESTROY_CHILD_BYNAME(abilitylist_gb, "active_group_")
+        pcall(ability_sort_make_group, abilitylist_gb, origin_cls, height)
+        error("括弧枠の描き直しに失敗したので行を素の並びへ戻した: " .. tostring(err), 0)
+    end
 
     core_g.vlog("mini_addons: 特性を並べ替え job=%s 行=%d スキル=%d(%s) 順=%s", tostring(jobClsName), #rows,
         skill_count, from_screen and "画面の位置" or "解放Lv/添字", table.concat(names, ","))

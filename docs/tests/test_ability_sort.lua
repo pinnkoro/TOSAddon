@@ -285,6 +285,31 @@ do
     check("要素はそのまま", sorted[3], rows[4])
 end
 
+print("[1b] 同じ ActiveGroup は隣り合わせにする（紐付くスキルが違っても）")
+do
+    -- Desperado22/23 のように、同じ組でも SkillCategory が別のスキルを指す組と、
+    -- Schwarzereiter31/34 のように片方が All(= 紐付かない)の組
+    local rows = {
+        {name = "c1", skills = {"C"}, pos = 1},
+        {name = "g_b", skills = {"B"}, active_group = "G", pos = 2},
+        {name = "a1", skills = {"A"}, pos = 3},
+        {name = "g_a", skills = {"A"}, active_group = "G", pos = 4},
+        {name = "h_all", skills = {}, active_group = "H", pos = 5},
+        {name = "b1", skills = {"B"}, pos = 6},
+        {name = "h_c", skills = {"C"}, active_group = "H", pos = 7},
+        {name = "none", skills = {}, pos = 8}
+    }
+    local sorted = _G.Mini_addons_ability_sort_order(rows, {A = 1, B = 2, C = 3})
+    local names = {}
+    for i, r in ipairs(sorted) do names[i] = r.name end
+    -- G は一番早い A の位置(a1 の後。組の先頭の素の並び 2 < a1 の 3 なので a1 より前)、
+    -- H は紐付く方(C)の位置へ組ごと移る。All の h_all は先頭には行かない
+    check("並び", join(names), "none,g_b,g_a,a1,b1,c1,h_all,h_c")
+    -- 組の中は素の並びを保つ
+    check("組の中の並び", names[2] .. "," .. names[3], "g_b,g_a")
+    check("None は単独扱い", sorted[1].name, "none")
+end
+
 print("[2] Mini_addons_ability_sort_split_skills")
 do
     check("3 つ", join(_G.Mini_addons_ability_sort_split_skills("A;B;C")), "A,B,C")
@@ -370,6 +395,50 @@ do
     _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP = saved
     check("フックは落ちない", ok, true)
     check("vlog に失敗", world.vlog[#world.vlog]:find("並べ替えに失敗", 1, true) ~= nil, true)
+end
+
+print("[7] 括弧枠の描き直しに失敗したら行を素の並びへ戻す")
+do
+    setup_job("Swordman", {{name = "Slash", x = 0, y = 0}}, {
+        {name = "Slash1", skills = "Slash"},
+        {name = "Common", skills = "None"}
+    })
+    local saved = _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP
+    local calls = 0
+    _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP = function(_, cls_list)
+        calls = calls + 1
+        if calls == 1 then
+            error("boom")
+        end
+        -- 2 回目は素の順で描き直す呼び出し
+        local names = {}
+        for i, cls in ipairs(cls_list) do names[i] = cls.ClassName end
+        world.group_calls[#world.group_calls + 1] = {names = names}
+    end
+    mini.FUNCS["SKILLABILITY_FILL_ABILITY_GB"] = function() end
+    local ok = pcall(_G.Mini_addons_SKILLABILITY_FILL_ABILITY_GB, skillability_job, ability_gb, "Swordman")
+    _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP = saved
+    check("フックは落ちない", ok, true)
+    check("行は素の並びへ戻る", join(screen_order()), "Slash1,Common")
+    check("素の順で枠を描き直す", join(world.group_calls[1].names), "Slash1,Common")
+    check("消すのは 2 回", #world.destroyed, 2)
+    check("vlog に戻したこと", world.vlog[#world.vlog]:find("素の並びへ戻した", 1, true) ~= nil, true)
+end
+
+print("[8] 素の括弧枠の関数が無ければ行を動かさない")
+do
+    setup_job("Swordman", {{name = "Slash", x = 0, y = 0}}, {
+        {name = "Slash1", skills = "Slash"},
+        {name = "Common", skills = "None"}
+    })
+    local saved = _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP
+    _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP = nil
+    mini.FUNCS["SKILLABILITY_FILL_ABILITY_GB"] = function() end
+    _G.Mini_addons_SKILLABILITY_FILL_ABILITY_GB(skillability_job, ability_gb, "Swordman")
+    _G.SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP = saved
+    check("並びは素のまま", join(screen_order()), "Slash1,Common")
+    check("括弧枠を触らない", #world.destroyed, 0)
+    check("vlog に理由", world.vlog[#world.vlog]:find("関数が無い", 1, true) ~= nil, true)
 end
 
 if failed > 0 then
