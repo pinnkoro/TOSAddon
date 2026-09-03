@@ -304,7 +304,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.5.0",
     updated_note_jp = "設定画面をタブ(パネル / コンテンツ)に分けました。ショートカットはアイコン＋名前の一覧になり、右端で見切れて押せなかった「レティーシャへ移動」が押せます。ショートカットとレイドの行を▲▼で並べ替えられるようになり、セット(SET A / B / C)のボタンはコンテンツタブの一覧の上へ移しました。セットを切り替えても設定ウィンドウが画面中央へ戻らなくなりました。ショートカットを全部出したときにパネルの右端で歯車が切れていたのも直しました。コンテンツの一覧は縦 1 列 + スクロールになり、名前の右にパネルと同じ絵が付きます。「ON のものだけ表示」で絞り込めます。入場できなくなったアシャークは一覧から外しました。背景は SKIN SELECT のメニューをやめ、3 つのボタンを横に並べて今使っているものを赤くしました",
     updated_note_en = "The settings window is now split into Panel and Contents tabs; shortcuts became an icon + name list so the Leticia entry that was clipped off the right edge is reachable, shortcuts and raid rows can be reordered with the arrows, the set buttons (SET A / B / C) moved above the content list, switching sets no longer recentres the window, the gear button no longer gets clipped off the right edge of the panel when every shortcut is shown, and the content list is a single scrolling column with each row's panel icon next to its name plus a Show only enabled filter; Ashaq was removed because it can no longer be entered, and the skin picker is now three buttons with the active one highlighted",
     data = {
@@ -433,7 +433,7 @@ g._nexus_addons_p = {{
     key = "party_icon_only",
     category = "battle",
     since = "2.4.0",
-    updated = g.VER_NEXT,
+    updated = "2.5.0",
     updated_note_jp = "掴み代の帯を右クリックすると「展開する / 格納する」を選べるようにしました。展開中は素の表示に戻り、Mini Addons のパーティ情報まわりも動きます",
     updated_note_en = "Right-click the header band to choose Expand / Collapse; while expanded the vanilla display returns and the Mini Addons party info features work again",
     data = {
