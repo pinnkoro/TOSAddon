@@ -1626,22 +1626,28 @@ local INDUN_PANEL_CONFIG_TABS = {{
 -- 500 はコンテンツ側の 1 行「▲▼(56) + チェックと名前(186) + 絵(35) + 段 3 つ(165)」から。
 -- パネル側もこの幅に収まるよう、2 列組みの右列を寄せてある。
 local INDUN_PANEL_CONFIG_W = 500
--- コンテンツ側の窓の高さ(固定)。行はコンテンツが増えるたびに伸びるので、窓の背丈で
--- 受け止めると画面へ収まらなくなる。一覧はこの中でスクロールする。
--- (パネル側の高さは中身から決める。ショートカットの数だけ下へ伸びる)
-local INDUN_PANEL_CONFIG_CONTENTS_H = 640
+-- 窓の高さ。**幅と同じく、タブでも中身の量でも変えない。**
+--
+-- 一覧(ショートカット / コンテンツ)は数が増えるたびに伸びるので、窓の背丈で受け止めると
+-- **画面へ収まらなくなる**。どちらの一覧も枠へ入れて縦スクロールさせる。
+-- 640 にしてあるのは 1280x720 の画面にも収まる大きさだから(以前はパネル側だけ中身なりに
+-- 伸ばしていて、ショートカット 11 個で 751px になり、720 の画面では最後の 1 行が
+-- 画面の外へ落ちて押せなかった)。
+local INDUN_PANEL_CONFIG_H = 640
 -- タイトルとタブのぶん。中身(body)はこの下から始まる。
 local INDUN_PANEL_CONFIG_BODY_Y = 78
--- 中身を入れる枠の名前。**チェックのイベントの第 1 引数はこの groupbox になる**ので、
--- 「設定ウィンドウから来たか」を見る Indun_panel_from_config がこの名前を知っている必要がある。
-local INDUN_PANEL_CONFIG_BODY = "config_body"
--- コンテンツの一覧(スクロールする枠)の名前。**行のチェックはこの中に入っている**ので、
--- こちらも Indun_panel_from_config が知っている必要がある。
+-- 中身を入れる枠の名前。
+--
+-- **チェックのイベントの第 1 引数はこれらの groupbox になる**ので、「設定ウィンドウから
+-- 来たか」を見る Indun_panel_from_config がこの名前を知っている必要がある。
 --
 -- **入れ物を増やしたらここへ足すこと。** 足し忘れると「設定から来た」と見なされず、
 -- チェックを外してもパネルを組み直さなくなる。パネルは名前でコントロールを使い回すので、
 -- 組み直さないと消したはずの行がその場に残り、次の行と重なって描かれる(実機で発生)。
-local INDUN_PANEL_CONFIG_ROWS = "rows_gb"
+local INDUN_PANEL_CONFIG_BODY = "config_body"
+local INDUN_PANEL_CONFIG_ROWS = "rows_gb" -- コンテンツの一覧
+local INDUN_PANEL_CONFIG_SC = "sc_gb" -- ショートカットの一覧
+local INDUN_PANEL_CONFIG_CONTAINERS = {INDUN_PANEL_CONFIG_BODY, INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC}
 
 function Indun_panel_config_frame_name()
     return addon_name_lower .. "indun_panel_config"
@@ -1656,8 +1662,15 @@ function Indun_panel_from_config(frame)
         return false
     end
     local name = frame:GetName()
-    return name == Indun_panel_config_frame_name() or name == INDUN_PANEL_CONFIG_BODY or name ==
-               INDUN_PANEL_CONFIG_ROWS
+    if name == Indun_panel_config_frame_name() then
+        return true
+    end
+    for _, container in ipairs(INDUN_PANEL_CONFIG_CONTAINERS) do
+        if name == container then
+            return true
+        end
+    end
+    return false
 end
 
 -- 今のタブ。知らない値が入っていたら既定へ落とす。
@@ -1721,6 +1734,30 @@ local function Indun_panel_config_note(body, name, text, y, w)
     return y + 22
 end
 
+-- 一覧の枠のスクロール位置。**作り直しても位置を保つ**ための控え。
+-- 控えは Indun_panel_config_build が RemoveAllChild より前に取る(壊した後の枠は必ず 0 を返す)。
+local indun_panel_config_scroll = {}
+
+-- 控えておいた位置へ戻す。**先に InvalidateScrollBar を呼ぶこと。**
+-- 順番が逆だと、作り直す前(中身が空だったとき)の範囲で丸められて先頭に貼り付く
+-- (core/90_addons_menu.lua のショートカットタブと同じ理由)。
+local function Indun_panel_config_restore_scroll(gb, name, content_h)
+    local prev = indun_panel_config_scroll[name] or 0
+    local scroll_max = content_h - gb:GetHeight()
+    if scroll_max < 0 then
+        scroll_max = 0
+    end
+    if prev > scroll_max then
+        prev = scroll_max
+    end
+    pcall(function()
+        gb:InvalidateScrollBar()
+    end)
+    pcall(function()
+        gb:SetScrollPos(prev)
+    end)
+end
+
 -- ▲▼ の 2 つ。押せない端は灰色にして、押しても何も起きないことを見せる。
 -- 動かす対象がショートカットと行で違うので、呼ぶ関数名は呼び出し側から渡す。
 local function Indun_panel_config_move_buttons(body, prefix, idx, count, key, x, y, script)
@@ -1775,7 +1812,7 @@ end
 
 -- ===== タブ 1: パネル =====
 -- 位置・背景・表示まわりと、パネルへ並べるショートカット。戻り値は中身の高さ。
-local function Indun_panel_config_build_panel(body, w)
+local function Indun_panel_config_build_panel(body, w, body_h)
     local is_jp = g.lang == "Japanese"
     local y = Indun_panel_config_section(body, "panel", is_jp and "Indun Panel の設定" or "Panel settings", 8, w)
     local position = body:CreateOrGetControl("button", "position", 15, y, 70, 30)
@@ -1885,9 +1922,19 @@ local function Indun_panel_config_build_panel(body, w)
     end
     y = Indun_panel_config_filter_button(body, "sc", only_on, #shortcuts, #all, y,
         "Indun_panel_shortcut_filter_ctrl")
+    -- 一覧は枠へ入れて縦スクロールさせる(コンテンツ側と同じ)。**窓の背丈で受け止めないこと。**
+    -- 中身なりに伸ばしていたときはショートカット 11 個で 751px になり、1280x720 の画面では
+    -- 最後の 1 行(レティーシャへ移動)が画面の外へ落ちて押せなかった。
+    local gb = body:CreateOrGetControl("groupbox", INDUN_PANEL_CONFIG_SC, 8, y, w - 16,
+        math.max(body_h - y - 8, 100))
+    AUTO_CAST(gb)
+    gb:SetSkinName("bg")
+    gb:RemoveAllChild()
+    gb:EnableScrollBar(1)
+    local ry = 5
     for idx, def in ipairs(shortcuts) do
-        Indun_panel_config_move_buttons(body, "sc", idx, #shortcuts, def.key, 15, y + 1, "Indun_panel_shortcut_move")
-        local checkbox = body:CreateOrGetControl("checkbox", def.key, 72, y, 25, 25)
+        Indun_panel_config_move_buttons(gb, "sc", idx, #shortcuts, def.key, 8, ry + 2, "Indun_panel_shortcut_move")
+        local checkbox = gb:CreateOrGetControl("checkbox", def.key, 64, ry, 25, 25)
         AUTO_CAST(checkbox)
         local label = is_jp and def.jp or def.en
         -- 都市でだけ出るボタンはその場で分かるようにする。ツールチップだけだと
@@ -1907,16 +1954,16 @@ local function Indun_panel_config_build_panel(body, w)
             end
         end
         checkbox:SetCheck(is_checked)
-        y = y + 30
+        ry = ry + 30
     end
     if #shortcuts == 0 then
-        local empty = body:CreateOrGetControl("richtext", "sc_empty", 20, y + 4, 10, 20)
+        local empty = gb:CreateOrGetControl("richtext", "sc_empty", 12, 10, 10, 20)
         AUTO_CAST(empty)
-        empty:SetText(is_jp and "{ol}{#FFA500}{s15}ON のショートカットがありません" or
-                          "{ol}{#FFA500}{s15}No shortcut is enabled")
-        y = y + 30
+        empty:SetText(is_jp and "{ol}{#FFA500}ON のショートカットがありません" or
+                          "{ol}{#FFA500}No shortcut is enabled")
     end
-    return y + 10
+    Indun_panel_config_restore_scroll(gb, INDUN_PANEL_CONFIG_SC, ry)
+    return body_h
 end
 
 -- ===== タブ 2: コンテンツ =====
@@ -2021,23 +2068,7 @@ local function Indun_panel_config_build_contents(body, w, body_h)
         empty:SetText(is_jp and "{ol}{#FFA500}表示 ON のコンテンツがありません" or
                           "{ol}{#FFA500}No content is enabled")
     end
-    -- 控えておいたスクロール位置へ戻す。**先に InvalidateScrollBar を呼ぶこと。**
-    -- 順番が逆だと、作り直す前(中身が空だったとき)の範囲で丸められて先頭に貼り付く
-    -- (core/90_addons_menu.lua のショートカットタブと同じ理由)。
-    local prev_scroll = g.indun_panel_rows_scroll or 0
-    local scroll_max = ry - gb:GetHeight()
-    if scroll_max < 0 then
-        scroll_max = 0
-    end
-    if prev_scroll > scroll_max then
-        prev_scroll = scroll_max
-    end
-    pcall(function()
-        gb:InvalidateScrollBar()
-    end)
-    pcall(function()
-        gb:SetScrollPos(prev_scroll)
-    end)
+    Indun_panel_config_restore_scroll(gb, INDUN_PANEL_CONFIG_ROWS, ry)
     return body_h
 end
 
@@ -2071,19 +2102,20 @@ local function Indun_panel_config_build(config_frame, keep_pos)
     -- **中身を壊す前にスクロール位置を控える。** ここを飛ばすと、▲▼ を押して組み立て直した
     -- 瞬間に一覧の先頭へ戻る(下のほうの行を触れない)。控えるのは RemoveAllChild より前で
     -- なければならない(壊した後の枠は必ず 0 を返す)。
-    local rows_gb = GET_CHILD_RECURSIVELY(config_frame, INDUN_PANEL_CONFIG_ROWS)
-    if rows_gb then
-        g.indun_panel_rows_scroll = g.scroll_cur_pos(rows_gb)
+    for _, name in ipairs({INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC}) do
+        local gb = GET_CHILD_RECURSIVELY(config_frame, name)
+        if gb then
+            indun_panel_config_scroll[name] = g.scroll_cur_pos(gb)
+        end
     end
     -- **中身は毎回捨てて作り直す。** タブによって並ぶものが違い、名前で使い回すと
     -- 前のタブのコントロールが残って重なる(CreateOrGetControl は名前で引き当てるだけ)。
     body:RemoveAllChild()
-    local content_h
+    local content_h = INDUN_PANEL_CONFIG_H - INDUN_PANEL_CONFIG_BODY_Y
     if tab == "contents" then
-        content_h = INDUN_PANEL_CONFIG_CONTENTS_H - INDUN_PANEL_CONFIG_BODY_Y
         Indun_panel_config_build_contents(body, w, content_h)
     else
-        content_h = Indun_panel_config_build_panel(body, w)
+        Indun_panel_config_build_panel(body, w, content_h)
     end
     body:Resize(w, content_h)
     local h = INDUN_PANEL_CONFIG_BODY_Y + content_h
