@@ -1470,6 +1470,7 @@ local MINI_EXPECTED = {
     "sound/toggle.lua",
     "misc/reroll_option.lua",
     "misc/ability_sort.lua",
+    "misc/fragmentation.lua",
     "inventory/inventory_open.lua",
     "footer.lua"
 }

@@ -27,7 +27,8 @@ local NESTED_USE_SETTINGS = {
     baubas_call = true,
     velnice = true,
     auto_zoom = true,
-    event_shout = true
+    event_shout = true,
+    fragmentation = true
 }
 
 -- 設定 1 行（チェックボックスと、項目によっては隣に付く操作 UI）を作る。
@@ -157,6 +158,27 @@ local function create_setting_row(gbox, setting, y)
         edit_ctrl:SetTextAlign("center", "center")
         edit_ctrl:SetText("{ol}" .. g.settings.auto_zoom.zoom)
         right = right + 15 + 60
+    elseif setting.name == "fragmentation" then
+        -- スロットの列数・行数。**「窓に入る大きさ」は環境で変わる**(画面の高さで
+        -- 伸ばせる量が変わる)ので、入りきらないぶんはスロットを縮めて収める。
+        -- 入力は Enter で確定(他の数値入力と同じ)。
+        local col_edit = gbox:CreateOrGetControl("edit", "fragmentation_col_edit", right + 15, y, 45, 25)
+        AUTO_CAST(col_edit)
+        col_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_col_edit")
+        col_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}列 1~10 既定 5" or g.lang == "kr" and
+                                    "{ol}열 1~10 기본 5" or "{ol}Columns 1~10 Default 5")
+        col_edit:SetFontName("white_16_ol")
+        col_edit:SetTextAlign("center", "center")
+        col_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.col) or 5))
+        local row_edit = gbox:CreateOrGetControl("edit", "fragmentation_row_edit", right + 70, y, 45, 25)
+        AUTO_CAST(row_edit)
+        row_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_row_edit")
+        row_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}行 1~10 既定 5" or g.lang == "kr" and
+                                    "{ol}행 1~10 기본 5" or "{ol}Rows 1~10 Default 5")
+        row_edit:SetFontName("white_16_ol")
+        row_edit:SetTextAlign("center", "center")
+        row_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.row) or 5))
+        right = right + 70 + 45
     elseif setting.name == "event_shout" then
         local event_shout_btn = gbox:CreateOrGetControl("button", "event_shout_btn", right + 15, y - 5, 50, 30)
         AUTO_CAST(event_shout_btn)
@@ -493,7 +515,7 @@ function Mini_addons_ISCHECK(frame, ctrl, argStr, argNum)
     for _, setting_name in ipairs(SETTINGS_NAME) do
         if ctrl_name == setting_name then
             if setting_name == "cupole_portion" or setting_name == "velnice" or setting_name == "baubas_call" or
-                setting_name == "auto_zoom" or setting_name == "event_shout" then
+                setting_name == "auto_zoom" or setting_name == "event_shout" or setting_name == "fragmentation" then
                 g.settings[setting_name] = g.settings[setting_name] or {}
                 g.settings[setting_name].use = is_checked
             else
@@ -527,6 +549,9 @@ function Mini_addons_ISCHECK(frame, ctrl, argStr, argNum)
                 Mini_addons_INVENTORY_OPEN_logic(inventory)
             elseif setting_name == "chat_new_btn" then
                 Mini_addons_update_chat_frame()
+            elseif setting_name == "fragmentation" then
+                -- 破片化の窓が開いたままでも切り替えが効くように。閉じていれば何もしない
+                Mini_addons_frag_reapply()
             end
             break
         end
