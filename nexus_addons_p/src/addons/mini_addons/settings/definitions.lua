@@ -215,7 +215,10 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "특성을 스킬 순서로 정렬",
     text_en = "Sort abilities in skill order",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    since = "2.4.0"
+    since = "2.4.0",
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "特性の窓を閉じているときにも並べ替えが走っていたのをやめました。装備を替えたときの引っかかりが減ります",
+    updated_note_en = "Stopped sorting while the ability window is closed. Changing equipment stutters less"
 }, {
     name = "fragmentation",
     text_jp = "アイテム破片化の枠を拡張し、耳飾りを細かく絞り込む",
