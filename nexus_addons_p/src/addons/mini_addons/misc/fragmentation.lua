@@ -36,12 +36,16 @@ frag.MAXLV_CNT = 5 -- 特殊オプションのレベルは 1〜5
 frag.FILTER_H = 74 -- 自前のフィルタ 2 行(等級 / 最大Lv)ぶんの高さ
 frag.ROW_H = 34
 frag.GROUP = "nexus_p_frag_filter"
+-- 素の一覧更新。名前で持つ理由は Mini_addons_FRAGMENTATION_OPEN のコメント
+frag.REFRESH = "FRAGMENTATION_REFRESH_ALL"
 
 -- 素の窓の寸法。**実物から控える**(XML の数値を書き写すと、IMC が窓を変えたときに
 -- こちらだけ古い前提で計算し続けることになる)。控えるのは 1 回だけ。
 frag.base = nil
 -- 素の shared_item_earring.MAX_SLOT_CNT。機能を OFF にしたときに戻す
 frag.base_max_slot = nil
+-- 素の窓へ手を入れたか。OFF のときに素へ戻すのは、これが真のときだけでよい
+frag.applied = false
 
 function frag.lang(jp, kr, en)
     if g.lang == "Japanese" then
@@ -95,9 +99,16 @@ function frag.capture_base(frame, main_bg, center_bg, slotset, filter_box)
         col = slotset:GetCol(),
         row = slotset:GetRow()
     }
-    -- 素のスロットの大きさは getter が無いので、今の幅と列数から割り出す
-    local slot = math.floor(slotset:GetWidth() / math.max(1, frag.base.col)) - frag.SPC
-    if slot < frag.SLOT_MIN or slot > frag.SLOT_MAX then
+    -- 素のスロットの大きさ。**slotset の幅と列数から割り出してはいけない**
+    -- (slotset の幅は XML の rect のままで spc を含まないことがあり、素の 82 に対して
+    --  80 という 2px ずれた値が出る。範囲の見張りにも掛からないので黙って小さくなる)。
+    -- スロット本体の幅がそのまま答えなので、そちらを読む。
+    local slot = nil
+    local first = slotset:GetSlotByIndex(0)
+    if first then
+        slot = first:GetWidth()
+    end
+    if slot == nil or slot < frag.SLOT_MIN or slot > frag.SLOT_MAX then
         slot = frag.SLOT_MAX
     end
     frag.base.slot = slot
@@ -135,6 +146,11 @@ end
 function frag.build_filter(main_bg, filter_top)
     local group = main_bg:CreateOrGetControl("groupbox", frag.GROUP, 45, filter_top, 520, frag.FILTER_H)
     AUTO_CAST(group)
+    -- **CreateOrGetControl は既にあるコントロールを置き直さない。** 行数を変えると
+    -- filter_top が動くので、位置と大きさは毎回当て直すこと(でないと前回の位置に
+    -- residue が残り、スロットと重なる)
+    group:SetOffset(45, filter_top)
+    group:Resize(520, frag.FILTER_H)
     group:SetSkinName("None")
     local grade_label = group:CreateOrGetControl("richtext", "nexus_p_frag_grade_text", 0, 4, 65, 25)
     AUTO_CAST(grade_label)
@@ -246,6 +262,12 @@ function Mini_addons_frag_apply(frame)
     if not frame then
         return
     end
+    -- **一度も広げていないなら、素の窓には一切触らない。** 既定は OFF なので、
+    -- 機能を使っていない利用者の窓が Resize / CreateSlots を通ることが無いようにする
+    -- (素の見た目を変えないだけでなく、素が並べ終えたスロットを作り直さないため)。
+    if not frag.enabled() and not frag.applied then
+        return
+    end
     local main_bg = GET_CHILD_RECURSIVELY(frame, "main_bg")
     local center_bg = GET_CHILD_RECURSIVELY(frame, "center_bg")
     local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
@@ -271,6 +293,7 @@ function Mini_addons_frag_apply(frame)
         -- 素の実行ボタンは MAX_SLOT_CNT を上限に見て、超えていると**何もせず戻る**。
         -- 見えているスロットぶんを実行できるよう、こちらの枚数へ合わせる
         shared_item_earring.MAX_SLOT_CNT = col * row
+        frag.applied = true
     else
         col, row, extra, slot = frag.base.col, frag.base.row, 0, frag.base.slot
         local group = GET_CHILD_RECURSIVELY(frame, frag.GROUP)
@@ -280,6 +303,7 @@ function Mini_addons_frag_apply(frame)
         if frag.base_max_slot ~= nil then
             shared_item_earring.MAX_SLOT_CNT = frag.base_max_slot
         end
+        frag.applied = false -- 素へ戻したので、次からはまた触らない
     end
     local slot_h = row * (slot + frag.SPC)
     frame:Resize(frame:GetWidth(), frag.base.frame_h + extra)
@@ -317,16 +341,16 @@ function Mini_addons_frag_check(parent, ctrl)
 end
 
 -- 設定画面の「列」「行」入力
-function frag.edit_apply(ctrl, key, def)
+function frag.edit_apply(ctrl, key, def, high)
     local value = tonumber(ctrl:GetText())
     g.settings.fragmentation = g.settings.fragmentation or {}
-    if value == nil or value < 1 or value > frag.COL_MAX then
-        ui.SysMsg(frag.lang("無効な値です。1から" .. frag.COL_MAX .. "の間で設定してください。",
-            "잘못된 값입니다. 1~" .. frag.COL_MAX .. " 사이로 설정해 주세요.",
-            "Invalid value please set between 1 and " .. frag.COL_MAX))
+    if value == nil or value < 1 or value > high then
+        ui.SysMsg(frag.lang("無効な値です。1から" .. high .. "の間で設定してください。",
+            "잘못된 값입니다. 1~" .. high .. " 사이로 설정해 주세요.",
+            "Invalid value please set between 1 and " .. high))
         value = def
     end
-    value = frag.clamp(value, 1, frag.COL_MAX)
+    value = frag.clamp(value, 1, high)
     ctrl:SetText("{ol}" .. value)
     g.settings.fragmentation[key] = value
     Mini_addons_save_settings()
@@ -334,23 +358,56 @@ function frag.edit_apply(ctrl, key, def)
 end
 
 function Mini_addons_frag_col_edit(frame, ctrl)
-    frag.edit_apply(ctrl, "col", frag.COL_DEF)
+    frag.edit_apply(ctrl, "col", frag.COL_DEF, frag.COL_MAX)
 end
 
 function Mini_addons_frag_row_edit(frame, ctrl)
-    frag.edit_apply(ctrl, "row", frag.ROW_DEF)
+    frag.edit_apply(ctrl, "row", frag.ROW_DEF, frag.ROW_MAX)
 end
 
 -- ここから素のフック。いずれも「素を呼んでから加工」で、素の中身は写していない。
 
 function Mini_addons_FRAGMENTATION_OPEN(frame)
     local origin = g.FUNCS["FRAGMENTATION_OPEN"]
-    if origin then
-        origin(frame)
+    if not frag.enabled() and not frag.applied then
+        if origin then
+            origin(frame)
+        end
+        return
     end
-    local ok, err = pcall(Mini_addons_frag_apply, frame)
+    -- 素の OPEN は最後に FRAGMENTATION_REFRESH_ALL(インベントリ全走査)を呼ぶが、
+    -- この直後にスロットを作り直すので**その結果は必ず捨てられる**。素を呼んでいる
+    -- 同期実行の間だけ空にして、走査を 1 回に減らす。**必ず元へ戻すこと**
+    -- (戻し忘れると、以降フィルタを触っても一覧が更新されなくなる)。
+    --
+    -- **差し替え先の名前を frag.REFRESH 経由で引いているのはわざと。**
+    -- `_G["FRAGMENTATION_REFRESH_ALL"] = ...` と直に書くと、docs/vanilla_api.py が
+    -- 「この名前は自分たちが定義したもの」と見なして素の API の一覧から外してしまい、
+    -- IMC 側でこの関数が消えても気付けなくなる(実際に一覧から落ちた)。
+    -- 呼び出しは Mini_addons_frag_apply の中に直書きが残っているので、そちらで追える。
+    local refresh = _G[frag.REFRESH]
+    local stubbed = type(refresh) == "function"
+    if stubbed then
+        _G[frag.REFRESH] = function()
+        end
+    end
+    local ok, err = pcall(function()
+        if origin then
+            origin(frame)
+        end
+    end)
+    if stubbed then
+        _G[frag.REFRESH] = refresh
+    end
     if not ok then
-        core_g.vlog("{#FF6347}mini_addons: 破片化の適用 FAILED{/} %s", tostring(err))
+        core_g.vlog("{#FF6347}mini_addons: 破片化の素の OPEN が FAILED{/} %s", tostring(err))
+    end
+    -- 中で FRAGMENTATION_REFRESH_ALL を 1 回呼ぶ(素の呼び出しを止めたぶんはここで賄う)
+    local ok2, err2 = pcall(Mini_addons_frag_apply, frame)
+    if not ok2 then
+        core_g.vlog("{#FF6347}mini_addons: 破片化の適用 FAILED{/} %s", tostring(err2))
+        -- 適用に失敗しても一覧は出す(素の呼び出しを止めているため)
+        pcall(FRAGMENTATION_REFRESH_ALL, frame)
     end
 end
 
