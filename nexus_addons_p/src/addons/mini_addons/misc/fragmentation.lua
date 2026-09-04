@@ -601,6 +601,112 @@ function frag.keep_row(gbox, index, cond, y, bases)
     make_btn("keep_del_", 495, 30, "X", "Mini_addons_frag_keep_del")
 end
 
+-- ===== 条件のプリセット(保存 / 読込) =====
+--
+-- 今並べている条件を名前を付けて保存し、後から呼び戻せるようにする。
+-- キャラや用途ごとに「残す条件」を持ち替えたい、という使い方を想定している。
+
+function frag.presets()
+    if not g.settings then
+        return {}
+    end
+    g.settings.fragmentation = g.settings.fragmentation or {}
+    if type(g.settings.fragmentation.presets) ~= "table" then
+        g.settings.fragmentation.presets = {}
+    end
+    return g.settings.fragmentation.presets
+end
+
+-- 条件の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
+-- 一覧が同じ表を指すことになり、保存した後に行をいじると中身まで書き換わる
+function frag.copy_conds(list)
+    local copy = {}
+    for i, cond in ipairs(list) do
+        copy[i] = {
+            ctrl = cond.ctrl,
+            cls = cond.cls,
+            rank = cond.rank,
+            lv = cond.lv
+        }
+    end
+    return copy
+end
+
+-- 窓の名前入力の中身。窓を組み立て直しても打った名前が消えないよう控えておく
+function frag.keep_name_text()
+    local frame = ui.GetFrame(frag.keep_frame_name())
+    if frame then
+        local edit = GET_CHILD_RECURSIVELY(frame, "preset_name")
+        if edit then
+            local text = edit:GetText()
+            if text and text ~= "" then
+                return text
+            end
+        end
+    end
+    return frag.keep_name or ""
+end
+
+function Mini_addons_frag_keep_save_preset()
+    local name = frag.keep_name_text()
+    if name == "" then
+        ui.SysMsg(frag.lang("{ol}プリセットの名前を入れてください", "{ol}프리셋 이름을 입력해 주세요",
+            "{ol}Enter a preset name"))
+        return
+    end
+    local list = frag.keep_list()
+    if #list == 0 then
+        ui.SysMsg(frag.lang("{ol}保存する条件がありません", "{ol}저장할 조건이 없습니다", "{ol}No rules to save"))
+        return
+    end
+    local presets = frag.presets()
+    local slot = nil
+    for _, preset in ipairs(presets) do
+        if preset.name == name then
+            slot = preset -- 同じ名前は上書き(増やし続けると選べなくなるため)
+        end
+    end
+    if not slot then
+        slot = {}
+        presets[#presets + 1] = slot
+    end
+    slot.name = name
+    slot.keep = frag.copy_conds(list)
+    frag.keep_name = name
+    Mini_addons_save_settings()
+    core_g.vlog("mini_addons: 破片化 プリセット保存 %s (%d 件)", name, #slot.keep)
+    ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」を保存しました",
+        "{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」을(를) 저장했습니다",
+        "{ol}{#00BFFF}[Nexus Addons P] Saved \"" .. name .. "\""))
+    Mini_addons_frag_keep_open()
+end
+
+-- 読込 / 削除の droplist。プリセットが 1 つも無ければ知らせて開かない
+function frag.preset_droplist(ctrl, field)
+    local presets = frag.presets()
+    if #presets == 0 then
+        ui.SysMsg(frag.lang("{ol}保存したプリセットがありません", "{ol}저장된 프리셋이 없습니다",
+            "{ol}No saved presets"))
+        return
+    end
+    local items = {}
+    for i, preset in ipairs(presets) do
+        items[#items + 1] = {
+            key = tostring(i),
+            name = preset.name or ("#" .. i)
+        }
+    end
+    frag.keep_droplist(ctrl, 0, field, items, 10, true)
+end
+
+function Mini_addons_frag_keep_open_load(frame, ctrl)
+    frag.preset_droplist(ctrl, "load")
+end
+
+function Mini_addons_frag_keep_open_delete(frame, ctrl)
+    frag.preset_droplist(ctrl, "delete")
+end
+
 -- 条件の窓を開く / 作り直す
 function Mini_addons_frag_keep_open()
     local name = frag.keep_frame_name()
@@ -615,6 +721,9 @@ function Mini_addons_frag_keep_open()
         frame:SetLayerLevel(999)
     end
     AUTO_CAST(frame)
+    -- 打ちかけの名前は控えてから捨てる(この関数は条件を 1 つ選ぶたびに呼ばれるので、
+    -- そのたびに入力が消えると名前を付けられない)
+    frag.keep_name = frag.keep_name_text()
     frame:RemoveAllChild()
     local title = frame:CreateOrGetControl("richtext", "title", 15, 12, 10, 30)
     AUTO_CAST(title)
@@ -626,11 +735,58 @@ function Mini_addons_frag_keep_open()
         "ここに並べた条件に 1 つも当てはまらない耳飾りだけを選択します",
         "여기에 나열한 조건에 하나도 해당하지 않는 귀걸이만 선택합니다",
         "Selects only the earrings that match none of the rules below"))
-    local head = frame:CreateOrGetControl("richtext", "head", 15, 75, 10, 25)
+    -- プリセット(保存 / 読込 / 削除)
+    local preset_label = frame:CreateOrGetControl("richtext", "preset_label", 15, 78, 80, 25)
+    AUTO_CAST(preset_label)
+    preset_label:SetText("{ol}" .. frag.lang("プリセット", "프리셋", "Preset"))
+    local preset_name = frame:CreateOrGetControl("edit", "preset_name", 105, 74, 170, 28)
+    AUTO_CAST(preset_name)
+    -- 素が入力欄に使っているスキンと字(guildinfo の noticeEdit と同じ組み合わせ)。
+    -- 窓の地が明るいので白字にすると読めない
+    preset_name:SetSkinName("test_weight_skin")
+    preset_name:SetFontName("black_18")
+    preset_name:SetTextAlign("left", "center")
+    preset_name:SetText(frag.keep_name or "")
+    -- **Focus() は呼ばない。** 入力欄にフォーカスがあると ESC の 1 回目が
+    -- 「入力欄から抜ける」に使われ、窓が閉じなくなる(CLAUDE.md の ESC の節)
+    preset_name:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_keep_save_preset")
+    local preset_btns = {{
+        name = "preset_save",
+        x = 285,
+        text = frag.lang("保存", "저장", "Save"),
+        script = "Mini_addons_frag_keep_save_preset",
+        tip = frag.lang("{ol}今並べている条件を、その名前で保存します{nl}同じ名前なら上書きします",
+            "{ol}지금 나열한 조건을 그 이름으로 저장합니다{nl}같은 이름이면 덮어씁니다",
+            "{ol}Saves the current rules under that name (overwrites the same name)")
+    }, {
+        name = "preset_load",
+        x = 365,
+        text = frag.lang("読込", "불러오기", "Load"),
+        script = "Mini_addons_frag_keep_open_load",
+        tip = frag.lang("{ol}保存したプリセットで、今の条件を置き換えます",
+            "{ol}저장한 프리셋으로 지금 조건을 바꿉니다", "{ol}Replaces the current rules with a saved preset")
+    }, {
+        name = "preset_del",
+        x = 445,
+        text = frag.lang("削除", "삭제", "Delete"),
+        script = "Mini_addons_frag_keep_open_delete",
+        tip = frag.lang("{ol}保存したプリセットを消します(今の条件はそのまま)",
+            "{ol}저장한 프리셋을 지웁니다(지금 조건은 그대로)",
+            "{ol}Deletes a saved preset (the current rules stay)")
+    }}
+    for _, def in ipairs(preset_btns) do
+        local btn = frame:CreateOrGetControl("button", def.name, def.x, 74, 70, 28)
+        AUTO_CAST(btn)
+        btn:SetSkinName("test_gray_button")
+        btn:SetText("{ol}" .. def.text)
+        btn:SetTextTooltip(def.tip)
+        btn:SetEventScript(ui.LBUTTONUP, def.script)
+    end
+    local head = frame:CreateOrGetControl("richtext", "head", 15, 112, 10, 25)
     AUTO_CAST(head)
     head:SetText("{ol}" .. frag.lang("系統            クラス                     ランク       Lv",
         "계열            클래스                    랭크        Lv", "Tree           Class                      Rank        Lv"))
-    local gbox = frame:CreateOrGetControl("groupbox", "rows", 10, 100, 540, 10)
+    local gbox = frame:CreateOrGetControl("groupbox", "rows", 10, 137, 540, 10)
     AUTO_CAST(gbox)
     gbox:SetSkinName("None")
     local list = frag.keep_list()
@@ -641,12 +797,12 @@ function Mini_addons_frag_keep_open()
         y = y + 34
     end
     gbox:Resize(540, math.max(10, y))
-    local add_btn = frame:CreateOrGetControl("button", "add_btn", 25, 105 + y, 150, 30)
+    local add_btn = frame:CreateOrGetControl("button", "add_btn", 25, 142 + y, 150, 30)
     AUTO_CAST(add_btn)
     add_btn:SetSkinName("test_gray_button")
     add_btn:SetText("{ol}" .. frag.lang("+ 条件を追加", "+ 조건 추가", "+ Add rule"))
     add_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_add")
-    local apply_btn = frame:CreateOrGetControl("button", "apply_btn", 300, 100 + y, 220, 40)
+    local apply_btn = frame:CreateOrGetControl("button", "apply_btn", 300, 137 + y, 220, 40)
     AUTO_CAST(apply_btn)
     apply_btn:SetSkinName("test_red_button")
     apply_btn:SetText("{ol}" .. frag.lang("この条件で選択", "이 조건으로 선택", "Select by these rules"))
@@ -656,7 +812,7 @@ function Mini_addons_frag_keep_open()
     close_btn:SetImage("testclose_button")
     close_btn:SetGravity(ui.RIGHT, ui.TOP)
     close_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_close")
-    frame:Resize(560, 160 + y)
+    frame:Resize(560, 197 + y)
     -- **位置を決めるのは作った回だけ。** この関数は条件を 1 つ選ぶたびに呼ばれるので、
     -- 毎回置き直すと利用者が動かした窓が操作のたびに飛ぶ
     local frag_frame = is_new and ui.GetFrame(frag.FRAME) or nil
@@ -695,16 +851,18 @@ end
 
 -- droplist を出す共通処理。**開いた行と項目を覚えてから出すこと**
 -- (コールバックは選ばれた値しか受け取らないため)
-function frag.keep_droplist(ctrl, index, field, items, height_cnt)
+function frag.keep_droplist(ctrl, index, field, items, height_cnt, no_any)
     frag.keep_edit = {
         index = index,
         field = field,
         items = items
     }
-    local shown = math.min(height_cnt, #items + 1)
+    local shown = math.min(height_cnt, #items + (no_any and 0 or 1))
     ui.MakeDropListFrame(ctrl, 0, 0, math.max(ctrl:GetWidth(), 150), shown * 30, shown, ui.LEFT,
         "Mini_addons_frag_keep_select", nil, nil)
-    ui.AddDropListItem(frag.keep_any_text(), nil, "None")
+    if not no_any then
+        ui.AddDropListItem(frag.keep_any_text(), nil, "None")
+    end
     for _, item in ipairs(items) do
         ui.AddDropListItem(item.name, nil, item.key)
     end
@@ -750,6 +908,35 @@ function Mini_addons_frag_keep_select(index, keyword)
     local edit = frag.keep_edit
     frag.keep_edit = nil
     if not edit then
+        return
+    end
+    if edit.field == "load" or edit.field == "delete" then
+        local presets = frag.presets()
+        local preset = presets[tonumber(keyword) or 0]
+        if not preset then
+            return
+        end
+        if edit.field == "load" then
+            -- **写しを入れること**(理由は frag.copy_conds のコメント)
+            g.settings.fragmentation.keep = frag.copy_conds(preset.keep or {})
+            frag.keep_name = preset.name
+            core_g.vlog("mini_addons: 破片化 プリセット読込 %s (%d 件)", tostring(preset.name),
+                #g.settings.fragmentation.keep)
+            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」を読み込みました",
+                "{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」을(를) 불러왔습니다",
+                "{ol}{#00BFFF}[Nexus Addons P] Loaded \"" .. tostring(preset.name) .. "\""))
+        else
+            local removed = tostring(preset.name)
+            table.remove(presets, tonumber(keyword))
+            if frag.keep_name == preset.name then
+                frag.keep_name = ""
+            end
+            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」を削除しました",
+                "{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」을(를) 삭제했습니다",
+                "{ol}{#00BFFF}[Nexus Addons P] Deleted \"" .. removed .. "\""))
+        end
+        Mini_addons_save_settings()
+        Mini_addons_frag_keep_open()
         return
     end
     local cond = frag.keep_list()[edit.index]
