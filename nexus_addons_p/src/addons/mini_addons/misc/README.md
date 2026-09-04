@@ -37,7 +37,7 @@
 | [goddess_gacha.lua](goddess_gacha.lua) | `auto_gacha` / `auto_gacha_start` | 女神の加護ガチャのフレーム表示と進行を自動化。フルベットボタン |
 | [minimized_close.lua](minimized_close.lua) | `mini_btn` | レイド中は右上のミニボタンを隠す |
 | [reroll_option.lua](reroll_option.lua) | `reroll_option` | オプションリロールの数値表を横に常時表示する |
-| [fragmentation.lua](fragmentation.lua) | `fragmentation` | アイテム破片化の枠を列 x 行で広げ、耳飾りを等級（1〜7 / 8 以上）と最大 Lv で絞り込む |
+| [fragmentation.lua](fragmentation.lua) | `fragmentation` | アイテム破片化の枠を列 x 行で広げ、耳飾りを等級（1〜7 / 8 以上）と最大 Lv で絞り込む。「条件で選択」で、残すクラス / ランク / Lv に当てはまらないものだけ選択する |
 
 ## 注意
 

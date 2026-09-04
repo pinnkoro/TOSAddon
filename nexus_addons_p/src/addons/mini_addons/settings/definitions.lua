@@ -111,7 +111,10 @@ local DEFAULT_SETTINGS = {
     fragmentation = {
         use = 0,
         col = 5,
-        row = 5
+        row = 5,
+        -- 「破片化しないで残す条件」。1 件 = {ctrl=系統, cls=クラス, rank=1〜3, lv=1〜5}。
+        -- 指定しない項目はキーごと持たない(= 指定なし)
+        keep = {}
     },
     -- 設定画面のセクションを畳んでいるか（キーは SETTING_SECTIONS の name、1 で折りたたみ）
     section_collapsed = {}
