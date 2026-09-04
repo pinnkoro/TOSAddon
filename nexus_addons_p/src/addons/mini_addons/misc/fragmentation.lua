@@ -34,6 +34,11 @@ frag.ROW_DEF = 5
 frag.GRADE_CNT = 8 -- 8 個目は「8 等級以上」
 frag.MAXLV_CNT = 5 -- 特殊オプションのレベルは 1〜5
 frag.FILTER_H = 74 -- 自前のフィルタ 2 行(等級 / 最大Lv)ぶんの高さ
+-- 自前のフィルタ行を、素のフィルタ枠(filter_box)の上端からどれだけ下げるか。
+-- 枠の上 50px は素の見出し(「フィルタ | 耳飾り」)が使っているので、その下へ置く。
+-- **枠の外(上)へ出さないこと。** 見出しから離れて宙に浮いて見えるうえ、
+-- スロットに使える高さもそのぶん削ることになる。
+frag.FILTER_PAD = 50
 frag.ROW_H = 34
 frag.GROUP = "nexus_p_frag_filter"
 -- 素の一覧更新。名前で持つ理由は Mini_addons_FRAGMENTATION_OPEN のコメント
@@ -124,12 +129,14 @@ end
 -- 小さくなってしまうため、両方を組み合わせている。
 function frag.geometry(col, row)
     local base = frag.base
-    local want_h = row * (frag.SLOT_MAX + frag.SPC) + base.slot_top + frag.FILTER_H + 5 + base.bottom
+    local want_h = row * (frag.SLOT_MAX + frag.SPC) + base.slot_top + 5 + base.bottom
     local room = ui.GetClientInitialHeight() - 60 - base.frame_h
     local extra = math.max(0, math.min(math.max(0, room), want_h - base.main_h))
-    -- 自前のフィルタ行の上端 = スロットに使える下限
-    local filter_top = (base.main_h + extra - base.bottom) - frag.FILTER_H - 5
-    local avail_h = filter_top - base.slot_top
+    -- 素のフィルタ枠の上端。スロットはここより上に収める(自前の行は枠の中へ置くので、
+    -- スロットに使える高さは素と同じ考え方のままでよい)
+    local filter_area = base.main_h + extra - base.bottom
+    local filter_top = filter_area + frag.FILTER_PAD
+    local avail_h = filter_area - 5 - base.slot_top
     local avail_w = base.center_w - 12
     local slot = math.min(frag.SLOT_MAX, math.floor(avail_w / col) - frag.SPC, math.floor(avail_h / row) - frag.SPC)
     slot = frag.clamp(slot, frag.SLOT_MIN, frag.SLOT_MAX)

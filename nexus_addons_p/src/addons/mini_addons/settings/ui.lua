@@ -162,23 +162,31 @@ local function create_setting_row(gbox, setting, y)
         -- スロットの列数・行数。**「窓に入る大きさ」は環境で変わる**(画面の高さで
         -- 伸ばせる量が変わる)ので、入りきらないぶんはスロットを縮めて収める。
         -- 入力は Enter で確定(他の数値入力と同じ)。
-        local col_edit = gbox:CreateOrGetControl("edit", "fragmentation_col_edit", right + 15, y, 45, 25)
+        -- **どちらが列でどちらが行なのかを、入力の手前にラベルで出す。**
+        -- 数値が 2 つ並ぶだけだと、ツールチップを出すまで見分けが付かない
+        local col_label = gbox:CreateOrGetControl("richtext", "fragmentation_col_text", right + 15, y + 3, 14, 25)
+        AUTO_CAST(col_label)
+        col_label:SetText("{ol}X")
+        local col_edit = gbox:CreateOrGetControl("edit", "fragmentation_col_edit", right + 32, y, 45, 25)
         AUTO_CAST(col_edit)
         col_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_col_edit")
-        col_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}列 1~10 既定 5" or g.lang == "kr" and
-                                    "{ol}열 1~10 기본 5" or "{ol}Columns 1~10 Default 5")
+        col_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}X = 横に並べる数(列) 1~10 既定 5" or g.lang == "kr" and
+                                    "{ol}X = 가로 개수(열) 1~10 기본 5" or "{ol}X = columns 1~10 Default 5")
         col_edit:SetFontName("white_16_ol")
         col_edit:SetTextAlign("center", "center")
         col_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.col) or 5))
-        local row_edit = gbox:CreateOrGetControl("edit", "fragmentation_row_edit", right + 70, y, 45, 25)
+        local row_label = gbox:CreateOrGetControl("richtext", "fragmentation_row_text", right + 87, y + 3, 14, 25)
+        AUTO_CAST(row_label)
+        row_label:SetText("{ol}Y")
+        local row_edit = gbox:CreateOrGetControl("edit", "fragmentation_row_edit", right + 104, y, 45, 25)
         AUTO_CAST(row_edit)
         row_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_row_edit")
-        row_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}行 1~10 既定 5" or g.lang == "kr" and
-                                    "{ol}행 1~10 기본 5" or "{ol}Rows 1~10 Default 5")
+        row_edit:SetTextTooltip(g.lang == "Japanese" and "{ol}Y = 縦に並べる数(行) 1~10 既定 5" or g.lang == "kr" and
+                                    "{ol}Y = 세로 개수(행) 1~10 기본 5" or "{ol}Y = rows 1~10 Default 5")
         row_edit:SetFontName("white_16_ol")
         row_edit:SetTextAlign("center", "center")
         row_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.row) or 5))
-        right = right + 70 + 45
+        right = right + 104 + 45
     elseif setting.name == "event_shout" then
         local event_shout_btn = gbox:CreateOrGetControl("button", "event_shout_btn", right + 15, y - 5, 50, 30)
         AUTO_CAST(event_shout_btn)
