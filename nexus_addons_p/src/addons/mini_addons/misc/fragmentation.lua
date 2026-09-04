@@ -33,7 +33,7 @@ frag.COL_DEF = 5
 frag.ROW_DEF = 5
 frag.GRADE_CNT = 8 -- 8 個目は「8 等級以上」
 frag.MAXLV_CNT = 5 -- 特殊オプションのレベルは 1〜5
-frag.FILTER_H = 105 -- 自前のフィルタ 3 行ぶんの高さ
+frag.FILTER_H = 74 -- 自前のフィルタ 2 行(等級 / 最大Lv)ぶんの高さ
 frag.ROW_H = 34
 frag.GROUP = "nexus_p_frag_filter"
 
@@ -128,37 +128,42 @@ end
 -- 等級 / 最大 Lv のチェックボックスを作る(既に在れば取り直すだけ)。
 -- 置き場所は素の filter_box ではなく main_bg。素の枠の中に行を足すと、素が
 -- 下端合わせで並べている 5 タブぶんのフィルタが全部ずれるため。
+--
+-- **行の頭に「等級」「最大Lv」を出し、チェックボックスは数字だけにする。**
+-- 1 つずつ「1等級」「2等級」と書くと 8 個が 1 行に入らず 2 段になり、
+-- 縦に食われたぶんスロットが小さくなる。何の数字かは行の見出しとツールチップで示す。
 function frag.build_filter(main_bg, filter_top)
-    local group = main_bg:CreateOrGetControl("groupbox", frag.GROUP, 75, filter_top, 450, frag.FILTER_H)
+    local group = main_bg:CreateOrGetControl("groupbox", frag.GROUP, 45, filter_top, 520, frag.FILTER_H)
     AUTO_CAST(group)
     group:SetSkinName("None")
-    local grade_tip = frag.lang("{ol}特殊オプションのレベル合計", "{ol}특수 옵션 레벨 합계",
-        "{ol}Total of the special option levels")
+    local grade_label = group:CreateOrGetControl("richtext", "nexus_p_frag_grade_text", 0, 4, 65, 25)
+    AUTO_CAST(grade_label)
+    grade_label:SetText("{ol}" .. frag.lang("等級", "등급", "Grade"))
+    local grade_tip = frag.lang("{ol}等級 = 特殊オプション 3 つのレベル合計",
+        "{ol}등급 = 특수 옵션 3 개의 레벨 합계", "{ol}Grade = total of the three special option levels")
     for i = 1, frag.GRADE_CNT do
-        local x = 15 + ((i - 1) % 4) * 105
-        local y = (i <= 4) and 0 or frag.ROW_H
-        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_grade_" .. i, x, y, 25, 25)
+        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_grade_" .. i, 70 + (i - 1) * 47, 0, 25, 25)
         AUTO_CAST(cb)
-        local caption
+        -- 最後の 1 つだけは「以上」まで書く(数字だけだと 8 等級ちょうどに見えるため)
         if i == frag.GRADE_CNT then
-            caption = frag.lang(i .. "等級以上", i .. "등급 이상", "Grade " .. i .. "+")
+            cb:SetText("{ol}" .. frag.lang(i .. "以上", i .. " 이상", i .. "+"))
         else
-            caption = frag.lang(i .. "等級", i .. "등급", "Grade " .. i)
+            cb:SetText("{ol}" .. i)
         end
-        cb:SetText("{ol}" .. caption)
         cb:SetTextTooltip(grade_tip)
         cb:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_check")
     end
-    local label = group:CreateOrGetControl("richtext", "nexus_p_frag_maxlv_text", 15, frag.ROW_H * 2 + 4, 60, 25)
-    AUTO_CAST(label)
-    label:SetText("{ol}" .. frag.lang("最大Lv", "최대 Lv", "Max Lv"))
-    local maxlv_tip = frag.lang("{ol}特殊オプション 3 つのうち一番高いレベル", "{ol}특수 옵션 3 개 중 가장 높은 레벨",
-        "{ol}Highest of the three special option levels")
+    local maxlv_label = group:CreateOrGetControl("richtext", "nexus_p_frag_maxlv_text", 0, frag.ROW_H + 4, 65, 25)
+    AUTO_CAST(maxlv_label)
+    maxlv_label:SetText("{ol}" .. frag.lang("最大Lv", "최대 Lv", "Max Lv"))
+    local maxlv_tip = frag.lang("{ol}最大Lv = 特殊オプション 3 つのうち一番高いレベル",
+        "{ol}최대 Lv = 특수 옵션 3 개 중 가장 높은 레벨",
+        "{ol}Max Lv = highest of the three special option levels")
     for i = 1, frag.MAXLV_CNT do
-        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_maxlv_" .. i, 85 + (i - 1) * 72, frag.ROW_H * 2,
-            25, 25)
+        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_maxlv_" .. i, 70 + (i - 1) * 47, frag.ROW_H, 25,
+            25)
         AUTO_CAST(cb)
-        cb:SetText("{ol}Lv" .. i)
+        cb:SetText("{ol}" .. i)
         cb:SetTextTooltip(maxlv_tip)
         cb:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_check")
     end
