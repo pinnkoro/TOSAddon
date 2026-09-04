@@ -39,6 +39,11 @@ frag.FILTER_H = 74 -- 自前のフィルタ 2 行(等級 / 最大Lv)ぶんの高
 -- **枠の外(上)へ出さないこと。** 見出しから離れて宙に浮いて見えるうえ、
 -- スロットに使える高さもそのぶん削ることになる。
 frag.FILTER_PAD = 50
+-- 枠を広げたときの窓のレイヤー。**素の破片化は 81 で、クイックスロット(91)より下**。
+-- 素の大きさ(5x5)なら画面下まで届かないので誰も困らないが、行を増やすと窓の下側
+-- (自前のフィルタ行・素の「すべて選択」「破片へ変換」)がクイックスロットの裏に回る。
+-- 95 は素のインベントリや倉庫と同じ値で、そこへ揃える(必要以上に持ち上げない)。
+frag.LAYER = 95
 frag.ROW_H = 34
 frag.GROUP = "nexus_p_frag_filter"
 -- 素の一覧更新。名前で持つ理由は Mini_addons_FRAGMENTATION_OPEN のコメント
@@ -102,7 +107,8 @@ function frag.capture_base(frame, main_bg, center_bg, slotset, filter_box)
         -- 素のフィルタ枠の上端から下(実行ボタン込み)に要る高さ
         bottom = main_bg:GetHeight() - filter_box:GetY(),
         col = slotset:GetCol(),
-        row = slotset:GetRow()
+        row = slotset:GetRow(),
+        layer = frame:GetLayerLevel()
     }
     -- 素のスロットの大きさ。**slotset の幅と列数から割り出してはいけない**
     -- (slotset の幅は XML の rect のままで spc を含まないことがあり、素の 82 に対して
@@ -127,10 +133,13 @@ end
 -- **窓は画面に収まる範囲でだけ伸ばし、それでも入らないぶんはスロットを縮める。**
 -- 伸ばすだけにすると 1080p では 1 行も増やせず、縮めるだけにすると既定の 5x5 でも
 -- 小さくなってしまうため、両方を組み合わせている。
-function frag.geometry(col, row)
+function frag.geometry(col, row, frame_y)
     local base = frag.base
     local want_h = row * (frag.SLOT_MAX + frag.SPC) + base.slot_top + 5 + base.bottom
-    local room = ui.GetClientInitialHeight() - 60 - base.frame_h
+    -- 伸ばしてよい量は「窓の下端が画面に収まる」まで。**窓の上端(frame_y)から数えること。**
+    -- 画面の高さだけで決めていたとき、窓は上端が 25〜100 の位置にあるぶん画面の下から
+    -- はみ出し、下側のボタンが見えなくなっていた
+    local room = ui.GetClientInitialHeight() - (frame_y or 0) - base.frame_h - 20
     local extra = math.max(0, math.min(math.max(0, room), want_h - base.main_h))
     -- 素のフィルタ枠の上端。スロットはここより上に収める(自前の行は枠の中へ置くので、
     -- スロットに使える高さは素と同じ考え方のままでよい)
@@ -304,7 +313,7 @@ function Mini_addons_frag_apply(frame)
     if frag.enabled() then
         col, row = frag.col_row()
         local filter_top
-        extra, slot, filter_top = frag.geometry(col, row)
+        extra, slot, filter_top = frag.geometry(col, row, frame:GetY())
         local group = frag.build_filter(main_bg, filter_top)
         group:ShowWindow(0) -- 出すかどうかはタブに合わせて SET_FILTER_SECTION 側で決める
         if frag.base_max_slot == nil then
@@ -316,6 +325,7 @@ function Mini_addons_frag_apply(frame)
         -- 素の実行ボタンは MAX_SLOT_CNT を上限に見て、超えていると**何もせず戻る**。
         -- 見えているスロットぶんを実行できるよう、こちらの枚数へ合わせる
         shared_item_earring.MAX_SLOT_CNT = col * row
+        frame:SetLayerLevel(frag.LAYER)
         frag.applied = true
     else
         col, row, extra, slot = frag.base.col, frag.base.row, 0, frag.base.slot
@@ -326,6 +336,7 @@ function Mini_addons_frag_apply(frame)
         if frag.base_max_slot ~= nil then
             shared_item_earring.MAX_SLOT_CNT = frag.base_max_slot
         end
+        frame:SetLayerLevel(frag.base.layer)
         frag.applied = false -- 素へ戻したので、次からはまた触らない
     end
     local slot_h = row * (slot + frag.SPC)
@@ -339,8 +350,8 @@ function Mini_addons_frag_apply(frame)
     slotset:SetMaxSelectionCount(col * row)
     slotset:RemoveAllChild()
     slotset:CreateSlots()
-    core_g.vlog("mini_addons: 破片化 %dx%d slot=%d 窓+%d 上限=%d", col, row, slot, extra,
-        shared_item_earring.MAX_SLOT_CNT)
+    core_g.vlog("mini_addons: 破片化 %dx%d slot=%d 窓+%d 上限=%d layer=%d", col, row, slot, extra,
+        shared_item_earring.MAX_SLOT_CNT, frame:GetLayerLevel())
     FRAGMENTATION_REFRESH_ALL(frame)
 end
 
