@@ -511,10 +511,27 @@ function Vakarine_equip_start_operation(is_manual)
         g.vakarine_equip_start_ms = imcTime.GetAppTimeMS()
         g.vakarine_equip_ticks = 0
         g.vakarine_equip_sent = 0
+        g.vakarine_equip_lookup_ms = 0
+        g.vakarine_equip_lookup_count = 0
         g.vakarine_equip_equip_start_ms = nil
         g.vakarine_equip_process_step = "unequip"
         vakarine_equip:RunUpdateScript("Vakarine_equip_main_loop", g.vakarine_equip_settings.delay)
     end
+end
+
+-- IESID からインベントリの添字を引く。**計測付きの薄い包み。**
+-- 素の ITEM_EQUIP は「インベントリの添字」を要求するのに、こちらが控えているのは
+-- IESID(アイテム個体の ID)なので、着けるたびに引き直すことになる。1 tick に 1 回、
+-- 1 回の着脱で 30〜40 回。**インベントリの量に効きうる箇所は、開くのをやめた今、
+-- ここと アニマス探し(GetInvItemByName)だけ。** 所持 1900 個の環境で効いているかは
+-- 未計測なので、回数と合計 ms を残して完了ログに出す。
+-- 合計が 0 のまま回数だけ増えるなら、1 回あたり 1ms 未満 = 無視してよいということ。
+function Vakarine_equip_find_inv_item(iesid)
+    local started = imcTime.GetAppTimeMS()
+    local inv_item = session.GetInvItemByGuid(iesid)
+    g.vakarine_equip_lookup_ms = (g.vakarine_equip_lookup_ms or 0) + (imcTime.GetAppTimeMS() - started)
+    g.vakarine_equip_lookup_count = (g.vakarine_equip_lookup_count or 0) + 1
+    return inv_item
 end
 
 function Vakarine_equip_main_loop(vakarine_equip)
@@ -590,7 +607,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 if data.spot == spot_name then
                     local current_item = equip_item_list:GetEquipItemByIndex(data.index)
                     if not current_item or current_item:GetIESID() ~= data.iesid then
-                        local inv_item = session.GetInvItemByGuid(data.iesid)
+                        local inv_item = Vakarine_equip_find_inv_item(data.iesid)
                         if inv_item then
                             g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                             ITEM_EQUIP(inv_item.invIndex, data.spot)
@@ -607,7 +624,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 "NECK" then
                 local current_item = equip_item_list:GetEquipItemByIndex(data.index)
                 if not current_item or current_item:GetIESID() ~= data.iesid then
-                    local inv_item = session.GetInvItemByGuid(data.iesid)
+                    local inv_item = Vakarine_equip_find_inv_item(data.iesid)
                     if inv_item then
                         g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
@@ -622,7 +639,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 local current_item = equip_item_list:GetEquipItemByIndex(data.index)
                 local current_iesid = current_item and current_item:GetIESID() or "0"
                 if current_iesid ~= iesid_to_equip then
-                    local inv_item = session.GetInvItemByGuid(iesid_to_equip)
+                    local inv_item = Vakarine_equip_find_inv_item(iesid_to_equip)
                     if inv_item then
                         g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
@@ -640,9 +657,10 @@ function Vakarine_equip_main_loop(vakarine_equip)
         end
         imcAddOn.BroadMsg("NOTICE_Dm_stage_start", "[VE]End of Operation", 3)
         ui.SetHoldUI(false)
-        g.vlog("VakarineEquip 完了: %d 部位 / 送信 %d 回 / %d 回見た / %d ms (delay=%.2f)",
+        g.vlog("VakarineEquip 完了: %d 部位 / 送信 %d 回 / %d 回見た / %d ms (delay=%.2f 添字引き %d 回 %d ms)",
             #g.vakarine_equip_queue, g.vakarine_equip_sent or 0, g.vakarine_equip_ticks or 0,
-            imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0), g.vakarine_equip_settings.delay)
+            imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0), g.vakarine_equip_settings.delay,
+            g.vakarine_equip_lookup_count or 0, g.vakarine_equip_lookup_ms or 0)
         return 0
     end
     return 1
