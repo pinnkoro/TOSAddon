@@ -923,15 +923,49 @@ end
 -- 今の指定に名前を付けて保存し、後から呼び戻せるようにする。
 -- キャラや用途ごとに「残す条件」を持ち替えたい、という使い方を想定している。
 
+-- プリセットの保存先。**mini_addons.json とは別ファイルにしてある。**
+-- 人に渡せるようにするため: mini_addons.json は Mini Addons の設定が全部入っていて、
+-- そのまま渡すと相手の他の設定まで上書きしてしまう。プリセットだけのファイルなら
+-- 同じ場所へ置くだけで持っていける。
+-- 置き場所は他の設定と同じ AID フォルダの中(**外へ出さないこと**。
+-- バックアップ / 復元は AID フォルダ直下しか運ばない)。
+function frag.presets_path()
+    return string.format("../addons/%s/%s/fragmentation_presets.json", core_addon_name_lower, g.active_id)
+end
+
+-- 読み込みはセッション中 1 回だけ。**毎回読み直さないこと**
+-- (窓を組み立て直すたびに呼ばれるので、そのたびにファイルを開くことになる)
 function frag.presets()
-    if not g.settings then
-        return {}
+    if frag.presets_cache then
+        return frag.presets_cache
     end
-    g.settings.fragmentation = g.settings.fragmentation or {}
-    if type(g.settings.fragmentation.presets) ~= "table" then
-        g.settings.fragmentation.presets = {}
+    local list = core_g.load_json(frag.presets_path())
+    if type(list) ~= "table" then
+        list = {}
     end
-    return g.settings.fragmentation.presets
+    -- 旧い置き場所(mini_addons.json の中)からの引き継ぎ。**別ファイルが空のときだけ**
+    -- (既に別ファイルへ移した後に残骸を拾い直すと、消したプリセットが復活する)
+    if #list == 0 and g.settings and type(g.settings.fragmentation) == "table" and
+        type(g.settings.fragmentation.presets) == "table" and #g.settings.fragmentation.presets > 0 then
+        list = g.settings.fragmentation.presets
+        core_g.vlog("mini_addons: 破片化 プリセットを %s へ移した(%d 件)", frag.presets_path(), #list)
+        frag.presets_cache = list
+        frag.presets_save()
+    end
+    g.settings = g.settings or {}
+    if type(g.settings.fragmentation) == "table" then
+        -- 旧い置き場所は空にする(両方に残ると、どちらが本物か分からなくなる)
+        if g.settings.fragmentation.presets ~= nil then
+            g.settings.fragmentation.presets = nil
+            Mini_addons_save_settings()
+        end
+    end
+    frag.presets_cache = list
+    return list
+end
+
+function frag.presets_save()
+    core_g.save_json(frag.presets_path(), frag.presets_cache or {})
 end
 
 -- 指定の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
@@ -996,7 +1030,7 @@ function Mini_addons_frag_keep_save_preset()
     slot.name = name
     slot.keep = frag.copy_keep(keep)
     frag.keep_name = name
-    Mini_addons_save_settings()
+    frag.presets_save()
     core_g.vlog("mini_addons: 破片化 プリセット保存 %s (%d クラス)", name, frag.keep_count(slot.keep))
     ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」を保存しました",
         "{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」을(를) 저장했습니다",
@@ -1058,7 +1092,9 @@ function Mini_addons_frag_keep_select(index, keyword)
         ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」を削除しました",
             "{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」을(를) 삭제했습니다",
             "{ol}{#00BFFF}[Nexus Addons P] Deleted \"" .. removed .. "\""))
+        frag.presets_save()
     end
+    -- 読み込んだときは「今の指定」が変わるので、そちらは設定へ保存する
     Mini_addons_save_settings()
     Mini_addons_frag_keep_open()
 end
