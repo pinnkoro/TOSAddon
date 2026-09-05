@@ -126,6 +126,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     g.setup_hook(Mini_addons_ASKED_ANCIENT_FRIENDLY_FIGHT, "ASKED_ANCIENT_FRIENDLY_FIGHT")
     -- 特性をスキル順に並べる(設定 ability_sort。OFF と Common タブは素のまま)
     g.setup_hook(Mini_addons_SKILLABILITY_FILL_ABILITY_GB, "SKILLABILITY_FILL_ABILITY_GB")
+    -- アイテム破片化の枠を拡張(設定 fragmentation。OFF なら素のまま)
+    Mini_addons_frag_setup()
     -- 装備錬成を自動化
     g.setup_hook(Mini_addons_COMMON_EQUIP_UPGRADE_PROGRESS, "COMMON_EQUIP_UPGRADE_PROGRESS")
     g.setup_hook_and_event(g.addon, "COMMON_EQUIP_UPGRADE_OPEN", "Mini_addons_COMMON_EQUIP_UPGRADE_OPEN", true)

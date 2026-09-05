@@ -281,6 +281,9 @@ g._nexus_addons_p = {{
 }, {
     key = "guild_event_warp",
     category = "content",
+    updated = g.VER_NEXT,
+    updated_note_jp = "インベントリと重なったとき、インベントリの上からボタンを押せてしまっていたのを修正しました",
+    updated_note_en = "Fixed the buttons being clickable through the inventory window when they overlap",
     data = {
         use = 0,
         name = "Guild Event Warp",

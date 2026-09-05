@@ -107,6 +107,15 @@ local DEFAULT_SETTINGS = {
         guild_notice = 0
     },
     select_bgm = "",
+    -- アイテム破片化の窓を拡張する。col / row はスロットの列数・行数(既定は素と同じ 5x5)
+    fragmentation = {
+        use = 0,
+        col = 5,
+        row = 5,
+        -- 「破片化しないで残す条件」。1 件 = {ctrl=系統, cls=クラス, rank=1〜3, lv=1〜5}。
+        -- 指定しない項目はキーごと持たない(= 指定なし)
+        keep = {}
+    },
     -- 設定画面のセクションを畳んでいるか（キーは SETTING_SECTIONS の name、1 で折りたたみ）
     section_collapsed = {}
 }
@@ -121,7 +130,7 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
                        "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
                        "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
-                       "auto_accept_duel", "ability_sort"}
+                       "auto_accept_duel", "ability_sort", "fragmentation"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -206,7 +215,17 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "특성을 스킬 순서로 정렬",
     text_en = "Sort abilities in skill order",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    since = "2.4.0"
+    since = "2.4.0",
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "特性の窓を閉じているときにも並べ替えが走っていたのをやめました。装備を替えたときの引っかかりが減ります",
+    updated_note_en = "Stopped sorting while the ability window is closed. Changing equipment stutters less"
+}, {
+    name = "fragmentation",
+    text_jp = "アイテム破片化の枠を拡張し、耳飾りを細かく絞り込む",
+    text_kr = "아이템 파편화 슬롯을 확장하고 귀걸이를 세분화해 필터링",
+    text_en = "Expand the Item Fragmentation grid and filter earrings in more detail",
+    -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+    since = core_g.VER_NEXT
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",
@@ -488,7 +507,8 @@ local SETTING_SECTIONS = {{
     names = {"raid_record", "mini_btn", "market_display", "restart_move", "restart_colony", "automatch_layer",
              "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "pt_info", "party_buff",
              "cupole_portion", "separated_buff", "pet_ring", "daily_quest", "inventory_mod", "icor_status_search",
-             "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort"},
+             "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort",
+             "fragmentation"},
     text_jp = "フレーム関連",
     text_kr = "프레임 관련",
     text_en = "Frame-related"

@@ -21,7 +21,7 @@ end
 -- 機能 OFF のときに片付けるフレーム(addon_name_lower に続く接尾辞)。
 -- Lua にはフレームの列挙手段が無いので固定名で並べる。フレームを増やしたらここへも足すこと。
 g.frame_suffixes = {"", "setting", "rank_frame", "buff_list", "event_frame", "reroll_option", "skill_reroll",
-                    "_q7quest", "_channel"}
+                    "_q7quest", "_channel", "frag_keep"}
 
 -- 機能 OFF にされたときの後始末。
 -- ゲーム側の UI へ加えた変更(チャット枠の改造やエフェクト設定など)は元に戻せないので、

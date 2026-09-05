@@ -57,7 +57,8 @@ local function reset_world()
         ability_cls = {}, -- name -> {ClassName, SkillCategory, Keyword, ActiveGroup}
         group_calls = {}, -- SKILLABILITY_MAKE_GROUP_BY_ACTIVE_GROUP に渡った名前の並び
         destroyed = {}, -- DESTROY_CHILD_BYNAME に渡った検索名
-        vlog = {}
+        vlog = {},
+        skillability_visible = 1
     }
 end
 reset_world()
@@ -80,7 +81,14 @@ local abilitylist_gb = {
 }
 local skilltree_gb = {}
 local skill_gb = {}
-local ability_gb = {}
+-- 素の skillability フレーム。**窓が出ていないときは並べ替えない**ので、
+-- 見えているかどうかをここで切り替えられるようにする(既定は出ている)。
+local skillability_frame = {
+    IsVisible = function() return world.skillability_visible end
+}
+local ability_gb = {
+    GetTopParentFrame = function() return skillability_frame end
+}
 local skillability_job = {}
 
 _G.GET_CHILD = function(parent, name)
@@ -439,6 +447,25 @@ do
     check("並びは素のまま", join(screen_order()), "Slash1,Common")
     check("括弧枠を触らない", #world.destroyed, 0)
     check("vlog に理由", world.vlog[#world.vlog]:find("関数が無い", 1, true) ~= nil, true)
+end
+
+print("[6] 窓が出ていないときは並べ替えない")
+do
+    -- 素は装備の変更でも(窓を閉じたままでも)ここを呼ぶ。見えない窓を組み替えても
+    -- 意味が無いうえ、装備を 1 部位変えるたびに走って重い。
+    setup_job("Swordman", {{name = "Slash", x = 0, y = 0}}, {
+        {name = "Slash1", skills = "Slash"},
+        {name = "Common", skills = "None"}
+    })
+    world.skillability_visible = 0
+    local origin_called = 0
+    mini.FUNCS["SKILLABILITY_FILL_ABILITY_GB"] = function() origin_called = origin_called + 1 end
+    _G.Mini_addons_SKILLABILITY_FILL_ABILITY_GB(skillability_job, ability_gb, "Swordman")
+    -- 素はいつもどおり呼ぶ(こちらが止めてよいのは並べ替えだけ)
+    check("素は呼ぶ", origin_called, 1)
+    check("並びは素のまま", join(screen_order()), "Slash1,Common")
+    check("括弧枠を触らない", #world.destroyed, 0)
+    world.skillability_visible = 1
 end
 
 if failed > 0 then

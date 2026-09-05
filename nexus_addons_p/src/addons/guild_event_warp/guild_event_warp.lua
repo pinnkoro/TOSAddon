@@ -72,6 +72,11 @@ function Guild_event_warp_frame_init()
     AUTO_CAST(guild_event_warp)
     guild_event_warp:SetSkinName("None")
     guild_event_warp:SetTitleBarSkin("None")
+    -- 土台の notice_on_pc はレイヤーの指定が無く、インベントリ(layerlevel 95)より
+    -- 手前に出てしまう。画面右上はインベントリが開くと重なる場所なので、そのままだと
+    -- インベントリの上にボタンが描かれ、押すとワープしてしまう。素の画面端の小さな
+    -- ボタン(minimized_*_button.xml)と同じ 31 に下げて、普通のウィンドウより奥へ置く。
+    guild_event_warp:SetLayerLevel(31)
     guild_event_warp:SetGravity(ui.RIGHT, ui.TOP)
     local rect = guild_event_warp:GetMargin()
     guild_event_warp:SetMargin(rect.left - rect.left, rect.top - rect.top + 4, rect.right, rect.bottom)
@@ -128,6 +133,7 @@ function Guild_event_warp_frame_init()
     x = x + icon_space
     guild_event_warp:Resize(x - (icon_space - icon_size), icon_size)
     guild_event_warp:ShowWindow(1)
+    g.vlog("guild_event_warp: ボタン列を作成 (layer=31, open=%s)", tostring(g.guild_event_warp_settings.open))
 end
 
 function Guild_event_warp_toggle_frame(frame, ctrl, str, num)

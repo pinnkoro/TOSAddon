@@ -177,6 +177,20 @@ function Mini_addons_SKILLABILITY_FILL_ABILITY_GB(skillability_job, ability_gb, 
     if g.settings.ability_sort ~= 1 or jobClsName == "Common" then
         return
     end
+    -- **窓が出ていないときは並べ替えない。**
+    -- 素の skillability は SKILL_LIST_GET / DELETE_QUICK_SKILL を RegisterMsg
+    -- (RegisterOpenOnlyMsg ではない)で購読しているため、**窓を閉じていても**
+    -- SKILLABILITY_ON_FULL_UPDATE -> ... -> ここまで来る。装備を 1 部位変えるたびに
+    -- 走るので、vakarine_equip の着脱では 1 部位ごとに行の移動と括弧枠の描き直しが
+    -- 2 回ずつ動いていた(2026-09-04 の verbose_log.txt で実測。窓は閉じたまま)。
+    -- 見えていない窓を並べ替えても利用者には何も見えないので、そのまま素の並びで置く。
+    -- 窓を開くときは SKILLABILITY_ON_OPEN -> MAKE_JOB_TAB -> ON_CHANGE_TAB ->
+    -- FILL_JOB_GB と辿って必ずここを通るため、見えた時点で並べ替えは掛かる
+    -- (タブの切り替えも同じ経路)。
+    local frame = ability_gb:GetTopParentFrame()
+    if frame == nil or frame:IsVisible() ~= 1 then
+        return
+    end
     local ok, err = pcall(Mini_addons_ability_sort_apply, skillability_job, ability_gb, jobClsName)
     if not ok then
         -- 行を動かす前に失敗すれば素の並びのまま。動かした後の失敗は apply 側で行を戻す。
