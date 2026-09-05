@@ -215,6 +215,15 @@ function Job_change_helper_unequip_start(ctrl)
                 cls_id = cls_id,
                 index = i
             }
+            -- **HELMET / CORE を一括の後に個別で外し直す作り(下の
+            -- Job_change_helper_unequip_)は、今は空振りしている可能性が高い。**
+            -- 2026-09-05 に実機で ReqUnEquipItemAll の前後を突き合わせたところ、
+            -- 26 箇所 / 21 箇所の 2 キャラとも**一括後 0 箇所**で、CORE も一緒に
+            -- 外れていた(髪型・帽子 3 層・コスチューム・翼・印章・アーク・レリック・
+            -- 人形も同様)。HELMET は 2 キャラとも装備しておらず未確認。
+            -- **害は無い**(個別解除はインベントリに戻っていない部位だけを対象にするので、
+            -- 一括で外れていれば何もしない)ため、確かめられていない HELMET のために残す。
+            -- 消すときは HELMET を着けた状態で同じ突き合わせをしてから。
             if spot_name == "HELMET" then
                 need_run = true
             elseif spot_name == "CORE" then
