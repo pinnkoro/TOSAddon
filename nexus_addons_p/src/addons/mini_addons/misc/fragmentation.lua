@@ -446,13 +446,21 @@ end
 -- クラスを指定していた行だけ「クラス → Lv」へ移す。系統だけ / ランクだけの行は
 -- 移しようがないので落とす(黙って落とさず、何件落としたかはログへ出す)。
 function frag.keep_migrate(keep)
-    -- 旧 1: 1 行 = {ctrl, cls, rank, lv} の並び
+    -- 旧 1: 1 行 = {ctrl, cls, rank, lv} の並び。
+    -- **ここで return しないこと。** この段の出力は {lv, rank} 止まりで、
+    -- 今の形(r1〜r3)ではない。返してしまうと、その回だけ
+    -- frag.keep_has_value / keep_count / keep_match が 1 件も拾えず
+    -- (見ているのは frag.KEEP_FIELDS = r1〜r3 だけ)、「指定中 0 クラス」や
+    -- 「残す条件がありません」になる。下の段へ流して最後まで変換する
     if type(keep[1]) == "table" then
-        local moved, dropped = {}, 0
+        local moved, moved_n, dropped = {}, 0, 0
         for _, cond in ipairs(keep) do
             if type(cond) == "table" and cond.cls then
                 local lv = tonumber(cond.lv) or 1
                 local now = moved[cond.cls]
+                if now == nil then
+                    moved_n = moved_n + 1
+                end
                 -- 同じクラスが 2 行あったら緩い方(小さい Lv)を採る。厳しくすると
                 -- 残すつもりだったものが破片化の対象に回るため
                 if now == nil or lv < (now.lv or 0) then
@@ -465,9 +473,9 @@ function frag.keep_migrate(keep)
                 dropped = dropped + 1
             end
         end
-        core_g.vlog("mini_addons: 破片化 残す条件を旧い形(行の並び)から移した(移動 %d / 落とした %d)",
-            frag.keep_count(moved), dropped)
-        return moved
+        core_g.vlog("mini_addons: 破片化 残す条件を旧い形(行の並び)から移した(移動 %d / 落とした %d)", moved_n,
+            dropped)
+        keep = moved
     end
     -- 旧 2: クラス名 → 最低 Lv の数値。枠を足したので入れ物へ包み直す
     -- 旧 3: {lv, rank} の組。ランクを指定していたなら、その枠へ移す
