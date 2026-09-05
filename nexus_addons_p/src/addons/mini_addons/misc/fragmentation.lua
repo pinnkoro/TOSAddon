@@ -213,9 +213,9 @@ function frag.build_filter(main_bg, filter_top)
     local keep_count = group:CreateOrGetControl("richtext", "nexus_p_frag_keep_count", 470, frag.ROW_H + 8, 105, 25)
     AUTO_CAST(keep_count)
     keep_count:SetOffset(470, frag.ROW_H + 8)
-    -- **`#` では数えられない**(クラス名をキーにした表なので)
-    keep_count:SetText("{ol}" .. frag.lang("指定 ", "지정 ", "Set ") .. frag.keep_count(frag.keep_list()) ..
-                           frag.lang(" クラス", " 클래스", ""))
+    -- 文言は条件の窓と同じものを使う(frag.keep_count_text)。
+    -- 数が変わったときの書き直しは frag.keep_update_count がまとめて行う
+    keep_count:SetText(frag.keep_count_text())
     return group
 end
 
@@ -748,17 +748,32 @@ function Mini_addons_frag_keep_lv_down(gbox, ctrl)
     frag.keep_step(ctrl, -1)
 end
 
+function frag.keep_count_text()
+    return "{ol}" .. frag.lang("指定中 ", "지정 ", "Set: ") .. frag.keep_count(frag.keep_list()) ..
+               frag.lang(" クラス", " 클래스", "")
+end
+
 -- 指定中のクラス数の表示を書き直す。**窓ごと組み立て直さないこと**
 -- (数字を 1 つ動かすたびに作り直すと、押し続けたときに重いうえタブまで戻る)
+--
+-- **同じ数字を出している場所が 2 つある**(条件の窓の左下と、破片化の窓の
+-- 「条件で選択」ボタンの下)。条件の窓だけ書き直していたため、破片化の窓の方は
+-- 開いた時点の数のまま古くなっていた。両方ここで書き直す
 function frag.keep_update_count()
+    local text = frag.keep_count_text()
     local frame = ui.GetFrame(frag.keep_frame_name())
-    if not frame then
-        return
+    if frame then
+        local ctrl = GET_CHILD_RECURSIVELY(frame, "keep_count")
+        if ctrl then
+            ctrl:SetText(text)
+        end
     end
-    local text = GET_CHILD_RECURSIVELY(frame, "keep_count")
-    if text then
-        text:SetText("{ol}" .. frag.lang("指定中 ", "지정 ", "Set: ") .. frag.keep_count(frag.keep_list()) ..
-                         frag.lang(" クラス", " 클래스", ""))
+    local frag_frame = ui.GetFrame(frag.FRAME)
+    if frag_frame then
+        local ctrl = GET_CHILD_RECURSIVELY(frag_frame, "nexus_p_frag_keep_count")
+        if ctrl then
+            ctrl:SetText(text)
+        end
     end
 end
 
@@ -1157,6 +1172,8 @@ end
 
 function Mini_addons_frag_keep_close()
     ui.DestroyFrame(frag.keep_frame_name())
+    -- 破片化の窓に出している数も合わせる(条件の窓が消えた後の値を出しておく)
+    frag.keep_update_count()
 end
 
 -- ここから素のフック。いずれも「素を呼んでから加工」で、素の中身は写していない。
