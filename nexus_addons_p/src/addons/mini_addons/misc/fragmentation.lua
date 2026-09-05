@@ -213,8 +213,9 @@ function frag.build_filter(main_bg, filter_top)
     local keep_count = group:CreateOrGetControl("richtext", "nexus_p_frag_keep_count", 470, frag.ROW_H + 8, 105, 25)
     AUTO_CAST(keep_count)
     keep_count:SetOffset(470, frag.ROW_H + 8)
-    keep_count:SetText("{ol}" .. frag.lang("条件 ", "조건 ", "Rules ") .. #frag.keep_list() ..
-                           frag.lang(" 件", " 개", ""))
+    -- **`#` では数えられない**(クラス名をキーにした表なので)
+    keep_count:SetText("{ol}" .. frag.lang("指定 ", "지정 ", "Set ") .. frag.keep_count(frag.keep_list()) ..
+                           frag.lang(" クラス", " 클래스", ""))
     return group
 end
 
@@ -402,34 +403,85 @@ end
 -- ===== 高度な選択(残す条件) =====
 --
 -- 耳飾りの特殊オプションは「クラス / ランク(1〜3) / Lv(1〜5)」の 3 点セットが最大 3 つ。
--- **残したい条件を並べて、そのどれにも当てはまらないものだけスロットを選択する。**
+-- **クラスごとに「この Lv 以上なら残す」を決め、どれにも当てはまらないものだけ選択する。**
 -- 選ぶだけで、破片化そのものは今までどおり利用者が実行ボタンを押す。
 --
--- 判定は「オプション 3 つのうち **1 つでも** 条件のどれかに合えば残す」。
--- クラス / ランク / Lv はそれぞれ「指定なし」にできる(Lv だけは **その値以上** の意味)。
--- 条件が 1 件も無いときは何もしない。**全部を選択してはいけない**
+-- 指定は **系統(ソードマン / ウィザード / …)のタブ + クラスごとの数字 1 つ**だけ。
+-- 0 は「そのクラスは対象外」で、既定は全部 0。以前は 1 行ずつ
+-- 「系統 ▼ / クラス ▼ / ランク ▼ / Lv ▼」を選ぶ作りだったが、**残したいクラスを
+-- 何個も足すのに droplist を 4 回ずつ開くことになり、実際に使うと重かった**。
+--
+-- **ランクは見ない。** 上の作りにするとランクは「クラスごとにもう 1 つ数字を持つ」
+-- ことになり、指定の手間が倍になる。ランク違いまで分けたい要望が出たら足す。
+--
+-- 判定は「オプション 3 つのうち **1 つでも** 条件に合えば残す」。
+-- 指定が 1 件も無いときは何もしない。**全部を選択してはいけない**
 -- (「条件に合うものが無い = 全部破片化」になり、事故で全損させることになる)。
 
 frag.KEEP_SUFFIX = "frag_keep"
-frag.RANK_MAX = 3
+frag.KEEP_LV_MAX = 5 -- 特殊オプションのレベルの上限(= frag.MAXLV_CNT)
+frag.KEEP_ROW_H = 28
+frag.KEEP_ROWS = 13 -- 1 列に並べる数。系統ごとのクラスは 25〜26 個なので 2 列で収まる
+frag.KEEP_COL_W = 225
 -- 今どのボタンから droplist を開いたか。ui.MakeDropListFrame のコールバックは
--- (index, keyword) しか受け取らないので、行と項目はここで覚えておくしかない
+-- (index, keyword) しか受け取らないので、何を選んでいるのかはここで覚えておくしかない
 frag.keep_edit = nil
+-- 開いている系統のタブ(0 始まり)。窓を組み立て直しても戻れるように覚えておく
+frag.keep_tab = 0
 
 function frag.keep_frame_name()
     return addon_name_lower .. frag.KEEP_SUFFIX
 end
 
+-- 旧い形(1 行 = {ctrl, cls, rank, lv} の並び)からの引き継ぎ。
+-- クラスを指定していた行だけ「クラス → Lv」へ移す。系統だけ / ランクだけの行は
+-- 移しようがないので落とす(黙って落とさず、何件落としたかはログへ出す)。
+function frag.keep_migrate(keep)
+    if keep[1] == nil or type(keep[1]) ~= "table" then
+        return keep
+    end
+    local moved, dropped = {}, 0
+    for _, cond in ipairs(keep) do
+        if type(cond) == "table" and cond.cls then
+            local lv = tonumber(cond.lv) or 1
+            local now = moved[cond.cls]
+            -- 同じクラスが 2 行あったら緩い方(小さい Lv)を採る。厳しくすると
+            -- 残すつもりだったものが破片化の対象に回るため
+            if now == nil or lv < now then
+                moved[cond.cls] = lv
+            end
+        else
+            dropped = dropped + 1
+        end
+    end
+    core_g.vlog("mini_addons: 破片化 残す条件を旧い形から移した(移動 %d / 落とした %d)", frag.keep_count(moved),
+        dropped)
+    return moved
+end
+
+-- 「クラス名 → 最低 Lv」の表。0 や未登録は対象外
 function frag.keep_list()
     if not g.settings then
         return {}
     end
-    -- **実体を返すこと。** 使い捨ての表を返すと、追加した条件がどこにも残らない
+    -- **実体を返すこと。** 使い捨ての表を返すと、指定した Lv がどこにも残らない
     g.settings.fragmentation = g.settings.fragmentation or {}
     if type(g.settings.fragmentation.keep) ~= "table" then
         g.settings.fragmentation.keep = {}
     end
+    g.settings.fragmentation.keep = frag.keep_migrate(g.settings.fragmentation.keep)
     return g.settings.fragmentation.keep
+end
+
+-- 指定しているクラスの数。**`#` で数えられない**(クラス名をキーにした表なので)
+function frag.keep_count(keep)
+    local n = 0
+    for _, lv in pairs(keep or {}) do
+        if (tonumber(lv) or 0) > 0 then
+            n = n + 1
+        end
+    end
+    return n
 end
 
 -- クラス名(ClassName)から表示名。素のツールチップと同じ引き方をする
@@ -479,45 +531,18 @@ function frag.class_list(ctrl)
     return list
 end
 
-function frag.keep_any_text()
-    return frag.lang("指定なし", "지정 없음", "Any")
-end
-
 -- 耳飾り 1 つが「残す条件」に当てはまるか。
--- **オプション 3 つのうち 1 つでも、条件のどれかに合えば残す。**
-function frag.keep_match(obj, list)
+-- **オプション 3 つのうち 1 つでも、そのクラスの指定 Lv 以上なら残す。**
+function frag.keep_match(obj, keep)
     local item_lv = TryGetProp(obj, "ItemLv", 0)
     local cnt = shared_item_earring.get_max_special_option_count(item_lv)
     for i = 1, cnt do
         local class_name = TryGetProp(obj, "EarringSpecialOption_" .. i, "None")
         if class_name ~= "None" then
-            local rank = TryGetProp(obj, "EarringSpecialOptionRankValue_" .. i, 0)
-            local lv = TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0)
-            local ctrl = nil -- 引くのは要るときだけ(条件に系統が無ければ触らない)
-            for _, cond in ipairs(list) do
-                local ok = true
-                if cond.cls and cond.cls ~= class_name then
-                    ok = false
-                end
-                if ok and cond.ctrl then
-                    if ctrl == nil then
-                        local job_cls = GetClass("Job", class_name)
-                        ctrl = job_cls and TryGetProp(job_cls, "CtrlType", "None") or "None"
-                    end
-                    if ctrl ~= cond.ctrl then
-                        ok = false
-                    end
-                end
-                if ok and cond.rank and rank ~= cond.rank then
-                    ok = false
-                end
-                -- Lv は「その値以上なら残す」。**等号ではない**(利用者の指定は下限)
-                if ok and cond.lv and lv < cond.lv then
-                    ok = false
-                end
-                if ok then
-                    return true
-                end
+            local want = tonumber(keep[class_name]) or 0
+            -- Lv は「その値以上なら残す」。**等号ではない**(利用者の指定は下限)
+            if want > 0 and TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0) >= want then
+                return true
             end
         end
     end
@@ -531,24 +556,15 @@ function Mini_addons_frag_keep_apply()
     if not frame then
         return
     end
-    local list = frag.keep_list()
-    if #list == 0 then
-        ui.SysMsg(frag.lang("{ol}残す条件がありません", "{ol}남길 조건이 없습니다", "{ol}No rules to keep"))
+    local keep = frag.keep_list()
+    if frag.keep_count(keep) == 0 then
+        ui.SysMsg(frag.lang("{ol}残す条件がありません(どれか 1 つでも Lv を 1 以上にしてください)",
+            "{ol}남길 조건이 없습니다(하나라도 Lv 를 1 이상으로 해 주세요)",
+            "{ol}No rules to keep (set at least one class to Lv 1 or higher)"))
         return
     end
     if type(shared_item_earring) ~= "table" then
         return
-    end
-    -- 3 つとも「指定なし」の行は**すべての耳飾りに当たる** = 何も選ばれない。
-    -- 黙って「0 個選択」になると壊れたように見えるので、先に知らせる
-    for _, cond in ipairs(list) do
-        if not cond.ctrl and not cond.cls and not cond.rank and not cond.lv then
-            ui.SysMsg(frag.lang(
-                "{ol}すべて「指定なし」の行があります。全部残す扱いになります",
-                "{ol}모두 「지정 없음」인 행이 있습니다. 전부 남기는 것으로 처리됩니다",
-                "{ol}A rule has every field set to Any - everything will be kept"))
-            break
-        end
     end
     local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
     if not slotset then
@@ -562,9 +578,9 @@ function Mini_addons_frag_keep_apply()
         if guid and guid ~= "None" then
             local inv_item = session.GetInvItemByGuid(guid)
             local obj = inv_item and GetIES(inv_item:GetObject())
-            -- 耳飾り以外(タブが違う)は触らない。クラス / ランクを持たないので判定できない
+            -- 耳飾り以外(タブが違う)は触らない。クラスの特殊オプションを持たないので判定できない
             if obj and TryGetProp(obj, "GroupName", "None") == "Earring" then
-                if frag.keep_match(obj, list) then
+                if frag.keep_match(obj, keep) then
                     slot:Select(0)
                     kept = kept + 1
                 else
@@ -574,7 +590,8 @@ function Mini_addons_frag_keep_apply()
             end
         end
     end
-    core_g.vlog("mini_addons: 破片化 条件で選択 条件=%d 件 選択=%d 残す=%d", #list, selected, kept)
+    core_g.vlog("mini_addons: 破片化 条件で選択 指定=%d クラス 選択=%d 残す=%d", frag.keep_count(keep), selected,
+        kept)
     ui.SysMsg(frag.lang(
         "{ol}{#00BFFF}[Nexus Addons P] " .. selected .. " 個を選択しました(残す " .. kept .. " 個)",
         "{ol}{#00BFFF}[Nexus Addons P] " .. selected .. " 개를 선택했습니다(남김 " .. kept .. " 개)",
@@ -582,39 +599,144 @@ function Mini_addons_frag_keep_apply()
     Mini_addons_frag_keep_close()
 end
 
--- 条件 1 行を作る。bases は系統の一覧(表示名を引くのに使う)
-function frag.keep_row(gbox, index, cond, y, bases)
-    local function make_btn(name, x, width, text, script)
-        local btn = gbox:CreateOrGetControl("button", name .. index, x, y, width, 28)
-        AUTO_CAST(btn)
-        btn:SetSkinName("test_gray_button")
-        btn:SetText("{ol}" .. text)
-        btn:SetEventScript(ui.LBUTTONUP, script)
-        btn:SetEventScriptArgNumber(ui.LBUTTONUP, index)
-        return btn
+-- Lv の数字を 1 つ動かす。0(対象外)〜5 を回す。
+-- **左で上げ、右で下げる。** スキル錬成の希望スキル(skill_reroll)と同じ向きに揃えている。
+function frag.keep_lv_step(ctrl, step)
+    AUTO_CAST(ctrl)
+    local class_name = ctrl:GetUserValue("CLASS")
+    if class_name == nil or class_name == "None" then
+        return
     end
-    local ctrl_text = frag.keep_any_text()
-    if cond.ctrl then
-        ctrl_text = cond.ctrl -- 一覧に無い系統(パッチで消えた等)はキーのまま出す
-        for _, base in ipairs(bases) do
-            if base.key == cond.ctrl then
-                ctrl_text = base.name
-            end
+    local keep = frag.keep_list()
+    local now = (tonumber(keep[class_name]) or 0) + step
+    if now > frag.KEEP_LV_MAX then
+        now = 0
+    elseif now < 0 then
+        now = frag.KEEP_LV_MAX
+    end
+    if now == 0 then
+        -- **0 はキーごと落とす。** 触っただけのクラスが 0 のまま溜まると、
+        -- 保存したものを見たときに「指定しているのかどうか」が読めなくなる
+        keep[class_name] = nil
+    else
+        keep[class_name] = now
+    end
+    ctrl:SetText(frag.keep_lv_text(now))
+    ctrl:SetSkinName(now > 0 and "test_pvp_btn" or "test_gray_button")
+    Mini_addons_save_settings()
+    frag.keep_update_count()
+    core_g.vlog("mini_addons: 破片化 残す条件 %s = Lv%d", tostring(class_name), now)
+end
+
+function frag.keep_lv_text(lv)
+    if lv > 0 then
+        return string.format("{ol}Lv%d", lv)
+    end
+    return "{ol}-"
+end
+
+function Mini_addons_frag_keep_lv_up(gbox, ctrl)
+    frag.keep_lv_step(ctrl, 1)
+end
+
+function Mini_addons_frag_keep_lv_down(gbox, ctrl)
+    frag.keep_lv_step(ctrl, -1)
+end
+
+-- 指定中のクラス数の表示を書き直す。**窓ごと組み立て直さないこと**
+-- (数字を 1 つ動かすたびに作り直すと、押し続けたときに重いうえタブまで戻る)
+function frag.keep_update_count()
+    local frame = ui.GetFrame(frag.keep_frame_name())
+    if not frame then
+        return
+    end
+    local text = GET_CHILD_RECURSIVELY(frame, "keep_count")
+    if text then
+        text:SetText("{ol}" .. frag.lang("指定中 ", "지정 ", "Set: ") .. frag.keep_count(frag.keep_list()) ..
+                         frag.lang(" クラス", " 클래스", ""))
+    end
+end
+
+-- 選んでいる系統のクラスを並べ直す
+function frag.keep_fill(frame)
+    local gbox = GET_CHILD_RECURSIVELY(frame, "class_box")
+    if not gbox then
+        return
+    end
+    AUTO_CAST(gbox)
+    gbox:RemoveAllChild()
+    local bases = frag.base_jobs()
+    local base = bases[frag.keep_tab + 1]
+    if not base then
+        return
+    end
+    local keep = frag.keep_list()
+    local tip = frag.lang(
+        "{ol}この Lv 以上のオプションが 1 つでもあれば残します{nl}左クリックで 1 つ上げ、5 の次は - に戻ります{nl}右クリックで 1 つ下げます{nl}「-」は対象外(そのクラスでは残しません)",
+        "{ol}이 Lv 이상의 옵션이 하나라도 있으면 남깁니다{nl}좌클릭으로 1 단계 올리고, 5 다음은 - 로 돌아갑니다{nl}우클릭으로 1 단계 내립니다{nl}「-」는 대상 외입니다",
+        "{ol}Keeps the earring if any option of this class is at least this level{nl}Left click steps up (wraps to - after 5){nl}Right click steps down{nl}\"-\" means this class is not used")
+    for i, cls in ipairs(frag.class_list(base.key)) do
+        local col = math.floor((i - 1) / frag.KEEP_ROWS)
+        local row = (i - 1) % frag.KEEP_ROWS
+        local x = col * frag.KEEP_COL_W
+        local y = row * frag.KEEP_ROW_H
+        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, x + 5, y + 3, 150, 24)
+        AUTO_CAST(label)
+        label:SetText("{ol}" .. cls.name)
+        label:AdjustFontSizeByWidth(150)
+        local lv = tonumber(keep[cls.key]) or 0
+        local btn = gbox:CreateOrGetControl("button", "lv_" .. cls.key, x + 160, y, 55, 24)
+        AUTO_CAST(btn)
+        btn:SetSkinName(lv > 0 and "test_pvp_btn" or "test_gray_button")
+        btn:SetText(frag.keep_lv_text(lv))
+        -- **名前ではなくクラス名を持たせる**(skill_reroll と同じ理由。名前から切り出す
+        -- 作りは、クラス名にどんな文字が入っても壊れないとは言えない)
+        btn:SetUserValue("CLASS", cls.key)
+        btn:SetTextTooltip(tip)
+        btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_lv_up")
+        btn:SetEventScript(ui.RBUTTONUP, "Mini_addons_frag_keep_lv_down")
+    end
+end
+
+function Mini_addons_frag_keep_tab(parent, ctrl)
+    AUTO_CAST(ctrl)
+    frag.keep_tab = ctrl:GetSelectItemIndex()
+    local frame = ui.GetFrame(frag.keep_frame_name())
+    if frame then
+        frag.keep_fill(frame)
+    end
+end
+
+-- 開いている系統だけ全部 0 に戻す。**全系統を消さないこと**
+-- (他のタブで指定したものまで消えると、押した人には何が起きたのか分からない)
+function Mini_addons_frag_keep_clear_tab()
+    local bases = frag.base_jobs()
+    local base = bases[frag.keep_tab + 1]
+    if not base then
+        return
+    end
+    local keep = frag.keep_list()
+    local cleared = 0
+    for _, cls in ipairs(frag.class_list(base.key)) do
+        if keep[cls.key] then
+            keep[cls.key] = nil
+            cleared = cleared + 1
         end
     end
-    make_btn("keep_ctrl_", 10, 110, ctrl_text, "Mini_addons_frag_keep_open_ctrl")
-    make_btn("keep_cls_", 125, 175, cond.cls and frag.job_name(cond.cls) or frag.keep_any_text(),
-        "Mini_addons_frag_keep_open_class")
-    make_btn("keep_rank_", 305, 90, cond.rank and tostring(cond.rank) or frag.keep_any_text(),
-        "Mini_addons_frag_keep_open_rank")
-    make_btn("keep_lv_", 400, 90, cond.lv and (cond.lv .. frag.lang("以上", " 이상", "+")) or frag.keep_any_text(),
-        "Mini_addons_frag_keep_open_lv")
-    make_btn("keep_del_", 495, 30, "X", "Mini_addons_frag_keep_del")
+    Mini_addons_save_settings()
+    local frame = ui.GetFrame(frag.keep_frame_name())
+    if frame then
+        frag.keep_fill(frame)
+    end
+    frag.keep_update_count()
+    ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] " .. base.name .. " の指定を " .. cleared .. " 件消しました",
+        "{ol}{#00BFFF}[Nexus Addons P] " .. base.name .. " 지정을 " .. cleared .. " 건 지웠습니다",
+        "{ol}{#00BFFF}[Nexus Addons P] Cleared " .. cleared .. " in " .. base.name))
 end
 
 -- ===== 条件のプリセット(保存 / 読込) =====
 --
--- 今並べている条件を名前を付けて保存し、後から呼び戻せるようにする。
+-- 今の指定に名前を付けて保存し、後から呼び戻せるようにする。
 -- キャラや用途ごとに「残す条件」を持ち替えたい、という使い方を想定している。
 
 function frag.presets()
@@ -628,17 +750,14 @@ function frag.presets()
     return g.settings.fragmentation.presets
 end
 
--- 条件の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
--- 一覧が同じ表を指すことになり、保存した後に行をいじると中身まで書き換わる
-function frag.copy_conds(list)
+-- 指定の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
+-- 表が同じものを指すことになり、保存した後に数字をいじると中身まで書き換わる
+function frag.copy_keep(keep)
     local copy = {}
-    for i, cond in ipairs(list) do
-        copy[i] = {
-            ctrl = cond.ctrl,
-            cls = cond.cls,
-            rank = cond.rank,
-            lv = cond.lv
-        }
+    for class_name, lv in pairs(keep or {}) do
+        if (tonumber(lv) or 0) > 0 then
+            copy[class_name] = tonumber(lv)
+        end
     end
     return copy
 end
@@ -665,9 +784,9 @@ function Mini_addons_frag_keep_save_preset()
             "{ol}Enter a preset name"))
         return
     end
-    local list = frag.keep_list()
-    if #list == 0 then
-        ui.SysMsg(frag.lang("{ol}保存する条件がありません", "{ol}저장할 조건이 없습니다", "{ol}No rules to save"))
+    local keep = frag.keep_list()
+    if frag.keep_count(keep) == 0 then
+        ui.SysMsg(frag.lang("{ol}保存する指定がありません", "{ol}저장할 지정이 없습니다", "{ol}Nothing to save"))
         return
     end
     local presets = frag.presets()
@@ -682,14 +801,13 @@ function Mini_addons_frag_keep_save_preset()
         presets[#presets + 1] = slot
     end
     slot.name = name
-    slot.keep = frag.copy_conds(list)
+    slot.keep = frag.copy_keep(keep)
     frag.keep_name = name
     Mini_addons_save_settings()
-    core_g.vlog("mini_addons: 破片化 プリセット保存 %s (%d 件)", name, #slot.keep)
+    core_g.vlog("mini_addons: 破片化 プリセット保存 %s (%d クラス)", name, frag.keep_count(slot.keep))
     ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」を保存しました",
         "{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」을(를) 저장했습니다",
         "{ol}{#00BFFF}[Nexus Addons P] Saved \"" .. name .. "\""))
-    Mini_addons_frag_keep_open()
 end
 
 -- 読込 / 削除の droplist。プリセットが 1 つも無ければ知らせて開かない
@@ -700,14 +818,13 @@ function frag.preset_droplist(ctrl, field)
             "{ol}No saved presets"))
         return
     end
-    local items = {}
+    frag.keep_edit = field
+    local shown = math.min(10, #presets)
+    ui.MakeDropListFrame(ctrl, 0, 0, math.max(ctrl:GetWidth(), 150), shown * 30, shown, ui.LEFT,
+        "Mini_addons_frag_keep_select", nil, nil)
     for i, preset in ipairs(presets) do
-        items[#items + 1] = {
-            key = tostring(i),
-            name = preset.name or ("#" .. i)
-        }
+        ui.AddDropListItem(preset.name or ("#" .. i), nil, tostring(i))
     end
-    frag.keep_droplist(ctrl, 0, field, items, 10, true)
 end
 
 function Mini_addons_frag_keep_open_load(frame, ctrl)
@@ -716,6 +833,41 @@ end
 
 function Mini_addons_frag_keep_open_delete(frame, ctrl)
     frag.preset_droplist(ctrl, "delete")
+end
+
+function Mini_addons_frag_keep_select(index, keyword)
+    local field = frag.keep_edit
+    frag.keep_edit = nil
+    if not field then
+        return
+    end
+    local presets = frag.presets()
+    local at = tonumber(keyword) or 0
+    local preset = presets[at]
+    if not preset then
+        return
+    end
+    if field == "load" then
+        -- **写しを入れること**(理由は frag.copy_keep のコメント)
+        g.settings.fragmentation.keep = frag.copy_keep(preset.keep or {})
+        frag.keep_name = preset.name
+        core_g.vlog("mini_addons: 破片化 プリセット読込 %s (%d クラス)", tostring(preset.name),
+            frag.keep_count(g.settings.fragmentation.keep))
+        ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」を読み込みました",
+            "{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」을(를) 불러왔습니다",
+            "{ol}{#00BFFF}[Nexus Addons P] Loaded \"" .. tostring(preset.name) .. "\""))
+    else
+        local removed = tostring(preset.name)
+        table.remove(presets, at)
+        if frag.keep_name == preset.name then
+            frag.keep_name = ""
+        end
+        ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」を削除しました",
+            "{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」을(를) 삭제했습니다",
+            "{ol}{#00BFFF}[Nexus Addons P] Deleted \"" .. removed .. "\""))
+    end
+    Mini_addons_save_settings()
+    Mini_addons_frag_keep_open()
 end
 
 -- 条件の窓を開く / 作り直す
@@ -732,8 +884,7 @@ function Mini_addons_frag_keep_open()
         frame:SetLayerLevel(999)
     end
     AUTO_CAST(frame)
-    -- 打ちかけの名前は控えてから捨てる(この関数は条件を 1 つ選ぶたびに呼ばれるので、
-    -- そのたびに入力が消えると名前を付けられない)
+    -- 打ちかけの名前は控えてから捨てる(プリセットを読み込むと組み立て直すため)
     frag.keep_name = frag.keep_name_text()
     frame:RemoveAllChild()
     local title = frame:CreateOrGetControl("richtext", "title", 15, 12, 10, 30)
@@ -743,14 +894,14 @@ function Mini_addons_frag_keep_open()
     local desc = frame:CreateOrGetControl("richtext", "desc", 15, 45, 10, 25)
     AUTO_CAST(desc)
     desc:SetText("{ol}" .. frag.lang(
-        "ここに並べた条件に 1 つも当てはまらない耳飾りだけを選択します",
-        "여기에 나열한 조건에 하나도 해당하지 않는 귀걸이만 선택합니다",
-        "Selects only the earrings that match none of the rules below"))
+        "クラスごとに「この Lv 以上なら残す」を決めます(左で上げ / 右で下げ、- は対象外)",
+        "클래스마다 「이 Lv 이상이면 남김」을 정합니다(좌클릭 올림 / 우클릭 내림, - 는 대상 외)",
+        "Set \"keep at this level or above\" per class (left = up, right = down, - = unused)"))
     -- プリセット(保存 / 読込 / 削除)
     local preset_label = frame:CreateOrGetControl("richtext", "preset_label", 15, 78, 80, 25)
     AUTO_CAST(preset_label)
     preset_label:SetText("{ol}" .. frag.lang("プリセット", "프리셋", "Preset"))
-    local preset_name = frame:CreateOrGetControl("edit", "preset_name", 105, 74, 170, 28)
+    local preset_name = frame:CreateOrGetControl("edit", "preset_name", 105, 74, 150, 28)
     AUTO_CAST(preset_name)
     -- 素が入力欄に使っているスキンと字(guildinfo の noticeEdit と同じ組み合わせ)。
     -- 窓の地が明るいので白字にすると読めない
@@ -763,27 +914,27 @@ function Mini_addons_frag_keep_open()
     preset_name:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_keep_save_preset")
     local preset_btns = {{
         name = "preset_save",
-        x = 285,
+        x = 265,
         text = frag.lang("保存", "저장", "Save"),
         script = "Mini_addons_frag_keep_save_preset",
-        tip = frag.lang("{ol}今並べている条件を、その名前で保存します{nl}同じ名前なら上書きします",
-            "{ol}지금 나열한 조건을 그 이름으로 저장합니다{nl}같은 이름이면 덮어씁니다",
-            "{ol}Saves the current rules under that name (overwrites the same name)")
+        tip = frag.lang("{ol}今の指定を、その名前で保存します{nl}同じ名前なら上書きします",
+            "{ol}지금 지정을 그 이름으로 저장합니다{nl}같은 이름이면 덮어씁니다",
+            "{ol}Saves the current setup under that name (overwrites the same name)")
     }, {
         name = "preset_load",
-        x = 365,
+        x = 340,
         text = frag.lang("読込", "불러오기", "Load"),
         script = "Mini_addons_frag_keep_open_load",
-        tip = frag.lang("{ol}保存したプリセットで、今の条件を置き換えます",
-            "{ol}저장한 프리셋으로 지금 조건을 바꿉니다", "{ol}Replaces the current rules with a saved preset")
+        tip = frag.lang("{ol}保存したプリセットで、今の指定を置き換えます",
+            "{ol}저장한 프리셋으로 지금 지정을 바꿉니다", "{ol}Replaces the current setup with a saved preset")
     }, {
         name = "preset_del",
-        x = 445,
+        x = 415,
         text = frag.lang("削除", "삭제", "Delete"),
         script = "Mini_addons_frag_keep_open_delete",
-        tip = frag.lang("{ol}保存したプリセットを消します(今の条件はそのまま)",
-            "{ol}저장한 프리셋을 지웁니다(지금 조건은 그대로)",
-            "{ol}Deletes a saved preset (the current rules stay)")
+        tip = frag.lang("{ol}保存したプリセットを消します(今の指定はそのまま)",
+            "{ol}저장한 프리셋을 지웁니다(지금 지정은 그대로)",
+            "{ol}Deletes a saved preset (the current setup stays)")
     }}
     for _, def in ipairs(preset_btns) do
         local btn = frame:CreateOrGetControl("button", def.name, def.x, 74, 70, 28)
@@ -793,27 +944,39 @@ function Mini_addons_frag_keep_open()
         btn:SetTextTooltip(def.tip)
         btn:SetEventScript(ui.LBUTTONUP, def.script)
     end
-    local head = frame:CreateOrGetControl("richtext", "head", 15, 112, 10, 25)
-    AUTO_CAST(head)
-    head:SetText("{ol}" .. frag.lang("系統            クラス                     ランク       Lv",
-        "계열            클래스                    랭크        Lv", "Tree           Class                      Rank        Lv"))
-    local gbox = frame:CreateOrGetControl("groupbox", "rows", 10, 137, 540, 10)
-    AUTO_CAST(gbox)
-    gbox:SetSkinName("None")
-    local list = frag.keep_list()
+    -- 系統のタブ。**タブ本体は 10 引数の並び**(幅 / 高さ / 寄せ / 寄せ / x / y)で、
+    -- 他のコントロール(x / y / 幅 / 高さ)とは違うので注意
     local bases = frag.base_jobs()
-    local y = 0
-    for i, cond in ipairs(list) do
-        frag.keep_row(gbox, i, cond, y, bases)
-        y = y + 34
+    local tab = frame:CreateOrGetControl("tab", "job_tab", 470, 34, ui.LEFT, ui.TOP, 15, 110, 0, 0)
+    AUTO_CAST(tab)
+    tab:SetSkinName("tab2")
+    for _, base in ipairs(bases) do
+        tab:AddItem("{@st66b}" .. base.name, true, "", "", "", "", "", false)
     end
-    gbox:Resize(540, math.max(10, y))
-    local add_btn = frame:CreateOrGetControl("button", "add_btn", 25, 142 + y, 150, 30)
-    AUTO_CAST(add_btn)
-    add_btn:SetSkinName("test_gray_button")
-    add_btn:SetText("{ol}" .. frag.lang("+ 条件を追加", "+ 조건 추가", "+ Add rule"))
-    add_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_add")
-    local apply_btn = frame:CreateOrGetControl("button", "apply_btn", 300, 137 + y, 220, 40)
+    tab:SetItemsFixWidth(92)
+    tab:SetItemsAdjustFontSizeByWidth(92)
+    tab:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_tab")
+    if frag.keep_tab >= #bases then
+        frag.keep_tab = 0
+    end
+    tab:SelectTab(frag.keep_tab)
+    local box_y = 152
+    local box_h = frag.KEEP_ROWS * frag.KEEP_ROW_H
+    local class_box = frame:CreateOrGetControl("groupbox", "class_box", 15, box_y, 470, box_h)
+    AUTO_CAST(class_box)
+    class_box:SetSkinName("test_frame_midle")
+    class_box:EnableScrollBar(0)
+    local count_text = frame:CreateOrGetControl("richtext", "keep_count", 15, box_y + box_h + 8, 200, 25)
+    AUTO_CAST(count_text)
+    local clear_btn = frame:CreateOrGetControl("button", "clear_btn", 150, box_y + box_h + 5, 130, 30)
+    AUTO_CAST(clear_btn)
+    clear_btn:SetSkinName("test_gray_button")
+    clear_btn:SetText("{ol}" .. frag.lang("このタブを解除", "이 탭 해제", "Clear this tab"))
+    clear_btn:SetTextTooltip(frag.lang("{ol}開いている系統の指定だけを - に戻します(他の系統はそのまま)",
+        "{ol}열려 있는 계열의 지정만 - 로 되돌립니다(다른 계열은 그대로)",
+        "{ol}Resets only the open tree back to - (other trees stay)"))
+    clear_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_clear_tab")
+    local apply_btn = frame:CreateOrGetControl("button", "apply_btn", 290, box_y + box_h + 2, 195, 36)
     AUTO_CAST(apply_btn)
     apply_btn:SetSkinName("test_red_button")
     apply_btn:SetText("{ol}" .. frag.lang("この条件で選択", "이 조건으로 선택", "Select by these rules"))
@@ -823,15 +986,17 @@ function Mini_addons_frag_keep_open()
     close_btn:SetImage("testclose_button")
     close_btn:SetGravity(ui.RIGHT, ui.TOP)
     close_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_close")
-    frame:Resize(560, 197 + y)
-    -- **位置を決めるのは作った回だけ。** この関数は条件を 1 つ選ぶたびに呼ばれるので、
+    frame:Resize(500, box_y + box_h + 50)
+    frag.keep_fill(frame)
+    frag.keep_update_count()
+    -- **位置を決めるのは作った回だけ。** プリセットを読み込むと組み立て直すので、
     -- 毎回置き直すと利用者が動かした窓が操作のたびに飛ぶ
     local frag_frame = is_new and ui.GetFrame(frag.FRAME) or nil
     if frag_frame then
         -- 破片化の窓の右隣。画面からはみ出すなら左隣へ回す
         local x = frag_frame:GetX() + frag_frame:GetWidth() + 5
-        if x + 560 > ui.GetClientInitialWidth() then
-            x = math.max(0, frag_frame:GetX() - 565)
+        if x + 500 > ui.GetClientInitialWidth() then
+            x = math.max(0, frag_frame:GetX() - 505)
         end
         frame:SetPos(x, frag_frame:GetY() + 100)
     end
@@ -842,135 +1007,6 @@ end
 
 function Mini_addons_frag_keep_close()
     ui.DestroyFrame(frag.keep_frame_name())
-end
-
-function Mini_addons_frag_keep_add()
-    local list = frag.keep_list()
-    list[#list + 1] = {}
-    Mini_addons_save_settings()
-    Mini_addons_frag_keep_open()
-end
-
-function Mini_addons_frag_keep_del(frame, ctrl, str, num)
-    local list = frag.keep_list()
-    if list[num] then
-        table.remove(list, num)
-        Mini_addons_save_settings()
-    end
-    Mini_addons_frag_keep_open()
-end
-
--- droplist を出す共通処理。**開いた行と項目を覚えてから出すこと**
--- (コールバックは選ばれた値しか受け取らないため)
-function frag.keep_droplist(ctrl, index, field, items, height_cnt, no_any)
-    frag.keep_edit = {
-        index = index,
-        field = field,
-        items = items
-    }
-    local shown = math.min(height_cnt, #items + (no_any and 0 or 1))
-    ui.MakeDropListFrame(ctrl, 0, 0, math.max(ctrl:GetWidth(), 150), shown * 30, shown, ui.LEFT,
-        "Mini_addons_frag_keep_select", nil, nil)
-    if not no_any then
-        ui.AddDropListItem(frag.keep_any_text(), nil, "None")
-    end
-    for _, item in ipairs(items) do
-        ui.AddDropListItem(item.name, nil, item.key)
-    end
-end
-
-function Mini_addons_frag_keep_open_ctrl(frame, ctrl, str, num)
-    frag.keep_droplist(ctrl, num, "ctrl", frag.base_jobs(), 6)
-end
-
-function Mini_addons_frag_keep_open_class(frame, ctrl, str, num)
-    local cond = frag.keep_list()[num]
-    if not cond or not cond.ctrl then
-        ui.SysMsg(frag.lang("{ol}先に系統を選んでください", "{ol}먼저 계열을 선택해 주세요",
-            "{ol}Choose the class tree first"))
-        return
-    end
-    frag.keep_droplist(ctrl, num, "cls", frag.class_list(cond.ctrl), 12)
-end
-
-function Mini_addons_frag_keep_open_rank(frame, ctrl, str, num)
-    local items = {}
-    for i = 1, frag.RANK_MAX do
-        items[#items + 1] = {
-            key = tostring(i),
-            name = tostring(i)
-        }
-    end
-    frag.keep_droplist(ctrl, num, "rank", items, 5)
-end
-
-function Mini_addons_frag_keep_open_lv(frame, ctrl, str, num)
-    local items = {}
-    for i = 1, frag.MAXLV_CNT do
-        items[#items + 1] = {
-            key = tostring(i),
-            name = i .. frag.lang("以上", " 이상", "+")
-        }
-    end
-    frag.keep_droplist(ctrl, num, "lv", items, 7)
-end
-
-function Mini_addons_frag_keep_select(index, keyword)
-    local edit = frag.keep_edit
-    frag.keep_edit = nil
-    if not edit then
-        return
-    end
-    if edit.field == "load" or edit.field == "delete" then
-        local presets = frag.presets()
-        local preset = presets[tonumber(keyword) or 0]
-        if not preset then
-            return
-        end
-        if edit.field == "load" then
-            -- **写しを入れること**(理由は frag.copy_conds のコメント)
-            g.settings.fragmentation.keep = frag.copy_conds(preset.keep or {})
-            frag.keep_name = preset.name
-            core_g.vlog("mini_addons: 破片化 プリセット読込 %s (%d 件)", tostring(preset.name),
-                #g.settings.fragmentation.keep)
-            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」を読み込みました",
-                "{ol}{#00BFFF}[Nexus Addons P] 「" .. tostring(preset.name) .. "」을(를) 불러왔습니다",
-                "{ol}{#00BFFF}[Nexus Addons P] Loaded \"" .. tostring(preset.name) .. "\""))
-        else
-            local removed = tostring(preset.name)
-            table.remove(presets, tonumber(keyword))
-            if frag.keep_name == preset.name then
-                frag.keep_name = ""
-            end
-            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」を削除しました",
-                "{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」을(를) 삭제했습니다",
-                "{ol}{#00BFFF}[Nexus Addons P] Deleted \"" .. removed .. "\""))
-        end
-        Mini_addons_save_settings()
-        Mini_addons_frag_keep_open()
-        return
-    end
-    local cond = frag.keep_list()[edit.index]
-    if not cond then
-        return
-    end
-    local value = nil
-    if keyword ~= "None" then
-        value = keyword
-    end
-    if edit.field == "ctrl" then
-        cond.ctrl = value
-        -- 系統を変えたらクラスは選び直し(別系統のクラスが残ると誰にも当たらなくなる)
-        cond.cls = nil
-    elseif edit.field == "cls" then
-        cond.cls = value
-    elseif edit.field == "rank" then
-        cond.rank = value and tonumber(value) or nil
-    elseif edit.field == "lv" then
-        cond.lv = value and tonumber(value) or nil
-    end
-    Mini_addons_save_settings()
-    Mini_addons_frag_keep_open()
 end
 
 -- ここから素のフック。いずれも「素を呼んでから加工」で、素の中身は写していない。
