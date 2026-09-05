@@ -117,7 +117,8 @@ function Vakarine_equip_load_settings()
             y = 0,
             move = 1,
             chars = {},
-            auto_remove = 0
+            auto_remove = 0,
+            open_inventory = 0
         }
     end
     -- 作動するマップ種別。**キー単位で既定値を補うこと。** 項目を後から足すので、
@@ -131,6 +132,14 @@ function Vakarine_equip_load_settings()
         if settings.maps[kind.key] == nil then
             settings.maps[kind.key] = kind.default
         end
+    end
+    -- 着脱のときにインベントリを開くか。**既定は開かない(0)。**
+    -- 開かなくても装備できることは実機で確認済み(素の ITEM_EQUIP はインベントリの
+    -- フレームに触れない)。一方で開くとアイテム 1 個につき枠を 1 つ作るため、
+    -- 所持 1900 個の環境では着脱が始まる前に 2218ms を食っていた。
+    -- **キー単位で補うこと。** 既に settings.json がある人は、この行が無いと nil のまま来る。
+    if settings.open_inventory == nil then
+        settings.open_inventory = 0
     end
     -- 以前は「チェックを外した」印に false を書いていた。読む側にとっては「無い」と
     -- 同じなので、読み込みのついでに落とす。放っておくと触ったバフの数だけ残り続け、
@@ -377,7 +386,14 @@ function Vakarine_equip_start_operation(is_manual)
             return
         end
     end
+    -- **同期部分の所要時間を計測する。** 自動起動は on_init の中から呼ばれるので、
+    -- ここで使った時間はそのまま `init: vakarine_equip (Nms)` に出る。
+    -- 実際に 2218ms(利用者の verbose_log.txt / 所持 1900 個)という報告があり、
+    -- tick の待ち時間とは別に、着脱が始まる前へ丸ごと乗っていた。
+    -- どの段が重いのかは持ち物の量で変わるので、段ごとに残して切り分けられるようにする。
+    local t0 = imcTime.GetAppTimeMS()
     local is_vakarine = Vakarine_equip_is_vakarine()
+    local t_vakarine = imcTime.GetAppTimeMS()
     if not is_vakarine and not is_manual then
         return
     end
@@ -412,11 +428,28 @@ function Vakarine_equip_start_operation(is_manual)
             return
         end
         local inventory = ui.GetFrame("inventory")
-        -- 自分で開いたのか、元から出ていたのかを憶えておく。空振りで閉じるときに
-        -- ここを見ないと、利用者が自分で開いていたインベントリまで勝手に閉じてしまう。
-        local inventory_was_open = inventory:IsVisible() == 1
-        inventory:ShowWindow(1)
+        -- **既定ではインベントリを開かない(設定で開くようにもできる)。**
+        -- 以前は必ず inventory:ShowWindow(1) していたが、**着脱には要らない**。
+        -- 素の ITEM_EQUIP は session.GetInvItem -> ITEM_EQUIP_MSG -> item.Equip と
+        -- 辿るだけで、インベントリのフレームには一切触れない(素の game.lua を確認)。
+        -- 一方、開くとアイテム 1 個につきスロットを 1 つ作るので、持ち物が多いほど重い。
+        -- 所持 1900 個の利用者から「着脱前の同期処理だけで 2218ms」の報告があり
+        -- (verbose_log.txt の `init: vakarine_equip (2218ms)`)、原因はこれだった。
+        --
+        -- **「実は開かないと装備できない」場合の保険は下の equip 段にある。**
+        -- 着ける処理が進まないときだけ開いて続行し、その旨を vlog へ出す。
+        -- 開いたかどうかは g.vakarine_equip_opened_inventory で持ち回し、
+        -- **自分で開いたときだけ閉じる**(利用者が自分で開いていた窓を勝手に閉じない)。
+        g.vakarine_equip_opened_inventory = false
+        if g.vakarine_equip_settings.open_inventory == 1 and inventory:IsVisible() ~= 1 then
+            g.vakarine_equip_opened_inventory = true
+            inventory:ShowWindow(1)
+        end
+        -- 武器スワップの表示と CURRENT_WEAPON_INDEX を 1 側へ揃える。中身は画像の
+        -- 差し替えと UserValue の設定だけなので、窓が見えている必要はない(素を確認)。
+        local t_before_inv = imcTime.GetAppTimeMS()
         DO_WEAPON_SLOT_CHANGE(inventory, 1)
+        local t_inv = imcTime.GetAppTimeMS()
         ui.SetHoldUI(true)
         local vakarine_equip = ui.GetFrame(addon_name_lower .. "vakarine_equip")
         -- **HoldUI を掛けたら、その場で解除の保険を仕掛けること。**
@@ -443,17 +476,21 @@ function Vakarine_equip_start_operation(is_manual)
                 end
             end
         end
+        local t_queue = imcTime.GetAppTimeMS()
+        -- **ここが第 2 容疑者。** アニマス(首飾り)を持っているかは名前でしか引けず、
+        -- カバンの中を探すことになる。装備欄を見ても、着けていないものは見つからない。
         local animas_item = session.GetInvItemByName("NECK04_103")
         g.vakarine_equip_animas_iesid = animas_item and animas_item:GetIESID() or nil
+        local t_animas = imcTime.GetAppTimeMS()
+        g.vlog("VakarineEquip 準備の内訳: 合計=%dms (祝福判定=%d 武器欄=%d キュー=%d アニマス探し=%d) 部位=%d",
+            t_animas - t0, t_vakarine - t0, t_inv - t_before_inv, t_queue - t_inv, t_animas - t_queue,
+            #g.vakarine_equip_queue)
         if #g.vakarine_equip_queue == 0 then
             -- チェックはあるが該当部位を装備していない場合。判断材料になるのは
             -- 「何部位チェックされていたか」で、0 なら上で弾かれているはずなので、
             -- ここに来た時点で「チェックはあるが装備していない」が確定する。
             g.vlog("VakarineEquip 中止: チェックした %d 部位をどれも装備していない (manual=%s)", checked_count,
                 tostring(is_manual))
-            if not inventory_was_open then
-                inventory:ShowWindow(0)
-            end
             ui.SetHoldUI(false)
             return
         end
@@ -463,27 +500,106 @@ function Vakarine_equip_start_operation(is_manual)
                 break
             end
         end
+        -- 所要時間の計測。改善の前後を利用者の verbose_log.txt で比べられるよう、
+        -- ms と tick 数の両方を残す。tick 数が無いと「delay が長いのか、
+        -- サーバの往復待ちが長いのか」を切り分けられない。
+        g.vakarine_equip_start_ms = imcTime.GetAppTimeMS()
+        g.vakarine_equip_ticks = 0
+        g.vakarine_equip_sent = 0
+        g.vakarine_equip_equip_start_ms = nil
+        g.vakarine_equip_unequip_index = nil
+        g.vakarine_equip_unequip_at = nil
+        g.vakarine_equip_equip_at = nil
         g.vakarine_equip_process_step = "unequip"
-        vakarine_equip:RunUpdateScript("Vakarine_equip_main_loop", g.vakarine_equip_settings.delay)
+        -- **「見に行く間隔」と「投げる間隔」を分ける。**
+        -- 以前はループそのものを settings.delay(既定 0.1 秒)で回していたため、
+        -- サーバの反映が返っても**次の tick が来るまで気付けず**、13 部位に 19 tick
+        -- (2589ms / 1 部位あたり 199ms)かかっていた。空振りの 6 tick はこれ。
+        -- ループは細かく回して反映をすぐ拾い、要求を投げる間隔だけ別に持つ。
+        vakarine_equip:RunUpdateScript("Vakarine_equip_main_loop", 0.03)
     end
 end
 
 function Vakarine_equip_main_loop(vakarine_equip)
     local equip_item_list = session.GetEquipItemList()
     if g.vakarine_equip_process_step == "unequip" then
-        local all_unequipped = true
+        g.vakarine_equip_ticks = (g.vakarine_equip_ticks or 0) + 1
+        -- **外す要求は 1 tick に 1 部位。まとめて投げないこと。**
+        -- 「13 部位ぶんを 1 tick でまとめて投げれば一括で脱げる」を実機で試したところ、
+        -- **1 回のまとめ投げにつき 1 部位しか外れなかった**(残り 12 件は捨てられる)。
+        -- 外れるのを待って投げ直す作りにしたため、13 部位で 28.6 秒かかった
+        -- (2026-09-04 の verbose_log.txt で実測。1 部位ずつのときより桁違いに遅い)。
+        -- 装備の変更は同時に 1 件しか受け付けられないと考えられる。
+        --
+        -- 部位を選べる一括の関数も素には無い。外す手段は item.UnEquip(部位 1 つ)と
+        -- session.job.ReqUnEquipItemAll(引数なし = 全装備固定)の 2 つだけで、
+        -- 後者は「チェックした部位だけ」というこのアドオンの作りと噛み合わない
+        -- (チェック外の部位まで外れ、控えが無いので外れっぱなしになる)。
+        --
+        -- したがってここは「まだ外れていない先頭の 1 部位へ投げ、外れたのを見てから次へ」。
+        -- **待っている間は投げ直さない。** 以前は毎 tick 同じ部位へ投げ直しており、
+        -- 反映待ちの間ずっと同じ要求を撒いていた(細かく回すようにした今そのままだと
+        -- 撒く量が 3 倍以上になる)。落ちたときのために、1 秒返らなければ 1 回だけ投げ直す。
+        local target = nil
         for _, data in ipairs(g.vakarine_equip_queue) do
             local current_item = equip_item_list:GetEquipItemByIndex(data.index)
             if current_item and current_item:GetIESID() ~= "0" then
-                item.UnEquip(data.index)
-                return 1
+                target = data
+                break
             end
         end
-        if all_unequipped then
-            g.vakarine_equip_process_step = "equip"
+        if target then
+            local now = imcTime.GetAppTimeMS()
+            if g.vakarine_equip_unequip_index ~= target.index then
+                -- 前の部位が外れて次へ進んだ(または 1 部位目)。待たずにすぐ投げる。
+                item.UnEquip(target.index)
+                g.vakarine_equip_unequip_index = target.index
+                g.vakarine_equip_unequip_at = now
+                g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
+            elseif now - (g.vakarine_equip_unequip_at or 0) >= 1000 then
+                -- 同じ部位が 1 秒外れない = 要求が通らなかったとみなして投げ直す。
+                item.UnEquip(target.index)
+                g.vakarine_equip_unequip_at = now
+                g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
+                g.vlog("VakarineEquip 脱ぎ直し: %s が 1 秒外れないので投げ直した", tostring(target.spot))
+            end
+            return 1
         end
+        -- ここまで来た = 対象の部位が 1 つも残っていない。
+        g.vlog("VakarineEquip 脱ぎ終わり: %d 部位 / 送信 %d 回 / %d 回見た / %d ms", #g.vakarine_equip_queue,
+            g.vakarine_equip_sent or 0, g.vakarine_equip_ticks,
+            imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0))
+        g.vakarine_equip_process_step = "equip"
         return 1
     elseif g.vakarine_equip_process_step == "equip" then
+        g.vakarine_equip_ticks = (g.vakarine_equip_ticks or 0) + 1
+        local now = imcTime.GetAppTimeMS()
+        if not g.vakarine_equip_equip_start_ms then
+            g.vakarine_equip_equip_start_ms = now
+        end
+        -- **「インベントリを開かないと装備できない」場合の保険。**
+        -- 1 部位につき settings.delay ぶん掛かるので、それに 3 秒の余裕を足しても
+        -- 終わらないなら、開かなかったことが原因である可能性を疑って開き直す。
+        -- **見に行った回数ではなく経過時間で測ること。** ループは 0.03 秒で回っており、
+        -- 回数で測ると正常な進行(1 部位あたり delay/0.03 回)を異常と誤判定する。
+        -- 一度きりで、開いたことは必ず vlog へ残す(この行が出るなら仮説が外れている)。
+        if not g.vakarine_equip_opened_inventory and
+            now - g.vakarine_equip_equip_start_ms >
+            #g.vakarine_equip_queue * g.vakarine_equip_settings.delay * 1000 + 3000 then
+            g.vakarine_equip_opened_inventory = true
+            ui.GetFrame("inventory"):ShowWindow(1)
+            g.vlog("{#FF6347}VakarineEquip: 着ける処理が %d ms 進まないのでインベントリを開いて続ける" ..
+                       "(開かずに装備できるという前提が外れている){/}",
+                now - g.vakarine_equip_equip_start_ms)
+        end
+        -- **着ける間隔は settings.delay のまま。**
+        -- ループを 0.03 秒へ細かくしたのは「脱いだのにすぐ気付く」ためで、
+        -- 着ける要求まで 3 倍の速さで投げてよいという話ではない(利用者が設定で
+        -- 伸ばしている値でもある)。ここで前回投げてからの経過を見て絞る。
+        if now - (g.vakarine_equip_equip_at or 0) < g.vakarine_equip_settings.delay * 1000 then
+            return 1
+        end
+        g.vakarine_equip_equip_at = now
         local weapon_order = {"RH", "LH", "RH_SUB", "LH_SUB"}
         for _, spot_name in ipairs(weapon_order) do
             for _, data in ipairs(g.vakarine_equip_queue) do
@@ -492,6 +608,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                     if not current_item or current_item:GetIESID() ~= data.iesid then
                         local inv_item = session.GetInvItemByGuid(data.iesid)
                         if inv_item then
+                            g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                             ITEM_EQUIP(inv_item.invIndex, data.spot)
                             return 1
                         end
@@ -508,6 +625,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 if not current_item or current_item:GetIESID() ~= data.iesid then
                     local inv_item = session.GetInvItemByGuid(data.iesid)
                     if inv_item then
+                        g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
                         return 1
                     end
@@ -522,6 +640,7 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 if current_iesid ~= iesid_to_equip then
                     local inv_item = session.GetInvItemByGuid(iesid_to_equip)
                     if inv_item then
+                        g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
                         return 1
                     end
@@ -529,10 +648,17 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 break
             end
         end
-        local inventory = ui.GetFrame("inventory")
-        inventory:ShowWindow(0)
+        -- **自分で開いたときだけ閉じる。** 通常は開いていないので何もしない。
+        -- 無条件に閉じると、利用者が自分で開いていたインベントリまで畳んでしまう。
+        if g.vakarine_equip_opened_inventory then
+            ui.GetFrame("inventory"):ShowWindow(0)
+            g.vakarine_equip_opened_inventory = false
+        end
         imcAddOn.BroadMsg("NOTICE_Dm_stage_start", "[VE]End of Operation", 3)
         ui.SetHoldUI(false)
+        g.vlog("VakarineEquip 完了: %d 部位 / 送信 %d 回 / %d 回見た / %d ms (delay=%.2f)",
+            #g.vakarine_equip_queue, g.vakarine_equip_sent or 0, g.vakarine_equip_ticks or 0,
+            imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0), g.vakarine_equip_settings.delay)
         return 0
     end
     return 1
@@ -658,6 +784,19 @@ function Vakarine_equip_config_frame_open()
     move_check:SetText(g.lang == "Japanese" and "{ol}チェックするとフレーム固定" or
                            "{ol}If checked, the frame is fixed")
     move_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
+    y = y + 30
+    -- 着脱のときにインベントリを開くか。**既定は開かない。**
+    -- 開かなくても装備できることは実機で確認済みだが、開いて確認したい人も居るので
+    -- 選べるようにしてある(持ち物が多いほど開く分だけ待たされる点は下の説明に出す)。
+    local open_inv_check = config_gb:CreateOrGetControl('checkbox', "open_inv_check", 10, y, 30, 30)
+    AUTO_CAST(open_inv_check)
+    open_inv_check:SetCheck(g.vakarine_equip_settings.open_inventory)
+    open_inv_check:SetText(g.lang == "Japanese" and "{ol}着脱中にインベントリを開く" or
+                               "{ol}Open the inventory while swapping")
+    open_inv_check:SetTextTooltip(g.lang == "Japanese" and
+                                      "{ol}着脱そのものには必要ありません{nl}持ち物が多いほど、開く分だけ着脱の開始が遅くなります" or
+                                      "{ol}Not required for swapping{nl}The more items you carry, the longer the swap takes to start")
+    open_inv_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
     y = y + 40
     local default_btn = config_gb:CreateOrGetControl("button", "default_btn", 20, y, 120, 30)
     AUTO_CAST(default_btn)
@@ -691,6 +830,8 @@ function Vakarine_equip_check_switch(config, ctrl, equip_name, num)
     elseif ctrl:GetName() == "move_check" then
         g.vakarine_equip_settings.move = ischeck
         Vakarine_equip_frame_init()
+    elseif ctrl:GetName() == "open_inv_check" then
+        g.vakarine_equip_settings.open_inventory = ischeck
     elseif string.find(ctrl:GetName(), "check_box") then
         g.vakarine_equip_settings.chars[g.cid][equip_name] = ischeck
         if equip_name == "RH_SUB" then

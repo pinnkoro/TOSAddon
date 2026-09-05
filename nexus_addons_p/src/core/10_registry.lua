@@ -598,9 +598,9 @@ g._nexus_addons_p = {{
 }, {
     key = "vakarine_equip",
     category = "storage",
-    updated = "2.3.0",
-    updated_note_jp = "バフ自動削除の判定を軽くしました。レイドなどバフの通知が集中する場所で効きます",
-    updated_note_en = "Made the auto-remove check cheaper. It matters where buff messages pile up, such as raids",
+    updated = g.VER_NEXT,
+    updated_note_jp = "着脱を速くしました。インベントリを開かなくなり(持ち物が多い人ほど効きます)、外れたのを待つ時間も詰めています",
+    updated_note_en = "Faster gear swapping. The inventory no longer opens (helps most if you carry a lot) and waiting between removals is shorter",
     data = {
         use = 0,
         name = "Vakarine Equip",
