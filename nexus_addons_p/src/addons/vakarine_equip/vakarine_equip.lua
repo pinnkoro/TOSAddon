@@ -430,8 +430,9 @@ function Vakarine_equip_start_operation(is_manual)
             return
         end
         local inventory = ui.GetFrame("inventory")
-        -- **既定ではインベントリを開かない(設定で開くようにもできる)。**
-        -- 以前は必ず inventory:ShowWindow(1) していたが、**着脱には要らない**。
+        -- **開くかどうかは設定で決まる(既定は開く = 従来どおりの動き)。**
+        -- 以前は設定に関係なく必ず inventory:ShowWindow(1) していたが、
+        -- **着脱には要らない**。
         -- 素の ITEM_EQUIP は session.GetInvItem -> ITEM_EQUIP_MSG -> item.Equip と
         -- 辿るだけで、インベントリのフレームには一切触れない(素の game.lua を確認)。
         -- 一方、開くとアイテム 1 個につきスロットを 1 つ作るので、持ち物が多いほど重い。
@@ -791,9 +792,9 @@ function Vakarine_equip_config_frame_open()
                            "{ol}If checked, the frame is fixed")
     move_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
     y = y + 30
-    -- 着脱のときにインベントリを開くか。**既定は開かない。**
-    -- 開かなくても装備できることは実機で確認済みだが、開いて確認したい人も居るので
-    -- 選べるようにしてある(持ち物が多いほど開く分だけ待たされる点は下の説明に出す)。
+    -- 着脱のときにインベントリを開くか。**既定は開く(1) = 従来どおりの動き。**
+    -- 開かなくても装備できることは実機で確認済みなので、**速くしたい人が OFF にする**
+    -- 向きにしてある(持ち物が多いほど開く分だけ待たされる点はツールチップに出す)。
     local open_inv_check = config_gb:CreateOrGetControl('checkbox', "open_inv_check", 10, y, 30, 30)
     AUTO_CAST(open_inv_check)
     open_inv_check:SetCheck(g.vakarine_equip_settings.open_inventory)
