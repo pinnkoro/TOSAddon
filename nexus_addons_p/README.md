@@ -281,7 +281,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v2.6.1**
   * Mini Addons: 破片化の**「残す条件」のプリセットを、専用のファイルへ分けました**
     （`addons\_nexus_addons_p\<数字のフォルダ>\fragmentation_presets.json`）。
     他の設定とは別のファイルなので、**このファイルをそのまま渡せば、相手も同じ
