@@ -421,8 +421,11 @@ end
 frag.KEEP_SUFFIX = "frag_keep"
 frag.KEEP_LV_MAX = 5 -- 特殊オプションのレベルの上限(= frag.MAXLV_CNT)
 frag.KEEP_ROW_H = 28
-frag.KEEP_ROWS = 13 -- 1 列に並べる数。系統ごとのクラスは 25〜26 個なので 2 列で収まる
-frag.KEEP_COL_W = 225
+-- 一度に見えるクラスの数。**1 列に並べてスクロールさせる。**
+-- 2 列に折り返す作りにしていたが、系統によってクラスの数が違い(アーチャーは 27 個)、
+-- 折り返しの数を決め打ちにすると 3 列目が窓の外へ出る。列を増やす方向で直すと
+-- 系統が増えるたびに同じことが起きるので、1 列にしてスクロールで見る形にした
+frag.KEEP_ROWS = 13
 -- 今どのボタンから droplist を開いたか。ui.MakeDropListFrame のコールバックは
 -- (index, keyword) しか受け取らないので、何を選んでいるのかはここで覚えておくしかない
 frag.keep_edit = nil
@@ -676,16 +679,13 @@ function frag.keep_fill(frame)
         "{ol}이 Lv 이상의 옵션이 하나라도 있으면 남깁니다{nl}좌클릭으로 1 단계 올리고, 5 다음은 - 로 돌아갑니다{nl}우클릭으로 1 단계 내립니다{nl}「-」는 대상 외입니다",
         "{ol}Keeps the earring if any option of this class is at least this level{nl}Left click steps up (wraps to - after 5){nl}Right click steps down{nl}\"-\" means this class is not used")
     for i, cls in ipairs(frag.class_list(base.key)) do
-        local col = math.floor((i - 1) / frag.KEEP_ROWS)
-        local row = (i - 1) % frag.KEEP_ROWS
-        local x = col * frag.KEEP_COL_W
-        local y = row * frag.KEEP_ROW_H
-        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, x + 5, y + 3, 150, 24)
+        local y = (i - 1) * frag.KEEP_ROW_H
+        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, 10, y + 3, 300, 24)
         AUTO_CAST(label)
         label:SetText("{ol}" .. cls.name)
-        label:AdjustFontSizeByWidth(150)
+        label:AdjustFontSizeByWidth(300)
         local lv = tonumber(keep[cls.key]) or 0
-        local btn = gbox:CreateOrGetControl("button", "lv_" .. cls.key, x + 160, y, 55, 24)
+        local btn = gbox:CreateOrGetControl("button", "lv_" .. cls.key, 330, y, 55, 24)
         AUTO_CAST(btn)
         btn:SetSkinName(lv > 0 and "test_pvp_btn" or "test_gray_button")
         btn:SetText(frag.keep_lv_text(lv))
@@ -696,6 +696,18 @@ function frag.keep_fill(frame)
         btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_lv_up")
         btn:SetEventScript(ui.RBUTTONUP, "Mini_addons_frag_keep_lv_down")
     end
+    -- **中身を作り直したらスクロールバーの範囲を計算し直させること。**
+    -- 順番が逆だと、作り直す前の範囲のまま丸められて末尾まで送れない
+    -- (素のクライアントも作り直しの後に InvalidateScrollBar を呼んでいる)
+    gbox:EnableScrollBar(1)
+    pcall(function()
+        gbox:InvalidateScrollBar()
+    end)
+    -- タブを切り替えたら先頭から見せる(前の系統の位置に残っていると、
+    -- 上の方が空に見えて「クラスが無い」と読める)
+    pcall(function()
+        gbox:SetScrollPos(0)
+    end)
 end
 
 function Mini_addons_frag_keep_tab(parent, ctrl)
@@ -947,14 +959,18 @@ function Mini_addons_frag_keep_open()
     -- 系統のタブ。**タブ本体は 10 引数の並び**(幅 / 高さ / 寄せ / 寄せ / x / y)で、
     -- 他のコントロール(x / y / 幅 / 高さ)とは違うので注意
     local bases = frag.base_jobs()
-    local tab = frame:CreateOrGetControl("tab", "job_tab", 470, 34, ui.LEFT, ui.TOP, 15, 110, 0, 0)
+    -- **幅は項目の合計ぴったりにする。** 余らせると、タブの地(skin)だけが右へ伸びて
+    -- 見出しの無い帯が 1 本入っているように見える。高さも skin に合わせて 40
+    -- (素の status_point_check と同じ組み合わせ)
+    local tab_item_w = 92
+    local tab = frame:CreateOrGetControl("tab", "job_tab", tab_item_w * #bases, 40, ui.LEFT, ui.TOP, 15, 108, 0, 0)
     AUTO_CAST(tab)
     tab:SetSkinName("tab2")
     for _, base in ipairs(bases) do
         tab:AddItem("{@st66b}" .. base.name, true, "", "", "", "", "", false)
     end
-    tab:SetItemsFixWidth(92)
-    tab:SetItemsAdjustFontSizeByWidth(92)
+    tab:SetItemsFixWidth(tab_item_w)
+    tab:SetItemsAdjustFontSizeByWidth(tab_item_w)
     tab:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_tab")
     if frag.keep_tab >= #bases then
         frag.keep_tab = 0
@@ -965,7 +981,7 @@ function Mini_addons_frag_keep_open()
     local class_box = frame:CreateOrGetControl("groupbox", "class_box", 15, box_y, 470, box_h)
     AUTO_CAST(class_box)
     class_box:SetSkinName("test_frame_midle")
-    class_box:EnableScrollBar(0)
+    class_box:EnableScrollBar(1)
     local count_text = frame:CreateOrGetControl("richtext", "keep_count", 15, box_y + box_h + 8, 200, 25)
     AUTO_CAST(count_text)
     local clear_btn = frame:CreateOrGetControl("button", "clear_btn", 150, box_y + box_h + 5, 130, 30)
