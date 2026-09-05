@@ -118,7 +118,7 @@ function Vakarine_equip_load_settings()
             move = 1,
             chars = {},
             auto_remove = 0,
-            open_inventory = 0
+            open_inventory = 1
         }
     end
     -- 作動するマップ種別。**キー単位で既定値を補うこと。** 項目を後から足すので、
@@ -133,13 +133,15 @@ function Vakarine_equip_load_settings()
             settings.maps[kind.key] = kind.default
         end
     end
-    -- 着脱のときにインベントリを開くか。**既定は開かない(0)。**
+    -- 着脱のときにインベントリを開くか。**既定は開く(1) = 従来どおりの動き。**
     -- 開かなくても装備できることは実機で確認済み(素の ITEM_EQUIP はインベントリの
     -- フレームに触れない)。一方で開くとアイテム 1 個につき枠を 1 つ作るため、
     -- 所持 1900 個の環境では着脱が始まる前に 2218ms を食っていた。
+    -- **速くしたい人が 0 にする**という向きにしてある(既定を変えると、これまで
+    -- 開いていた人にとっては挙動が変わるため)。
     -- **キー単位で補うこと。** 既に settings.json がある人は、この行が無いと nil のまま来る。
     if settings.open_inventory == nil then
-        settings.open_inventory = 0
+        settings.open_inventory = 1
     end
     -- 以前は「チェックを外した」印に false を書いていた。読む側にとっては「無い」と
     -- 同じなので、読み込みのついでに落とす。放っておくと触ったバフの数だけ残り続け、
@@ -440,6 +442,10 @@ function Vakarine_equip_start_operation(is_manual)
         -- 着ける処理が進まないときだけ開いて続行し、その旨を vlog へ出す。
         -- 開いたかどうかは g.vakarine_equip_opened_inventory で持ち回し、
         -- **自分で開いたときだけ閉じる**(利用者が自分で開いていた窓を勝手に閉じない)。
+        -- **計測はここから。** 開く処理を計測の外に置くと、設定を ON にした人の
+        -- ログで「窓を開くのに何 ms 掛かったか」が分からなくなる(それが分からないと
+        -- 遅さの相談を受けたときに切り分けられない)。
+        local t_before_inv = imcTime.GetAppTimeMS()
         g.vakarine_equip_opened_inventory = false
         if g.vakarine_equip_settings.open_inventory == 1 and inventory:IsVisible() ~= 1 then
             g.vakarine_equip_opened_inventory = true
@@ -447,7 +453,6 @@ function Vakarine_equip_start_operation(is_manual)
         end
         -- 武器スワップの表示と CURRENT_WEAPON_INDEX を 1 側へ揃える。中身は画像の
         -- 差し替えと UserValue の設定だけなので、窓が見えている必要はない(素を確認)。
-        local t_before_inv = imcTime.GetAppTimeMS()
         DO_WEAPON_SLOT_CHANGE(inventory, 1)
         local t_inv = imcTime.GetAppTimeMS()
         ui.SetHoldUI(true)
@@ -482,7 +487,7 @@ function Vakarine_equip_start_operation(is_manual)
         local animas_item = session.GetInvItemByName("NECK04_103")
         g.vakarine_equip_animas_iesid = animas_item and animas_item:GetIESID() or nil
         local t_animas = imcTime.GetAppTimeMS()
-        g.vlog("VakarineEquip 準備の内訳: 合計=%dms (祝福判定=%d 武器欄=%d キュー=%d アニマス探し=%d) 部位=%d",
+        g.vlog("VakarineEquip 準備の内訳: 合計=%dms (祝福判定=%d 窓と武器欄=%d キュー=%d アニマス探し=%d) 部位=%d",
             t_animas - t0, t_vakarine - t0, t_inv - t_before_inv, t_queue - t_inv, t_animas - t_queue,
             #g.vakarine_equip_queue)
         if #g.vakarine_equip_queue == 0 then
@@ -507,16 +512,8 @@ function Vakarine_equip_start_operation(is_manual)
         g.vakarine_equip_ticks = 0
         g.vakarine_equip_sent = 0
         g.vakarine_equip_equip_start_ms = nil
-        g.vakarine_equip_unequip_index = nil
-        g.vakarine_equip_unequip_at = nil
-        g.vakarine_equip_equip_at = nil
         g.vakarine_equip_process_step = "unequip"
-        -- **「見に行く間隔」と「投げる間隔」を分ける。**
-        -- 以前はループそのものを settings.delay(既定 0.1 秒)で回していたため、
-        -- サーバの反映が返っても**次の tick が来るまで気付けず**、13 部位に 19 tick
-        -- (2589ms / 1 部位あたり 199ms)かかっていた。空振りの 6 tick はこれ。
-        -- ループは細かく回して反映をすぐ拾い、要求を投げる間隔だけ別に持つ。
-        vakarine_equip:RunUpdateScript("Vakarine_equip_main_loop", 0.03)
+        vakarine_equip:RunUpdateScript("Vakarine_equip_main_loop", g.vakarine_equip_settings.delay)
     end
 end
 
@@ -536,34 +533,26 @@ function Vakarine_equip_main_loop(vakarine_equip)
         -- 後者は「チェックした部位だけ」というこのアドオンの作りと噛み合わない
         -- (チェック外の部位まで外れ、控えが無いので外れっぱなしになる)。
         --
-        -- したがってここは「まだ外れていない先頭の 1 部位へ投げ、外れたのを見てから次へ」。
-        -- **待っている間は投げ直さない。** 以前は毎 tick 同じ部位へ投げ直しており、
-        -- 反映待ちの間ずっと同じ要求を撒いていた(細かく回すようにした今そのままだと
-        -- 撒く量が 3 倍以上になる)。落ちたときのために、1 秒返らなければ 1 回だけ投げ直す。
-        local target = nil
+        -- したがってここは「まだ外れていない先頭の 1 部位へ投げて次の tick を待つ」形。
+        -- 反映が返るまで同じ部位へ投げ直すことになるが、**この投げ直しは無駄ではない**。
+        -- 要求は実際に落ちるので、これが落ちた分を素早く埋め直している。
+        --
+        -- **「見に行く間隔(0.03 秒)と投げる間隔を分ける」を試したが、効果は無かった。**
+        -- 反映に気付くのが早くなるぶん速くなるはずだったが、13 部位の実測は
+        --   変更前(毎 tick 投げ直す)   2047 / 2535 / 2589 ms          平均 2390
+        --   投げ直し 1.0 秒            2312〜6575 ms                  平均 5104
+        --   投げ直し 0.3 秒            1798〜3336 ms                  平均 2666
+        --   投げ直し 0.15 秒(11 回)    1827〜3012 ms                  平均 2588
+        -- と、**どう詰めても変更前を上回らなかった**(送信回数だけ増えた)。
+        -- 待ち時間を決めているのはサーバの往復で、しかも 1 部位に 1 秒以上かかることが
+        -- ある。こちらから詰められる余地は無い。**同じことを試さないこと。**
         for _, data in ipairs(g.vakarine_equip_queue) do
             local current_item = equip_item_list:GetEquipItemByIndex(data.index)
             if current_item and current_item:GetIESID() ~= "0" then
-                target = data
-                break
-            end
-        end
-        if target then
-            local now = imcTime.GetAppTimeMS()
-            if g.vakarine_equip_unequip_index ~= target.index then
-                -- 前の部位が外れて次へ進んだ(または 1 部位目)。待たずにすぐ投げる。
-                item.UnEquip(target.index)
-                g.vakarine_equip_unequip_index = target.index
-                g.vakarine_equip_unequip_at = now
+                item.UnEquip(data.index)
                 g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
-            elseif now - (g.vakarine_equip_unequip_at or 0) >= 1000 then
-                -- 同じ部位が 1 秒外れない = 要求が通らなかったとみなして投げ直す。
-                item.UnEquip(target.index)
-                g.vakarine_equip_unequip_at = now
-                g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
-                g.vlog("VakarineEquip 脱ぎ直し: %s が 1 秒外れないので投げ直した", tostring(target.spot))
+                return 1
             end
-            return 1
         end
         -- ここまで来た = 対象の部位が 1 つも残っていない。
         g.vlog("VakarineEquip 脱ぎ終わり: %d 部位 / 送信 %d 回 / %d 回見た / %d ms", #g.vakarine_equip_queue,
@@ -580,10 +569,13 @@ function Vakarine_equip_main_loop(vakarine_equip)
         -- **「インベントリを開かないと装備できない」場合の保険。**
         -- 1 部位につき settings.delay ぶん掛かるので、それに 3 秒の余裕を足しても
         -- 終わらないなら、開かなかったことが原因である可能性を疑って開き直す。
-        -- **見に行った回数ではなく経過時間で測ること。** ループは 0.03 秒で回っており、
-        -- 回数で測ると正常な進行(1 部位あたり delay/0.03 回)を異常と誤判定する。
+        -- **tick 数ではなく経過時間で測ること。** ループの間隔は settings.delay で
+        -- 利用者が変えられるので、回数で測ると設定次第で誤判定する。
         -- 一度きりで、開いたことは必ず vlog へ残す(この行が出るなら仮説が外れている)。
-        if not g.vakarine_equip_opened_inventory and
+        -- 既に出ているときは何もしない(設定 ON で自分が開いた場合と、利用者が自分で
+        -- 開いていた場合。どちらも「開いていないせい」ではないので、この行を出すと
+        -- 仮説が外れた合図として誤って読まれる)。
+        if not g.vakarine_equip_opened_inventory and ui.GetFrame("inventory"):IsVisible() ~= 1 and
             now - g.vakarine_equip_equip_start_ms >
             #g.vakarine_equip_queue * g.vakarine_equip_settings.delay * 1000 + 3000 then
             g.vakarine_equip_opened_inventory = true
@@ -592,14 +584,6 @@ function Vakarine_equip_main_loop(vakarine_equip)
                        "(開かずに装備できるという前提が外れている){/}",
                 now - g.vakarine_equip_equip_start_ms)
         end
-        -- **着ける間隔は settings.delay のまま。**
-        -- ループを 0.03 秒へ細かくしたのは「脱いだのにすぐ気付く」ためで、
-        -- 着ける要求まで 3 倍の速さで投げてよいという話ではない(利用者が設定で
-        -- 伸ばしている値でもある)。ここで前回投げてからの経過を見て絞る。
-        if now - (g.vakarine_equip_equip_at or 0) < g.vakarine_equip_settings.delay * 1000 then
-            return 1
-        end
-        g.vakarine_equip_equip_at = now
         local weapon_order = {"RH", "LH", "RH_SUB", "LH_SUB"}
         for _, spot_name in ipairs(weapon_order) do
             for _, data in ipairs(g.vakarine_equip_queue) do
