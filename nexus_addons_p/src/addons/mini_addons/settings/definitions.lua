@@ -225,7 +225,10 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "아이템 파편화 슬롯을 확장하고 귀걸이를 세분화해 필터링",
     text_en = "Expand the Item Fragmentation grid and filter earrings in more detail",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    since = "2.6.0"
+    since = "2.6.0",
+    updated = "2.6.1",
+    updated_note_jp = "「残す条件」のプリセットを専用ファイルへ分けました。そのファイルを渡すだけで、他の人へプリセットを共有できます",
+    updated_note_en = "Keep-rule presets now live in their own file, so you can share them by handing over that one file"
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",
