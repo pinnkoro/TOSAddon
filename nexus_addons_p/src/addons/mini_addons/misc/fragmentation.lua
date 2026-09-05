@@ -943,29 +943,65 @@ function frag.presets()
     if type(list) ~= "table" then
         list = {}
     end
-    -- 旧い置き場所(mini_addons.json の中)からの引き継ぎ。**別ファイルが空のときだけ**
-    -- (既に別ファイルへ移した後に残骸を拾い直すと、消したプリセットが復活する)
-    if #list == 0 and g.settings and type(g.settings.fragmentation) == "table" and
-        type(g.settings.fragmentation.presets) == "table" and #g.settings.fragmentation.presets > 0 then
-        list = g.settings.fragmentation.presets
-        core_g.vlog("mini_addons: 破片化 プリセットを %s へ移した(%d 件)", frag.presets_path(), #list)
-        frag.presets_cache = list
-        frag.presets_save()
-    end
-    g.settings = g.settings or {}
-    if type(g.settings.fragmentation) == "table" then
-        -- 旧い置き場所は空にする(両方に残ると、どちらが本物か分からなくなる)
-        if g.settings.fragmentation.presets ~= nil then
-            g.settings.fragmentation.presets = nil
-            Mini_addons_save_settings()
-        end
-    end
     frag.presets_cache = list
+    frag.presets_migrate(list)
     return list
 end
 
+-- 旧い置き場所(mini_addons.json の中)からの引き継ぎ。
+--
+-- **旧い方を消してよいのは「新しいファイルへ書けた」ときだけ。**
+-- 消す処理を移行の判定と分けて無条件に走らせていたため、次の 2 つでプリセットが
+-- どこにも残らないまま消えていた(PR #164 の指摘)。
+--   1. 人から貰った fragmentation_presets.json を置いた利用者。新しいファイルが
+--      空でないので移行は起きないのに、旧い方だけ消えていた
+--   2. 書き込みに失敗したとき(save_json は false を返す)。移せていないのに消していた
+--
+-- **中身が在るときは捨てずに足す。** 名前がぶつかったら新しいファイル側を残し、
+-- 旧い方は「(旧)」を付けて別物として並べる(片方を黙って捨てない)。
+function frag.presets_migrate(list)
+    local cfg = (g.settings and type(g.settings.fragmentation) == "table") and g.settings.fragmentation or nil
+    local old = (cfg and type(cfg.presets) == "table") and cfg.presets or nil
+    if old == nil or #old == 0 then
+        if cfg and cfg.presets ~= nil then
+            cfg.presets = nil -- 空の残骸だけは落としてよい(失うものが無い)
+            Mini_addons_save_settings()
+        end
+        return
+    end
+    local names = {}
+    for _, preset in ipairs(list) do
+        names[tostring(preset.name)] = true
+    end
+    local moved, renamed = 0, 0
+    for _, preset in ipairs(old) do
+        local name = tostring(preset.name)
+        if names[name] then
+            name = name .. frag.lang(" (旧)", " (구)", " (old)")
+            renamed = renamed + 1
+        end
+        names[name] = true
+        list[#list + 1] = {
+            name = name,
+            keep = preset.keep
+        }
+        moved = moved + 1
+    end
+    if frag.presets_save() then
+        cfg.presets = nil
+        Mini_addons_save_settings()
+        core_g.vlog("mini_addons: 破片化 プリセットを %s へ移した(%d 件 / 改名 %d 件)", frag.presets_path(), moved,
+            renamed)
+    else
+        -- 書けなかったので旧い方は残す。次の起動でもう一度試す
+        core_g.vlog("{#FF6347}mini_addons: 破片化 プリセットの移行に失敗(%s へ書けない)。旧い方は残す{/}",
+            frag.presets_path())
+        frag.presets_cache = nil
+    end
+end
+
 function frag.presets_save()
-    core_g.save_json(frag.presets_path(), frag.presets_cache or {})
+    return core_g.save_json(frag.presets_path(), frag.presets_cache or {})
 end
 
 -- 指定の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
