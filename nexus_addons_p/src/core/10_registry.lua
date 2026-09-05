@@ -281,7 +281,7 @@ g._nexus_addons_p = {{
 }, {
     key = "guild_event_warp",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.6.0",
     updated_note_jp = "インベントリと重なったとき、インベントリの上からボタンを押せてしまっていたのを修正しました",
     updated_note_en = "Fixed the buttons being clickable through the inventory window when they overlap",
     data = {
@@ -598,7 +598,7 @@ g._nexus_addons_p = {{
 }, {
     key = "vakarine_equip",
     category = "storage",
-    updated = g.VER_NEXT,
+    updated = "2.6.0",
     updated_note_jp = "設定で「着脱中にインベントリを開く」を切れるようにしました。OFF にすると着脱の開始が速くなります(持ち物が多い人ほど効きます)",
     updated_note_en = "Added a setting to stop the inventory from opening while swapping. Turning it off makes swaps start sooner (helps most if you carry a lot)",
     data = {

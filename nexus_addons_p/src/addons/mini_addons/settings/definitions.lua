@@ -216,7 +216,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Sort abilities in skill order",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     since = "2.4.0",
-    updated = core_g.VER_NEXT,
+    updated = "2.6.0",
     updated_note_jp = "特性の窓を閉じているときにも並べ替えが走っていたのをやめました。装備を替えたときの引っかかりが減ります",
     updated_note_en = "Stopped sorting while the ability window is closed. Changing equipment stutters less"
 }, {
@@ -225,7 +225,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "아이템 파편화 슬롯을 확장하고 귀걸이를 세분화해 필터링",
     text_en = "Expand the Item Fragmentation grid and filter earrings in more detail",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    since = core_g.VER_NEXT
+    since = "2.6.0"
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",
