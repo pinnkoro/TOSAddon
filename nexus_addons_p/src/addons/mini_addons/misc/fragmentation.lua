@@ -987,21 +987,31 @@ function frag.presets_migrate(list)
         }
         moved = moved + 1
     end
+    -- 旧い方を落とすのは書けたときだけ。**その判断は frag.presets_save に任せる。**
+    -- ここで失敗したときにキャッシュを捨てると、呼び出し元が持っている一覧と
+    -- キャッシュが食い違い、次の保存が空の一覧でファイルを潰す(PR #164 の指摘 2)
+    frag.presets_pending_old = cfg
     if frag.presets_save() then
-        cfg.presets = nil
-        Mini_addons_save_settings()
         core_g.vlog("mini_addons: 破片化 プリセットを %s へ移した(%d 件 / 改名 %d 件)", frag.presets_path(), moved,
             renamed)
     else
-        -- 書けなかったので旧い方は残す。次の起動でもう一度試す
+        -- 書けなかったので旧い方は残す。この後の保存が成功すれば、そこで落ちる
         core_g.vlog("{#FF6347}mini_addons: 破片化 プリセットの移行に失敗(%s へ書けない)。旧い方は残す{/}",
             frag.presets_path())
-        frag.presets_cache = nil
     end
 end
 
+-- **保存はここ 1 本に集約する。** 旧い置き場所を空にするのも、移行のときだけでなく
+-- 「この後どこかで書けたとき」で拾えるよう、ここでまとめて行う
+-- (移行の書き込みが一度失敗しても、次にプリセットを保存できた時点で移行が完了する)。
 function frag.presets_save()
-    return core_g.save_json(frag.presets_path(), frag.presets_cache or {})
+    local ok = core_g.save_json(frag.presets_path(), frag.presets_cache or {})
+    if ok and frag.presets_pending_old ~= nil then
+        frag.presets_pending_old.presets = nil
+        frag.presets_pending_old = nil
+        Mini_addons_save_settings()
+    end
+    return ok
 end
 
 -- 指定の写しを作る。**参照のまま入れてはいけない。** 保存したプリセットと編集中の
