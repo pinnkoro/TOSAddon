@@ -406,8 +406,8 @@ end
 -- **クラスごとに「この Lv 以上なら残す」を決め、どれにも当てはまらないものだけ選択する。**
 -- 選ぶだけで、破片化そのものは今までどおり利用者が実行ボタンを押す。
 --
--- 指定は **系統(ソードマン / ウィザード / …)のタブ + クラスごとの数字 4 つ**。
--- 「不問 / R1 / R2 / R3」の枠それぞれに最低 Lv を置き、**0 はその枠を使わない**。
+-- 指定は **系統(ソードマン / ウィザード / …)のタブ + クラスごとの数字 3 つ**。
+-- 「R1 / R2 / R3」の枠それぞれに最低 Lv を置き、**0 はその枠を使わない**。
 -- ランクを 1 つしか指定できないと「R2 か R3 なら残す」が書けないので、
 -- **ランクは 1〜3 を並べて置き、枠ごとに Lv を決める**形にしてある
 -- (横に並べたので行の高さは変わらない)。以前は 1 行ずつ
@@ -421,9 +421,11 @@ end
 frag.KEEP_SUFFIX = "frag_keep"
 frag.KEEP_LV_MAX = 5 -- 特殊オプションのレベルの上限(= frag.MAXLV_CNT)
 frag.KEEP_RANK_MAX = 3 -- 特殊オプションのランクの上限(素の shared_item_earring と同じ 1〜3)
--- 1 クラスぶんの枠。lv = ランク不問、r1〜r3 = そのランクのときだけ見る枠。
--- **この並びが画面の列の並びでもある**(header と keep_fill で使い回す)
-frag.KEEP_FIELDS = {"lv", "r1", "r2", "r3"}
+-- 1 クラスぶんの枠。r1〜r3 = そのランクのオプションだけを見る枠。
+-- **この並びが画面の列の並びでもある**(header と keep_fill で使い回す)。
+-- 「ランク不問」の枠は置いていない。3 つとも同じ Lv にすれば同じことになるうえ、
+-- 枠が 1 つ増えると横も窮屈になるため(旧い設定の lv は 3 つへ配って移す)
+frag.KEEP_FIELDS = {"r1", "r2", "r3"}
 frag.KEEP_ROW_H = 28
 -- 一度に見えるクラスの数。**1 列に並べてスクロールさせる。**
 -- 2 列に折り返す作りにしていたが、系統によってクラスの数が違い(アーチャーは 27 個)、
@@ -485,6 +487,30 @@ function frag.keep_migrate(keep)
             end
             value.rank = nil
         end
+    end
+    -- 旧 4: ランク不問(lv)の枠。枠を無くしたので R1〜R3 へ同じ値を配る
+    -- (「どのランクでも Lv N 以上」と同じ意味になる)。**黙って捨てないこと**:
+    -- 捨てると、指定していたクラスが破片化の対象へ回る
+    local spread = 0
+    for _, value in pairs(keep) do
+        if type(value) == "table" and value.lv ~= nil then
+            local lv = tonumber(value.lv) or 0
+            if lv > 0 then
+                for r = 1, frag.KEEP_RANK_MAX do
+                    local now = tonumber(value["r" .. r]) or 0
+                    -- 既に入っている枠は緩い方(小さい Lv)を残す。厳しくすると
+                    -- 残すつもりだったものが破片化の対象へ回るため
+                    if now == 0 or lv < now then
+                        value["r" .. r] = lv
+                    end
+                end
+                spread = spread + 1
+            end
+            value.lv = nil
+        end
+    end
+    if spread > 0 then
+        core_g.vlog("mini_addons: 破片化 残す条件のランク不問を R1〜R3 へ配った(%d クラス)", spread)
     end
     if wrapped > 0 or ranked > 0 then
         core_g.vlog("mini_addons: 破片化 残す条件を旧い形から移した(数値 %d / ランク指定 %d)", wrapped, ranked)
@@ -607,16 +633,10 @@ function frag.keep_match(obj, keep)
         if class_name ~= "None" then
             local want = keep[class_name]
             if type(want) == "table" then
-                local lv = TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0)
-                -- Lv は「その値以上なら残す」。**等号ではない**(利用者の指定は下限)
-                local any = tonumber(want.lv) or 0
-                if any > 0 and lv >= any then
-                    return true
-                end
-                -- ランクごとの枠。**不問の枠との or で見る**(「不問 Lv4 か、R3 なら Lv2」
-                -- のような書き方をそのまま通す)
+                -- そのオプションのランクの枠だけを見る。Lv は「その値以上なら残す」
+                -- **等号ではない**(利用者の指定は下限)
                 local by_rank = tonumber(want["r" .. TryGetProp(obj, "EarringSpecialOptionRankValue_" .. i, 0)]) or 0
-                if by_rank > 0 and lv >= by_rank then
+                if by_rank > 0 and TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0) >= by_rank then
                     return true
                 end
             end
@@ -715,11 +735,8 @@ function frag.keep_btn_text(value)
     return string.format("{ol}Lv%d", value)
 end
 
--- 枠の見出し。ランク不問の枠だけ名前が違う
+-- 枠の見出し(R1 / R2 / R3)
 function frag.keep_field_head(field)
-    if field == "lv" then
-        return frag.lang("不問", "무관", "Any")
-    end
     return string.upper(field)
 end
 
@@ -748,7 +765,7 @@ end
 -- 枠(不問 / R1 / R2 / R3)の左端。**見出しと行で同じ式を使う**
 -- (別々に書くと、どちらかを直したときにずれる)
 function frag.keep_cell_x(at)
-    return 205 + (at - 1) * 58
+    return 235 + (at - 1) * 60
 end
 
 -- 選んでいる系統のクラスを並べ直す
@@ -769,19 +786,16 @@ function frag.keep_fill(frame)
         "{ol}この Lv 以上のオプションが 1 つでもあれば残します{nl}左クリックで 1 つ上げ、5 の次は - に戻ります{nl}右クリックで 1 つ下げます{nl}「-」はこの枠を使いません",
         "{ol}이 Lv 이상의 옵션이 하나라도 있으면 남깁니다{nl}좌클릭으로 1 단계 올리고, 5 다음은 - 로 돌아갑니다{nl}우클릭으로 1 단계 내립니다{nl}「-」는 이 칸을 쓰지 않습니다",
         "{ol}Keeps the earring if any option of this class is at least this level{nl}Left click steps up (wraps to - after 5){nl}Right click steps down{nl}\"-\" means this cell is unused")
-    local head_tip = {
-        lv = frag.lang("{ol}ランク不問の枠。どのランクのオプションでも見ます",
-            "{ol}랭크 무관 칸. 어떤 랭크의 옵션이든 봅니다", "{ol}Any-rank cell: matches an option of any rank"),
-        rank = frag.lang("{ol}このランクのオプションだけ見ます{nl}ランクはツールチップの「[N] ランク スキルレベル」の N",
-            "{ol}이 랭크의 옵션만 봅니다{nl}랭크는 툴팁의 「[N] 랭크 스킬 레벨」의 N",
-            "{ol}Matches only options of this rank{nl}Rank is the N in \"[N] rank skill level\"")
-    }
+    local rank_tip = frag.lang(
+        "{ol}このランクのオプションだけ見ます{nl}ランクはツールチップの「[N] ランク スキルレベル」の N{nl}ランクを問わないときは 3 つとも同じ Lv にします",
+        "{ol}이 랭크의 옵션만 봅니다{nl}랭크는 툴팁의 「[N] 랭크 스킬 레벨」의 N{nl}랭크를 따지지 않으려면 3 개 모두 같은 Lv 로 합니다",
+        "{ol}Matches only options of this rank{nl}Rank is the N in \"[N] rank skill level\"{nl}For any rank, set all three to the same level")
     for i, cls in ipairs(frag.class_list(base.key)) do
         local y = (i - 1) * frag.KEEP_ROW_H
-        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, 10, y + 3, 190, 24)
+        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, 10, y + 3, 215, 24)
         AUTO_CAST(label)
         label:SetText("{ol}" .. cls.name)
-        label:AdjustFontSizeByWidth(190)
+        label:AdjustFontSizeByWidth(215)
         local want = keep[cls.key]
         for at, field in ipairs(frag.KEEP_FIELDS) do
             local value = frag.keep_field_value(want, field)
@@ -793,7 +807,7 @@ function frag.keep_fill(frame)
             -- 切り出す作りは、クラス名にどんな文字が入っても壊れないとは言えない)
             btn:SetUserValue("CLASS", cls.key)
             btn:SetUserValue("FIELD", field)
-            btn:SetTextTooltip(lv_tip .. "{nl}{nl}" .. (head_tip[field] or head_tip.rank))
+            btn:SetTextTooltip(lv_tip .. "{nl}{nl}" .. rank_tip)
             btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_lv_up")
             btn:SetEventScript(ui.RBUTTONUP, "Mini_addons_frag_keep_lv_down")
         end
@@ -1087,7 +1101,9 @@ function Mini_addons_frag_keep_open()
         frag.keep_tab = 0
     end
     tab:SelectTab(frag.keep_tab)
-    local box_y = 152
+    -- **タブ(y=108, 高さ 40 → 148 まで)と枠の見出しが重ならない位置にすること。**
+    -- 見出しは box_y - 20 に置くので、152 だと 132 = タブの上に被っていた
+    local box_y = 178
     local box_h = frag.KEEP_ROWS * frag.KEEP_ROW_H
     -- 枠の見出し。**行の枠と同じ式(frag.keep_cell_x)で置く**
     for at, field in ipairs(frag.KEEP_FIELDS) do
