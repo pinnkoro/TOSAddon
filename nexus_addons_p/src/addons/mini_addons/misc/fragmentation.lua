@@ -1043,12 +1043,14 @@ function Mini_addons_frag_keep_open()
     AUTO_CAST(title)
     title:SetText("{#000000}{s20}" ..
                       frag.lang("破片化しないで残す条件", "파편화하지 않고 남길 조건", "Rules to keep (do not fragment)"))
-    local desc = frame:CreateOrGetControl("richtext", "desc", 15, 45, 10, 25)
+    -- **窓の幅に収まる長さで書き、そのうえで縮める。** 説明文は言語ごとに長さが違い
+    -- (英語が一番長い)、はみ出すと途中で切れて読めなくなる。細かい操作の説明は
+    -- 枠のツールチップが持っているので、ここは 1 行で言い切る
+    local desc = frame:CreateOrGetControl("richtext", "desc", 15, 45, 465, 25)
     AUTO_CAST(desc)
-    desc:SetText("{ol}" .. frag.lang(
-        "クラスごとに「この Lv 以上なら残す」を決めます(左で上げ / 右で下げ、- は使わない枠)",
-        "클래스마다 「이 Lv 이상이면 남김」을 정합니다(좌클릭 올림 / 우클릭 내림, - 는 쓰지 않는 칸)",
-        "Set \"keep at this level or above\" per class (left = up, right = down, - = unused)"))
+    desc:SetText("{ol}" .. frag.lang("クラスごとに「この Lv 以上なら残す」を決めます",
+        "클래스마다 「이 Lv 이상이면 남김」을 정합니다", "Set \"keep at this level or above\" per class"))
+    desc:AdjustFontSizeByWidth(465)
     -- プリセット(保存 / 読込 / 削除)
     local preset_label = frame:CreateOrGetControl("richtext", "preset_label", 15, 78, 80, 25)
     AUTO_CAST(preset_label)
