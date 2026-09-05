@@ -973,6 +973,16 @@ function frag.presets_migrate(list)
     for _, preset in ipairs(list) do
         names[tostring(preset.name)] = true
         seen[frag.preset_signature(preset)] = true
+        -- **改名したものは、元の名前でも照合できるようにする。** 書き込みに失敗した回の
+        -- .tmp が次の起動で本体として復元されると、ファイル側は改名後・旧い設定側は
+        -- 元の名前で残るため、名前を見るだけでは「もう入っている」と分からず、
+        -- 「(旧) (旧)」と増え続ける(PR #164 の指摘)
+        if preset.origin ~= nil then
+            seen[frag.preset_signature({
+                name = preset.origin,
+                keep = preset.keep
+            })] = true
+        end
     end
     local moved, renamed, same = 0, 0, 0
     for _, preset in ipairs(old) do
@@ -995,6 +1005,9 @@ function frag.presets_migrate(list)
                 name = name,
                 keep = preset.keep
             }
+            if name ~= tostring(preset.name) then
+                one.origin = tostring(preset.name) -- 上の照合に使う
+            end
             seen[frag.preset_signature(one)] = true
             list[#list + 1] = one
             moved = moved + 1
@@ -1043,7 +1056,12 @@ function frag.preset_signature(preset)
 end
 
 function frag.presets_save()
-    local ok = core_g.save_json(frag.presets_path(), frag.presets_cache or {})
+    -- **読み込む前には書かない。** ここが唯一の書き出し口なので、キャッシュが
+    -- まだ無いまま呼ばれると空の一覧でファイルを潰すことになる
+    if frag.presets_cache == nil then
+        return false
+    end
+    local ok = core_g.save_json(frag.presets_path(), frag.presets_cache)
     if ok and frag.presets_pending_old ~= nil then
         frag.presets_pending_old.presets = nil
         frag.presets_pending_old = nil
@@ -1113,8 +1131,18 @@ function Mini_addons_frag_keep_save_preset()
     end
     slot.name = name
     slot.keep = frag.copy_keep(keep)
+    slot.origin = nil -- 手で保存し直したものは移行の照合から外す(名前は利用者が決めた)
     frag.keep_name = name
-    frag.presets_save()
+    -- **書けたかどうかを見る。** 分けたファイルを書くのはここだけなので、
+    -- 失敗を黙って「保存しました」と出すと、その 1 件がどこにも残らない
+    if not frag.presets_save() then
+        core_g.vlog("{#FF6347}mini_addons: 破片化 プリセットの保存に失敗(%s){/}", frag.presets_path())
+        frag.presets_cache = nil -- 書けていないので、次に読み直させる
+        ui.SysMsg(frag.lang("{ol}{#FF6347}[Nexus Addons P] プリセットを保存できませんでした",
+            "{ol}{#FF6347}[Nexus Addons P] 프리셋을 저장하지 못했습니다",
+            "{ol}{#FF6347}[Nexus Addons P] Could not save the preset"))
+        return
+    end
     core_g.vlog("mini_addons: 破片化 プリセット保存 %s (%d クラス)", name, frag.keep_count(slot.keep))
     ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」を保存しました",
         "{ol}{#00BFFF}[Nexus Addons P] 「" .. name .. "」을(를) 저장했습니다",
@@ -1170,13 +1198,23 @@ function Mini_addons_frag_keep_select(index, keyword)
     else
         local removed = tostring(preset.name)
         table.remove(presets, at)
+        -- **消せたかどうかを見てから知らせる。** 書けなかったらファイルには残るので、
+        -- 一覧の方も戻して食い違わせない
+        if not frag.presets_save() then
+            table.insert(presets, at, preset)
+            core_g.vlog("{#FF6347}mini_addons: 破片化 プリセットの削除に失敗(%s){/}", frag.presets_path())
+            ui.SysMsg(frag.lang("{ol}{#FF6347}[Nexus Addons P] プリセットを削除できませんでした",
+                "{ol}{#FF6347}[Nexus Addons P] 프리셋을 삭제하지 못했습니다",
+                "{ol}{#FF6347}[Nexus Addons P] Could not delete the preset"))
+            Mini_addons_frag_keep_open()
+            return
+        end
         if frag.keep_name == preset.name then
             frag.keep_name = ""
         end
         ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」を削除しました",
             "{ol}{#00BFFF}[Nexus Addons P] 「" .. removed .. "」을(를) 삭제했습니다",
             "{ol}{#00BFFF}[Nexus Addons P] Deleted \"" .. removed .. "\""))
-        frag.presets_save()
     end
     -- 読み込んだときは「今の指定」が変わるので、そちらは設定へ保存する
     Mini_addons_save_settings()
