@@ -850,6 +850,39 @@ function Mini_addons_frag_keep_tab(parent, ctrl)
     end
 end
 
+-- 全系統の指定を消す。**押し間違いで全部消えると痛いので、必ず確認を挟む。**
+-- 消える件数を数字で見せる(「今どれだけ持っているか」を見てから決められるように)
+function Mini_addons_frag_keep_clear_all()
+    local count = frag.keep_count(frag.keep_list())
+    if count == 0 then
+        return
+    end
+    local msg = frag.lang("指定している " .. count .. " クラスを全部 - に戻します。よろしいですか?",
+        "지정한 " .. count .. " 클래스를 모두 - 로 되돌립니다. 괜찮습니까?",
+        "Reset all " .. count .. " classes back to - ?")
+    ui.MsgBox(msg, "Mini_addons_frag_keep_clear_all_ok()", "None")
+end
+
+function Mini_addons_frag_keep_clear_all_ok()
+    local keep = frag.keep_list()
+    local count = frag.keep_count(keep)
+    -- **表を作り直さず、キーを 1 つずつ落とす。** 入れ物を差し替えると、
+    -- 他所(プリセット読込など)が持っている参照と食い違う
+    for class_name in pairs(keep) do
+        keep[class_name] = nil
+    end
+    Mini_addons_save_settings()
+    local frame = ui.GetFrame(frag.keep_frame_name())
+    if frame then
+        frag.keep_fill(frame)
+    end
+    frag.keep_update_count()
+    core_g.vlog("mini_addons: 破片化 残す条件を全部消した(%d クラス)", count)
+    ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 指定を全部消しました(" .. count .. " クラス)",
+        "{ol}{#00BFFF}[Nexus Addons P] 지정을 모두 지웠습니다(" .. count .. " 클래스)",
+        "{ol}{#00BFFF}[Nexus Addons P] Cleared all (" .. count .. " classes)"))
+end
+
 -- 開いている系統だけ全部 0 に戻す。**全系統を消さないこと**
 -- (他のタブで指定したものまで消えると、押した人には何が起きたのか分からない)
 function Mini_addons_frag_keep_clear_tab()
@@ -1133,16 +1166,35 @@ function Mini_addons_frag_keep_open()
     AUTO_CAST(class_box)
     class_box:SetSkinName("test_frame_midle")
     class_box:EnableScrollBar(1)
-    local count_text = frame:CreateOrGetControl("richtext", "keep_count", 15, box_y + box_h + 8, 200, 25)
+    local count_text = frame:CreateOrGetControl("richtext", "keep_count", 15, box_y + box_h + 8, 110, 25)
     AUTO_CAST(count_text)
-    local clear_btn = frame:CreateOrGetControl("button", "clear_btn", 150, box_y + box_h + 5, 130, 30)
-    AUTO_CAST(clear_btn)
-    clear_btn:SetSkinName("test_gray_button")
-    clear_btn:SetText("{ol}" .. frag.lang("このタブを解除", "이 탭 해제", "Clear this tab"))
-    clear_btn:SetTextTooltip(frag.lang("{ol}開いている系統の指定だけを - に戻します(他の系統はそのまま)",
-        "{ol}열려 있는 계열의 지정만 - 로 되돌립니다(다른 계열은 그대로)",
-        "{ol}Resets only the open tree back to - (other trees stay)"))
-    clear_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_clear_tab")
+    local clear_defs = {{
+        name = "clear_btn",
+        x = 130,
+        width = 78,
+        text = frag.lang("タブ解除", "탭 해제", "This tab"),
+        script = "Mini_addons_frag_keep_clear_tab",
+        tip = frag.lang("{ol}開いている系統の指定だけを - に戻します(他の系統はそのまま)",
+            "{ol}열려 있는 계열의 지정만 - 로 되돌립니다(다른 계열은 그대로)",
+            "{ol}Resets only the open tree back to - (other trees stay)")
+    }, {
+        name = "clear_all_btn",
+        x = 213,
+        width = 68,
+        text = frag.lang("全解除", "전체 해제", "All"),
+        script = "Mini_addons_frag_keep_clear_all",
+        tip = frag.lang("{ol}全系統の指定を - に戻します{nl}押すと確認が出ます",
+            "{ol}모든 계열의 지정을 - 로 되돌립니다{nl}누르면 확인이 나옵니다",
+            "{ol}Resets every tree back to -{nl}Asks for confirmation first")
+    }}
+    for _, def in ipairs(clear_defs) do
+        local btn = frame:CreateOrGetControl("button", def.name, def.x, box_y + box_h + 5, def.width, 30)
+        AUTO_CAST(btn)
+        btn:SetSkinName("test_gray_button")
+        btn:SetText("{ol}" .. def.text)
+        btn:SetTextTooltip(def.tip)
+        btn:SetEventScript(ui.LBUTTONUP, def.script)
+    end
     local apply_btn = frame:CreateOrGetControl("button", "apply_btn", 290, box_y + box_h + 2, 195, 36)
     AUTO_CAST(apply_btn)
     apply_btn:SetSkinName("test_red_button")
