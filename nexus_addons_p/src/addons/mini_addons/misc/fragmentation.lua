@@ -969,23 +969,43 @@ function frag.presets_migrate(list)
         end
         return
     end
-    local names = {}
+    local names, seen = {}, {}
     for _, preset in ipairs(list) do
         names[tostring(preset.name)] = true
+        seen[frag.preset_signature(preset)] = true
     end
-    local moved, renamed = 0, 0
+    local moved, renamed, same = 0, 0, 0
     for _, preset in ipairs(old) do
-        local name = tostring(preset.name)
-        if names[name] then
-            name = name .. frag.lang(" (旧)", " (구)", " (old)")
-            renamed = renamed + 1
+        -- **同じ名前で同じ中身のものは足さない。** 保存の rename に失敗すると、
+        -- 書き込み済みの .tmp が次の起動で本体として復元される一方、旧い方は
+        -- 消せていないので、もう一度この移行を通る。素通しにすると同じ内容が
+        -- 「(旧)」付きで増え続ける(PR #164 の指摘)
+        if seen[frag.preset_signature(preset)] then
+            same = same + 1
+        else
+            local name = tostring(preset.name)
+            -- **付け直した名前も見ること。** 1 回だけだと、貰ったファイルに
+            -- 「汎用」と「汎用 (旧)」が既に在るときに同名が 2 件並ぶ
+            while names[name] do
+                name = name .. frag.lang(" (旧)", " (구)", " (old)")
+                renamed = renamed + 1
+            end
+            names[name] = true
+            local one = {
+                name = name,
+                keep = preset.keep
+            }
+            seen[frag.preset_signature(one)] = true
+            list[#list + 1] = one
+            moved = moved + 1
         end
-        names[name] = true
-        list[#list + 1] = {
-            name = name,
-            keep = preset.keep
-        }
-        moved = moved + 1
+    end
+    if moved == 0 and same > 0 then
+        -- 全部が「もう入っている」なら、書き直さずに旧い方だけ落とす
+        cfg.presets = nil
+        Mini_addons_save_settings()
+        core_g.vlog("mini_addons: 破片化 プリセットは移行済みだった(%d 件)", same)
+        return
     end
     -- 旧い方を落とすのは書けたときだけ。**その判断は frag.presets_save に任せる。**
     -- ここで失敗したときにキャッシュを捨てると、呼び出し元が持っている一覧と
@@ -1004,6 +1024,24 @@ end
 -- **保存はここ 1 本に集約する。** 旧い置き場所を空にするのも、移行のときだけでなく
 -- 「この後どこかで書けたとき」で拾えるよう、ここでまとめて行う
 -- (移行の書き込みが一度失敗しても、次にプリセットを保存できた時点で移行が完了する)。
+-- プリセット 1 件の「名前 + 中身」。同じものを二度足さないための照合に使う。
+-- **中身まで見ること。** 名前だけで見ると、同じ名前の別物を取り違えて捨てる
+function frag.preset_signature(preset)
+    local keep = (type(preset) == "table" and type(preset.keep) == "table") and preset.keep or {}
+    local classes = {}
+    for class_name in pairs(keep) do
+        classes[#classes + 1] = class_name
+    end
+    table.sort(classes)
+    local parts = {tostring(preset and preset.name)}
+    for _, class_name in ipairs(classes) do
+        local want = keep[class_name]
+        parts[#parts + 1] = string.format("%s=%s/%s/%s", class_name, tostring(frag.keep_field_value(want, "r1")),
+            tostring(frag.keep_field_value(want, "r2")), tostring(frag.keep_field_value(want, "r3")))
+    end
+    return table.concat(parts, "\1")
+end
+
 function frag.presets_save()
     local ok = core_g.save_json(frag.presets_path(), frag.presets_cache or {})
     if ok and frag.presets_pending_old ~= nil then
@@ -1159,6 +1197,10 @@ function Mini_addons_frag_keep_open()
         frame:SetLayerLevel(999)
     end
     AUTO_CAST(frame)
+    -- **窓を開いた時点で 1 回読む。** 旧い置き場所からの移行はここで走る
+    -- (保存 / 読込 / 削除を押したときだけだと、開いただけでは移行が起きず、
+    --  更新履歴の説明と食い違う)。2 回目以降はキャッシュを返すだけ
+    frag.presets()
     -- 打ちかけの名前は控えてから捨てる(プリセットを読み込むと組み立て直すため)
     frag.keep_name = frag.keep_name_text()
     frame:RemoveAllChild()
