@@ -496,6 +496,16 @@ function Vakarine_equip_start_operation(is_manual)
             -- ここに来た時点で「チェックはあるが装備していない」が確定する。
             g.vlog("VakarineEquip 中止: チェックした %d 部位をどれも装備していない (manual=%s)", checked_count,
                 tostring(is_manual))
+            -- **ここでも自分で開いた窓を閉じること。** この経路は
+            -- RunUpdateScript を呼ぶ前に return するので、Vakarine_equip_main_loop の
+            -- 終端にある後始末には**辿り着かない**。閉じ忘れると開きっぱなしで残り、
+            -- しかも次回は IsVisible() が真になって「自分で開いた」印が立たなくなるため、
+            -- 以後ずっと閉じられない。旧コードは同じ位置で inventory_was_open を見て
+            -- 閉じていた(レビューで指摘されて入れ直した)。
+            if g.vakarine_equip_opened_inventory then
+                inventory:ShowWindow(0)
+                g.vakarine_equip_opened_inventory = false
+            end
             ui.SetHoldUI(false)
             return
         end
@@ -510,7 +520,6 @@ function Vakarine_equip_start_operation(is_manual)
         -- サーバの往復待ちが長いのか」を切り分けられない。
         g.vakarine_equip_start_ms = imcTime.GetAppTimeMS()
         g.vakarine_equip_ticks = 0
-        g.vakarine_equip_sent = 0
         g.vakarine_equip_lookup_ms = 0
         g.vakarine_equip_lookup_count = 0
         g.vakarine_equip_equip_start_ms = nil
@@ -567,14 +576,12 @@ function Vakarine_equip_main_loop(vakarine_equip)
             local current_item = equip_item_list:GetEquipItemByIndex(data.index)
             if current_item and current_item:GetIESID() ~= "0" then
                 item.UnEquip(data.index)
-                g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                 return 1
             end
         end
         -- ここまで来た = 対象の部位が 1 つも残っていない。
-        g.vlog("VakarineEquip 脱ぎ終わり: %d 部位 / 送信 %d 回 / %d 回見た / %d ms", #g.vakarine_equip_queue,
-            g.vakarine_equip_sent or 0, g.vakarine_equip_ticks,
-            imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0))
+        g.vlog("VakarineEquip 脱ぎ終わり: %d 部位 / %d tick / %d ms", #g.vakarine_equip_queue,
+            g.vakarine_equip_ticks, imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0))
         g.vakarine_equip_process_step = "equip"
         return 1
     elseif g.vakarine_equip_process_step == "equip" then
@@ -609,7 +616,6 @@ function Vakarine_equip_main_loop(vakarine_equip)
                     if not current_item or current_item:GetIESID() ~= data.iesid then
                         local inv_item = Vakarine_equip_find_inv_item(data.iesid)
                         if inv_item then
-                            g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                             ITEM_EQUIP(inv_item.invIndex, data.spot)
                             return 1
                         end
@@ -626,7 +632,6 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 if not current_item or current_item:GetIESID() ~= data.iesid then
                     local inv_item = Vakarine_equip_find_inv_item(data.iesid)
                     if inv_item then
-                        g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
                         return 1
                     end
@@ -641,7 +646,6 @@ function Vakarine_equip_main_loop(vakarine_equip)
                 if current_iesid ~= iesid_to_equip then
                     local inv_item = Vakarine_equip_find_inv_item(iesid_to_equip)
                     if inv_item then
-                        g.vakarine_equip_sent = (g.vakarine_equip_sent or 0) + 1
                         ITEM_EQUIP(inv_item.invIndex, data.spot)
                         return 1
                     end
@@ -657,8 +661,8 @@ function Vakarine_equip_main_loop(vakarine_equip)
         end
         imcAddOn.BroadMsg("NOTICE_Dm_stage_start", "[VE]End of Operation", 3)
         ui.SetHoldUI(false)
-        g.vlog("VakarineEquip 完了: %d 部位 / 送信 %d 回 / %d 回見た / %d ms (delay=%.2f 添字引き %d 回 %d ms)",
-            #g.vakarine_equip_queue, g.vakarine_equip_sent or 0, g.vakarine_equip_ticks or 0,
+        g.vlog("VakarineEquip 完了: %d 部位 / %d tick / %d ms (delay=%.2f 添字引き %d 回 %d ms)",
+            #g.vakarine_equip_queue, g.vakarine_equip_ticks or 0,
             imcTime.GetAppTimeMS() - (g.vakarine_equip_start_ms or 0), g.vakarine_equip_settings.delay,
             g.vakarine_equip_lookup_count or 0, g.vakarine_equip_lookup_ms or 0)
         return 0
