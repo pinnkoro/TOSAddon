@@ -406,13 +406,11 @@ end
 -- **クラスごとに「この Lv 以上なら残す」を決め、どれにも当てはまらないものだけ選択する。**
 -- 選ぶだけで、破片化そのものは今までどおり利用者が実行ボタンを押す。
 --
--- 指定は **系統(ソードマン / ウィザード / …)のタブ + クラスごとの数字 1 つ**だけ。
--- 0 は「そのクラスは対象外」で、既定は全部 0。以前は 1 行ずつ
+-- 指定は **系統(ソードマン / ウィザード / …)のタブ + クラスごとの数字 2 つ**
+-- (最低 Lv とランク)。Lv が 0 なら「そのクラスは対象外」で、既定は全部 0。
+-- ランクは 0 = 不問(どのランクでもよい)で、こちらも既定は 0。以前は 1 行ずつ
 -- 「系統 ▼ / クラス ▼ / ランク ▼ / Lv ▼」を選ぶ作りだったが、**残したいクラスを
 -- 何個も足すのに droplist を 4 回ずつ開くことになり、実際に使うと重かった**。
---
--- **ランクは見ない。** 上の作りにするとランクは「クラスごとにもう 1 つ数字を持つ」
--- ことになり、指定の手間が倍になる。ランク違いまで分けたい要望が出たら足す。
 --
 -- 判定は「オプション 3 つのうち **1 つでも** 条件に合えば残す」。
 -- 指定が 1 件も無いときは何もしない。**全部を選択してはいけない**
@@ -420,6 +418,7 @@ end
 
 frag.KEEP_SUFFIX = "frag_keep"
 frag.KEEP_LV_MAX = 5 -- 特殊オプションのレベルの上限(= frag.MAXLV_CNT)
+frag.KEEP_RANK_MAX = 3 -- 特殊オプションのランクの上限(素の shared_item_earring と同じ 1〜3)
 frag.KEEP_ROW_H = 28
 -- 一度に見えるクラスの数。**1 列に並べてスクロールさせる。**
 -- 2 列に折り返す作りにしていたが、系統によってクラスの数が違い(アーチャーは 27 個)、
@@ -440,26 +439,55 @@ end
 -- クラスを指定していた行だけ「クラス → Lv」へ移す。系統だけ / ランクだけの行は
 -- 移しようがないので落とす(黙って落とさず、何件落としたかはログへ出す)。
 function frag.keep_migrate(keep)
-    if keep[1] == nil or type(keep[1]) ~= "table" then
-        return keep
-    end
-    local moved, dropped = {}, 0
-    for _, cond in ipairs(keep) do
-        if type(cond) == "table" and cond.cls then
-            local lv = tonumber(cond.lv) or 1
-            local now = moved[cond.cls]
-            -- 同じクラスが 2 行あったら緩い方(小さい Lv)を採る。厳しくすると
-            -- 残すつもりだったものが破片化の対象に回るため
-            if now == nil or lv < now then
-                moved[cond.cls] = lv
+    -- 旧 1: 1 行 = {ctrl, cls, rank, lv} の並び
+    if type(keep[1]) == "table" then
+        local moved, dropped = {}, 0
+        for _, cond in ipairs(keep) do
+            if type(cond) == "table" and cond.cls then
+                local lv = tonumber(cond.lv) or 1
+                local now = moved[cond.cls]
+                -- 同じクラスが 2 行あったら緩い方(小さい Lv)を採る。厳しくすると
+                -- 残すつもりだったものが破片化の対象に回るため
+                if now == nil or lv < (now.lv or 0) then
+                    moved[cond.cls] = {
+                        lv = lv,
+                        rank = tonumber(cond.rank)
+                    }
+                end
+            else
+                dropped = dropped + 1
             end
-        else
-            dropped = dropped + 1
+        end
+        core_g.vlog("mini_addons: 破片化 残す条件を旧い形(行の並び)から移した(移動 %d / 落とした %d)",
+            frag.keep_count(moved), dropped)
+        return moved
+    end
+    -- 旧 2: クラス名 → 最低 Lv の数値。ランクを足したので入れ物へ包み直す
+    local wrapped = 0
+    for class_name, value in pairs(keep) do
+        if type(value) == "number" then
+            keep[class_name] = {
+                lv = value
+            }
+            wrapped = wrapped + 1
         end
     end
-    core_g.vlog("mini_addons: 破片化 残す条件を旧い形から移した(移動 %d / 落とした %d)", frag.keep_count(moved),
-        dropped)
-    return moved
+    if wrapped > 0 then
+        core_g.vlog("mini_addons: 破片化 残す条件を旧い形(数値)から移した(%d クラス)", wrapped)
+    end
+    return keep
+end
+
+-- クラス 1 つぶんの指定。無ければ作る(呼び出し側で nil を気にしないで済むように)
+function frag.keep_want(keep, class_name)
+    local want = keep[class_name]
+    if type(want) ~= "table" then
+        want = {
+            lv = tonumber(want) or 0
+        }
+        keep[class_name] = want
+    end
+    return want
 end
 
 -- 「クラス名 → 最低 Lv」の表。0 や未登録は対象外
@@ -479,7 +507,8 @@ end
 -- 指定しているクラスの数。**`#` で数えられない**(クラス名をキーにした表なので)
 function frag.keep_count(keep)
     local n = 0
-    for _, lv in pairs(keep or {}) do
+    for _, want in pairs(keep or {}) do
+        local lv = (type(want) == "table") and want.lv or want
         if (tonumber(lv) or 0) > 0 then
             n = n + 1
         end
@@ -542,10 +571,17 @@ function frag.keep_match(obj, keep)
     for i = 1, cnt do
         local class_name = TryGetProp(obj, "EarringSpecialOption_" .. i, "None")
         if class_name ~= "None" then
-            local want = tonumber(keep[class_name]) or 0
-            -- Lv は「その値以上なら残す」。**等号ではない**(利用者の指定は下限)
-            if want > 0 and TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0) >= want then
-                return true
+            local want = keep[class_name]
+            local want_lv = (type(want) == "table") and (tonumber(want.lv) or 0) or (tonumber(want) or 0)
+            if want_lv > 0 then
+                -- ランクは 0 / 未指定なら不問。指定しているときだけ一致を見る
+                local want_rank = (type(want) == "table") and (tonumber(want.rank) or 0) or 0
+                local rank_ok = want_rank == 0 or
+                                    TryGetProp(obj, "EarringSpecialOptionRankValue_" .. i, 0) == want_rank
+                -- Lv は「その値以上なら残す」。**等号ではない**(利用者の指定は下限)
+                if rank_ok and TryGetProp(obj, "EarringSpecialOptionLevelValue_" .. i, 0) >= want_lv then
+                    return true
+                end
             end
         end
     end
@@ -602,48 +638,58 @@ function Mini_addons_frag_keep_apply()
     Mini_addons_frag_keep_close()
 end
 
--- Lv の数字を 1 つ動かす。0(対象外)〜5 を回す。
+-- Lv / ランクの数字を 1 つ動かす。0(Lv なら対象外、ランクなら不問)から上限までを回る。
 -- **左で上げ、右で下げる。** スキル錬成の希望スキル(skill_reroll)と同じ向きに揃えている。
-function frag.keep_lv_step(ctrl, step)
+function frag.keep_step(ctrl, step)
     AUTO_CAST(ctrl)
     local class_name = ctrl:GetUserValue("CLASS")
     if class_name == nil or class_name == "None" then
         return
     end
+    local is_rank = ctrl:GetUserValue("FIELD") == "rank"
+    local high = is_rank and frag.KEEP_RANK_MAX or frag.KEEP_LV_MAX
     local keep = frag.keep_list()
-    local now = (tonumber(keep[class_name]) or 0) + step
-    if now > frag.KEEP_LV_MAX then
+    local want = frag.keep_want(keep, class_name)
+    local now = (tonumber(is_rank and want.rank or want.lv) or 0) + step
+    if now > high then
         now = 0
     elseif now < 0 then
-        now = frag.KEEP_LV_MAX
+        now = high
     end
-    if now == 0 then
-        -- **0 はキーごと落とす。** 触っただけのクラスが 0 のまま溜まると、
-        -- 保存したものを見たときに「指定しているのかどうか」が読めなくなる
-        keep[class_name] = nil
+    if is_rank then
+        want.rank = (now > 0) and now or nil
     else
-        keep[class_name] = now
+        want.lv = now
     end
-    ctrl:SetText(frag.keep_lv_text(now))
+    -- **対象外(Lv 0)になったらクラスごと落とす。** 触っただけのクラスが 0 のまま
+    -- 溜まると、保存したものを見たときに「指定しているのかどうか」が読めなくなる。
+    -- ランクだけ残っても Lv 0 では効かないので、まとめて捨てる
+    if (tonumber(want.lv) or 0) == 0 then
+        keep[class_name] = nil
+    end
+    ctrl:SetText(frag.keep_btn_text(is_rank, now))
     ctrl:SetSkinName(now > 0 and "test_pvp_btn" or "test_gray_button")
     Mini_addons_save_settings()
     frag.keep_update_count()
-    core_g.vlog("mini_addons: 破片化 残す条件 %s = Lv%d", tostring(class_name), now)
+    core_g.vlog("mini_addons: 破片化 残す条件 %s %s = %d", tostring(class_name), is_rank and "ランク" or "Lv", now)
 end
 
-function frag.keep_lv_text(lv)
-    if lv > 0 then
-        return string.format("{ol}Lv%d", lv)
+function frag.keep_btn_text(is_rank, value)
+    if value <= 0 then
+        return "{ol}-"
     end
-    return "{ol}-"
+    if is_rank then
+        return string.format("{ol}R%d", value)
+    end
+    return string.format("{ol}Lv%d", value)
 end
 
 function Mini_addons_frag_keep_lv_up(gbox, ctrl)
-    frag.keep_lv_step(ctrl, 1)
+    frag.keep_step(ctrl, 1)
 end
 
 function Mini_addons_frag_keep_lv_down(gbox, ctrl)
-    frag.keep_lv_step(ctrl, -1)
+    frag.keep_step(ctrl, -1)
 end
 
 -- 指定中のクラス数の表示を書き直す。**窓ごと組み立て直さないこと**
@@ -674,27 +720,49 @@ function frag.keep_fill(frame)
         return
     end
     local keep = frag.keep_list()
-    local tip = frag.lang(
+    local lv_tip = frag.lang(
         "{ol}この Lv 以上のオプションが 1 つでもあれば残します{nl}左クリックで 1 つ上げ、5 の次は - に戻ります{nl}右クリックで 1 つ下げます{nl}「-」は対象外(そのクラスでは残しません)",
         "{ol}이 Lv 이상의 옵션이 하나라도 있으면 남깁니다{nl}좌클릭으로 1 단계 올리고, 5 다음은 - 로 돌아갑니다{nl}우클릭으로 1 단계 내립니다{nl}「-」는 대상 외입니다",
         "{ol}Keeps the earring if any option of this class is at least this level{nl}Left click steps up (wraps to - after 5){nl}Right click steps down{nl}\"-\" means this class is not used")
+    local rank_tip = frag.lang(
+        "{ol}ランク(ツールチップの「[N] ランク スキルレベル」の N){nl}「-」はランク不問{nl}左クリックで 1 つ上げ、右クリックで 1 つ下げます{nl}Lv が「-」のときは効きません",
+        "{ol}랭크(툴팁의 「[N] 랭크 스킬 레벨」의 N){nl}「-」는 랭크 무관{nl}좌클릭으로 올리고 우클릭으로 내립니다{nl}Lv 가 「-」이면 적용되지 않습니다",
+        "{ol}Rank (the N in \"[N] rank skill level\"){nl}\"-\" means any rank{nl}Left click steps up, right click steps down{nl}Has no effect while Lv is \"-\"")
     for i, cls in ipairs(frag.class_list(base.key)) do
         local y = (i - 1) * frag.KEEP_ROW_H
-        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, 10, y + 3, 300, 24)
+        local label = gbox:CreateOrGetControl("richtext", "cls_" .. cls.key, 10, y + 3, 240, 24)
         AUTO_CAST(label)
         label:SetText("{ol}" .. cls.name)
-        label:AdjustFontSizeByWidth(300)
-        local lv = tonumber(keep[cls.key]) or 0
-        local btn = gbox:CreateOrGetControl("button", "lv_" .. cls.key, 330, y, 55, 24)
-        AUTO_CAST(btn)
-        btn:SetSkinName(lv > 0 and "test_pvp_btn" or "test_gray_button")
-        btn:SetText(frag.keep_lv_text(lv))
-        -- **名前ではなくクラス名を持たせる**(skill_reroll と同じ理由。名前から切り出す
-        -- 作りは、クラス名にどんな文字が入っても壊れないとは言えない)
-        btn:SetUserValue("CLASS", cls.key)
-        btn:SetTextTooltip(tip)
-        btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_lv_up")
-        btn:SetEventScript(ui.RBUTTONUP, "Mini_addons_frag_keep_lv_down")
+        label:AdjustFontSizeByWidth(240)
+        local want = keep[cls.key]
+        local lv = (type(want) == "table") and (tonumber(want.lv) or 0) or (tonumber(want) or 0)
+        local rank = (type(want) == "table") and (tonumber(want.rank) or 0) or 0
+        local cells = {{
+            name = "lv_",
+            field = "lv",
+            x = 265,
+            value = lv,
+            tip = lv_tip
+        }, {
+            name = "rank_",
+            field = "rank",
+            x = 330,
+            value = rank,
+            tip = rank_tip
+        }}
+        for _, cell in ipairs(cells) do
+            local btn = gbox:CreateOrGetControl("button", cell.name .. cls.key, cell.x, y, 55, 24)
+            AUTO_CAST(btn)
+            btn:SetSkinName(cell.value > 0 and "test_pvp_btn" or "test_gray_button")
+            btn:SetText(frag.keep_btn_text(cell.field == "rank", cell.value))
+            -- **名前ではなくクラス名を持たせる**(skill_reroll と同じ理由。名前から切り出す
+            -- 作りは、クラス名にどんな文字が入っても壊れないとは言えない)
+            btn:SetUserValue("CLASS", cls.key)
+            btn:SetUserValue("FIELD", cell.field)
+            btn:SetTextTooltip(cell.tip)
+            btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_lv_up")
+            btn:SetEventScript(ui.RBUTTONUP, "Mini_addons_frag_keep_lv_down")
+        end
     end
     -- **中身を作り直したらスクロールバーの範囲を計算し直させること。**
     -- 順番が逆だと、作り直す前の範囲のまま丸められて末尾まで送れない
@@ -766,9 +834,13 @@ end
 -- 表が同じものを指すことになり、保存した後に数字をいじると中身まで書き換わる
 function frag.copy_keep(keep)
     local copy = {}
-    for class_name, lv in pairs(keep or {}) do
-        if (tonumber(lv) or 0) > 0 then
-            copy[class_name] = tonumber(lv)
+    for class_name, want in pairs(keep or {}) do
+        local lv = (type(want) == "table") and (tonumber(want.lv) or 0) or (tonumber(want) or 0)
+        if lv > 0 then
+            copy[class_name] = {
+                lv = lv,
+                rank = (type(want) == "table") and tonumber(want.rank) or nil
+            }
         end
     end
     return copy
@@ -906,7 +978,7 @@ function Mini_addons_frag_keep_open()
     local desc = frame:CreateOrGetControl("richtext", "desc", 15, 45, 10, 25)
     AUTO_CAST(desc)
     desc:SetText("{ol}" .. frag.lang(
-        "クラスごとに「この Lv 以上なら残す」を決めます(左で上げ / 右で下げ、- は対象外)",
+        "クラスごとに「この Lv 以上なら残す」を決めます(左で上げ / 右で下げ、- は Lv なら対象外・ランクなら不問)",
         "클래스마다 「이 Lv 이상이면 남김」을 정합니다(좌클릭 올림 / 우클릭 내림, - 는 대상 외)",
         "Set \"keep at this level or above\" per class (left = up, right = down, - = unused)"))
     -- プリセット(保存 / 読込 / 削除)
@@ -978,6 +1050,9 @@ function Mini_addons_frag_keep_open()
     tab:SelectTab(frag.keep_tab)
     local box_y = 152
     local box_h = frag.KEEP_ROWS * frag.KEEP_ROW_H
+    local col_head = frame:CreateOrGetControl("richtext", "col_head", 278, box_y - 20, 200, 20)
+    AUTO_CAST(col_head)
+    col_head:SetText("{ol}" .. frag.lang("Lv      ランク", "Lv      랭크", "Lv      Rank"))
     local class_box = frame:CreateOrGetControl("groupbox", "class_box", 15, box_y, 470, box_h)
     AUTO_CAST(class_box)
     class_box:SetSkinName("test_frame_midle")
