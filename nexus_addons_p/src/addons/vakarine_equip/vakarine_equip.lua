@@ -779,9 +779,14 @@ function Vakarine_equip_config_frame_open()
     close:SetImage("testclose_button")
     close:SetGravity(ui.RIGHT, ui.TOP)
     close:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_frame_close")
-    -- 列の左端。右列は左列の幅ぶん右へ寄せる。
-    local col_x = {10, 250}
-    local col_w = 230
+    -- 列の左端と、1 列ぶんの文字の幅。
+    --
+    -- **文字の幅は実機で決めること。** チェックの文字は AdjustFontSizeByWidth で
+    -- ここへ収まるまで縮むので、狭いと「インスタンスダンジョン(レイド/ミッション)」や
+    -- 「着脱中にインベントリを開く」のような長い項目だけ極端に小さくなる
+    -- (実機で 230 では窮屈だった)。窓の幅はここから決まる。
+    local col_x = {12, 288}
+    local col_w = 264
     -- 自動起動するマップ種別。以前は「チェックするとJSRで作動」の 1 個だけで、
     -- それがどこに効くのかが分からないうえ、実際には効いてもいなかった
     -- (Vakarine_equip_map_kind のコメント参照)。種別ごとに並べて、
@@ -816,12 +821,13 @@ function Vakarine_equip_config_frame_open()
     -- 全選択 / 全解除。**押した後どうなるかを文字に出す**(「全選択」と書いてあるのに
     -- 全部消える、という取り違えを避けるため)。
     local all_checked = Vakarine_equip_spots_all_checked()
-    local all_btn = config_gb:CreateOrGetControl("button", "all_btn", col_x[2] + 110, y - 4, 120, 26)
+    -- 「全部えらぶ / 全部はずす」は右列の右端へ寄せる(見出しと重ならない位置)。
+    local all_btn = config_gb:CreateOrGetControl("button", "all_btn", col_x[2] + col_w - 130, y - 4, 130, 26)
     AUTO_CAST(all_btn)
     all_btn:SetText("{ol}{s14}" ..
                         (all_checked and (is_jp and "全部はずす" or "Clear all") or
                             (is_jp and "全部えらぶ" or "Select all")))
-    all_btn:AdjustFontSizeByWidth(120)
+    all_btn:AdjustFontSizeByWidth(130)
     all_btn:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_spots_toggle_all")
     y = y + 30
     local spot_top = y

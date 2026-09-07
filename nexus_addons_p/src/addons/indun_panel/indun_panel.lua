@@ -599,8 +599,8 @@ function Indun_panel_f(v)
 end
 
 -- ── 入場券の使用順 ─────────────────────────────────────────────
--- 券を使う経路は 6 つある(レイド 12 種 / チャレンジ / 分裂特異点 / ヴェルニース /
--- テルハーシャ / 嘆きの墓地・共鳴の聖所)。どれも「持っている券から 1 枚選ぶ」という
+-- 券を使う経路は 6 つある(レイド 12 種 / チャレンジ / 分裂特異点 / ヴェルニケ /
+-- テルハルシャ / 嘆きの墓地・共鳴の聖所)。どれも「持っている券から 1 枚選ぶ」という
 -- 同じことをしているのに、**それぞれ別々に書かれていた**ので、経路ごとに順序が
 -- 食い違い、片方だけ壊れても気付けなかった。選び方をここへ集める。
 --
@@ -656,7 +656,7 @@ g.INDUN_PANEL_TICKET_GROUPS = {{
     default = {"expiring", "buy", "no_trade", "tradable"}
 }, {
     key = "other",
-    jp = "その他(ヴェルニース / テルハーシャ / 嘆きの墓地 / 共鳴の聖所)",
+    jp = "その他(ヴェルニケ / テルハルシャ / 嘆きの墓地 / 共鳴の聖所)",
     en = "Other (Bernice / Telharsha / Wailing / Resonance)",
     kinds = {"expiring", "no_trade", "tradable", "buy"},
     default = {"expiring", "no_trade", "tradable", "buy"}
@@ -749,7 +749,7 @@ end
 -- 戻り値の 2 つめは**鍵の掛かっていた券の名前**。ここでは知らせないこと。
 -- 使える券が別にあれば入場は成功するので、その場合に警告を出すと「押すたびに
 -- ロックの注意が出るが、実際には入場できている」というノイズになる
--- (レイド / ヴェルニース / テルハーシャ / 嘆きの墓地の経路には元々この警告が無い)。
+-- (レイド / ヴェルニケ / テルハルシャ / 嘆きの墓地の経路には元々この警告が無い)。
 -- 知らせるかどうかは Indun_panel_consume_ticket が「何もできなかったか」で決める。
 function Indun_panel_collect_tickets(ticket_ids)
     local buckets = {}
@@ -4042,7 +4042,7 @@ function Indun_panel_buyuse_vel(indun_panel, ctrl, recipe_name, indun_type)
         ReserveScript(reserve_script, 0.2)
         return
     end
-    -- ヴェルニースは追加購入枠(OverBuy)も「購入」の段でまとめて見る。
+    -- ヴェルニケは追加購入枠(OverBuy)も「購入」の段でまとめて見る。
     -- チャレンジと違い、以前からここは通常枠と追加枠を同じ 1 手として扱っている。
     local used = Indun_panel_consume_ticket("other", VELNICE_CONFIG.tickets, {
         on_use = function()
