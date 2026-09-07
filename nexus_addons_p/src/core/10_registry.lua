@@ -89,9 +89,9 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = "2.3.1",
-    updated_note_jp = "設定ウィンドウで左SHIFT+右クリックの個数変更ができないことがあったのと、Lv560 のイコル / かけら / 肩・ベルトが「格下」の枠で出ていたのを直しました",
-    updated_note_en = "Fixed the SHIFT+right-click count change in the settings window, and Lv560 ichors/pieces/gear drawn with the lower-tier frame",
+    updated = g.VER_NEXT,
+    updated_note_jp = "お気に入りを追加しました。上部の★ボタンで編集の窓を開き、開いている間に倉庫かインベントリのアイテムを右クリックすると足せます。一覧の一番上に「お気に入り」の帯が出て、左端のタブにも★のタブが増えます(元のカテゴリからは消えません)。登録はアカウント単位です",
+    updated_note_en = "Added favorites. The star button opens the editor; while it is open, right-click an item in the warehouse or inventory to add it. A Favorites group is pinned to the top of the list and a star tab joins the tab column (items stay in their normal category too). Favorites are stored per account",
     data = {
         use = 0,
         name = "Another Warehouse",

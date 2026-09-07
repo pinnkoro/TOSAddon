@@ -85,6 +85,10 @@ function Another_warehouse_load_settings()
         })
         need_save = true
     end
+    -- お気に入り(settings.favorites)はここでは作らない。
+    -- **読み込みのついでに書き足すと、何も変えていない利用者の設定まで毎回
+    -- 保存し直すことになる**(take_list の埋め直しと違って、無くても困らない)。
+    -- 入れ物は Another_warehouse_favorites が必要になった時点で作る。
     if not settings.ver or settings.ver < ver then
         settings.ver = ver
         need_save = true
@@ -92,6 +96,269 @@ function Another_warehouse_load_settings()
     g.awh_settings = settings
     if need_save then
         Another_warehouse_save_settings()
+    end
+end
+
+-- ── お気に入り ───────────────────────────────────────────────
+-- よく取り出すアイテムを一覧の先頭へ固定する。
+--
+-- 置き場は g.awh_settings.favorites で、**ClassID を並べた配列**。
+-- 並び順そのものが表示順なので、▲▼ で入れ替えるだけで済む
+-- (「何番目か」を別に持つと、消したときに番号が飛んで直しづらい)。
+--
+-- 設定ファイルは `../addons/_nexus_addons_p/<AID>/another_warehouse.lua` で
+-- **アカウント単位**なので、お気に入りは自動で全キャラ共通になる。
+--
+-- **TAKE SET とは別物。** あちらは「いくつ出すか」まで持つ搬出の指定で、
+-- こちらは並べ方だけを変える。自動の搬出/搬入の判断には一切関わらない。
+g.AWH_FAVORITE_SLOTSET = "sset_awh_favorites"
+-- お気に入りだけを出すタブの番号。**0 は使えない**(「まだ何も選んでいない」の印に
+-- 使われていて、Another_warehouse_tab_change がタブ 1 へ落とす)。
+g.AWH_FAVORITE_TAB = 11
+
+function Another_warehouse_favorites()
+    local settings = g.awh_settings
+    if not settings then
+        return {}
+    end
+    if type(settings.favorites) ~= "table" then
+        settings.favorites = {}
+    end
+    return settings.favorites
+end
+
+-- ClassID -> 何番目か。**毎回作り直さないこと**を気にしなくてよいよう、
+-- 呼び元(一覧の組み立て)は 1 回だけ呼んで使い回す。
+function Another_warehouse_favorite_index()
+    local map = {}
+    for i, class_id in ipairs(Another_warehouse_favorites()) do
+        map[class_id] = i
+    end
+    return map
+end
+
+function Another_warehouse_is_favorite(class_id)
+    return Another_warehouse_favorite_index()[class_id] ~= nil
+end
+
+-- 足す。**既に入っていたら足さない**(同じものが 2 つ並ぶと、消すときにどちらが
+-- 消えたのか分からなくなる)。足せたら true。
+function Another_warehouse_favorite_add(class_id)
+    class_id = tonumber(class_id)
+    if not class_id then
+        return false
+    end
+    local list = Another_warehouse_favorites()
+    for _, id in ipairs(list) do
+        if id == class_id then
+            ui.SysMsg(g.lang == "Japanese" and "既にお気に入りに入っています" or "Already in favorites")
+            return false
+        end
+    end
+    table.insert(list, class_id)
+    Another_warehouse_save_settings()
+    g.vlog("another_warehouse: お気に入りに足した clsid=%d (計 %d 件)", class_id, #list)
+    return true
+end
+
+function Another_warehouse_favorite_delete(class_id)
+    class_id = tonumber(class_id)
+    local list = Another_warehouse_favorites()
+    for i, id in ipairs(list) do
+        if id == class_id then
+            table.remove(list, i)
+            Another_warehouse_save_settings()
+            g.vlog("another_warehouse: お気に入りから外した clsid=%d (計 %d 件)", class_id, #list)
+            return true
+        end
+    end
+    return false
+end
+
+-- 並べ替え。**端では何もしない**(押しても動かないことを呼び元が見て、
+-- ▲▼ を灰色で描く)。
+function Another_warehouse_favorite_swap(class_id, delta)
+    class_id = tonumber(class_id)
+    delta = tonumber(delta) or 0
+    if delta == 0 then
+        return false
+    end
+    local list = Another_warehouse_favorites()
+    for i, id in ipairs(list) do
+        if id == class_id then
+            local to = i + delta
+            if to < 1 or to > #list then
+                return false
+            end
+            list[i], list[to] = list[to], list[i]
+            Another_warehouse_save_settings()
+            return true
+        end
+    end
+    return false
+end
+
+-- お気に入りの編集窓。**開いている間だけ、倉庫とインベントリの右クリックが
+-- 「お気に入りに足す」になる**(Another_warehouse_on_rbutton / _inv_rbtn)。
+--
+-- 並べ替えは▲▼。このリポジトリの他の一覧(Indun Panel / Addons Menu)と同じ操作にしてある。
+function Another_warehouse_favorite_frame_open()
+    local is_jp = g.lang == "Japanese"
+    local frame_name = addon_name_lower .. "awh_favorite"
+    local fav = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
+    AUTO_CAST(fav)
+    g.block_click_through(fav)
+    fav:RemoveAllChild()
+    fav:SetSkinName("test_frame_low")
+    fav:SetLayerLevel(99)
+    fav:EnableMove(1)
+    fav:SetTitleBarSkin("None")
+    local title = fav:CreateOrGetControl("richtext", "title", 12, 8, 300, 24)
+    AUTO_CAST(title)
+    title:SetText(is_jp and "{ol}{s18}お気に入り" or "{ol}{s18}Favorites")
+    local close = fav:CreateOrGetControl("button", "close", 0, 0, 24, 24)
+    AUTO_CAST(close)
+    close:SetImage("testclose_button")
+    close:SetGravity(ui.RIGHT, ui.TOP)
+    close:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_frame_close")
+    local note = fav:CreateOrGetControl("richtext", "note", 12, 34, 330, 40)
+    AUTO_CAST(note)
+    note:SetText(is_jp and
+                     "{ol}{#CCCCCC}{s14}この窓を開いている間、倉庫かインベントリの{nl}アイテムを右クリックすると足します" or
+                     "{ol}{#CCCCCC}{s14}While this is open, right-click an item in the{nl}warehouse or inventory to add it")
+    local list = Another_warehouse_favorites()
+    local y = 78
+    for i, class_id in ipairs(list) do
+        local item_cls = GetClassByType("Item", class_id)
+        local icon = item_cls and TryGetProp(item_cls, "Icon", "None") or "None"
+        local name = item_cls and dictionary.ReplaceDicIDInCompStr(item_cls.Name) or ("? " .. tostring(class_id))
+        local pic = fav:CreateOrGetControl("picture", "fav_icon" .. i, 12, y, 26, 26)
+        AUTO_CAST(pic)
+        pic:SetImage(icon)
+        pic:SetEnableStretch(1)
+        pic:EnableHitTest(0)
+        local text = fav:CreateOrGetControl("richtext", "fav_name" .. i, 44, y + 3, 200, 22)
+        AUTO_CAST(text)
+        text:SetText("{ol}{s16}" .. name)
+        text:AdjustFontSizeByWidth(200)
+        -- ▲▼。押せない端は灰色にして、押しても何も起きないことを見せる。
+        local up = fav:CreateOrGetControl("button", "fav_up" .. i, 250, y, 24, 26)
+        AUTO_CAST(up)
+        up:SetSkinName("None")
+        up:SetTextAlign("center", "center")
+        up:SetText(i > 1 and "{ol}{s18}{#FFFFFF}▲" or "{ol}{s18}{#555555}▲")
+        if i > 1 then
+            up:SetTextTooltip(is_jp and "{ol}1 つ前へ" or "{ol}Move up")
+            up:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_move")
+            up:SetEventScriptArgString(ui.LBUTTONUP, tostring(class_id))
+            up:SetEventScriptArgNumber(ui.LBUTTONUP, -1)
+        end
+        local down = fav:CreateOrGetControl("button", "fav_down" .. i, 276, y, 24, 26)
+        AUTO_CAST(down)
+        down:SetSkinName("None")
+        down:SetTextAlign("center", "center")
+        down:SetText(i < #list and "{ol}{s18}{#FFFFFF}▼" or "{ol}{s18}{#555555}▼")
+        if i < #list then
+            down:SetTextTooltip(is_jp and "{ol}1 つ後ろへ" or "{ol}Move down")
+            down:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_move")
+            down:SetEventScriptArgString(ui.LBUTTONUP, tostring(class_id))
+            down:SetEventScriptArgNumber(ui.LBUTTONUP, 1)
+        end
+        local del = fav:CreateOrGetControl("button", "fav_del" .. i, 306, y, 26, 26)
+        AUTO_CAST(del)
+        del:SetSkinName("None")
+        del:SetTextAlign("center", "center")
+        del:SetText("{ol}{s18}{#FF6666}×")
+        del:SetTextTooltip(is_jp and "{ol}お気に入りから外す" or "{ol}Remove from favorites")
+        del:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_del")
+        del:SetEventScriptArgString(ui.LBUTTONUP, tostring(class_id))
+        y = y + 30
+    end
+    if #list == 0 then
+        local empty = fav:CreateOrGetControl("richtext", "fav_empty", 12, y, 330, 22)
+        AUTO_CAST(empty)
+        empty:SetText(is_jp and "{ol}{#FFA500}{s16}まだ 1 つも入っていません" or
+                          "{ol}{#FFA500}{s16}Nothing here yet")
+        y = y + 30
+    end
+    y = y + 10
+    fav:Resize(350, y)
+    -- **位置は開くたびに置き直さない。** 中身は足す / 消すたびに組み直すので、
+    -- ここで毎回置くと右クリック 1 回で窓が飛ぶ。
+    local pos_x = g.awh_settings.etc.fav_x
+    local pos_y = g.awh_settings.etc.fav_y
+    if type(pos_x) ~= "number" or type(pos_y) ~= "number" then
+        pos_x, pos_y = g.settings_frame_pos(350, y)
+    end
+    fav:SetPos(pos_x, pos_y)
+    fav:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_drag")
+    fav:ShowWindow(1)
+    -- **積み直さない形で積む。** この関数は足す / 消す / 並べ替えのたびに呼ばれるので、
+    -- esc_register だと押すたびに最前面へ積み直されることになる。
+    g.esc_register_keep(frame_name, "Another_warehouse_favorite_frame_close")
+end
+
+function Another_warehouse_favorite_drag(fav)
+    local x = fav:GetX()
+    local y = fav:GetY()
+    if x == g.awh_settings.etc.fav_x and y == g.awh_settings.etc.fav_y then
+        return
+    end
+    g.awh_settings.etc.fav_x = x
+    g.awh_settings.etc.fav_y = y
+    Another_warehouse_save_settings()
+end
+
+-- **× と ESC で同じ動きにする。** どちらから閉じても倉庫の一覧を描き直す
+-- (開いている間に足したぶんを反映するため)。
+function Another_warehouse_favorite_frame_close()
+    ui.DestroyFrame(addon_name_lower .. "awh_favorite")
+    Another_warehouse_favorite_refresh_list()
+end
+
+-- お気に入りの編集窓が開いているか。倉庫とインベントリの右クリックが
+-- 「お気に入りに足す」へ変わる条件。
+function Another_warehouse_favorite_open()
+    local fav = ui.GetFrame(addon_name_lower .. "awh_favorite")
+    return fav ~= nil and fav:IsVisible() == 1
+end
+
+-- 倉庫の一覧を今のタブのまま描き直す。**スクロール位置は awh 側が控えている**ので、
+-- 足すたびに先頭へ飛ぶことはない(Another_warehouse_set_scroll_pos)。
+function Another_warehouse_favorite_refresh_list()
+    local awh = ui.GetFrame(addon_name_lower .. "awh")
+    if not awh then
+        return
+    end
+    AUTO_CAST(awh)
+    local gb = GET_CHILD(awh, "gb")
+    if not gb then
+        return
+    end
+    AUTO_CAST(gb)
+    gb:RemoveAllChild()
+    Another_warehouse_frame_update(awh, gb, "", awh:GetUserIValue("TAB_INDEX"))
+end
+
+function Another_warehouse_favorite_move(frame, ctrl, class_id, delta)
+    if Another_warehouse_favorite_swap(class_id, delta) then
+        Another_warehouse_favorite_frame_open()
+        Another_warehouse_favorite_refresh_list()
+    end
+end
+
+function Another_warehouse_favorite_del(frame, ctrl, class_id, num)
+    if Another_warehouse_favorite_delete(class_id) then
+        Another_warehouse_favorite_frame_open()
+        Another_warehouse_favorite_refresh_list()
+    end
+end
+
+-- 倉庫 / インベントリの右クリックから呼ぶ。足せたら窓と一覧を描き直す。
+function Another_warehouse_favorite_add_from_click(class_id)
+    if Another_warehouse_favorite_add(class_id) then
+        Another_warehouse_favorite_frame_open()
+        Another_warehouse_favorite_refresh_list()
     end
 end
 
@@ -383,6 +650,17 @@ function Another_warehouse_OPEN_DLG_ACCOUNTWAREHOUSE()
                              "{ol}Check to switch display"
     display_change:SetTextTooltip(tooltip_text)
     display_change:ShowWindow(1)
+    -- お気に入りの編集窓を開くボタン。**TAKE SET の左隣**に置く(どちらも
+    -- 「よく出すものをまとめる」話なので、離すと関係が読み取れない)。
+    local fav_btn = gbox:CreateOrGetControl("button", "awh_favorite", 0, 0, 40, 43)
+    AUTO_CAST(fav_btn)
+    fav_btn:SetText("{ol}{s20}{#FFD900}★")
+    fav_btn:SetMargin(265, 60, 0, 0)
+    fav_btn:SetSkinName("test_pvp_btn")
+    fav_btn:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_frame_open")
+    fav_btn:SetTextTooltip(g.lang == "Japanese" and
+                               "{ol}[AWH]{nl}お気に入りの編集{nl}よく出すものを一覧の先頭へ固定します" or
+                               "{ol}[AWH]{nl}Edit favorites{nl}Pins the items you take out most to the top")
     local take = gbox:CreateOrGetControl("button", "awh_take", 10, 0, 100, 43)
     AUTO_CAST(take)
     take:SetText("{@st66b}TAKE SET")
@@ -565,8 +843,27 @@ function Another_warehouse_tab_change(awh, ctrl, search_text, index)
     end
     local tab_tbl = {"inventory_main", "inventory_equip", "inventory_supplies", "inventory_recipe", "inventory_card",
                      "inventory_material", "inventory_gem", "inventory_premium", "inventory_housing", "alchemy_item_tab"}
+    -- **お気に入りのタブは一番上。** 素のタブの絵に星は無いので、絵ではなくボタンで作る。
+    -- 番号は AWH_FAVORITE_TAB(= 11)。0 は「まだ何も選んでいない」の印に使われているので
+    -- 空けておくこと(下の `index == 0` の分岐)。
+    --
+    -- **送りは 55 → 50 に詰めてある。** タブが 10 個から 11 個に増えたが、この枠の
+    -- 高さ(560)は倉庫の窓に合わせた固定値で伸ばせないため、11 段で収まる送りにした
+    -- (10 * 50 + 55 = 555)。既存のタブは少しずつ上へ寄る。
+    local tab_step = 50
+    local fav_tab = awh:CreateOrGetControl("button", "tab_awh_favorite", 5, 0, 40, 45)
+    AUTO_CAST(fav_tab)
+    fav_tab:SetClickSound("inven_arrange")
+    fav_tab:SetText(index == g.AWH_FAVORITE_TAB and "{ol}{s20}{#FFD900}★" or "{ol}{s20}{#888888}★")
+    fav_tab:SetSkinName(index == g.AWH_FAVORITE_TAB and "test_red_button" or "test_gray_button")
+    fav_tab:SetTextTooltip(g.lang == "Japanese" and "{ol}お気に入りだけ表示" or "{ol}Show favorites only")
+    fav_tab:SetEventScript(ui.LBUTTONDOWN, "Another_warehouse_tab_change")
+    fav_tab:SetEventScriptArgNumber(ui.LBUTTONDOWN, g.AWH_FAVORITE_TAB)
+    if index == g.AWH_FAVORITE_TAB then
+        awh:SetUserValue("TAB_INDEX", index)
+    end
     for i, image in ipairs(tab_tbl) do
-        local tab = awh:CreateOrGetControl("picture", "tab" .. image, 5, (i - 1) * 55, 40, 60)
+        local tab = awh:CreateOrGetControl("picture", "tab" .. image, 5, i * tab_step, 40, 55)
         AUTO_CAST(tab)
         tab:SetClickSound("inven_arrange")
         tab:SetEventScript(ui.LBUTTONDOWN, "Another_warehouse_tab_change")
@@ -628,6 +925,14 @@ function Another_warehouse_frame_update(awh, gb, search_text, index)
         ["HiiddenAbility"] = true
     }}
     local current_filter = tab_filter_map[index]
+    -- お気に入り。**一覧を 1 回舐める間に使い回す**(1 件ごとに作り直すと、
+    -- 倉庫の中身が多い人ほど遅くなる)。
+    local fav_index = Another_warehouse_favorite_index()
+    local fav_only = (index == g.AWH_FAVORITE_TAB)
+    -- お気に入りの帯を出すのは「すべて」のタブと、お気に入りのタブだけ。
+    -- 種類ごとのタブにも出すと、そのタブに関係ないものが先頭に並ぶことになる。
+    local show_fav_group = fav_only or index == 1 or index == 0
+    local fav_items = {}
     for i = 0, sorted_guid_list:Count() - 1 do
         local warehouse_item = item_list:GetItemByGuid(sorted_guid_list:Get(i))
         if warehouse_item then
@@ -639,7 +944,16 @@ function Another_warehouse_frame_update(awh, gb, search_text, index)
                     local make_slot = Another_warehouse_check_search_and_filter(warehouse_item, item_cls, search_text)
                     if make_slot and warehouse_item.count > 0 then
                         local group_name = baseid_cls.TreeGroup
-                        local is_visible = (current_filter == nil) or (current_filter[group_name] == true)
+                        local fav_rank = fav_index[item_cls.ClassID]
+                        if show_fav_group and fav_rank then
+                            table.insert(fav_items, {
+                                item = warehouse_item,
+                                rank = fav_rank
+                            })
+                        end
+                        -- お気に入りのタブでは、お気に入り以外は 1 件も出さない。
+                        local is_visible = not fav_only and
+                                               ((current_filter == nil) or (current_filter[group_name] == true))
                         if is_visible then
                             table.insert(warehouse_item_list, warehouse_item)
                             local group_name = baseid_cls.TreeGroup
@@ -667,6 +981,20 @@ function Another_warehouse_frame_update(awh, gb, search_text, index)
     table.sort(warehouse_item_list, Another_warehouse_INVENTORY_SORT_BY_NAME)
     local created_groups = {}
     local created_slotsets = {}
+    -- **お気に入りの帯は他のどのグループより先に作る。** tree は Add した順に
+    -- 上から並ぶので、後から足すと真ん中に埋もれる。
+    local fav_slotset = nil
+    if show_fav_group and #fav_items > 0 then
+        table.sort(fav_items, function(a, b)
+            return a.rank < b.rank
+        end)
+        local caption = g.lang == "Japanese" and "お気に入り" or "Favorites"
+        local fav_group = tree:Add(string.format("%s (%d)", caption, #fav_items), "awh_favorite_group")
+        local title = string.format("{s18}%s (%d)", caption, #fav_items)
+        local fav_node = tree:Add(fav_group, title, "awh_favorite_title")
+        fav_slotset = Another_warehouse_make_inven_slotset(tree, g.AWH_FAVORITE_SLOTSET)
+        tree:Add(fav_node, fav_slotset, g.AWH_FAVORITE_SLOTSET)
+    end
     local group_order = {"Premium", "EquipGroup", "NonEquipGroup", "Cube", "Gem", "Card", "Recipe", "Material",
                          "HiiddenAbility", "Ancient"}
     local group_caption_map = {}
@@ -722,6 +1050,27 @@ function Another_warehouse_frame_update(awh, gb, search_text, index)
             tree:Add(slotset_node, new_slot_set, slotset_name)
             created_slotsets[slotset_name] = new_slot_set
         end
+    end
+    if fav_slotset then
+        AUTO_CAST(fav_slotset)
+        for _, entry in ipairs(fav_items) do
+            local inv_item = entry.item
+            local item_cls = GetIES(inv_item:GetObject())
+            local baseid_cls = INV_GET_INVEN_BASEIDCLS_BY_ITEMGUID(inv_item:GetIESID())
+            local slot_count = fav_slotset:GetSlotCount()
+            local count = fav_slotset:GetUserIValue("SLOT_ITEM_COUNT")
+            while slot_count <= count do
+                fav_slotset:ExpandRow()
+                slot_count = fav_slotset:GetSlotCount()
+            end
+            local slot = fav_slotset:GetSlotByIndex(count)
+            fav_slotset:SetUserValue("SLOT_ITEM_COUNT", count + 1)
+            slot:ShowWindow(1)
+            Another_warehouse_insert_item_to_tree(gb, tree, slot, inv_item, item_cls, g.AWH_FAVORITE_SLOTSET,
+                baseid_cls)
+        end
+        local row = math.ceil(fav_slotset:GetSlotCount() / fav_slotset:GetCol())
+        fav_slotset:Resize(fav_slotset:GetWidth(), row * 54)
     end
     for _, inv_item in ipairs(warehouse_item_list) do
         local item_cls = GetIES(inv_item:GetObject())
@@ -1130,6 +1479,12 @@ function Another_warehouse_inv_rbtn(item_obj, slot)
     if not inv_item then
         return
     end
+    -- お気に入りの編集窓が開いている間は「お気に入りに足す」。**倉庫へ入れない。**
+    -- ここを通さないと、足すつもりの右クリックで倉庫へ預けてしまう。
+    if Another_warehouse_favorite_open() then
+        Another_warehouse_favorite_add_from_click(GetIES(inv_item:GetObject()).ClassID)
+        return
+    end
     -- ui.AlarmMsg(TryGetProp(GetIES(inv_item:GetObject()), 'BelongingCount', 0))
     if not Another_warehouse_check_valid(inv_item) then
         return
@@ -1194,6 +1549,17 @@ function Another_warehouse_on_rbutton(frame, slot, iesid, argnum)
             end
             return
         end
+    end
+    -- **お気に入りの編集窓を先に見る。** 開いている間は右クリックが
+    -- 「お気に入りに足す」になる。TAKE SET の設定窓(awh_setting)より前に置くのは、
+    -- 両方開いているときにどちらが効くのかを決めておかないと、押すたびに
+    -- 結果が変わるように見えるため。
+    if Another_warehouse_favorite_open() then
+        local inv_item = session.GetEtcItemByGuid(IT_ACCOUNT_WAREHOUSE, iesid)
+        if inv_item then
+            Another_warehouse_favorite_add_from_click(GetIES(inv_item:GetObject()).ClassID)
+        end
+        return
     end
     local awh_setting = ui.GetFrame(addon_name_lower .. "awh_setting")
     if awh_setting and awh_setting:IsVisible() == 1 then
