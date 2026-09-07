@@ -126,6 +126,11 @@ jobs:
       - name: indun_panel の入場券テスト
         run: luajit docs/tests/test_indun_panel_ticket.lua
 
+      # indun_panel の表示倍率。見た目は実機でしか見えないが、倍率の計算だけは機械で見る
+      # (四捨五入を外すと行が重なり、実在しないフォントサイズを書くと既定サイズのまま出る)。
+      - name: indun_panel の表示倍率テスト
+        run: luajit docs/tests/test_indun_panel_scale.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。
