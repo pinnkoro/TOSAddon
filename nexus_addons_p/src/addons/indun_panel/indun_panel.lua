@@ -3901,12 +3901,16 @@ end
 
 local TELHARSHA_CONFIG = {
     recipe = "EVENT_TOS_WHOLE_SHOP_306",
-    -- **入場に使う券と、ボタンのツールチップが数えている券が食い違っている。**
-    -- 使うのはここの 108020009 だけなのに、Indun_panel_telharsha_frame は
-    -- {10820009, 11035056} を数えて「N枚持っています」と出している。
-    -- どちらが正しいのかは実機でしか確かめられないので、**ここでは今の動きを変えず**
-    -- 使う側だけを一覧にしてある。確かめたら両方を同じ表から引くこと。
-    tickets = {108020009},
+    -- 入場券。**ツールチップの所持数もここから引くこと**(2 か所に書くと必ずずれる)。
+    --   10820009 Event_SoloRaidCntReset_limit_renew … 期限付き
+    --   11035056 SoloRaidCntReset_TP                … 通常
+    --
+    -- 以前は使う側だけ `ticket_id = 108020009` という**実在しない ID** を持っていた
+    -- (桁が 1 つ多い。本家から引き継いだ誤記)。session.GetInvItemByType が必ず nil を
+    -- 返すので、**手持ちの券があっても使われず、毎回ショップで買っていた**。
+    -- ツールチップ側の {10820009, 11035056} が正しいことは、ゲーム本体の item*.ies を
+    -- 引いて確認済み(108020009 はどの表にも無い / docs/LEVEL_CAP_UPDATE.md の手順)。
+    tickets = {10820009, 11035056},
     max_count = 3
 }
 function Indun_panel_telharsha_frame(indun_panel, key, value, y, x)
@@ -3921,10 +3925,9 @@ function Indun_panel_telharsha_frame(indun_panel, key, value, y, x)
     local ticket_btn = indun_panel:CreateOrGetControl('button', key .. 'ticket_btn', x + Indun_panel_s(130), y,
         Indun_panel_s(80), Indun_panel_s(30))
     AUTO_CAST(ticket_btn)
-    local tickets = {10820009, 11035056}
-    local count = Indun_panel_get_invitem_count(tickets)
+    local count = Indun_panel_get_invitem_count(TELHARSHA_CONFIG.tickets)
     local icon_text = ""
-    local item_cls = GetClassByType('Item', tickets[1])
+    local item_cls = GetClassByType('Item', TELHARSHA_CONFIG.tickets[1])
     if item_cls then
         local fmt = g.lang == "Japanese" and "{ol}{img %s %d %d } %d枚持っています" or
                         "{ol}{img %s %d %d } Quantity in Inventory: %d"

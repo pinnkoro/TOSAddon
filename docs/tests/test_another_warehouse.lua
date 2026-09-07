@@ -236,6 +236,67 @@ check("文字列で足す", Another_warehouse_favorite_add("104"), true)
 check("数として入っている", Another_warehouse_is_favorite(104), true)
 check("文字列で外せる", Another_warehouse_favorite_delete("104"), true)
 
+print("[11] お気に入りの窓は、開き直しても位置が動かない")
+-- 中身は足す / 消す / 並べ替えのたびに組み直すので、そのつど位置を計算し直すと
+-- 行が 1 つ増えるたびに窓が上へ跳ぶ（中央寄せは高さの半分だけ上げるため）。
+-- **初めて開いたときの位置を控える**ことで防いでいる。
+local dummy
+dummy = setmetatable({}, {
+    __index = function()
+        return function()
+            return dummy
+        end
+    end
+})
+ui.CreateNewFrame = function()
+    return dummy
+end
+ui.DestroyFrame = function()
+end
+_G.GET_CHILD_RECURSIVELY = function()
+    return nil
+end
+_G.GET_CHILD = function()
+    return nil
+end
+_G.GetClassByType = function()
+    return nil
+end
+_G.dictionary = {
+    ReplaceDicIDInCompStr = function(x)
+        return x
+    end
+}
+g.block_click_through = function()
+end
+g.esc_register_keep = function()
+end
+-- 呼ばれた高さを控える。**2 回目以降は呼ばれないこと**が要点。
+local pos_calls = {}
+g.settings_frame_pos = function(w, h)
+    table.insert(pos_calls, h)
+    return 500, 300
+end
+
+settings = run({
+    take_list = twelve,
+    ver = 1.1
+})
+Another_warehouse_favorite_add(201)
+pos_calls = {}
+Another_warehouse_favorite_frame_open()
+check("初回は計算する", #pos_calls, 1)
+check("控えた x", g.awh_settings.etc.fav_x, 500)
+check("控えた y", g.awh_settings.etc.fav_y, 300)
+-- 行が増えた状態で開き直す（足すたびにこの関数が呼ばれる）
+Another_warehouse_favorite_add(202)
+Another_warehouse_favorite_add(203)
+pos_calls = {}
+Another_warehouse_favorite_frame_open()
+check("2 回目以降は計算し直さない", #pos_calls, 0)
+check("x は動かない", g.awh_settings.etc.fav_x, 500)
+check("y は動かない", g.awh_settings.etc.fav_y, 300)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

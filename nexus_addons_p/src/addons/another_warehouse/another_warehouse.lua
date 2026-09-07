@@ -116,6 +116,17 @@ g.AWH_FAVORITE_SLOTSET = "sset_awh_favorites"
 -- 使われていて、Another_warehouse_tab_change がタブ 1 へ落とす)。
 g.AWH_FAVORITE_TAB = 11
 
+-- `etc` の入れ物。**添字を引く前に必ずここを通すこと。**
+-- 移行してきた設定ファイルには `etc` が無いことがあり(読み込みは作らない)、
+-- そのまま `g.awh_settings.etc.fav_x` を読むとそこで落ちる。
+function Another_warehouse_etc()
+    local settings = g.awh_settings
+    if type(settings.etc) ~= "table" then
+        settings.etc = {}
+    end
+    return settings.etc
+end
+
 function Another_warehouse_favorites()
     local settings = g.awh_settings
     if not settings then
@@ -283,12 +294,18 @@ function Another_warehouse_favorite_frame_open()
     end
     y = y + 10
     fav:Resize(350, y)
-    -- **位置は開くたびに置き直さない。** 中身は足す / 消すたびに組み直すので、
-    -- ここで毎回置くと右クリック 1 回で窓が飛ぶ。
-    local pos_x = g.awh_settings.etc.fav_x
-    local pos_y = g.awh_settings.etc.fav_y
+    -- **位置は開くたびに計算し直さない。** 中身は足す / 消す / 並べ替えのたびに
+    -- 組み直すので、そのつど g.settings_frame_pos へ**今の高さ**を渡すと、
+    -- 行が 1 つ増えるたびに窓が 15px ずつ上へ跳ぶ(中央寄せは高さの半分だけ上げるため)。
+    -- **初めて開いたときに決めた位置をその場で控える**ことで、以降は控えを使う。
+    local etc = Another_warehouse_etc()
+    local pos_x = etc.fav_x
+    local pos_y = etc.fav_y
     if type(pos_x) ~= "number" or type(pos_y) ~= "number" then
         pos_x, pos_y = g.settings_frame_pos(350, y)
+        etc.fav_x = pos_x
+        etc.fav_y = pos_y
+        Another_warehouse_save_settings()
     end
     fav:SetPos(pos_x, pos_y)
     fav:SetEventScript(ui.LBUTTONUP, "Another_warehouse_favorite_drag")
@@ -299,13 +316,14 @@ function Another_warehouse_favorite_frame_open()
 end
 
 function Another_warehouse_favorite_drag(fav)
+    local etc = Another_warehouse_etc()
     local x = fav:GetX()
     local y = fav:GetY()
-    if x == g.awh_settings.etc.fav_x and y == g.awh_settings.etc.fav_y then
+    if x == etc.fav_x and y == etc.fav_y then
         return
     end
-    g.awh_settings.etc.fav_x = x
-    g.awh_settings.etc.fav_y = y
+    etc.fav_x = x
+    etc.fav_y = y
     Another_warehouse_save_settings()
 end
 
