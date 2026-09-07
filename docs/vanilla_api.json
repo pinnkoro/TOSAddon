@@ -3,7 +3,7 @@
   "symbols": {
     "ABILITY_DESC_NO_PLUS": {"used_by": ["addons/market_favorite_rebuild/market_favorite_rebuild.lua"], "our_arities": [3], "kind": "client_lua", "params": ["desc", "cur", "is_max"], "defined_in": "uiscp/lib_itemtooltip.lua"},
     "ABILITY_DESC_PLUS": {"used_by": ["addons/market_favorite_rebuild/market_favorite_rebuild.lua"], "our_arities": [2], "kind": "client_lua", "params": ["desc", "cur"], "defined_in": "uiscp/lib_itemtooltip.lua"},
-    "ACCOUNTWAREHOUSE_CLOSE": {"used_by": ["addons/another_warehouse/another_warehouse.lua", "addons/cc_helper/cc_helper.lua", "addons/characters_item_serch/characters_item_serch.lua"], "our_arities": [0, 1], "hooked": true, "kind": "client_lua", "params": ["frame"], "defined_in": "accountwarehouse/accountwarehouse.lua"},
+    "ACCOUNTWAREHOUSE_CLOSE": {"used_by": ["addons/another_warehouse/another_warehouse.lua", "addons/cc_helper/cc_helper.lua", "addons/characters_item_serch/characters_item_serch.lua"], "our_arities": [0], "hooked": true, "kind": "client_lua", "params": ["frame"], "defined_in": "accountwarehouse/accountwarehouse.lua"},
     "ACCOUNT_WAREHOUSE_UPDATE_VIS_LOG": {"used_by": ["addons/another_warehouse/another_warehouse.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": ["frame"], "defined_in": "accountwarehouse/accountwarehouse.lua"},
     "ACHIEVEINFOSET_IS_DRAW": {"used_by": ["addons/mini_addons/quest/quest.lua"], "our_arities": [0], "kind": "client_lua", "params": [], "defined_in": "achieveinfoset/achieveinfoset.lua"},
     "ACHIEVEINFOSET_IS_VALID_ACHIEVE": {"used_by": ["addons/mini_addons/quest/quest.lua"], "our_arities": [0], "kind": "client_lua", "params": [], "defined_in": "achieveinfoset/achieveinfoset.lua"},

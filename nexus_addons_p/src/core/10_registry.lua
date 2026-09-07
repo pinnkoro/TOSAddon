@@ -90,8 +90,8 @@ g._nexus_addons_p = {{
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
     updated = g.VER_NEXT,
-    updated_note_jp = "お気に入りを追加しました。上部の★ボタンで編集の窓を開き、開いている間に倉庫かインベントリのアイテムを右クリックすると足せます。一覧の一番上に「お気に入り」の帯が出て、左端のタブにも★のタブが増えます(元のカテゴリからは消えません)。登録はアカウント単位です",
-    updated_note_en = "Added favorites. The star button opens the editor; while it is open, right-click an item in the warehouse or inventory to add it. A Favorites group is pinned to the top of the list and a star tab joins the tab column (items stay in their normal category too). Favorites are stored per account",
+    updated_note_jp = "設定ウィンドウ(歯車)を閉じるとチーム倉庫まで一緒に閉じてしまうのを修正しました(閉じた後もインベントリの右クリックが「セットへ登録」のまま残っていたのも直しました)。お気に入りを追加しました。上部の★ボタンで編集の窓を開き、開いている間に倉庫かインベントリのアイテムを右クリックすると足せます。一覧の一番上に「お気に入り」の帯が出て、左端のタブにも★のタブが増えます(元のカテゴリからは消えません)。登録はアカウント単位です",
+    updated_note_en = "Fixed the settings window (gear) closing the whole team warehouse with it, and the inventory right-click staying on Register to set after closing it. Added favorites. The star button opens the editor; while it is open, right-click an item in the warehouse or inventory to add it. A Favorites group is pinned to the top of the list and a star tab joins the tab column (items stay in their normal category too). Favorites are stored per account",
     data = {
         use = 0,
         name = "Another Warehouse",

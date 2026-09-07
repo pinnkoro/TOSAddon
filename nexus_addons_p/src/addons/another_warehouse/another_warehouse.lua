@@ -2216,7 +2216,7 @@ function Another_warehouse_setting_frame_init(frame, ctrl, str, num)
     AUTO_CAST(char_gb)
     Another_warehouse_setting_slot_set(char_gb, 'char_slotset')
     setting:ShowWindow(1)
-    -- ESC は × ボタンと同じ閉じ方にする(倉庫側の閉じ直しまで含めて同じ挙動にする)。
+    -- ESC は × ボタンと同じ閉じ方にする(右クリック割り当ての戻しまで含めて同じ関数を通す)。
     local setting_name = addon_name_lower .. "awh_setting"
     g.esc_register(setting_name, function()
         local frame = ui.GetFrame(setting_name)
@@ -2226,10 +2226,25 @@ function Another_warehouse_setting_frame_init(frame, ctrl, str, num)
     end)
 end
 
+-- **倉庫まで閉じないこと。** 以前はここで素の ACCOUNTWAREHOUSE_CLOSE を呼んでいたので、
+-- 設定を閉じただけで TRADE_DIALOG_CLOSE と ui.CloseFrame("inventory") まで走り、
+-- チーム倉庫ごと畳まれていた(本家から引き継いだ不具合)。
+--
+-- 代わりにここでするのは、**自分が奪ったインベントリの右クリック割り当てを戻すこと**
+-- だけ。Another_warehouse_setting_frame_init が "Another_warehouse_setting_rbtn" へ
+-- 差し替えているので、戻さないと設定を閉じた後もインベントリの右クリックが
+-- 「セットへ登録」のまま残る(cc_helper で踏んだのと同じ話。
+--  CLAUDE.md「ESC は × ボタンと同じ挙動にする」)。
+--
+-- 戻す先は**倉庫がまだ開いているかどうか**で変わる。開いていれば倉庫の搬入へ、
+-- 閉じていれば素へ返す。
 function Another_warehouse_setting_close(setting)
     ui.DestroyFrame(setting:GetName())
-    local accountwarehouse = ui.GetFrame("accountwarehouse")
-    ACCOUNTWAREHOUSE_CLOSE(accountwarehouse)
+    local awh = ui.GetFrame(addon_name_lower .. "awh")
+    local open = awh ~= nil and awh:IsVisible() == 1
+    INVENTORY_SET_CUSTOM_RBTNDOWN(open and "Another_warehouse_inv_rbtn" or "None")
+    g.vlog("another_warehouse: 設定を閉じた(倉庫は%s / 右クリックを%sへ戻した)",
+        open and "開いたまま" or "閉じている", open and "搬入" or "素")
 end
 
 function Another_warehouse_setting_check(frame, ctrl)
