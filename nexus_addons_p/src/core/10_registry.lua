@@ -389,9 +389,9 @@ g._nexus_addons_p = {{
 }, {
     key = "muteki",
     category = "battle",
-    updated = "2.2.2",
-    updated_note_jp = "登録していないスキルを使うと内部で毎回エラーになっていたのを修正しました",
-    updated_note_en = "Fixed an internal error that occurred every time an unregistered skill was used",
+    updated = g.VER_NEXT,
+    updated_note_jp = "パーティーチャットに知らせるバフが切れたときにゲームが落ちていたのを修正しました",
+    updated_note_en = "Fixed the client crashing when a buff with the party-chat announcement ended",
     data = {
         use = 0,
         name = "Muteki",
@@ -425,6 +425,9 @@ g._nexus_addons_p = {{
 }, {
     key = "other_character_skill_list",
     category = "char",
+    updated = g.VER_NEXT,
+    updated_note_jp = "代表クラスを選んでいるキャラのアイコンが空欄になっていたのを修正しました",
+    updated_note_en = "Fixed a blank icon for characters with a representative class picked",
     data = {
         use = 0,
         name = "Other Character Skill List",
