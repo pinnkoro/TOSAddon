@@ -307,9 +307,9 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = "2.5.0",
-    updated_note_jp = "設定画面をタブ(パネル / コンテンツ)に分けました。ショートカットはアイコン＋名前の一覧になり、右端で見切れて押せなかった「レティーシャへ移動」が押せます。ショートカットとレイドの行を▲▼で並べ替えられるようになり、セット(SET A / B / C)のボタンはコンテンツタブの一覧の上へ移しました。セットを切り替えても設定ウィンドウが画面中央へ戻らなくなりました。ショートカットを全部出したときにパネルの右端で歯車が切れていたのも直しました。コンテンツの一覧は縦 1 列 + スクロールになり、名前の右にパネルと同じ絵が付きます。「ON のものだけ表示」で絞り込めます。入場できなくなったアシャークは一覧から外しました。背景は SKIN SELECT のメニューをやめ、3 つのボタンを横に並べて今使っているものを赤くしました",
-    updated_note_en = "The settings window is now split into Panel and Contents tabs; shortcuts became an icon + name list so the Leticia entry that was clipped off the right edge is reachable, shortcuts and raid rows can be reordered with the arrows, the set buttons (SET A / B / C) moved above the content list, switching sets no longer recentres the window, the gear button no longer gets clipped off the right edge of the panel when every shortcut is shown, and the content list is a single scrolling column with each row's panel icon next to its name plus a Show only enabled filter; Ashaq was removed because it can no longer be entered, and the skin picker is now three buttons with the active one highlighted",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定に「入場券」タブを足しました。持っている券とショップでの購入を、どの順に試すかを▲▼で決められます(レイド / チャレンジ・分裂特異点 / その他 の 3 つに分けて指定)。既定はこれまでどおりの順番です。あわせて、券の選び方が壊れていたのを直しました。期限の無い券はリストの最後のものが使われていて、期限付きの券は同じ残り時間のときにどれが使われるか決まっていませんでした",
+    updated_note_en = "Added a Tickets tab to the settings: the order in which held tickets and shop purchases are tried can be reordered with the arrows, per group (raids / challenge and singularity / other). The defaults match the previous behaviour. Also fixed how a ticket was picked: for permanent tickets the last id in the list won, and time-limited tickets with the same remaining time were picked in an undefined order",
     data = {
         use = 0,
         name = "Indun Panel",

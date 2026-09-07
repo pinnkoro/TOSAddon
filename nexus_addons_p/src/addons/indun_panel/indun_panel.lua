@@ -553,6 +553,223 @@ function Indun_panel_tier_row_visible(row_key)
     return false
 end
 
+-- ── 入場券の使用順 ─────────────────────────────────────────────
+-- 券を使う経路は 6 つある(レイド 12 種 / チャレンジ / 分裂特異点 / ヴェルニース /
+-- テルハーシャ / 嘆きの墓地・共鳴の聖所)。どれも「持っている券から 1 枚選ぶ」という
+-- 同じことをしているのに、**それぞれ別々に書かれていた**ので、経路ごとに順序が
+-- 食い違い、片方だけ壊れても気付けなかった。選び方をここへ集める。
+--
+-- 分類は **ID の直書きではなく所持品の実物から決める**。段が増えるたびに
+-- 「どれが取引不可か」を手で振り分ける作りだと、書き間違えても実機で券を 1 枚
+-- 溶かすまで気付けない。見方は素のクライアントに合わせてある
+-- (`BelongingCount` は exchange.lua、`IsEnableMarketTrade` は market_sell.lua)。
+--
+-- **既定は現行の挙動そのまま。** 並べ替えは設定ウィンドウの「入場券」タブで行う。
+g.INDUN_PANEL_TICKET_KINDS = {{
+    key = "expiring",
+    jp = "期限付き",
+    en = "Time-limited",
+    jp_note = "放っておくと消えるので先に使う",
+    en_note = "It expires if left alone"
+}, {
+    key = "no_trade",
+    jp = "取引不可",
+    en = "Untradeable",
+    jp_note = "売れないので温存する意味が無い",
+    en_note = "It cannot be sold, so there is no point saving it"
+}, {
+    key = "buy",
+    jp = "購入",
+    en = "Buy",
+    jp_note = "ショップの購入枠から買って使う(枠が無ければ飛ばす)",
+    en_note = "Buy from the shop allowance (skipped when there is none)"
+}, {
+    key = "tradable",
+    jp = "取引可",
+    en = "Tradable",
+    jp_note = "売れる券。後ろへ置くほど温存される",
+    en_note = "A ticket you could sell; the later it is, the more it is saved"
+}}
+
+-- 順序を持つグループ。**「購入」を持たない経路がある**ので、グループごとに
+-- 並ぶ分類が違う(レイドの券はショップで売っていない)。
+--
+-- default は **今の実装が実際に行っている順序**。ここを yoma16 版の推奨順
+-- (期限付き → 取引不可 → 購入 → 取引可)にはしていない。既定を変えると、
+-- 設定を触っていない利用者の券の使われ方が黙って変わるため。
+g.INDUN_PANEL_TICKET_GROUPS = {{
+    key = "raid",
+    jp = "レイド",
+    en = "Raids",
+    kinds = {"expiring", "no_trade", "tradable"},
+    default = {"expiring", "no_trade", "tradable"}
+}, {
+    key = "challenge",
+    jp = "チャレンジ / 分裂特異点",
+    en = "Challenge / Singularity",
+    kinds = {"expiring", "no_trade", "buy", "tradable"},
+    default = {"expiring", "buy", "no_trade", "tradable"}
+}, {
+    key = "other",
+    jp = "その他(ヴェルニース / テルハーシャ / 嘆きの墓地 / 共鳴の聖所)",
+    en = "Other (Bernice / Telharsha / Wailing / Resonance)",
+    kinds = {"expiring", "no_trade", "tradable", "buy"},
+    default = {"expiring", "no_trade", "tradable", "buy"}
+}}
+
+function Indun_panel_ticket_group_def(group_key)
+    for _, def in ipairs(g.INDUN_PANEL_TICKET_GROUPS) do
+        if def.key == group_key then
+            return def
+        end
+    end
+    return nil
+end
+
+function Indun_panel_ticket_kind_def(kind_key)
+    for _, def in ipairs(g.INDUN_PANEL_TICKET_KINDS) do
+        if def.key == kind_key then
+            return def
+        end
+    end
+    return nil
+end
+
+-- 保存済みの並びを、そのグループが持つ分類ちょうどへ直した写しを返す。
+-- **保存された配列をそのまま信用しないこと。** 手で書き換えられていることもあるし、
+-- 後から分類を足したときに古い保存には入っていない。知らないものは捨て、
+-- 足りないものは既定の並びの順で末尾へ足す(1 つも欠けさせない)。
+function Indun_panel_ticket_order(group_key)
+    local def = Indun_panel_ticket_group_def(group_key)
+    if not def then
+        return {}
+    end
+    local settings = g.indun_panel_settings
+    local saved = settings and type(settings.ticket_order) == "table" and settings.ticket_order[group_key] or nil
+    local allowed = {}
+    for _, kind in ipairs(def.kinds) do
+        allowed[kind] = true
+    end
+    local out = {}
+    local seen = {}
+    if type(saved) == "table" then
+        for _, kind in ipairs(saved) do
+            if allowed[kind] and not seen[kind] then
+                seen[kind] = true
+                table.insert(out, kind)
+            end
+        end
+    end
+    for _, kind in ipairs(def.default) do
+        if not seen[kind] then
+            seen[kind] = true
+            table.insert(out, kind)
+        end
+    end
+    return out
+end
+
+-- 券 1 枚の分類。**戻り値の 2 つめは期限の残り秒**(期限付きの中の並べ替えに使う)。
+--
+-- 取引できるかは 2 つ見る。片方だけでは足りない。
+--   * BelongingCount    … その山のうち何個がアカウント固定か(手に入れ方で変わる)
+--   * IsEnableMarketTrade … そもそも市場へ出せない品か(品目そのものの性質)
+function Indun_panel_ticket_kind(inv_item)
+    local item_obj = GetIES(inv_item:GetObject())
+    local life = tonumber(GET_REMAIN_ITEM_LIFE_TIME(item_obj)) or 0
+    if life > 0 then
+        return "expiring", life
+    end
+    local belonging = tonumber(TryGetProp(item_obj, "BelongingCount", 0)) or 0
+    if belonging > 0 then
+        return "no_trade", 0
+    end
+    -- ネイティブのメソッドなので、無いクライアントに当たっても落とさない。
+    local ok, tradable = pcall(function()
+        return item_obj:IsEnableMarketTrade()
+    end)
+    if ok and tradable == false then
+        return "no_trade", 0
+    end
+    return "tradable", 0
+end
+
+-- 候補の ClassID を分類ごとに仕分ける。
+--
+-- **同じ分類の中の並びも決めておくこと。** 以前は期限付きを「1 日を切っているか」
+-- だけで table.sort していたが、1 日券は残り **ちょうど 86400 秒**で切っていないため
+-- ほぼ全部が同点になり、table.sort は安定ではないので**どれが使われるか不定**だった。
+-- 期限付きは残りの短い順、それ以外は渡された ID の並び順。どちらも同点は元の位置で割る。
+function Indun_panel_collect_tickets(ticket_ids)
+    local buckets = {}
+    for idx, class_id in ipairs(ticket_ids or {}) do
+        local inv_item = session.GetInvItemByType(class_id)
+        if inv_item then
+            if inv_item.isLockState then
+                -- 鍵の掛かっている券は使えない。**名前は必ずこの券のものを出すこと**
+                -- (以前は選び終わった後の変数を見ていて、nil のときに落ちていた)。
+                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. inv_item.Name .. ")")
+            else
+                local kind, life = Indun_panel_ticket_kind(inv_item)
+                buckets[kind] = buckets[kind] or {}
+                table.insert(buckets[kind], {
+                    item = inv_item,
+                    idx = idx,
+                    life = life or 0
+                })
+            end
+        end
+    end
+    for kind, list in pairs(buckets) do
+        table.sort(list, function(a, b)
+            if kind == "expiring" and a.life ~= b.life then
+                return a.life < b.life
+            end
+            return a.idx < b.idx
+        end)
+    end
+    return buckets
+end
+
+-- 使用順に沿って「券を 1 枚使う」か「ショップで買う」を **1 回だけ** 行う。
+--   group_key  … g.INDUN_PANEL_TICKET_GROUPS のキー
+--   ticket_ids … 候補の ClassID(同じ分類の中ではこの並び順)
+--   on_use     … 券を使った後にすること(入場の予約など)。省略可
+--   on_buy     … 「購入」の段で呼ばれる。買えたら true を返すこと。省略可
+--   before_use … 券を使う**直前**にすること。省略可
+--                (分裂特異点は AnsGiveUpPrevPlayingIndun を券の使用より前に呼ぶ作りで、
+--                 後ろへ回すと「前のダンジョンを諦める」のが券を使った後になる)
+-- 何かできたら true。
+function Indun_panel_consume_ticket(group_key, ticket_ids, on_use, on_buy, before_use)
+    local buckets = Indun_panel_collect_tickets(ticket_ids)
+    local order = Indun_panel_ticket_order(group_key)
+    for _, kind in ipairs(order) do
+        if kind == "buy" then
+            if on_buy and on_buy() == true then
+                g.vlog("indun_panel: 入場券をショップで買った group=%s 順=%s", tostring(group_key),
+                    table.concat(order, ">"))
+                return true
+            end
+        else
+            local entry = buckets[kind] and buckets[kind][1]
+            if entry then
+                if before_use then
+                    before_use()
+                end
+                INV_ICON_USE(entry.item)
+                g.vlog("indun_panel: 入場券を使った group=%s 分類=%s 残り=%s 順=%s", tostring(group_key), kind,
+                    tostring(entry.life), table.concat(order, ">"))
+                if on_use then
+                    on_use()
+                end
+                return true
+            end
+        end
+    end
+    g.vlog("indun_panel: 使える入場券が無かった group=%s 順=%s", tostring(group_key), table.concat(order, ">"))
+    return false
+end
+
 function Indun_panel_save_settings()
     g.save_json(g.indun_panel_path, g.indun_panel_settings)
 end
@@ -682,6 +899,21 @@ function Indun_panel_load_settings()
                     settings.tiers[row.key][tier_key] = 1
                 end
             end
+        end
+    end
+    -- 入場券の使用順。**既定はここだけで作る**(段の表示切替と同じ理由)。
+    -- Indun_panel_ticket_order が読むたびに直すので、ここでは入れ物だけ用意して
+    -- 既定を書き込んでおく(設定ファイルを開いたときに何が指定できるのか見えるように)。
+    if type(settings.ticket_order) ~= "table" then
+        settings.ticket_order = {}
+    end
+    for _, group in ipairs(g.INDUN_PANEL_TICKET_GROUPS) do
+        if type(settings.ticket_order[group.key]) ~= "table" then
+            local def = {}
+            for i, kind in ipairs(group.default) do
+                def[i] = kind
+            end
+            settings.ticket_order[group.key] = def
         end
     end
     -- 新ダンジョン追加時のバックフィル: 既存ユーザーの保存済み設定に無いキーを既定ON(1)で補完
@@ -1615,6 +1847,10 @@ local INDUN_PANEL_CONFIG_TABS = {{
     key = "contents",
     jp = "コンテンツ",
     en = "Contents"
+}, {
+    key = "ticket",
+    jp = "入場券",
+    en = "Tickets"
 }}
 
 -- 窓の幅。**タブで変えないこと。**
@@ -1647,7 +1883,9 @@ local INDUN_PANEL_CONFIG_BODY_Y = 78
 local INDUN_PANEL_CONFIG_BODY = "config_body"
 local INDUN_PANEL_CONFIG_ROWS = "rows_gb" -- コンテンツの一覧
 local INDUN_PANEL_CONFIG_SC = "sc_gb" -- ショートカットの一覧
-local INDUN_PANEL_CONFIG_CONTAINERS = {INDUN_PANEL_CONFIG_BODY, INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC}
+local INDUN_PANEL_CONFIG_TICKET = "ticket_gb" -- 入場券の使用順の一覧
+local INDUN_PANEL_CONFIG_CONTAINERS = {INDUN_PANEL_CONFIG_BODY, INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC,
+                                       INDUN_PANEL_CONFIG_TICKET}
 
 function Indun_panel_config_frame_name()
     return addon_name_lower .. "indun_panel_config"
@@ -2072,6 +2310,90 @@ local function Indun_panel_config_build_contents(body, w, body_h)
     return body_h
 end
 
+-- 「入場券」タブ。**グループごとに、券の分類を使う順に並べる。**
+--
+-- 一覧に入れているのは「レイド」「チャレンジ / 分裂特異点」「その他」の 3 つ。
+-- 経路は 6 つあるが、利用者から見た使い分けは「週ごとに配られる券か / 買える枠が
+-- あるか」の違いなので、そこで束ねている。
+--
+-- **▲▼ の入れ替えは一覧全体へ番号を振り直す**(隣と入れ替えるだけの作りだと、
+-- 番号を持たない項目が混ざったとき「押しても動かない」組み合わせが残る。
+-- core/90_addons_menu.lua の並べ替えと同じ考え方)。
+function Indun_panel_config_build_ticket(body, w, body_h)
+    local is_jp = g.lang == "Japanese"
+    local y = Indun_panel_config_section(body, "ticket", is_jp and "入場券の使用順" or "Ticket use order", 8, w)
+    y = Indun_panel_config_note(body, "ticket", is_jp and
+        "上にあるものから順に試します。持っていない分類は飛ばします。" or
+        "Tried from the top; a category you have none of is skipped.", y, w)
+    local gb = body:CreateOrGetControl("groupbox", INDUN_PANEL_CONFIG_TICKET, 8, y, w - 16,
+        math.max(body_h - y - 8, 100))
+    AUTO_CAST(gb)
+    gb:SetSkinName("bg")
+    gb:RemoveAllChild()
+    gb:EnableScrollBar(1)
+    local ry = 5
+    for _, group in ipairs(g.INDUN_PANEL_TICKET_GROUPS) do
+        local head = gb:CreateOrGetControl("richtext", "tk_head_" .. group.key, 10, ry, w - 60, 22)
+        AUTO_CAST(head)
+        head:SetText(string.format("{ol}{#FFD900}{s16}%s", is_jp and group.jp or group.en))
+        head:AdjustFontSizeByWidth(w - 60)
+        ry = ry + 26
+        local order = Indun_panel_ticket_order(group.key)
+        for idx, kind in ipairs(order) do
+            local def = Indun_panel_ticket_kind_def(kind)
+            -- ▲▼ の引数は 1 本の文字列しか渡せないので、グループと分類をつないで渡す。
+            local arg = group.key .. ":" .. kind
+            Indun_panel_config_move_buttons(gb, "tk_" .. group.key, idx, #order, arg, 12, ry, "Indun_panel_ticket_move")
+            local label = gb:CreateOrGetControl("richtext", "tk_" .. group.key .. "_" .. idx, 70, ry + 4, w - 110, 22)
+            AUTO_CAST(label)
+            label:SetText(string.format("{ol}{#FFFFFF}{s16}%d. %s", idx, def and (is_jp and def.jp or def.en) or kind))
+            if def then
+                label:SetTextTooltip("{ol}" .. (is_jp and def.jp_note or def.en_note))
+            end
+            ry = ry + 30
+        end
+        ry = ry + 8
+    end
+    Indun_panel_config_restore_scroll(gb, INDUN_PANEL_CONFIG_TICKET, ry)
+    return body_h
+end
+
+-- 入場券の使用順の▲▼。**保存してからパネルも組み直す**(ツールチップの「優先順位」が
+-- この順序を写しているので、直さないと説明と動きが食い違う)。
+function Indun_panel_ticket_move(frame, ctrl, arg, delta)
+    delta = tonumber(delta) or 0
+    if delta == 0 or type(arg) ~= "string" then
+        return
+    end
+    local group_key, kind = string.match(arg, "^(.-):(.+)$")
+    local def = group_key and Indun_panel_ticket_group_def(group_key)
+    if not def then
+        return
+    end
+    local order = Indun_panel_ticket_order(group_key)
+    local at
+    for i, k in ipairs(order) do
+        if k == kind then
+            at = i
+            break
+        end
+    end
+    local to = at and (at + delta)
+    if not at or not to or to < 1 or to > #order then
+        return
+    end
+    order[at], order[to] = order[to], order[at]
+    local settings = g.indun_panel_settings
+    if type(settings.ticket_order) ~= "table" then
+        settings.ticket_order = {}
+    end
+    settings.ticket_order[group_key] = order
+    Indun_panel_save_settings()
+    g.vlog("indun_panel: 入場券の使用順を変えた group=%s 順=%s", group_key, table.concat(order, ">"))
+    Indun_panel_refresh_panel()
+    Indun_panel_config_rebuild()
+end
+
 -- タブとその中身を作る。**開き直しでもタブ切り替えでもここを通る**ので、中身は毎回作り直す。
 -- keep_pos = true なら今の位置を保つ(画面からはみ出したぶんだけ戻す)。
 local function Indun_panel_config_build(config_frame, keep_pos)
@@ -2102,7 +2424,7 @@ local function Indun_panel_config_build(config_frame, keep_pos)
     -- **中身を壊す前にスクロール位置を控える。** ここを飛ばすと、▲▼ を押して組み立て直した
     -- 瞬間に一覧の先頭へ戻る(下のほうの行を触れない)。控えるのは RemoveAllChild より前で
     -- なければならない(壊した後の枠は必ず 0 を返す)。
-    for _, name in ipairs({INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC}) do
+    for _, name in ipairs({INDUN_PANEL_CONFIG_ROWS, INDUN_PANEL_CONFIG_SC, INDUN_PANEL_CONFIG_TICKET}) do
         local gb = GET_CHILD_RECURSIVELY(config_frame, name)
         if gb then
             indun_panel_config_scroll[name] = g.scroll_cur_pos(gb)
@@ -2114,6 +2436,8 @@ local function Indun_panel_config_build(config_frame, keep_pos)
     local content_h = INDUN_PANEL_CONFIG_H - INDUN_PANEL_CONFIG_BODY_Y
     if tab == "contents" then
         Indun_panel_config_build_contents(body, w, content_h)
+    elseif tab == "ticket" then
+        Indun_panel_config_build_ticket(body, w, content_h)
     else
         Indun_panel_config_build_panel(body, w, content_h)
     end
@@ -2761,24 +3085,32 @@ end
 -- 戻り値は使った横幅。呼び元が行の右端を覚えてパネルの幅を決める。
 -- チャレンジの USE ボタンのツールチップを組み立てる。
 --   with_click_hint … PT ボタンがある段。左クリック=PT / 右クリック=ソロ の案内を足す
---   hold_non_expiring … 期限の無い券をショップより後に回す段(540 以降)。
---                       520 は期限の無い券をその場で使うので順序が入れ替わる
-function Indun_panel_ticket_tooltip(with_click_hint, hold_non_expiring, coin_img)
+--   coin_img        … 「購入」の行に出す通貨の絵
+-- ツールチップの「優先順位」は **設定の使用順をそのまま並べる**。
+-- 以前は 520 かどうかで 2 通りを書き分けていたが、順序が設定で変えられるように
+-- なったので、文面を固定していると実際の動きと食い違う。この食い違いは
+-- **実機で券を 1 枚使うまで見えない**ので、書き分けではなく設定から組み立てる。
+function Indun_panel_ticket_tooltip(with_click_hint, coin_img)
     local is_jp = g.lang == "Japanese"
     local parts = {"{ol}"}
     if with_click_hint then
         table.insert(parts, is_jp and "左クリック: PT入場{nl}右クリック: ソロ入場{nl}" or
             "Left Click: PT Entry{nl}Right Click: Solo Entry{nl}")
     end
-    table.insert(parts, is_jp and "優先順位{nl}1.期限付き{nl}" or "Priority{nl}1.Expiring{nl}")
-    local shop = is_jp and string.format("{img %s 20 20}チケット(買って使います)", coin_img) or
-                     string.format("{img %s 20 20}tickets(buy and use)", coin_img)
-    local none = is_jp and "期限なし" or "Non-expiring"
-    if hold_non_expiring then
-        table.insert(parts, "2." .. shop .. "{nl}3." .. none)
-    else
-        table.insert(parts, "2." .. none .. "{nl}3." .. shop)
+    table.insert(parts, is_jp and "優先順位{nl}" or "Priority{nl}")
+    local lines = {}
+    for i, kind in ipairs(Indun_panel_ticket_order("challenge")) do
+        local label
+        if kind == "buy" then
+            label = is_jp and string.format("{img %s 20 20}チケット(買って使います)", coin_img) or
+                        string.format("{img %s 20 20}tickets(buy and use)", coin_img)
+        else
+            local def = Indun_panel_ticket_kind_def(kind)
+            label = def and (is_jp and def.jp or def.en) or kind
+        end
+        table.insert(lines, string.format("%d.%s", i, label))
     end
+    table.insert(parts, table.concat(lines, "{nl}"))
     return table.concat(parts)
 end
 
@@ -2832,15 +3164,9 @@ function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x
             local txt = indun_panel:CreateOrGetControl("richtext", "txt" .. suffix, x + offset, y + 5, 40, 30)
             txt:SetText(Indun_panel_get_entrance_count(tier.solo, tier.count_index))
             offset = offset + 40
-            -- ツールチップは 2 つの独立した要素でできている。**片方の条件でもう片方を決めないこと。**
-            --   * クリックの案内 … PT ボタンがある段だけ(tier.pt)
-            --   * 消費の優先順位 … **520 かどうか**。Indun_panel_use_prioritized_ticket が
-            --     indun_type == 1001 のときだけ期限の無い券をその場で使い、540 以降は
-            --     ショップで買えるうちは温存するため
-            -- 以前ここを tier.pt だけで分けていたので、PT が消えた 540(1005 の削除)だけが
-            -- 520 用の順序に落ちて、実際の消費順序と逆の説明を出していた。
-            local hold_non_expiring = tier.solo ~= 1001
-            local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring, "icon_item_Tos_Event_Coin")
+            -- クリックの案内は PT ボタンがある段だけ(tier.pt)。
+            -- 消費の優先順位は設定から組み立てるので、段による書き分けは無くなった。
+            local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, "icon_item_Tos_Event_Coin")
             local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
                 pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
             if tier.pt then
@@ -2850,8 +3176,7 @@ function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x
             end
             offset = offset + 100
             if tier.pvp_recipe then
-                local tooltip_pvp = Indun_panel_ticket_tooltip(tier.pt ~= nil, hold_non_expiring,
-                    "pvpmine_shop_btn_total")
+                local tooltip_pvp = Indun_panel_ticket_tooltip(tier.pt ~= nil, "pvpmine_shop_btn_total")
                 local pvp_btn = challenge_shop_button(indun_panel, "buyuse_pvp" .. suffix, x + offset, y, tier.pvp_recipe,
                     pt_indun_type, "pvp", "pvpmine_shop_btn_total", icon_text, tooltip_pvp)
                 pvp_btn:SetText(string.format("{ol}{#FFFFFF}USEor{s16}{img %s 18 18}{#FFFFFF}%s", "pvpmine_shop_btn_total",
@@ -2906,84 +3231,39 @@ function Indun_panel_process_ticket(indun_type, mode, config)
     -- PT(自動マッチング)側の indun_type で押されたときだけ ReqMoveToIndun の第 1 引数が 2 になる。
     -- 以前は 1005 決め打ちだったが、1005 は削除され 1007 になったので段の表から引く。
     local enter_mode = (tier and tier.pt == indun_type) and 2 or 1
-    if Indun_panel_use_prioritized_ticket(config.expiring, enter_mode, indun_type) then
-        return
-    end
     local recipe_name = Indun_panel_challenge_recipe(indun_type, mode)
-    if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
-        Indun_panel_item_buy_use(recipe_name)
+    -- 券の候補は「期限付きに書いたもの → 期限なしに書いたもの」の並びで渡す。
+    -- **どちらの分類になるかは実物から決める**ので、この 2 つのリストは
+    -- 「同じ分類の中でどれを先に使うか」を決めるだけの意味になった。
+    local ticket_ids = {}
+    for _, list in ipairs({config.expiring, config.non_expiring}) do
+        for _, class_id in ipairs(list or {}) do
+            table.insert(ticket_ids, class_id)
+        end
+    end
+    local used = Indun_panel_consume_ticket("challenge", ticket_ids, function()
         Indun_panel_enter_reserve(enter_mode, indun_type)
+    end, function()
+        if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
+            Indun_panel_item_buy_use(recipe_name)
+            Indun_panel_enter_reserve(enter_mode, indun_type)
+            return true
+        end
+        return false
+    end)
+    if used then
         return
     end
-    if Indun_panel_use_prioritized_ticket(config.non_expiring, enter_mode, indun_type) then
-        return
-    end
-    -- PVP ショップだけは上限を超えて買える枠(OverBuy)があるので、そこまで見る
+    -- PVP ショップだけは上限を超えて買える枠(OverBuy)がある。**これは使用順の外に置く。**
+    -- 追加で買える枠なので、持っている券を使い切ってから手を付けるのが今までの動きで、
+    -- 設定の「購入」(通常の購入枠)とは意味が違う。
     if mode == "pvp" and recipe_name ~= "" then
-        local account_obj = GetMyAccountObj()
-        local recipe_cls = GetClass('ItemTradeShop', recipe_name)
-        if recipe_cls then
-            local over_max = TryGetProp(recipe_cls, 'MaxOverBuyCount', 0)
-            local over_prop = TryGetProp(recipe_cls, 'OverBuyProperty', 'None')
-            local over_count = TryGetProp(account_obj, over_prop, 0)
-            if (tonumber(over_max) - tonumber(over_count)) > 0 then
-                Indun_panel_item_buy_use(recipe_name)
-                Indun_panel_enter_reserve(enter_mode, indun_type)
-                return
-            end
+        if Indun_panel_overbuy_count(recipe_name) > 0 then
+            Indun_panel_item_buy_use(recipe_name)
+            Indun_panel_enter_reserve(enter_mode, indun_type)
+            g.vlog("indun_panel: 入場券を追加購入枠(OverBuy)で買った recipe=%s", recipe_name)
         end
     end
-end
-
-function Indun_panel_use_prioritized_ticket(ticket_ids, enter_mode, indun_type)
-    local candidate_tickets = {}
-    local use_item = nil
-    for _, classid in ipairs(ticket_ids) do
-        local inv_item = session.GetInvItemByType(classid)
-        if inv_item then
-            if not inv_item.isLockState then
-                local item_obj = GetIES(inv_item:GetObject())
-                local life_time = tonumber(GET_REMAIN_ITEM_LIFE_TIME(item_obj)) or 0
-                if life_time > 0 then
-                    table.insert(candidate_tickets, {
-                        use_item = inv_item,
-                        priority = (life_time and life_time > 0 and life_time < 86400) and 1 or 2
-                    })
-                else
-                    -- 期限の無い券は最後の手段。ショップでまだ買えるうちは温存する。
-                    -- 見るショップは段ごとに違う(540 は TOS のみ、560 は TOS と PVP)ので、
-                    -- 以前のように 540 用の取引名を直接書かず段の表から引く。
-                    if indun_type == 1001 then
-                        use_item = inv_item
-                    else
-                        local tos_recipe = Indun_panel_challenge_recipe(indun_type, "tos")
-                        local pvp_recipe = Indun_panel_challenge_recipe(indun_type, "pvp")
-                        local tos_left = tos_recipe ~= "" and Indun_panel_get_recipe_trade_count(tos_recipe) or 0
-                        local pvp_left = pvp_recipe ~= "" and Indun_panel_get_recipe_trade_count(pvp_recipe) or 0
-                        if tos_left < 1 and pvp_left < 1 then
-                            use_item = inv_item
-                        end
-                    end
-                end
-            else
-                -- ここは use_item ではなく inv_item(鍵の掛かっていた券)の名前を出す。
-                -- use_item はこの時点では nil のことがあり、そのまま参照すると落ちる
-                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. inv_item.Name .. ")")
-            end
-        end
-    end
-    if #candidate_tickets > 0 then
-        table.sort(candidate_tickets, function(a, b)
-            return a.priority < b.priority
-        end)
-        use_item = candidate_tickets[1].use_item
-    end
-    if use_item then
-        INV_ICON_USE(use_item)
-        Indun_panel_enter_reserve(enter_mode, indun_type)
-        return true
-    end
-    return false
 end
 
 function Indun_panel_enter_reserve(index, indun_type)
@@ -3126,9 +3406,6 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
     if not config then
         return
     end
-    if Indun_panel_try_use_ticket_list(config.expiring, indun_type) then
-        return
-    end
     -- 取引名は段の表から引く。以前は 2000 かどうかで 2 つを出し分けていたが、
     -- 段が 3 つになったので分岐では足りない。
     local tier = SINGULARITY_TIER_BY_INDUN[indun_type]
@@ -3142,54 +3419,29 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
     elseif tier.tos_recipe then
         recipes = {tier.tos_recipe}
     end
-    for _, recipe in ipairs(recipes) do
-        if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
-            Indun_panel_item_buy_use(recipe)
-            ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
-            return
+    -- チャレンジと同じ扱い(設定のグループも同じ "challenge")。
+    local ticket_ids = {}
+    for _, list in ipairs({config.expiring, config.non_expiring}) do
+        for _, class_id in ipairs(list or {}) do
+            table.insert(ticket_ids, class_id)
         end
     end
-    if Indun_panel_try_use_ticket_list(config.non_expiring, indun_type) then
-        return
-    end
-end
-
-function Indun_panel_try_use_ticket_list(ticket_ids, indun_type)
-    local candidate_tickets = {}
-    for _, classid in ipairs(ticket_ids) do
-        local inv_item = session.GetInvItemByType(classid)
-        if inv_item then
-            if not inv_item.isLockState then
-                local item_obj = GetIES(inv_item:GetObject())
-                local life_time = tonumber(GET_REMAIN_ITEM_LIFE_TIME(item_obj)) or 0
-                local priority = (life_time > 0 and life_time < 86400) and 1 or 2
-                table.insert(candidate_tickets, {
-                    use_item = inv_item,
-                    priority = priority
-                })
-            else
-                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. inv_item.Name .. ")")
+    Indun_panel_consume_ticket("challenge", ticket_ids, function()
+        ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
+    end, function()
+        for _, recipe in ipairs(recipes) do
+            if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
+                Indun_panel_item_buy_use(recipe)
+                ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
+                return true
             end
         end
-    end
-    if #candidate_tickets > 0 then
-        table.sort(candidate_tickets, function(a, b)
-            return a.priority < b.priority
-        end)
-        local best_ticket = candidate_tickets[1].use_item
-        Indun_panel_item_use_and_run(best_ticket, indun_type)
-        return true
-    end
-    return false
-end
-
-function Indun_panel_item_use_and_run(use_item, indun_type)
-    AnsGiveUpPrevPlayingIndun(1)
-    if use_item and indun_type then
-        INV_ICON_USE(use_item)
-        ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
-        return
-    end
+        return false
+    end, function()
+        -- **券を使う前に呼ぶこと。** 前のダンジョンを諦める合図なので、
+        -- 券を使った後に回すと順序が入れ替わる(元の実装はここで呼んでいた)。
+        AnsGiveUpPrevPlayingIndun(1)
+    end)
 end
 
 function Indun_panel_enter_singularity(frame, ctrl, str, indun_type)
@@ -3316,38 +3568,24 @@ function Indun_panel_raid_itemuse(indun_panel, ctrl, str, indun_type)
         ui.SysMsg(g.lang == "Japanese" and "掃討バフがありません" or "There is no auto clear buff")
         return
     end
-    local ticket_item = nil
-    if target_items then
-        for _, class_id in ipairs(target_items) do
-            local inv_item = session.GetInvItemByType(class_id)
-            if inv_item then
-                ticket_item = inv_item
-                break
-            end
-        end
-    end
+    -- レイドの券はショップで売っていないので、「購入」の段は無い(グループ "raid")。
+    -- 以前はリストに書いた順で最初に見つかったものを使っていた。並びは
+    -- 「7日 / 取引不可 / 通常」で書かれていたので既定の順序はこれまでと同じになる。
     if sweep_count > 0 then
         if not is_limit_reached then
             ReqUseRaidAutoSweep(indun_type)
-        else
-            if ticket_item then
-                INV_ICON_USE(ticket_item)
-                ReserveScript(string.format("ReqUseRaidAutoSweep(%d)", indun_type), 0.5)
-            else
-                ui.SysMsg(g.lang == "Japanese" and "入場回数不足（チケットなし）" or
-                              "Not enough entry count (No tickets).")
-            end
+        elseif not Indun_panel_consume_ticket("raid", target_items, function()
+            ReserveScript(string.format("ReqUseRaidAutoSweep(%d)", indun_type), 0.5)
+        end) then
+            ui.SysMsg(g.lang == "Japanese" and "入場回数不足（チケットなし）" or
+                          "Not enough entry count (No tickets).")
         end
-    else
-        if ticket_item then
-            INV_ICON_USE(ticket_item)
+    elseif not Indun_panel_consume_ticket("raid", target_items) then
+        if string.find(ctrl:GetName(), "use") then
+            ui.SysMsg(g.lang == "Japanese" and "(自動マッチング/1人)入場券を持っていません" or
+                          "There are no ticket items in inventory")
         else
-            if string.find(ctrl:GetName(), "use") then
-                ui.SysMsg(g.lang == "Japanese" and "(自動マッチング/1人)入場券を持っていません" or
-                              "There are no ticket items in inventory")
-            else
-                ui.SysMsg(g.lang == "Japanese" and "掃討バフがありません" or "There is no auto clear buff")
-            end
+            ui.SysMsg(g.lang == "Japanese" and "掃討バフがありません" or "There is no auto clear buff")
         end
     end
 end
@@ -3458,7 +3696,12 @@ end
 
 local TELHARSHA_CONFIG = {
     recipe = "EVENT_TOS_WHOLE_SHOP_306",
-    ticket_id = 108020009,
+    -- **入場に使う券と、ボタンのツールチップが数えている券が食い違っている。**
+    -- 使うのはここの 108020009 だけなのに、Indun_panel_telharsha_frame は
+    -- {10820009, 11035056} を数えて「N枚持っています」と出している。
+    -- どちらが正しいのかは実機でしか確かめられないので、**ここでは今の動きを変えず**
+    -- 使う側だけを一覧にしてある。確かめたら両方を同じ表から引くこと。
+    tickets = {108020009},
     max_count = 3
 }
 function Indun_panel_telharsha_frame(indun_panel, key, value, y, x)
@@ -3506,20 +3749,20 @@ function Indun_panel_buyuse_telharsha(indun_panel, ctrl, recipe_name, indun_type
         ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.2)
         return
     end
-    local use_item = session.GetInvItemByType(TELHARSHA_CONFIG.ticket_id)
-    if use_item then
-        INV_ICON_USE(use_item)
+    local used = Indun_panel_consume_ticket("other", TELHARSHA_CONFIG.tickets, function()
         ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.5)
-        return
+    end, function()
+        if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
+            Indun_panel_item_buy_use(recipe_name)
+            ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
+            return true
+        end
+        return false
+    end)
+    if not used then
+        local msg = g.lang == "Japanese" and "トレード回数が足りません。" or "No trade count."
+        ui.SysMsg(msg)
     end
-    local change_count = Indun_panel_get_recipe_trade_count(recipe_name)
-    if change_count >= 1 then
-        Indun_panel_item_buy_use(recipe_name)
-        ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
-        return
-    end
-    local msg = g.lang == "Japanese" and "トレード回数が足りません。" or "No trade count."
-    ui.SysMsg(msg)
 end
 
 local VELNICE_CONFIG = {
@@ -3580,23 +3823,22 @@ function Indun_panel_buyuse_vel(indun_panel, ctrl, recipe_name, indun_type)
         ReserveScript(reserve_script, 0.2)
         return
     end
-    for _, ticket_id in ipairs(VELNICE_CONFIG.tickets) do
-        local use_item = session.GetInvItemByType(ticket_id)
-        if use_item then
-            INV_ICON_USE(use_item)
-            ReserveScript(reserve_script, 1.0)
-            return
+    -- ヴェルニースは追加購入枠(OverBuy)も「購入」の段でまとめて見る。
+    -- チャレンジと違い、以前からここは通常枠と追加枠を同じ 1 手として扱っている。
+    local used = Indun_panel_consume_ticket("other", VELNICE_CONFIG.tickets, function()
+        ReserveScript(reserve_script, 1.0)
+    end, function()
+        local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
+        local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
+        if trade_count >= 1 or overbuy_limit > 0 then
+            Indun_panel_item_buy_use(recipe_name)
+            ReserveScript(reserve_script, 1.5)
+            return true
         end
-    end
-    local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
-    local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
-    if trade_count >= 1 or overbuy_limit > 0 then
-        Indun_panel_item_buy_use(recipe_name)
-        ReserveScript(reserve_script, 1.5)
-        return
-    else
+        return false
+    end)
+    if not used then
         ui.SysMsg(g.lang == "Japanese" and "トレード回数が足りません。" or "No trade count.")
-        return
     end
 end
 
@@ -3671,18 +3913,13 @@ function Indun_panel_resonance_frame(indun_panel, key, indun_type, y, x)
     Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y, x)
 end
 
+-- 嘆きの墓地 / 共鳴の聖所の入場券。ショップで売っていないので「購入」の段は空振りする。
 function Indun_panel_item_use(indun_panel, ctrl, str, indun_type)
     local config = DUNGEON_TICKET_CONFIG[indun_type]
     if not config then
         return
     end
-    for _, classid in ipairs(config.tickets) do
-        local use_item = session.GetInvItemByType(classid)
-        if use_item then
-            INV_ICON_USE(use_item)
-            return
-        end
-    end
+    Indun_panel_consume_ticket("other", config.tickets)
 end
 
 function Indun_panel_jsr_frame(indun_panel, y, x)
