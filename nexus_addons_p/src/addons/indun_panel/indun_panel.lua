@@ -745,15 +745,22 @@ end
 -- だけで table.sort していたが、1 日券は残り **ちょうど 86400 秒**で切っていないため
 -- ほぼ全部が同点になり、table.sort は安定ではないので**どれが使われるか不定**だった。
 -- 期限付きは残りの短い順、それ以外は渡された ID の並び順。どちらも同点は元の位置で割る。
+--
+-- 戻り値の 2 つめは**鍵の掛かっていた券の名前**。ここでは知らせないこと。
+-- 使える券が別にあれば入場は成功するので、その場合に警告を出すと「押すたびに
+-- ロックの注意が出るが、実際には入場できている」というノイズになる
+-- (レイド / ヴェルニース / テルハーシャ / 嘆きの墓地の経路には元々この警告が無い)。
+-- 知らせるかどうかは Indun_panel_consume_ticket が「何もできなかったか」で決める。
 function Indun_panel_collect_tickets(ticket_ids)
     local buckets = {}
+    local locked = {}
     for idx, class_id in ipairs(ticket_ids or {}) do
         local inv_item = session.GetInvItemByType(class_id)
         if inv_item then
             if inv_item.isLockState then
-                -- 鍵の掛かっている券は使えない。**名前は必ずこの券のものを出すこと**
-                -- (以前は選び終わった後の変数を見ていて、nil のときに落ちていた)。
-                ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. inv_item.Name .. ")")
+                -- **名前は必ずこの券のものを控えること**(以前は選び終わった後の変数を
+                -- 見ていて、nil のときに参照して落ちていた)。
+                table.insert(locked, inv_item.Name)
             else
                 local kind, life = Indun_panel_ticket_kind(inv_item)
                 buckets[kind] = buckets[kind] or {}
@@ -773,45 +780,74 @@ function Indun_panel_collect_tickets(ticket_ids)
             return a.idx < b.idx
         end)
     end
-    return buckets
+    return buckets, locked
 end
 
 -- 使用順に沿って「券を 1 枚使う」か「ショップで買う」を **1 回だけ** 行う。
 --   group_key  … g.INDUN_PANEL_TICKET_GROUPS のキー
 --   ticket_ids … 候補の ClassID(同じ分類の中ではこの並び順)
---   on_use     … 券を使った後にすること(入場の予約など)。省略可
---   on_buy     … 「購入」の段で呼ばれる。買えたら true を返すこと。省略可
---   before_use … 券を使う**直前**にすること。省略可
---                (分裂特異点は AnsGiveUpPrevPlayingIndun を券の使用より前に呼ぶ作りで、
---                 後ろへ回すと「前のダンジョンを諦める」のが券を使った後になる)
+--   opts       … 省略可。次のものを入れられる
+--     on_use     … 券を使った後にすること(入場の予約など)
+--     on_buy     … 「購入」の段で呼ばれる。買えたら true を返すこと
+--     before_use … 券を使う**直前**にすること
+--                  (分裂特異点は AnsGiveUpPrevPlayingIndun を券の使用より前に呼ぶ作りで、
+--                   後ろへ回すと「前のダンジョンを諦める」のが券を使った後になる)
+--     hold_permanent … 期限の無い券をまだ温存するか。true を返す間、**「購入」より
+--                  後ろに置かれた**期限なしの分類(取引不可 / 取引可)を飛ばす
+--
+-- **hold_permanent が要る理由。** チャレンジ Lv560 の段は TOS と採掘場の 2 つの
+-- ショップを持つ。on_buy は押されたボタン側の取引名しか見ないので、片方の購入枠を
+-- 使い切っただけで「買えなかった」と判断され、もう片方に枠が残っていても手持ちの
+-- 期限なし券を溶かしてしまう。あわせて、券を使って戻ってしまうため
+-- **追加購入枠(OverBuy)の経路にも辿り着けなくなる**。
+--
+-- **「購入」より前に置かれた分類には効かせない。** 利用者が `取引不可` を `購入` の
+-- 上へ並べ替えたのなら、それは「買う前に手持ちを使いたい」という意思表示なので、
+-- そこで温存すると設定が効かないことになる。
+--
 -- 何かできたら true。
-function Indun_panel_consume_ticket(group_key, ticket_ids, on_use, on_buy, before_use)
-    local buckets = Indun_panel_collect_tickets(ticket_ids)
+function Indun_panel_consume_ticket(group_key, ticket_ids, opts)
+    opts = opts or {}
+    local buckets, locked = Indun_panel_collect_tickets(ticket_ids)
     local order = Indun_panel_ticket_order(group_key)
+    local buy_tried = false
     for _, kind in ipairs(order) do
         if kind == "buy" then
-            if on_buy and on_buy() == true then
+            buy_tried = true
+            if opts.on_buy and opts.on_buy() == true then
                 g.vlog("indun_panel: 入場券をショップで買った group=%s 順=%s", tostring(group_key),
                     table.concat(order, ">"))
                 return true
             end
         else
-            local entry = buckets[kind] and buckets[kind][1]
-            if entry then
-                if before_use then
-                    before_use()
+            local hold = buy_tried and kind ~= "expiring" and opts.hold_permanent and
+                             opts.hold_permanent() == true
+            if hold then
+                g.vlog("indun_panel: まだ買えるので期限の無い券を温存した group=%s 分類=%s", tostring(group_key),
+                    kind)
+            else
+                local entry = buckets[kind] and buckets[kind][1]
+                if entry then
+                    if opts.before_use then
+                        opts.before_use()
+                    end
+                    INV_ICON_USE(entry.item)
+                    g.vlog("indun_panel: 入場券を使った group=%s 分類=%s 残り=%s 順=%s", tostring(group_key),
+                        kind, tostring(entry.life), table.concat(order, ">"))
+                    if opts.on_use then
+                        opts.on_use()
+                    end
+                    return true
                 end
-                INV_ICON_USE(entry.item)
-                g.vlog("indun_panel: 入場券を使った group=%s 分類=%s 残り=%s 順=%s", tostring(group_key), kind,
-                    tostring(entry.life), table.concat(order, ">"))
-                if on_use then
-                    on_use()
-                end
-                return true
             end
         end
     end
-    g.vlog("indun_panel: 使える入場券が無かった group=%s 順=%s", tostring(group_key), table.concat(order, ">"))
+    -- **鍵の掛かっていた券を知らせるのはここだけ。** 何もできなかったときに限る。
+    if #locked > 0 then
+        ui.SysMsg(ClMsg("MaterialItemIsLock") .. " (" .. table.concat(locked, ", ") .. ")")
+    end
+    g.vlog("indun_panel: 使える入場券が無かった group=%s 順=%s (鍵付き %d 枚)", tostring(group_key),
+        table.concat(order, ">"), #locked)
     return false
 end
 
@@ -3367,16 +3403,34 @@ function Indun_panel_process_ticket(indun_type, mode, config)
             table.insert(ticket_ids, class_id)
         end
     end
-    local used = Indun_panel_consume_ticket("challenge", ticket_ids, function()
-        Indun_panel_enter_reserve(enter_mode, indun_type)
-    end, function()
-        if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
-            Indun_panel_item_buy_use(recipe_name)
+    local used = Indun_panel_consume_ticket("challenge", ticket_ids, {
+        on_use = function()
             Indun_panel_enter_reserve(enter_mode, indun_type)
-            return true
+        end,
+        on_buy = function()
+            if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
+                Indun_panel_item_buy_use(recipe_name)
+                Indun_panel_enter_reserve(enter_mode, indun_type)
+                return true
+            end
+            return false
+        end,
+        -- **押したボタンのショップだけで判断しないこと。** Lv560 の段は TOS と
+        -- 採掘場の 2 つを持つので、片方の購入枠を使い切っただけでは「もう買えない」
+        -- ことにはならない。ここを見ないと、もう片方に枠が残っていても手持ちの
+        -- 期限なし券を溶かし、さらに追加購入枠(OverBuy)の経路にも辿り着けなくなる。
+        hold_permanent = function()
+            -- 520 は入場券ダンジョンではなく、元から温存しない作り。
+            if indun_type == 1001 then
+                return false
+            end
+            local tos_recipe = Indun_panel_challenge_recipe(indun_type, "tos")
+            local pvp_recipe = Indun_panel_challenge_recipe(indun_type, "pvp")
+            local tos_left = tos_recipe ~= "" and Indun_panel_get_recipe_trade_count(tos_recipe) or 0
+            local pvp_left = pvp_recipe ~= "" and Indun_panel_get_recipe_trade_count(pvp_recipe) or 0
+            return tos_left >= 1 or pvp_left >= 1
         end
-        return false
-    end)
+    })
     if used then
         return
     end
@@ -3558,22 +3612,28 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
             table.insert(ticket_ids, class_id)
         end
     end
-    Indun_panel_consume_ticket("challenge", ticket_ids, function()
-        ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
-    end, function()
-        for _, recipe in ipairs(recipes) do
-            if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
-                Indun_panel_item_buy_use(recipe)
-                ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
-                return true
+    -- **温存の判定(hold_permanent)は置かない。** 分裂特異点は元から
+    -- 「買えなければ手持ちを使う」だけの作りで、ショップの在庫を見ていない。
+    Indun_panel_consume_ticket("challenge", ticket_ids, {
+        on_use = function()
+            ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
+        end,
+        on_buy = function()
+            for _, recipe in ipairs(recipes) do
+                if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
+                    Indun_panel_item_buy_use(recipe)
+                    ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
+                    return true
+                end
             end
+            return false
+        end,
+        before_use = function()
+            -- **券を使う前に呼ぶこと。** 前のダンジョンを諦める合図なので、
+            -- 券を使った後に回すと順序が入れ替わる(元の実装はここで呼んでいた)。
+            AnsGiveUpPrevPlayingIndun(1)
         end
-        return false
-    end, function()
-        -- **券を使う前に呼ぶこと。** 前のダンジョンを諦める合図なので、
-        -- 券を使った後に回すと順序が入れ替わる(元の実装はここで呼んでいた)。
-        AnsGiveUpPrevPlayingIndun(1)
-    end)
+    })
 end
 
 function Indun_panel_enter_singularity(frame, ctrl, str, indun_type)
@@ -3713,9 +3773,11 @@ function Indun_panel_raid_itemuse(indun_panel, ctrl, str, indun_type)
     if sweep_count > 0 then
         if not is_limit_reached then
             ReqUseRaidAutoSweep(indun_type)
-        elseif not Indun_panel_consume_ticket("raid", target_items, function()
-            ReserveScript(string.format("ReqUseRaidAutoSweep(%d)", indun_type), 0.5)
-        end) then
+        elseif not Indun_panel_consume_ticket("raid", target_items, {
+            on_use = function()
+                ReserveScript(string.format("ReqUseRaidAutoSweep(%d)", indun_type), 0.5)
+            end
+        }) then
             ui.SysMsg(g.lang == "Japanese" and "入場回数不足（チケットなし）" or
                           "Not enough entry count (No tickets).")
         end
@@ -3896,16 +3958,19 @@ function Indun_panel_buyuse_telharsha(indun_panel, ctrl, recipe_name, indun_type
         ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.2)
         return
     end
-    local used = Indun_panel_consume_ticket("other", TELHARSHA_CONFIG.tickets, function()
-        ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.5)
-    end, function()
-        if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
-            Indun_panel_item_buy_use(recipe_name)
-            ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
-            return true
+    local used = Indun_panel_consume_ticket("other", TELHARSHA_CONFIG.tickets, {
+        on_use = function()
+            ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.5)
+        end,
+        on_buy = function()
+            if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
+                Indun_panel_item_buy_use(recipe_name)
+                ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
+                return true
+            end
+            return false
         end
-        return false
-    end)
+    })
     if not used then
         local msg = g.lang == "Japanese" and "トレード回数が足りません。" or "No trade count."
         ui.SysMsg(msg)
@@ -3976,18 +4041,21 @@ function Indun_panel_buyuse_vel(indun_panel, ctrl, recipe_name, indun_type)
     end
     -- ヴェルニースは追加購入枠(OverBuy)も「購入」の段でまとめて見る。
     -- チャレンジと違い、以前からここは通常枠と追加枠を同じ 1 手として扱っている。
-    local used = Indun_panel_consume_ticket("other", VELNICE_CONFIG.tickets, function()
-        ReserveScript(reserve_script, 1.0)
-    end, function()
-        local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
-        local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
-        if trade_count >= 1 or overbuy_limit > 0 then
-            Indun_panel_item_buy_use(recipe_name)
-            ReserveScript(reserve_script, 1.5)
-            return true
+    local used = Indun_panel_consume_ticket("other", VELNICE_CONFIG.tickets, {
+        on_use = function()
+            ReserveScript(reserve_script, 1.0)
+        end,
+        on_buy = function()
+            local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
+            local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
+            if trade_count >= 1 or overbuy_limit > 0 then
+                Indun_panel_item_buy_use(recipe_name)
+                ReserveScript(reserve_script, 1.5)
+                return true
+            end
+            return false
         end
-        return false
-    end)
+    })
     if not used then
         ui.SysMsg(g.lang == "Japanese" and "トレード回数が足りません。" or "No trade count.")
     end

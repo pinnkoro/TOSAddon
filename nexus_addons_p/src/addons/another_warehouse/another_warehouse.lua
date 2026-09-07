@@ -325,6 +325,10 @@ end
 
 -- 倉庫の一覧を今のタブのまま描き直す。**スクロール位置は awh 側が控えている**ので、
 -- 足すたびに先頭へ飛ぶことはない(Another_warehouse_set_scroll_pos)。
+--
+-- **検索語は空で渡さないこと。** 絞り込んだ状態でお気に入りを足す / 消すと、
+-- 一覧だけ全件へ戻るのに検索欄には語が残る、という食い違いになる。
+-- 語は Another_warehouse_search と同じく**検索欄を名前で引いて読む**。
 function Another_warehouse_favorite_refresh_list()
     local awh = ui.GetFrame(addon_name_lower .. "awh")
     if not awh then
@@ -336,8 +340,17 @@ function Another_warehouse_favorite_refresh_list()
         return
     end
     AUTO_CAST(gb)
+    local search_text = ""
+    local accountwarehouse = ui.GetFrame("accountwarehouse")
+    if accountwarehouse then
+        local search_edit = GET_CHILD_RECURSIVELY(accountwarehouse, "awh_search_edit")
+        if search_edit then
+            AUTO_CAST(search_edit)
+            search_text = search_edit:GetText() or ""
+        end
+    end
     gb:RemoveAllChild()
-    Another_warehouse_frame_update(awh, gb, "", awh:GetUserIValue("TAB_INDEX"))
+    Another_warehouse_frame_update(awh, gb, search_text, awh:GetUserIValue("TAB_INDEX"))
 end
 
 function Another_warehouse_favorite_move(frame, ctrl, class_id, delta)
@@ -527,6 +540,10 @@ function Another_warehouse_ACCOUNTWAREHOUSE_CLOSE()
     monstercardslot:SetLayerLevel(96)
     ui.DestroyFrame(addon_name_lower .. "awh")
     ui.DestroyFrame(addon_name_lower .. "awh_setting")
+    -- **お気に入りの窓も必ず畳むこと。** 残すと画面に浮いたままになるうえ、
+    -- Another_warehouse_favorite_open が真のままなので、倉庫を開き直したときに
+    -- 倉庫とインベントリの右クリックが搬出入ではなく「お気に入りに足す」になる。
+    ui.DestroyFrame(addon_name_lower .. "awh_favorite")
     if g.settings.another_warehouse.use == 0 then
         return
     end
@@ -569,6 +586,7 @@ function Another_warehouse_frame_close(parent, ctrl)
     DESTROY_CHILD_BYNAME(gbox, "awh_help")
     DESTROY_CHILD_BYNAME(gbox, "awh_leave")
     DESTROY_CHILD_BYNAME(gbox, "awh_display_change")
+    DESTROY_CHILD_BYNAME(gbox, "awh_favorite")
     DESTROY_CHILD_BYNAME(gbox, "awh_take")
     DESTROY_CHILD_BYNAME(gbox, "awh_count_text")
     DESTROY_CHILD_BYNAME(gbox, "awh_close")
