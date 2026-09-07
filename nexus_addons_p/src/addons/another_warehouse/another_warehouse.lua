@@ -1024,12 +1024,14 @@ function Another_warehouse_frame_update(awh, gb, search_text, index)
         table.sort(fav_items, function(a, b)
             return a.rank < b.rank
         end)
+        -- **スロットセットは帯の直下へ入れること。** 素のグループは
+        -- 「大分類(プレミアム) → 小分類(消費) → スロット」の 3 段だが、お気に入りは
+        -- 小分類を持たない。同じ作りを真似ると「お気に入り (3)」が 2 段続けて出る
+        -- (実機で確認)。
         local caption = g.lang == "Japanese" and "お気に入り" or "Favorites"
         local fav_group = tree:Add(string.format("%s (%d)", caption, #fav_items), "awh_favorite_group")
-        local title = string.format("{s18}%s (%d)", caption, #fav_items)
-        local fav_node = tree:Add(fav_group, title, "awh_favorite_title")
         fav_slotset = Another_warehouse_make_inven_slotset(tree, g.AWH_FAVORITE_SLOTSET)
-        tree:Add(fav_node, fav_slotset, g.AWH_FAVORITE_SLOTSET)
+        tree:Add(fav_group, fav_slotset, g.AWH_FAVORITE_SLOTSET)
     end
     local group_order = {"Premium", "EquipGroup", "NonEquipGroup", "Cube", "Gem", "Card", "Recipe", "Material",
                          "HiiddenAbility", "Ancient"}
