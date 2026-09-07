@@ -601,9 +601,9 @@ g._nexus_addons_p = {{
 }, {
     key = "vakarine_equip",
     category = "storage",
-    updated = "2.6.0",
-    updated_note_jp = "設定で「着脱中にインベントリを開く」を切れるようにしました。OFF にすると着脱の開始が速くなります(持ち物が多い人ほど効きます)",
-    updated_note_en = "Added a setting to stop the inventory from opening while swapping. Turning it off makes swaps start sooner (helps most if you carry a lot)",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定画面を作り直しました。チェックを 2 列に並べたので下が切れなくなり、部位の「全部えらぶ / 全部はずす」が付きました。設定画面をドラッグで動かせるようになり、位置も覚えます。背景は半透明です。「フレームを固定」は小さいアイコンのことなので「アイコンを固定」に直しました",
+    updated_note_en = "Rebuilt the settings window: the checkboxes are in two columns so nothing is cut off, there is a select-all / clear-all button for the slots, the window can be dragged and remembers its position, and the background is translucent. Lock frame is renamed Lock the icon because that is what it affected",
     data = {
         use = 0,
         name = "Vakarine Equip",

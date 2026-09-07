@@ -705,121 +705,201 @@ function Vakarine_equip_holdui_release(frame)
     return 0
 end
 
+-- 部位のチェックを全部 ON / 全部 OFF にする。**今の状態で意味を切り替える**
+-- (1 つでも外れていれば「全部 ON」、全部 ON なら「全部 OFF」)。押すたびに文字が
+-- 変わるので、次に何が起きるかはボタンを読めば分かる。
+--
+-- **RH_SUB と LH_SUB は対で持つ**(片手武器 + 盾を 1 つの部位として扱っているため)。
+-- 個別のチェックと同じく、ここでも一緒に動かす。
+function Vakarine_equip_spots_all_checked()
+    local char_settings = g.vakarine_equip_settings.chars[g.cid]
+    for _, spot in ipairs(g.vakarine_equip_spots) do
+        if (char_settings[spot.name] or 0) ~= 1 then
+            return false
+        end
+    end
+    return true
+end
+
+function Vakarine_equip_spots_toggle_all()
+    local char_settings = g.vakarine_equip_settings.chars[g.cid]
+    local value = Vakarine_equip_spots_all_checked() and 0 or 1
+    for _, spot in ipairs(g.vakarine_equip_spots) do
+        char_settings[spot.name] = value
+    end
+    Vakarine_equip_save_settings()
+    g.vlog("vakarine_equip: 着脱する部位をまとめて %s にした", value == 1 and "ON" or "OFF")
+    Vakarine_equip_config_frame_open()
+end
+
+-- 設定ウィンドウの位置を控える。**× で閉じても次に開いたとき同じ場所に出す。**
+-- 以前はドラッグで動かすことすらできず、毎回一覧の右隣か画面中央に出ていた。
+function Vakarine_equip_config_drag(config)
+    local x = config:GetX()
+    local y = config:GetY()
+    if x == g.vakarine_equip_settings.config_x and y == g.vakarine_equip_settings.config_y then
+        return
+    end
+    g.vakarine_equip_settings.config_x = x
+    g.vakarine_equip_settings.config_y = y
+    Vakarine_equip_save_settings()
+end
+
+-- 設定ウィンドウ。**チェックを押すたびにここを丸ごと呼び直す**作りなので、
+-- 位置と大きさは毎回同じ結果になるように組み立てること
+-- (前の状態に足していく書き方にすると、押すたびに窓が育つ / ずれる)。
+--
+-- 並びは **2 列**。以前は「作動する場所」8 個と「着脱する部位」13 個を 1 列に積んで
+-- いたので、縦に 21 行 = 640px 以上になり、1280x720 の画面では下が切れていた。
 function Vakarine_equip_config_frame_open()
+    local is_jp = g.lang == "Japanese"
     local config = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "vakarine_equip_config_frame", 0, 0, 0, 0)
     AUTO_CAST(config)
     g.block_click_through(config)
     config:RemoveAllChild()
     config:SetLayerLevel(999)
     config:SetSkinName("test_frame_low")
+    -- 背景を半透明にする。設定を見ながら装備の絵を確かめられるように
+    -- (yoma16版 new_nexus_addons v1.0.8 と同じ)。
+    config:SetAlpha(85)
+    -- **ドラッグで動かせるようにする。** ここは常時表示の HUD ではなく設定なので、
+    -- 動かせて困ることはない。位置は Vakarine_equip_config_drag が控える。
+    config:EnableMove(1)
+    config:SetTitleBarSkin("None")
+    config:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_config_drag")
     local title_text = config:CreateOrGetControl("richtext", "title_text", 10, 10)
     AUTO_CAST(title_text)
-    title_text:SetText("{ol}Vakarine Equip")
+    title_text:SetText("{ol}{s16}Vakarine Equip")
     local config_gb = config:CreateOrGetControl("groupbox", "config_gb", 10, 40, 0, 0)
     AUTO_CAST(config_gb)
     config_gb:SetSkinName("bg")
+    config_gb:EnableScrollBar(0)
     local close = config:CreateOrGetControl("button", "close", 0, 0, 20, 20)
     AUTO_CAST(close)
     close:SetImage("testclose_button")
     close:SetGravity(ui.RIGHT, ui.TOP)
     close:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_frame_close")
+    -- 列の左端。右列は左列の幅ぶん右へ寄せる。
+    local col_x = {10, 250}
+    local col_w = 230
     -- 自動起動するマップ種別。以前は「チェックするとJSRで作動」の 1 個だけで、
     -- それがどこに効くのかが分からないうえ、実際には効いてもいなかった
     -- (Vakarine_equip_map_kind のコメント参照)。種別ごとに並べて、
     -- 「チェックしたところだけで作動する」を見たままにする。
-    local x = 0
     local y = 5
-    local maps_label = config_gb:CreateOrGetControl("richtext", "maps_label", 10, y)
+    local maps_label = config_gb:CreateOrGetControl("richtext", "maps_label", col_x[1], y)
     AUTO_CAST(maps_label)
-    maps_label:SetText(g.lang == "Japanese" and "{ol}自動で作動する場所" or "{ol}Where it runs automatically")
-    if x < maps_label:GetWidth() then
-        x = maps_label:GetWidth()
-    end
+    maps_label:SetText(is_jp and "{ol}{s16}自動で作動する場所" or "{ol}{s16}Where it runs automatically")
     y = y + 25
+    local map_top = y
+    local map_rows = math.ceil(#g.vakarine_equip_map_kinds / 2)
     for i, kind in ipairs(g.vakarine_equip_map_kinds) do
-        local map_check = config_gb:CreateOrGetControl('checkbox', "map_check" .. i, 10, y, 30, 30)
+        local col = (i <= map_rows) and 1 or 2
+        local row = (i <= map_rows) and (i - 1) or (i - map_rows - 1)
+        local map_check = config_gb:CreateOrGetControl("checkbox", "map_check" .. i, col_x[col], map_top + row * 30,
+            30, 30)
         AUTO_CAST(map_check)
-        -- `or 0` を外さないこと。項目を後から足すと、保存済みの設定にそのキーが無い。
+        -- or 0 を外さないこと。項目を後から足すと、保存済みの設定にそのキーが無い。
         -- nil を SetCheck に渡すと落ちて、json を消すまで設定画面が開かなくなる。
         map_check:SetCheck(g.vakarine_equip_settings.maps[kind.key] or 0)
-        map_check:SetText("{ol}" .. (g.lang == "Japanese" and kind.ja or kind.en))
-        map_check:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックした場所でだけ自動で着脱します" or
+        map_check:SetText("{ol}" .. (is_jp and kind.ja or kind.en))
+        map_check:AdjustFontSizeByWidth(col_w)
+        map_check:SetTextTooltip(is_jp and "{ol}チェックした場所でだけ自動で着脱します" or
                                      "{ol}Runs automatically only where checked")
         map_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
         map_check:SetEventScriptArgString(ui.LBUTTONUP, kind.key)
-        if x < map_check:GetWidth() then
-            x = map_check:GetWidth()
-        end
-        y = y + 30
     end
-    local spots_label = config_gb:CreateOrGetControl("richtext", "spots_label", 10, y + 5)
+    y = map_top + map_rows * 30 + 10
+    local spots_label = config_gb:CreateOrGetControl("richtext", "spots_label", col_x[1], y)
     AUTO_CAST(spots_label)
-    spots_label:SetText(g.lang == "Japanese" and "{ol}着脱する部位" or "{ol}Slots to swap")
-    if x < spots_label:GetWidth() then
-        x = spots_label:GetWidth()
-    end
-    y = y + 35
+    spots_label:SetText(is_jp and "{ol}{s16}着脱する部位" or "{ol}{s16}Slots to swap")
+    -- 全選択 / 全解除。**押した後どうなるかを文字に出す**(「全選択」と書いてあるのに
+    -- 全部消える、という取り違えを避けるため)。
+    local all_checked = Vakarine_equip_spots_all_checked()
+    local all_btn = config_gb:CreateOrGetControl("button", "all_btn", col_x[2] + 110, y - 4, 120, 26)
+    AUTO_CAST(all_btn)
+    all_btn:SetText("{ol}{s14}" ..
+                        (all_checked and (is_jp and "全部はずす" or "Clear all") or
+                            (is_jp and "全部えらぶ" or "Select all")))
+    all_btn:AdjustFontSizeByWidth(120)
+    all_btn:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_spots_toggle_all")
+    y = y + 30
+    local spot_top = y
+    local spot_rows = math.ceil(#g.vakarine_equip_spots / 2)
     for i, spot in ipairs(g.vakarine_equip_spots) do
         local equip_name = spot.name
-        local check_box = config_gb:CreateOrGetControl('checkbox', "check_box" .. i, 20, y, 30, 30)
+        local col = (i <= spot_rows) and 1 or 2
+        local row = (i <= spot_rows) and (i - 1) or (i - spot_rows - 1)
+        local check_box = config_gb:CreateOrGetControl("checkbox", "check_box" .. i, col_x[col] + 10,
+            spot_top + row * 30, 30, 30)
         AUTO_CAST(check_box)
-        -- `or 0` を外さないこと。既存キャラの設定は Vakarine_equip_chrs_settings が
+        -- or 0 を外さないこと。既存キャラの設定は Vakarine_equip_chrs_settings が
         -- **キャラ設定がまだ無いときにしか作らない**ので、後から部位を足すと
         -- 保存済みのキャラにはそのキーが無い。nil のまま SetCheck に渡すと落ちて、
         -- json を消すまで設定画面が二度と開かなくなる。
         check_box:SetCheck(g.vakarine_equip_settings.chars[g.cid][equip_name] or 0)
-        check_box:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックした装備を脱着します" or
+        check_box:SetTextTooltip(is_jp and "{ol}チェックした装備を脱着します" or
                                      "{ol}Remove and detach checked equipment")
         check_box:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
         check_box:SetEventScriptArgString(ui.LBUTTONUP, equip_name)
+        local label = equip_name
         if equip_name == "RING1" then
-            equip_name = "Ring1"
+            label = "Ring1"
         elseif equip_name == "RING2" then
-            equip_name = "Ring2"
+            label = "Ring2"
         elseif equip_name == "SHIRT" then
-            equip_name = "Shirt"
+            label = "Shirt"
         elseif equip_name == "PANTS" then
-            equip_name = "Pants"
+            label = "Pants"
         end
-        check_box:SetText("{ol}" .. ClMsg(equip_name))
-        y = y + 30
+        check_box:SetText("{ol}" .. ClMsg(label))
+        check_box:AdjustFontSizeByWidth(col_w - 10)
     end
-    y = y + 10
-    local move_check = config_gb:CreateOrGetControl('checkbox', "move_check", 10, y, 30, 30)
+    y = spot_top + spot_rows * 30 + 10
+    -- 「フレームを固定」が効くのは**小さいアイコンのフレームだけ**で、この設定
+    -- ウィンドウには効かない。文字が「フレーム」だとどちらのことか分からないので、
+    -- アイコンのことだと分かる書き方にする(yoma16版 v1.0.8 と同じ)。
+    local move_check = config_gb:CreateOrGetControl("checkbox", "move_check", col_x[1], y, 30, 30)
     AUTO_CAST(move_check)
     move_check:SetCheck(g.vakarine_equip_settings.move)
-    move_check:SetText(g.lang == "Japanese" and "{ol}チェックするとフレーム固定" or
-                           "{ol}If checked, the frame is fixed")
+    move_check:SetText(is_jp and "{ol}アイコンを固定" or "{ol}Lock the icon")
+    move_check:SetTextTooltip(is_jp and
+                                  "{ol}画面に出ている小さなアイコンを動かせなくします{nl}この設定ウィンドウには効きません" or
+                                  "{ol}Stops the small on-screen icon from being dragged{nl}It does not affect this settings window")
     move_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
-    y = y + 30
     -- 着脱のときにインベントリを開くか。**既定は開く(1) = 従来どおりの動き。**
     -- 開かなくても装備できることは実機で確認済みなので、**速くしたい人が OFF にする**
     -- 向きにしてある(持ち物が多いほど開く分だけ待たされる点はツールチップに出す)。
-    local open_inv_check = config_gb:CreateOrGetControl('checkbox', "open_inv_check", 10, y, 30, 30)
+    local open_inv_check = config_gb:CreateOrGetControl("checkbox", "open_inv_check", col_x[2], y, 30, 30)
     AUTO_CAST(open_inv_check)
     open_inv_check:SetCheck(g.vakarine_equip_settings.open_inventory)
-    open_inv_check:SetText(g.lang == "Japanese" and "{ol}着脱中にインベントリを開く" or
-                               "{ol}Open the inventory while swapping")
-    open_inv_check:SetTextTooltip(g.lang == "Japanese" and
+    open_inv_check:SetText(is_jp and "{ol}着脱中にインベントリを開く" or "{ol}Open the inventory while swapping")
+    open_inv_check:AdjustFontSizeByWidth(col_w)
+    open_inv_check:SetTextTooltip(is_jp and
                                       "{ol}着脱そのものには必要ありません{nl}持ち物が多いほど、開く分だけ着脱の開始が遅くなります" or
                                       "{ol}Not required for swapping{nl}The more items you carry, the longer the swap takes to start")
     open_inv_check:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_check_switch")
     y = y + 40
-    local default_btn = config_gb:CreateOrGetControl("button", "default_btn", 20, y, 120, 30)
+    local default_btn = config_gb:CreateOrGetControl("button", "default_btn", col_x[1] + 10, y, 140, 30)
     AUTO_CAST(default_btn)
-    default_btn:SetText(g.lang == "Japanese" and "{ol}フレーム初期位置" or "{ol}Init frame pos")
+    default_btn:SetText(is_jp and "{ol}{s14}アイコンを元の位置へ" or "{ol}{s14}Init icon pos")
+    default_btn:AdjustFontSizeByWidth(140)
     default_btn:SetEventScript(ui.LBUTTONUP, "Vakarine_equip_location_save")
-    y = y + 30
-    config:Resize(x + 70, y + 60)
-    config_gb:Resize(x + 50, y + 10)
-    local list_frame = ui.GetFrame(addon_name_lower .. "list_frame")
-    if list_frame then
-        config:SetPos(list_frame:GetX() + list_frame:GetWidth(), list_frame:GetY())
-    else
-        local map_frame = ui.GetFrame("map")
-        local width = map_frame:GetWidth()
-        config:SetPos(width / 2 - config:GetWidth() / 2 or 1165, 105)
+    y = y + 40
+    local width = col_x[2] + col_w + 20
+    config_gb:Resize(width - 20, y)
+    config:Resize(width, y + 50)
+    -- **位置は控えたものを優先する。** この関数はチェックを押すたびに呼ばれるので、
+    -- ここで毎回置き直すと、動かした窓がチェック 1 つで元へ戻ってしまう。
+    local pos_x = g.vakarine_equip_settings.config_x
+    local pos_y = g.vakarine_equip_settings.config_y
+    if type(pos_x) ~= "number" or type(pos_y) ~= "number" then
+        -- **一覧が開いているとは限らない。** Addons Menu のショートカットから開くと
+        -- 一覧は出ていないので、素で list_frame:GetX() を呼ぶとそこで落ちて
+        -- 中身が空の窓が出る(CLAUDE.md「設定画面の位置は g.settings_frame_pos で決める」)。
+        pos_x, pos_y = g.settings_frame_pos(config:GetWidth(), config:GetHeight())
     end
+    config:SetPos(pos_x, pos_y)
     config:ShowWindow(1)
     -- この関数はチェックボックスを押すたびに呼び直されるので、積み直さない形で積む
     -- (積み直すと、開いたままのバフ一覧より設定画面が手前になる)。
