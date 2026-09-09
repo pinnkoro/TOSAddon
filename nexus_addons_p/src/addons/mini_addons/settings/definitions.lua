@@ -183,7 +183,10 @@ local MAIN_FRAME_SETTINGS = {{
     name = "chat_new_btn",
     text_jp = "チャット入力フレームにボタン追加",
     text_kr = "채팅 입력 창에 버튼을 추가했습니다",
-    text_en = "Added a button to the chat input frame"
+    text_en = "Added a button to the chat input frame",
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
+    updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
 }, {
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
@@ -291,7 +294,10 @@ local SUB_FRAME_SETTINGS = {
         name = "group_chat",
         text_jp = "グループチャットをチャットフレームから選択出来ます",
         text_kr = "채팅 프레임에서 그룹 채팅을 선택할 수 있습니다",
-        text_en = "Group chats can be selected from chat frame"
+        text_en = "Group chats can be selected from chat frame",
+        updated = core_g.VER_NEXT,
+        updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
+        updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
     }, {
         name = "baubas_call",
         text_jp = "バウバス登場をお知らせ",
