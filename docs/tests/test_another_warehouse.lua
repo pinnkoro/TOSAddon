@@ -187,6 +187,116 @@ settings = run({
 })
 check("セット数", #settings.take_list, 10)
 
+print("[7] お気に入り（足す / 消す / 並べ替え）")
+-- 読み込みでは作らない（何も変えていない設定を毎回保存し直さないため）。
+settings = run({
+    take_list = twelve,
+    ver = 1.1
+})
+check("読み込みでは作らない", settings.favorites, nil)
+check("読み込みでは保存もしない", saved, nil)
+-- 使いはじめた時点で入れ物ができる。
+check("初めて引いたら空の入れ物", #Another_warehouse_favorites(), 0)
+saved = nil
+check("足せた", Another_warehouse_favorite_add(101), true)
+check("保存した", saved ~= nil, true)
+check("1 件になった", #Another_warehouse_favorites(), 1)
+check("同じものは足さない", Another_warehouse_favorite_add(101), false)
+check("件数は増えない", #Another_warehouse_favorites(), 1)
+Another_warehouse_favorite_add(102)
+Another_warehouse_favorite_add(103)
+check("3 件", #Another_warehouse_favorites(), 3)
+check("入っている", Another_warehouse_is_favorite(102), true)
+check("入っていない", Another_warehouse_is_favorite(999), false)
+
+print("[8] 並び順そのものが表示順")
+local function order()
+    local out = {}
+    for i, id in ipairs(Another_warehouse_favorites()) do
+        out[i] = tostring(id)
+    end
+    return table.concat(out, ",")
+end
+check("足した順", order(), "101,102,103")
+check("▲で 1 つ前へ", Another_warehouse_favorite_swap(103, -1), true)
+check("入れ替わった", order(), "101,103,102")
+check("先頭を▲は何もしない", Another_warehouse_favorite_swap(101, -1), false)
+check("末尾を▼は何もしない", Another_warehouse_favorite_swap(102, 1), false)
+check("並びは変わっていない", order(), "101,103,102")
+check("知らないものは動かない", Another_warehouse_favorite_swap(999, -1), false)
+
+print("[9] 外す")
+check("外せた", Another_warehouse_favorite_delete(103), true)
+check("残りは 2 件", order(), "101,102")
+check("入っていないものは外せない", Another_warehouse_favorite_delete(999), false)
+check("番号は詰まる（穴が空かない）", Another_warehouse_favorite_index()[102], 2)
+
+print("[10] 文字列で渡されても数として扱う（設定ファイル経由）")
+check("文字列で足す", Another_warehouse_favorite_add("104"), true)
+check("数として入っている", Another_warehouse_is_favorite(104), true)
+check("文字列で外せる", Another_warehouse_favorite_delete("104"), true)
+
+print("[11] お気に入りの窓は、開き直しても位置が動かない")
+-- 中身は足す / 消す / 並べ替えのたびに組み直すので、そのつど位置を計算し直すと
+-- 行が 1 つ増えるたびに窓が上へ跳ぶ（中央寄せは高さの半分だけ上げるため）。
+-- **初めて開いたときの位置を控える**ことで防いでいる。
+local dummy
+dummy = setmetatable({}, {
+    __index = function()
+        return function()
+            return dummy
+        end
+    end
+})
+ui.CreateNewFrame = function()
+    return dummy
+end
+ui.DestroyFrame = function()
+end
+_G.GET_CHILD_RECURSIVELY = function()
+    return nil
+end
+_G.GET_CHILD = function()
+    return nil
+end
+_G.GetClassByType = function()
+    return nil
+end
+_G.dictionary = {
+    ReplaceDicIDInCompStr = function(x)
+        return x
+    end
+}
+g.block_click_through = function()
+end
+g.esc_register_keep = function()
+end
+-- 呼ばれた高さを控える。**2 回目以降は呼ばれないこと**が要点。
+local pos_calls = {}
+g.settings_frame_pos = function(w, h)
+    table.insert(pos_calls, h)
+    return 500, 300
+end
+
+settings = run({
+    take_list = twelve,
+    ver = 1.1
+})
+Another_warehouse_favorite_add(201)
+pos_calls = {}
+Another_warehouse_favorite_frame_open()
+check("初回は計算する", #pos_calls, 1)
+check("控えた x", g.awh_settings.etc.fav_x, 500)
+check("控えた y", g.awh_settings.etc.fav_y, 300)
+-- 行が増えた状態で開き直す（足すたびにこの関数が呼ばれる）
+Another_warehouse_favorite_add(202)
+Another_warehouse_favorite_add(203)
+pos_calls = {}
+Another_warehouse_favorite_frame_open()
+check("2 回目以降は計算し直さない", #pos_calls, 0)
+check("x は動かない", g.awh_settings.etc.fav_x, 500)
+check("y は動かない", g.awh_settings.etc.fav_y, 300)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

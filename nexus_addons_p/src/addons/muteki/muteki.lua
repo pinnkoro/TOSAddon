@@ -291,6 +291,51 @@ function muteki_on_init()
     _nexus_addons_p:RunUpdateScript("Muteki_buffslot_script", 2.0)
 end
 
+-- バフの開始 / 終了をパーティーチャット・ニコチャットへ流す処理は、**エンジンの
+-- BUFF_ADD / BUFF_REMOVE のディスパッチの中から送ってはいけない。**
+-- 送るとクライアントがアクセス違反で落ちる(yoma16版 new_nexus_addons v1.0.6 以降の
+-- v1.1.2 でクラッシュダンプから特定されたもの。**ネイティブのクラッシュなので
+-- Lua のエラーにならず、debug_log.txt にも verbose_log.txt にも何も残らない**)。
+--
+-- 文面はその場で組み立てる(1 tick 後にはバフのデータが消えていることがある)。
+-- **遅らせるのは送信だけ。** 0.1 秒後に外から流し直す。
+--
+-- ReserveScript はフレームに紐付かないので、バフのアイコンやフレームの表示状態に
+-- 左右されない(フレーム側の RunUpdateScript は隠れている間は回らない)。
+function Muteki_defer_chat(kind, text)
+    g.muteki_chat_queue = g.muteki_chat_queue or {}
+    table.insert(g.muteki_chat_queue, {
+        kind = kind,
+        text = text
+    })
+    -- 溜まっているぶんはまとめて 1 回で流れる(flush が先頭で入れ物を空にするので、
+    -- 余分に予約された分は空振りするだけ)。
+    ReserveScript("Muteki_flush_chat()", 0.1)
+end
+
+function Muteki_flush_chat()
+    local queue = g.muteki_chat_queue
+    if not queue or #queue == 0 then
+        return
+    end
+    g.muteki_chat_queue = {}
+    for _, item in ipairs(queue) do
+        -- 1 件が失敗しても残りは流す。ここで落ちても呼び元(ReserveScript)は
+        -- バフのディスパッチの外なので、クライアントは巻き込まれない。
+        local ok, err = pcall(function()
+            if item.kind == "pt" then
+                ui.Chat(item.text)
+            else
+                NICO_CHAT(item.text)
+            end
+        end)
+        if not ok then
+            g.vlog("muteki: バフ通知の送信に失敗 kind=%s err=%s", tostring(item.kind), tostring(err))
+        end
+    end
+    g.vlog("muteki: バフ通知を %d 件、バフの処理の外から送った", #queue)
+end
+
 function Muteki_BUFF_ON_MSG(frame, msg, is_dummy, buff_id)
     if g.settings.muteki.use == 0 then
         return
@@ -374,11 +419,11 @@ function Muteki_BUFF_ON_MSG(frame, msg, is_dummy, buff_id)
             if g.muteki_buffs[buff_id_str] and g.muteki_buffs[buff_id_str].notify == 0 then
                 if buff_data.pt_chat == 1 then
                     if not string.find(buff_cls.Name, "NoData") then
-                        ui.Chat(string.format("/p %s start", buff_cls.Name))
+                        Muteki_defer_chat("pt", string.format("/p %s start", buff_cls.Name))
                     end
                 end
                 if buff_data.nico_chat == 1 then
-                    NICO_CHAT(string.format("{@st55_a}%s start", buff_name))
+                    Muteki_defer_chat("nico", string.format("{@st55_a}%s start", buff_name))
                 end
                 if buff_data.effect_check == 1 then
                     local my_handle = session.GetMyHandle()
@@ -429,11 +474,11 @@ function Muteki_handle_buff_end(notice_frame, buff_id)
     if notice then
         if buff_data.pt_chat == 1 then
             if not string.find(buff_cls.Name, "NoData") then
-                ui.Chat(string.format("/p %s end", buff_cls.Name))
+                Muteki_defer_chat("pt", string.format("/p %s end", buff_cls.Name))
             end
         end
         if buff_data.nico_chat == 1 then
-            NICO_CHAT(string.format("{@st55_a}%s end", buff_cls.Name))
+            Muteki_defer_chat("nico", string.format("{@st55_a}%s end", buff_cls.Name))
         end
         if buff_data.end_sound == 1 then
             imcSound.PlaySoundEvent("sys_transcend_cast")
