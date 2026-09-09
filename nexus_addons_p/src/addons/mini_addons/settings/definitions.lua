@@ -149,9 +149,6 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "イベントグローバルシャウトをチャットに表示",
     text_kr = "이벤트 글로벌 샤우트를 채팅에 표시",
     text_en = "Displays Event Global Shouts in the chat",
-    updated = "2.1.0",
-    updated_note_jp = "フィールドボスの出現・討伐のお知らせが、日本語 / 英語でも出るようになりました",
-    updated_note_en = "Field boss spawn/defeat notices now appear in Japanese / English too"
 }, {
     name = "multiple_item",
     text_jp = "メレジナハード以降のハードレイドで追加報酬券お知らせ",
@@ -194,9 +191,6 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Hair Accessory Auto-Enchant UX improved",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     -- 古くなった updated は 2〜3 版で消すこと(残すと印だらけになって意味を失う)。
-    updated = "2.4.0",
-    updated_note_jp = "「ランクアップ時に停止」が効かないことがあったのと、回している最中に別のヘアアクセへ載せ替えると 1 回で止まることがあったのを修正しました",
-    updated_note_en = "Fixed \"stop on rank up\" sometimes not working, and stopping after one roll when you swap to another hair accessory mid-run"
 }, {
     name = "skill_reroll",
     text_jp = "スキル錬成を希望スキルが出るまで回せるように",
@@ -234,9 +228,6 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "インベントリのスロットを少し改造",
     text_kr = "인벤토리 슬롯을 약간 개조했습니다",
     text_en = "Slightly modified the inventory slots",
-    updated = "2.3.1",
-    updated_note_jp = "Lv560 のイコルと肩・ベルトが「格下」の枠で出ていたのと、Lv560 のエーテルジェムに枠が付かなかったのを直しました",
-    updated_note_en = "Fixed Lv560 ichors and shoulder/belt gear being drawn with the lower-tier frame"
 }, {
     name = "auto_zoom",
     text_jp = "マップ切り替え時に自動でズーム",
@@ -306,9 +297,6 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "バウバス登場をお知らせ",
         text_kr = "바우버스 등장 소식",
         text_en = "Announcing the arrival of Baubas",
-        updated = "2.1.0",
-        updated_note_jp = "お知らせが日本語 / 英語でも出るようになり、討伐の取りこぼしを減らしました",
-        updated_note_en = "Notices now appear in Japanese / English; fewer missed defeat notices"
     }, {
         name = "chat_recv",
         text_jp = "PTメンバーの死亡をニコチャットで表示",
@@ -437,9 +425,6 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "各種コインを取得時に自動で使用します",
         text_kr = "각종 코인 획득 시 자동 사용",
         text_en = "Automatically use various coins upon acquisition",
-        updated = "2.3.0",
-        updated_note_jp = "サウレ（Lv560 の女神）のコインも自動で使うようになりました",
-        updated_note_en = "Now also auto-uses Saule (the Lv560 goddess) coins"
     }, {
         name = "skill_enchant",
         text_jp = "スキル錬成のアイテムを自動でセットします",

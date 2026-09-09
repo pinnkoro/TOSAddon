@@ -44,9 +44,6 @@ g._nexus_addons_p = {{
     category = "gear",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = "2.3.1",
-    updated_note_jp = "Lv560 のエーテルジェムを枠へ登録できなかったのを直しました",
-    updated_note_en = "Fixed Lv560 aether gems not being registerable in a slot",
     data = {
         use = 0,
         name = "Aethergem Manager",
@@ -89,7 +86,7 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = g.VER_NEXT,
+    updated = "2.7.0",
     updated_note_jp = "設定ウィンドウ(歯車)を閉じるとチーム倉庫まで一緒に閉じてしまうのを修正しました(閉じた後もインベントリの右クリックが「セットへ登録」のまま残っていたのも直しました)。お気に入りを追加しました。上部の★ボタンで編集の窓を開き、開いている間に倉庫かインベントリのアイテムを右クリックすると足せます。一覧の一番上に「お気に入り」の帯が出て、左端のタブにも★のタブが増えます(元のカテゴリからは消えません)。登録はアカウント単位です",
     updated_note_en = "Fixed the settings window (gear) closing the whole team warehouse with it, and the inventory right-click staying on Register to set after closing it. Added favorites. The star button opens the editor; while it is open, right-click an item in the warehouse or inventory to add it. A Favorites group is pinned to the top of the list and a star tab joins the tab column (items stay in their normal category too). Favorites are stored per account",
     data = {
@@ -142,9 +139,6 @@ g._nexus_addons_p = {{
 }, {
     key = "auto_repair",
     category = "storage",
-    updated = "2.3.0",
-    updated_note_jp = "補充する緊急修理キットを Lv560（サウレの証商店）のものに切り替えました",
-    updated_note_en = "Switched the restocked repair kit to the Lv560 one (Saule certificate shop)",
     data = {
         use = 0,
         name = "Auto Repair",
@@ -195,9 +189,6 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
-    updated = "2.3.1",
-    updated_note_jp = "武器を 4 ヶ所着けていないときの案内で落ちていたのと、Lv560 のジェムが「LV460」と出ていたのを直しました",
-    updated_note_en = "Fixed an error shown when fewer than 4 weapon slots are equipped, and Lv560 gems being labelled LV460",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -268,9 +259,6 @@ g._nexus_addons_p = {{
 }, {
     key = "goddess_icor_manager",
     category = "gear",
-    updated = "2.3.1",
-    updated_note_jp = "Lv560 のイコルに段の表記と枠の色が付かなかったのを直しました",
-    updated_note_en = "Fixed the tier label and frame color missing for Lv560 ichors",
     data = {
         use = 0,
         name = "Goddess Icor Manager",
@@ -294,9 +282,6 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_list_viewer",
     category = "content",
-    updated = "2.3.0",
-    updated_note_jp = "Lv560 の「偽りの輝翼」「堕落した審判の翼」を一覧に追加しました",
-    updated_note_en = "Added the Lv560 raids Light Uriel and Dark Uriel to the list",
     data = {
         use = 0,
         name = "Indun List Viewer",
@@ -307,7 +292,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.7.0",
     updated_note_jp = "テルハルシャの BUYUSE が、入場券を持っていても使わずに毎回買っていたのを修正しました(使う側のアイテム ID が誤記でした)。設定でパネルの大きさ(100 / 90 / 80%)を選べるようにしました。座標も文字も一緒に縮みます(設定ウィンドウの大きさは変わりません)。設定に「入場券」タブを足しました。持っている券とショップでの購入を、どの順に試すかを▲▼で決められます(レイド / チャレンジ・分裂特異点 / その他 の 3 つに分けて指定)。既定はこれまでどおりの順番です。あわせて、券の選び方が壊れていたのを直しました。期限の無い券はリストの最後のものが使われていて、期限付きの券は同じ残り時間のときにどれが使われるか決まっていませんでした",
     updated_note_en = "Fixed Telharsha BUYUSE always buying instead of using an entry ticket you already hold (the item id it used was a typo). The panel size can now be set to 100 / 90 / 80% (positions and text shrink together; the settings window keeps its size). Added a Tickets tab to the settings: the order in which held tickets and shop purchases are tried can be reordered with the arrows, per group (raids / challenge and singularity / other). The defaults match the previous behaviour. Also fixed how a ticket was picked: for permanent tickets the last id in the list won, and time-limited tickets with the same remaining time were picked in an undefined order",
     data = {
@@ -330,9 +315,6 @@ g._nexus_addons_p = {{
 }, {
     key = "job_change_helper",
     category = "char",
-    updated = "2.2.1",
-    updated_note_jp = "装備を全部外すボタンでペット（コンパニオン）も外し、着け直すときに呼び戻すようにしました",
-    updated_note_en = "The remove-all-equipment button now also removes the companion, and re-summons it when re-equipping",
     data = {
         use = 0,
         name = "Job Change Helper",
@@ -353,9 +335,6 @@ g._nexus_addons_p = {{
 }, {
     key = "market_voucher",
     category = "storage",
-    updated = "2.1.0",
-    updated_note_jp = "ログインが速くなり、「ログ削除」が退避してから消すようになりました",
-    updated_note_en = "Faster login; log deletion now backs up before removing",
     data = {
         use = 0,
         name = "Market Voucher",
@@ -366,9 +345,6 @@ g._nexus_addons_p = {{
 }, {
     key = "monster_card_changer",
     category = "gear",
-    updated = "2.2.0",
-    updated_note_jp = "カードの着脱まわりの不具合をまとめて修正し、閉じ方と保護色の表示を足しました",
-    updated_note_en = "Fixed card equip/remove bugs; added close-after option and protected-color marks",
     data = {
         use = 0,
         name = "Monster Card Changer",
@@ -389,7 +365,7 @@ g._nexus_addons_p = {{
 }, {
     key = "muteki",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.7.0",
     updated_note_jp = "パーティーチャットに知らせるバフが切れたときにゲームが落ちていたのを修正しました",
     updated_note_en = "Fixed the client crashing when a buff with the party-chat announcement ended",
     data = {
@@ -402,9 +378,6 @@ g._nexus_addons_p = {{
 }, {
     key = "my_buffs_control",
     category = "battle",
-    updated = "2.2.3",
-    updated_note_jp = "バフリストに一括で表示 / 非表示にするボタンを足しました。切り替えがその場で反映されるようになり、ESC でも閉じられます",
-    updated_note_en = "Added buttons to show/hide every listed buff at once. Changes now apply immediately, and the list closes with ESC",
     data = {
         use = 0,
         name = "My Buffs Control",
@@ -425,7 +398,7 @@ g._nexus_addons_p = {{
 }, {
     key = "other_character_skill_list",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.7.0",
     updated_note_jp = "代表クラスを選んでいるキャラのアイコンが空欄になっていたのを修正しました",
     updated_note_en = "Fixed a blank icon for characters with a representative class picked",
     data = {
@@ -476,9 +449,6 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
-    updated = "2.3.1",
-    updated_note_jp = "パーティリーダーに飛ばされた・再入場した・レイド内で再ログインしたときにもポーションを差し替えるようにしました",
-    updated_note_en = "Now also swaps potions when you were pulled in by the party leader, re-entered, or relogged inside a raid",
     data = {
         use = 0,
         name = "Quickslot Operate",
@@ -512,9 +482,6 @@ g._nexus_addons_p = {{
 }, {
     key = "save_quest",
     category = "content",
-    updated = "2.3.0",
-    updated_note_jp = "設定ファイルに意味のない記録が溜まり続けていたのを直しました。次回の起動で自動的に片付きます",
-    updated_note_en = "Fixed meaningless entries piling up in the settings file. They are cleaned up on the next launch",
     data = {
         use = 0,
         name = "Save Quest",
@@ -565,9 +532,6 @@ g._nexus_addons_p = {{
 }, {
     key = "sub_map",
     category = "char",
-    updated = "2.0.1",
-    updated_note_jp = "ボスやモンスターのアイコンが表示されなくなっていたのを修正しました",
-    updated_note_en = "Fixed boss and monster icons not being shown",
     data = {
         use = 0,
         name = "Sub Map",
@@ -588,9 +552,6 @@ g._nexus_addons_p = {{
 }, {
     key = "tavern_of_soul",
     category = "misc",
-    updated = "2.0.1",
-    updated_note_jp = "一覧のカテゴリを「ダンジョン・コンテンツ」から「その他」へ移しました",
-    updated_note_en = "Moved from the Dungeons & Content category to Other",
     data = {
         use = 0,
         name = "Tavern of Soul",
@@ -601,7 +562,7 @@ g._nexus_addons_p = {{
 }, {
     key = "vakarine_equip",
     category = "storage",
-    updated = g.VER_NEXT,
+    updated = "2.7.0",
     updated_note_jp = "設定画面を作り直しました。チェックを 2 列に並べたので下が切れなくなり、部位の「全部えらぶ / 全部はずす」が付きました。設定画面をドラッグで動かせるようになり、位置も覚えます。背景は半透明です。「フレームを固定」は小さいアイコンのことなので「アイコンを固定」に直しました",
     updated_note_en = "Rebuilt the settings window: the checkboxes are in two columns so nothing is cut off, there is a select-all / clear-all button for the slots, the window can be dragged and remembers its position, and the background is translucent. Lock frame is renamed Lock the icon because that is what it affected",
     data = {
@@ -618,9 +579,6 @@ g._nexus_addons_p = {{
     -- ここで自分自身を誤検出することはない。
     key = "mini_addons",
     category = "misc",
-    updated = "2.3.1",
-    updated_note_jp = "装備錬成の自動化が、目標値に届く前に黙って止まっていたのを直しました。{nl}素材が尽きたときは自動継続を打ち切るようにしています",
-    updated_note_en = "Fixed equipment upgrade automation silently stopping before reaching the target.{nl}It now also stops on its own when materials run out",
     data = {
         use = 0,
         name = "Mini Addons",
@@ -632,9 +590,6 @@ g._nexus_addons_p = {{
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
     category = "storage",
-    updated = "2.3.1",
-    updated_note_jp = "市場を開かずにお気に入りを右クリックすると落ちていたのと、Lv560 のイコルにオプションの％/最大値/色分けが付かず名前も「格下」の赤で出ていたのを直しました",
-    updated_note_en = "Fixed an error when right-clicking a favorite without the market open, and Lv560 ichors getting no option %/max/colour and a lower-tier red name",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",
