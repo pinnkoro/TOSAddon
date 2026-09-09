@@ -384,8 +384,25 @@ function Other_character_skill_list_render_frame()
                     end
                 end
             end
-            local last_job_class = GetClassByType("Job", last_job_id)
-            local last_job_icon = TryGetProp(last_job_class, "Icon")
+            -- **tonumber を外さないこと。** ILV は president_jobid を tostring() で保存して
+            -- いる(Indun_list_viewer 側の代表クラス選択)ので、文字列のまま
+            -- GetClassByType へ渡すと引けず、代表クラスを選んでいる人だけアイコンが
+            -- 空欄になっていた。GetJobListFromAdventureBookCharData の戻り値は数値なので、
+            -- どちらの経路から来ても数値へ揃える。
+            -- 引けなかったときは ILV と同じ ?マークの絵を出す(空欄だと「読み込み中」に見える)。
+            local last_job_class = GetClassByType("Job", tonumber(last_job_id) or 0)
+            local last_job_icon = "icon_item_nothing"
+            if last_job_class then
+                last_job_icon = TryGetProp(last_job_class, "Icon", "icon_item_nothing")
+            else
+                -- 一覧は都市へ入るたびに組み直されるので、出すのはキャラごとに 1 回だけ。
+                g.ocsl_job_failed = g.ocsl_job_failed or {}
+                if not g.ocsl_job_failed[char_info.name] then
+                    g.ocsl_job_failed[char_info.name] = true
+                    g.vlog("other_character_skill_list: クラスを引けなかった name=%s jobid=%s", tostring(char_info.name),
+                        tostring(last_job_id))
+                end
+            end
             local job_slot = main_gbox:CreateOrGetControl("slot", "jobslot" .. i, 0, y_pos - 3, 25, 25)
             AUTO_CAST(job_slot)
             job_slot:SetSkinName("None")

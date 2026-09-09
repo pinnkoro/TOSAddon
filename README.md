@@ -106,7 +106,6 @@ Tree of Savior 用アドオンの配布リポジトリ。
 * 元アドオン: [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) (norisan / Ajinori)
 * [New Nexus Addons](https://github.com/yoma16/tos-addon) (yoma16): 本家の更新が止まったあと、
   EP パッチ対応やクラッシュ修正を続けてくれていたフォークです。本アドオンは v1.0.0 の時点で
-  同フォークの v1.0.2〜v1.0.6 の修正を取り込んでおり、その後の Vakarine Equip や
-  Quickslot Operate の不具合修正でも同じ問題への対処を参考にしています。
+  同フォークの v1.0.2〜v1.0.6 の修正を取り込んでおり、その後の不具合修正でも問題への対処を参考にしています。
   New Nexus Addons は 2026 年 9 月で更新を終了し、以降は本アドオンが引き継ぎます。
 * 個別アドオンの原作者は、ゲーム内ヘルプおよび元リポジトリの記載を参照してください。
