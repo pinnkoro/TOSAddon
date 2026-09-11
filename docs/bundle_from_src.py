@@ -17,6 +17,12 @@
     python docs/bundle_from_src.py --check    # 生成せず、再現性ガードのみ実行
                                               #（既存 bundle の有無に依存しない）
     python docs/bundle_from_src.py --bless     # 現 src の連結結果で golden sha を更新
+    python docs/bundle_from_src.py --no-verify # golden sha を照合せずに生成だけ行う
+
+--no-verify は **編集の直後に走る .claude/hooks/check_src.py 専用**。src を 1 文字でも
+触れば golden sha は当然ずれるので、そこで止めてしまうと後続の検査（前方参照・当たり判定）
+まで走らなくなる。manifest 追記漏れの検出は build() 内なので --no-verify でも効く。
+**人が手で叩くときは使わないこと**（再現性ガードを外す意味しか無い）。
 
 生成後、この bundle を docs/build_addon_ipf.py に渡して .ipf 化する。
 """
@@ -137,13 +143,16 @@ def main():
         sys.exit(0)
 
     check_only = "--check" in sys.argv
+    no_verify = "--no-verify" in sys.argv
     out = build(manifest)
 
     if check_only:
         print("[bundle --check] 既存 bundle に依存せず再現性を検証")
         sys.exit(0 if verify_sha(manifest, out) else 1)
 
-    if not verify_sha(manifest, out):
+    # --no-verify は編集直後のフック用（上の docstring を参照）。golden sha は
+    # 編集すれば必ずずれるので、そこで止めると後続の検査まで走らなくなる。
+    if not no_verify and not verify_sha(manifest, out):
         sys.exit(1)
 
     prune_stale(set(out))
