@@ -210,7 +210,7 @@ footer 末尾 2 つの u32 が 0 のため、リーダー側は「暗号化あ�
 > `release-prep/vX.Y.Z` ブランチでまとめて行う。** main だけ先に採番すると、
 > アドオンマネージャーが main の `fileVersion` から組み立てるアセット名が Release 側に
 > まだ無く、公開までの間だれもインストール／更新できなくなる(CI の `version-freeze`
-> ジョブが先行採番を落とす)。詳細は [CLAUDE.md](../CLAUDE.md) を参照。
+> ジョブが先行採番を落とす)。詳細は [RELEASE.md](RELEASE.md) を参照。
 
 1. ソース(`nexus_addons_p/src/**` の該当アドオンファイル)を編集
    - 新規アドオン追加時は `src/addons/<key>/<key>.lua` 追加 + `src/core/10_registry.lua` に登録 +

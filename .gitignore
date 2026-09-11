@@ -1,13 +1,20 @@
 /junks
 /prototype
 # .claude/ は個人設定(settings.local.json など)が入るので無視するが、
-# **skills だけは追跡する**。このリポジトリの作業手順(docs/*.md)を辿るための
-# 入口で、手元だけに置くと他の端末や他の人が同じ手順に乗れない。
+# **skills / rules / hooks と settings.json だけは追跡する**。このリポジトリの
+# 作業手順(docs/*.md)を辿るための入口と、事故を機械的に止める仕掛けで、
+# 手元だけに置くと他の端末や他の人が同じ手順・同じ防護に乗れない。
 #
 # 末尾が「/」だと git がその中へ降りないので、除外は「.claude/*」と書くこと
 # (「.claude/」のままでは下の否定パターンが効かない)。
+#
+# **settings.local.json は追跡しない**(個人の許可設定が入る)。追跡するのは
+# チーム共有の settings.json だけ。
 .claude/*
 !.claude/skills/
+!.claude/rules/
+!.claude/hooks/
+!.claude/settings.json
 .serena/
 ipf_unpack.exe
 
