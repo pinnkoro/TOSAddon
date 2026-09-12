@@ -623,6 +623,15 @@ function g.setup_hook(my_func, origin_func_name, owner)
     local funcs_map = (owner and owner.funcs) or g.FUNCS
     local prefix = (owner and owner.prefix) or string.upper(addon_name)
     local label = (owner and owner.label) or "setup_hook"
+    -- **nil を掛けにいったら、素を消さずに何もしない。** 渡す側は自分のグローバル関数を
+    -- 名前で書くので、定義を消した / 綴りを間違えたときにここへ nil が来る。そのまま
+    -- 進むと _G[素の名前] が nil になり、**素の機能ごと死ぬ**(実際に破片化の
+    -- FRAGMENTATION_SHOW_TARGETS_FROM_INV を消して素の窓が開かなくなった)。
+    -- 構文チェックも前方参照チェックも通り抜けるので、ここで受け止めてログに出す
+    if type(my_func) ~= "function" then
+        g.vlog("{#FF6347}%s: %s へ掛ける関数が無い(nil)ので、素はそのままにする{/}", label, origin_func_name)
+        return _G[origin_func_name]
+    end
     local replace_name = prefix .. "_REPLACE_" .. origin_func_name
     if not g.hook_captured[replace_name] then
         g.hook_captured[replace_name] = true

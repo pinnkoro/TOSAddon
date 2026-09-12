@@ -33,19 +33,37 @@ frag.COL_DEF = 5
 frag.ROW_DEF = 5
 frag.GRADE_CNT = 8 -- 8 個目は「8 等級以上」
 frag.MAXLV_CNT = 5 -- 特殊オプションのレベルは 1〜5
-frag.FILTER_H = 74 -- 自前のフィルタ 2 行(等級 / 最大Lv)ぶんの高さ
+frag.FILTER_H = 108 -- 見出し + 自前のフィルタ 3 行(等級 / 最大Lv / 枠)ぶんの高さ
 -- 自前のフィルタ行を、素のフィルタ枠(filter_box)の上端からどれだけ下げるか。
 -- 枠の上 50px は素の見出し(「フィルタ | 耳飾り」)が使っているので、その下へ置く。
 -- **枠の外(上)へ出さないこと。** 見出しから離れて宙に浮いて見えるうえ、
 -- スロットに使える高さもそのぶん削ることになる。
-frag.FILTER_PAD = 50
+frag.FILTER_PAD = 2
 -- 枠を広げたときの窓のレイヤー。**素の破片化は 81 で、クイックスロット(91)より下**。
 -- 素の大きさ(5x5)なら画面下まで届かないので誰も困らないが、行を増やすと窓の下側
 -- (自前のフィルタ行・素の「すべて選択」「破片へ変換」)がクイックスロットの裏に回る。
 -- 95 は素のインベントリや倉庫と同じ値で、そこへ揃える(必要以上に持ち上げない)。
 frag.LAYER = 95
-frag.ROW_H = 34
+frag.ROW_H = 27
 frag.GROUP = "nexus_p_frag_filter"
+-- 素の見出し(「フィルター | イヤリング」)の枠幅。素は 180px 固定で、韓国語の
+-- 「필터 | 귀걸이」なら収まるが、**日本語だと入りきらず 2 行になる**。
+-- richtext が fixwidth="true" resizebytext="true" なので、幅はそのままに高さだけ
+-- 伸び、入れ物(filter_title は高さ 40)からはみ出して下の行に被る。広げて 1 行に収める
+frag.TITLE_W = 320
+frag.TITLE = "nexus_p_frag_title"
+frag.TITLE_H = 26 -- 自前の見出しの高さ(1 行目はこの下から始まる)
+frag.TITLE_BOX = "nexus_p_frag_title_box" -- 耳飾り以外のタブで、素の入れ物の中へ描く見出し
+-- 見出しに出すアイテム名。**素が filter_title_text へ入れているのと同じ ClMsg のキー**
+-- (素の FRAGMENTATION_SET_FILTER_SECTION がタブごとにこれを渡している)。
+-- 訳は素から引くのでずれない。**知らないタブ(素にタブが増えた等)は素の見出しへ戻す**
+frag.TAB_MSG = {
+    [0] = "Earring",
+    [1] = "Belt",
+    [2] = "GemSkill",
+    [3] = "Icor",
+    [4] = "Shoulder"
+}
 -- 素の一覧更新。名前で持つ理由は Mini_addons_FRAGMENTATION_OPEN のコメント
 frag.REFRESH = "FRAGMENTATION_REFRESH_ALL"
 
@@ -81,6 +99,19 @@ end
 function frag.enabled()
     local cfg = g.settings and g.settings.fragmentation
     return cfg ~= nil and cfg.use == 1
+end
+
+-- 続き(入り切らなかったぶん)の控えを手放す。**控えは 2 つで 1 組**なので、
+-- 片方だけ消すと「選び直されたか」の判定が狂う。捨てるときは必ずここを通すこと
+function frag.forget_pending()
+    frag.pending, frag.pending_n = nil, nil
+    frag.pending_kept, frag.pending_kept_n = nil, nil
+end
+
+-- 25 個ずつの続きを自動で実行するか。**既定は OFF**(設定画面の「自動」ボタン)。
+-- 破片化は取り消せないので、押すのを省くかどうかは利用者に決めてもらう
+function frag.auto_enabled()
+    return g.settings.fragmentation ~= nil and g.settings.fragmentation.auto == 1
 end
 
 function frag.col_row()
@@ -135,7 +166,13 @@ end
 -- 小さくなってしまうため、両方を組み合わせている。
 function frag.geometry(col, row, frame_y)
     local base = frag.base
-    local want_h = row * (frag.SLOT_MAX + frag.SPC) + base.slot_top + 5 + base.bottom
+    local avail_w = base.center_w - 12
+    -- **先に「横で決まる大きさ」を出すこと。** 列を増やすとスロットは横幅で頭打ちになり、
+    -- 10 列なら 56px まで小さくなる。ここを素の 82px で見積もると、窓だけが
+    -- 10 行ぶん(= 260px 近く)余計に伸び、**スロットとフィルタ行の間が丸ごと空く**
+    -- (実機で「全然詰まっていない」形で出た)。
+    local slot_w = frag.clamp(math.floor(avail_w / col) - frag.SPC, frag.SLOT_MIN, frag.SLOT_MAX)
+    local want_h = row * (slot_w + frag.SPC) + base.slot_top + 5 + base.bottom
     -- 伸ばしてよい量は「窓の下端が画面に収まる」まで。**窓の上端(frame_y)から数えること。**
     -- 画面の高さだけで決めていたとき、窓は上端が 25〜100 の位置にあるぶん画面の下から
     -- はみ出し、下側のボタンが見えなくなっていた
@@ -146,10 +183,77 @@ function frag.geometry(col, row, frame_y)
     local filter_area = base.main_h + extra - base.bottom
     local filter_top = filter_area + frag.FILTER_PAD
     local avail_h = filter_area - 5 - base.slot_top
-    local avail_w = base.center_w - 12
-    local slot = math.min(frag.SLOT_MAX, math.floor(avail_w / col) - frag.SPC, math.floor(avail_h / row) - frag.SPC)
+    -- 画面に収まらず want_h まで伸ばせなかったときは、縦で更に小さくなる
+    local slot = math.min(slot_w, math.floor(avail_h / row) - frag.SPC)
     slot = frag.clamp(slot, frag.SLOT_MIN, frag.SLOT_MAX)
     return extra, slot, filter_top
+end
+
+-- 見出しの文字列(「フィルター | イヤリング」)。素の書式(filter_title_text の format)に
+-- 色と大きさを合わせてある。アイテム名は素と同じ ClMsg から引く
+function frag.title_text(tabindex)
+    local key = frag.TAB_MSG[tabindex or 0]
+    if key == nil then
+        return nil
+    end
+    return "{@st41}{s20}" .. frag.lang("フィルター", "필터", "Filter") .. "{/}{/} {@st66b}{s20}|{/}{/} {@st45ty}{s20}" ..
+               tostring(ClMsg(key)) .. "{/}{/}"
+end
+
+-- 素の見出し(「フィルター | イヤリング」)が 2 行に折り返して下へはみ出すのを直す。
+--
+-- 素の filter_title_text は幅 180px の richtext で `fixwidth="true"`。韓国語
+-- (「필터 | 귀걸이」)なら収まるが、**日本語はどのタブ名でも入りきらない**。
+-- 高さだけ伸びて、入れ物(filter_title は高さ 40)からはみ出し下の行に被る。
+--
+-- **素の文字コントロールは直せない。** 試したことと結果:
+--   * 文字を Resize で広げる → 効かない(指定 320 → 直後も 180x32。fixwidth のため)
+--   * 入れ物ごと SetOffset で動かす → 見出しがどこにも出なくなった
+--   * 入れ物は触らず、中の文字だけ隠して自前の richtext を重ねる → **これは効いた**
+-- (入れ物の Resize は効く。計測で 箱=320x40 になっている)
+--
+-- そこで**素の文字だけを隠し、こちらで 1 行の見出しを描く**。耳飾りタブだけは
+-- 3 行を 110px に収めるために見出しも自前の行の中へ入れるので、素の入れ物ごと隠す。
+--
+-- 知らないタブ(素にタブが増えた等)では素の見出しをそのまま出す。
+function frag.own_title(frame, tabindex)
+    local box = GET_CHILD_RECURSIVELY(frame, "filter_title")
+    local origin_text = GET_CHILD_RECURSIVELY(frame, "filter_title_text")
+    if not box or not origin_text then
+        return
+    end
+    if frag.base_title_w == nil then
+        frag.base_title_w = box:GetWidth()
+    end
+    local own = GET_CHILD_RECURSIVELY(box, frag.TITLE_BOX)
+    local text = frag.enabled() and frag.title_text(tabindex) or nil
+    -- 耳飾りタブは自前の行が見出しごと描くので、素の入れ物は丸ごと隠す。
+    -- **ただし自前の行が在るときだけ。** 行を作るのは Mini_addons_frag_apply の
+    -- capture_base が通ったときだけなので、失敗した経路で隠してしまうと
+    -- 「素の見出しは消えているのに自前の見出しも無い」= 見出しが消える
+    if frag.enabled() and tabindex == 0 and GET_CHILD_RECURSIVELY(frame, frag.GROUP) ~= nil then
+        box:ShowWindow(0)
+        return
+    end
+    box:ShowWindow(1)
+    if text == nil then
+        -- 機能が OFF / 知らないタブ。素へ戻す
+        origin_text:ShowWindow(1)
+        if own then
+            own:ShowWindow(0)
+        end
+        box:Resize(frag.base_title_w, box:GetHeight())
+        return
+    end
+    box:Resize(frag.TITLE_W, box:GetHeight())
+    origin_text:ShowWindow(0)
+    own = box:CreateOrGetControl("richtext", frag.TITLE_BOX, 0, 0, frag.TITLE_W, box:GetHeight())
+    AUTO_CAST(own)
+    own:SetOffset(0, 0)
+    own:Resize(frag.TITLE_W, box:GetHeight())
+    own:SetTextAlign("center", "center")
+    own:SetText(text)
+    own:ShowWindow(1)
 end
 
 -- 等級 / 最大 Lv のチェックボックスを作る(既に在れば取り直すだけ)。
@@ -168,13 +272,23 @@ function frag.build_filter(main_bg, filter_top)
     group:SetOffset(10, filter_top)
     group:Resize(580, frag.FILTER_H)
     group:SetSkinName("None")
-    local grade_label = group:CreateOrGetControl("richtext", "nexus_p_frag_grade_text", 0, 4, 65, 25)
+    -- 見出し。素の filter_title は frag.own_title が隠すので、ここで丸ごと描く。
+    -- 色と大きさは素の書式(filter_title_text の format)に合わせてある
+    local title = group:CreateOrGetControl("richtext", frag.TITLE, 0, 0, 580, frag.TITLE_H)
+    AUTO_CAST(title)
+    title:SetOffset(0, 0)
+    title:Resize(580, frag.TITLE_H)
+    title:SetTextAlign("center", "center")
+    title:SetText(frag.title_text(0) or "")
+    -- 以下の行はすべて見出しの下から始める
+    local top = frag.TITLE_H
+    local grade_label = group:CreateOrGetControl("richtext", "nexus_p_frag_grade_text", 0, top + 4, 65, 25)
     AUTO_CAST(grade_label)
     grade_label:SetText("{ol}" .. frag.lang("等級", "등급", "Grade"))
     local grade_tip = frag.lang("{ol}等級 = 特殊オプション 3 つのレベル合計",
         "{ol}등급 = 특수 옵션 3 개의 레벨 합계", "{ol}Grade = total of the three special option levels")
     for i = 1, frag.GRADE_CNT do
-        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_grade_" .. i, 70 + (i - 1) * 47, 0, 25, 25)
+        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_grade_" .. i, 70 + (i - 1) * 47, top, 25, 25)
         AUTO_CAST(cb)
         -- 最後の 1 つだけは「以上」まで書く(数字だけだと 8 等級ちょうどに見えるため)
         if i == frag.GRADE_CNT then
@@ -185,24 +299,70 @@ function frag.build_filter(main_bg, filter_top)
         cb:SetTextTooltip(grade_tip)
         cb:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_check")
     end
-    local maxlv_label = group:CreateOrGetControl("richtext", "nexus_p_frag_maxlv_text", 0, frag.ROW_H + 4, 65, 25)
+    local maxlv_label = group:CreateOrGetControl("richtext", "nexus_p_frag_maxlv_text", 0, top + frag.ROW_H + 4, 65, 25)
     AUTO_CAST(maxlv_label)
     maxlv_label:SetText("{ol}" .. frag.lang("最大Lv", "최대 Lv", "Max Lv"))
     local maxlv_tip = frag.lang("{ol}最大Lv = 特殊オプション 3 つのうち一番高いレベル",
         "{ol}최대 Lv = 특수 옵션 3 개 중 가장 높은 레벨",
         "{ol}Max Lv = highest of the three special option levels")
     for i = 1, frag.MAXLV_CNT do
-        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_maxlv_" .. i, 70 + (i - 1) * 47, frag.ROW_H, 25,
+        local cb = group:CreateOrGetControl("checkbox", "nexus_p_frag_maxlv_" .. i, 70 + (i - 1) * 47, top + frag.ROW_H, 25,
             25)
         AUTO_CAST(cb)
         cb:SetText("{ol}" .. i)
         cb:SetTextTooltip(maxlv_tip)
         cb:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_check")
     end
+    -- **枠(X / Y)と「自動」を、この窓からも変えられるようにする。**
+    -- 設定画面まで戻らずに、一覧を見ながら詰め方を決められるようにするため。
+    -- 3 行目に置き、見出し(等級 / 最大Lv)と同じ位置へ「枠」を出して列を揃える
+    local row3 = top + frag.ROW_H * 2
+    local size_label = group:CreateOrGetControl("richtext", "nexus_p_frag_size_text", 0, row3 + 4, 65, 25)
+    AUTO_CAST(size_label)
+    size_label:SetOffset(0, row3 + 4)
+    size_label:SetText("{ol}" .. frag.lang("枠", "칸", "Grid"))
+    local size_tip = frag.lang("{ol}スロットの並べ方(横 x 縦)。1〜10{nl}Enter で確定します",
+        "{ol}슬롯 배치(가로 x 세로). 1~10{nl}Enter 로 확정합니다",
+        "{ol}Slot layout (columns x rows). 1-10{nl}Press Enter to apply")
+    size_label:SetTextTooltip(size_tip)
+    local col_edit = group:CreateOrGetControl("edit", "nexus_p_frag_col_edit", 70, row3, 40, 25)
+    AUTO_CAST(col_edit)
+    col_edit:SetOffset(70, row3)
+    col_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_col_edit")
+    col_edit:SetTextTooltip(size_tip)
+    col_edit:SetFontName("white_16_ol")
+    col_edit:SetTextAlign("center", "center")
+    local x_label = group:CreateOrGetControl("richtext", "nexus_p_frag_x_text", 114, row3 + 4, 10, 25)
+    AUTO_CAST(x_label)
+    x_label:SetOffset(114, row3 + 4)
+    x_label:SetText("{ol}x")
+    local row_edit = group:CreateOrGetControl("edit", "nexus_p_frag_row_edit", 126, row3, 40, 25)
+    AUTO_CAST(row_edit)
+    row_edit:SetOffset(126, row3)
+    row_edit:SetEventScript(ui.ENTERKEY, "Mini_addons_frag_row_edit")
+    row_edit:SetTextTooltip(size_tip)
+    row_edit:SetFontName("white_16_ol")
+    row_edit:SetTextAlign("center", "center")
+    local auto_tip = frag.lang(
+        "{ol}一度に破片化できるのは 25 個までです{nl}ON にすると、残りを自動で選び直して続けて実行します{nl}(OFF のときは選び直しまで。実行は毎回ご自身で押します)",
+        "{ol}한 번에 파편화할 수 있는 것은 25 개까지입니다{nl}ON 이면 남은 것을 자동으로 다시 선택해 이어서 실행합니다",
+        "{ol}Only 25 items can be fragmented at once{nl}ON: automatically re-select and run the rest")
+    local auto_label = group:CreateOrGetControl("richtext", "nexus_p_frag_auto_text", 182, row3 + 4, 40, 25)
+    AUTO_CAST(auto_label)
+    auto_label:SetOffset(182, row3 + 4)
+    auto_label:SetText("{ol}" .. frag.lang("自動", "자동", "Auto"))
+    auto_label:SetTextTooltip(auto_tip)
+    local auto_btn = group:CreateOrGetControl("button", "nexus_p_frag_auto_btn", 226, row3 - 2, 52, 28)
+    AUTO_CAST(auto_btn)
+    auto_btn:SetOffset(226, row3 - 2)
+    auto_btn:SetTextTooltip(auto_tip)
+    auto_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_auto_toggle")
+    -- 値の当て込みは 1 か所へ寄せる(設定画面と食い違わないように)
+    frag.sync_controls()
     -- 高度な選択(残す条件)への入口。押すと条件の窓が開く
-    local keep_btn = group:CreateOrGetControl("button", "nexus_p_frag_keep_btn", 470, 6, 105, 30)
+    local keep_btn = group:CreateOrGetControl("button", "nexus_p_frag_keep_btn", 470, top + 2, 105, 30)
     AUTO_CAST(keep_btn)
-    keep_btn:SetOffset(470, 6)
+    keep_btn:SetOffset(470, top + 2)
     keep_btn:SetSkinName("test_gray_button")
     keep_btn:SetText("{ol}" .. frag.lang("条件で選択", "조건으로 선택", "Select by rule"))
     keep_btn:SetTextTooltip(frag.lang(
@@ -210,9 +370,9 @@ function frag.build_filter(main_bg, filter_top)
         "{ol}남길 클래스 / 랭크 / Lv 를 나열하고,{nl}거기에 해당하지 않는 귀걸이만 선택합니다",
         "{ol}List the class / rank / Lv you want to keep,{nl}then select only the earrings that match none of them"))
     keep_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_keep_open")
-    local keep_count = group:CreateOrGetControl("richtext", "nexus_p_frag_keep_count", 470, frag.ROW_H + 8, 105, 25)
+    local keep_count = group:CreateOrGetControl("richtext", "nexus_p_frag_keep_count", 470, top + frag.ROW_H + 4, 105, 25)
     AUTO_CAST(keep_count)
-    keep_count:SetOffset(470, frag.ROW_H + 8)
+    keep_count:SetOffset(470, top + frag.ROW_H + 4)
     -- 文言は条件の窓と同じものを使う(frag.keep_count_text)。
     -- 数が変わったときの書き直しは frag.keep_update_count がまとめて行う
     keep_count:SetText(frag.keep_count_text())
@@ -338,6 +498,12 @@ function Mini_addons_frag_apply(frame)
             shared_item_earring.MAX_SLOT_CNT = frag.base_max_slot
         end
         frame:SetLayerLevel(frag.base.layer)
+        -- **見出しはここで素へ戻すこと。** この後の FRAGMENTATION_REFRESH_ALL で走る
+        -- Mini_addons_FRAGMENTATION_SET_FILTER_SECTION は「enabled か applied のとき」
+        -- しか見出しに触らないが、その時点では既に両方 false なので一度も呼ばれない。
+        -- 素の SET_FILTER_SECTION も SetTextByKey するだけで ShowWindow(1) はしないため、
+        -- ここで戻さないと**隠した素の見出しがセッション中ずっと消えたまま**になる
+        frag.own_title(frame, nil)
         frag.applied = false -- 素へ戻したので、次からはまた触らない
     end
     local slot_h = row * (slot + frag.SPC)
@@ -376,20 +542,148 @@ function Mini_addons_frag_check(parent, ctrl)
 end
 
 -- 設定画面の「列」「行」入力
+-- 入力欄へ数字を当て込む。**マークアップを混ぜないこと。**
+-- `SetText("{ol}10")` と書くと、次に読んだとき GetText がそのまま "{ol}10" を返し、
+-- tonumber が nil になる = 「無効な値」と見なして既定値へ戻してしまう
+-- (実際に「5x5 にしたら 10x10 へ戻せない」形で出た)。
+-- 縁取りは SetFontName("white_16_ol") が受け持つので、{ol} は元々要らない。
+function frag.edit_set(ctrl, value)
+    AUTO_CAST(ctrl)
+    ctrl:SetText(tostring(value))
+end
+
+-- 入力欄から数字を読む。**読む側でもマークアップを落とす。**
+-- 素や他のアドオンが {ol} 付きで入れた欄を後から読むことがあるため
+function frag.read_number(ctrl)
+    local raw = ctrl:GetText() or ""
+    local plain = tostring(raw):gsub("{[^}]*}", "")
+    if plain ~= raw then
+        core_g.vlog("mini_addons: 破片化 入力欄の書式を落として読んだ raw=%s plain=%s", tostring(raw), plain)
+    end
+    return tonumber(plain)
+end
+
+-- 破片化の窓で今いくつ選ばれているか(窓が出ていなければ 0)
+function frag.count_selected()
+    local frame = ui.GetFrame(frag.FRAME)
+    if not frame or frame:IsVisible() == 0 then
+        return 0
+    end
+    local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
+    if not slotset then
+        return 0
+    end
+    AUTO_CAST(slotset)
+    local n = 0
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            n = n + 1
+        end
+    end
+    return n
+end
+
 function frag.edit_apply(ctrl, key, def, high)
-    local value = tonumber(ctrl:GetText())
+    local value = frag.read_number(ctrl)
     g.settings.fragmentation = g.settings.fragmentation or {}
-    if value == nil or value < 1 or value > high then
+    if value == nil then
+        -- 数字として読めない。**既定へ飛ばさない**(読めなかっただけで今の設定を捨てると、
+        -- 利用者から見ると「勝手に 5x5 へ戻された」になる)。今の値へ据え置く
         ui.SysMsg(frag.lang("無効な値です。1から" .. high .. "の間で設定してください。",
             "잘못된 값입니다. 1~" .. high .. " 사이로 설정해 주세요.",
             "Invalid value please set between 1 and " .. high))
-        value = def
+        value = g.settings.fragmentation[key] or def
+    elseif value < 1 or value > high then
+        -- **範囲外は上限 / 下限へ丸める**(打ち直しを求めない)。
+        -- 「11」と打った人が欲しいのは上限いっぱいであって、前の値ではない
+        value = frag.clamp(value, 1, high)
+        ui.SysMsg(frag.lang("1から" .. high .. "の間で設定できます。" .. value .. " にしました。",
+            "1~" .. high .. " 사이로 설정할 수 있습니다. " .. value .. " 으로 했습니다.",
+            "Only 1 to " .. high .. " is allowed - set to " .. value .. "."))
     end
     value = frag.clamp(value, 1, high)
-    ctrl:SetText("{ol}" .. value)
+    frag.edit_set(ctrl, value)
+    -- **選択が消えることを黙って起こさない。** 枠を変えるとスロットを作り直すので、
+    -- 選んでいたものは全部外れる(一覧の作り直しで frag.drop_stale_selection を通る)。
+    -- 入力欄が破片化の窓の中にも在るので、選び終えてから触ってしまうことがある
+    if value ~= (g.settings.fragmentation[key] or def) then
+        local cleared = frag.count_selected()
+        if cleared > 0 then
+            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 枠を変えたので、選んでいた " .. cleared ..
+                                    " 個の選択は解除されました",
+                "{ol}{#00BFFF}[Nexus Addons P] 칸을 바꿨으므로 선택했던 " .. cleared .. " 개는 해제되었습니다",
+                "{ol}{#00BFFF}[Nexus Addons P] Grid changed - the " .. cleared ..
+                    " items you had selected were deselected"))
+        end
+    end
     g.settings.fragmentation[key] = value
     Mini_addons_save_settings()
+    -- 設定画面と窓の両方へ当て直す(窓が開いていなければ次に開いたときに載る)
+    frag.sync_controls()
     Mini_addons_frag_reapply()
+end
+
+-- 「自動」ボタンの見た目。**設定画面と破片化の窓の 2 か所にある**ので、
+-- 文字とスキンの決め方はここへ寄せる(片方だけ直して食い違うのを防ぐ)
+function Mini_addons_frag_auto_btn_apply(btn, on)
+    AUTO_CAST(btn)
+    btn:SetText(on and "{ol}{#FFFFFF}ON" or "{ol}{#FFFFFF}OFF")
+    btn:SetSkinName(on and "test_pvp_btn" or "test_gray_button")
+end
+
+function frag.auto_btn_apply(btn, on)
+    Mini_addons_frag_auto_btn_apply(btn, on)
+end
+
+-- 枠(X / Y)と「自動」は設定画面と破片化の窓のどちらからでも変えられる。
+-- **開いている方を両方とも書き直す**(片方に古い値が残ると、次にそちらを触ったときに
+-- 巻き戻る)。無い方は黙って飛ばす
+function frag.sync_controls()
+    local on = frag.auto_enabled()
+    local col, row = frag.col_row()
+    local setting = ui.GetFrame(addon_name_lower .. "setting")
+    if setting then
+        local btn = GET_CHILD_RECURSIVELY(setting, "fragmentation_auto_btn")
+        if btn then
+            frag.auto_btn_apply(btn, on)
+        end
+        local ce = GET_CHILD_RECURSIVELY(setting, "fragmentation_col_edit")
+        if ce then
+            frag.edit_set(ce, col)
+        end
+        local re = GET_CHILD_RECURSIVELY(setting, "fragmentation_row_edit")
+        if re then
+            frag.edit_set(re, row)
+        end
+    end
+    local frame = ui.GetFrame(frag.FRAME)
+    local group = frame and GET_CHILD_RECURSIVELY(frame, frag.GROUP)
+    if group then
+        local btn = GET_CHILD_RECURSIVELY(group, "nexus_p_frag_auto_btn")
+        if btn then
+            frag.auto_btn_apply(btn, on)
+        end
+        local ce = GET_CHILD_RECURSIVELY(group, "nexus_p_frag_col_edit")
+        if ce then
+            frag.edit_set(ce, col)
+        end
+        local re = GET_CHILD_RECURSIVELY(group, "nexus_p_frag_row_edit")
+        if re then
+            frag.edit_set(re, row)
+        end
+    end
+end
+
+-- 「自動」ボタン(25 個ずつの続きを自動で実行するか)。設定画面と破片化の窓の
+-- 両方から同じ関数を呼ぶ
+function Mini_addons_frag_auto_toggle(frame, ctrl)
+    g.settings.fragmentation = g.settings.fragmentation or {}
+    local on = (g.settings.fragmentation.auto == 1) and 0 or 1
+    g.settings.fragmentation.auto = on
+    Mini_addons_save_settings()
+    frag.sync_controls()
+    core_g.vlog("mini_addons: 破片化 続きの自動実行を %s にした", on == 1 and "ON" or "OFF")
 end
 
 function Mini_addons_frag_col_edit(frame, ctrl)
@@ -1452,6 +1746,11 @@ end
 function Mini_addons_FRAGMENTATION_SET_FILTER_SECTION(frame, tabindex)
     local origin = g.FUNCS["FRAGMENTATION_SET_FILTER_SECTION"]
     local argList = (origin and origin(frame, tabindex)) or {}
+    -- 素が文字を入れた後に差し替える(折り返し対策。frag.own_title 参照)。
+    -- 耳飾りタブ以外と、機能を切ったときは素へ戻す
+    if frag.enabled() or frag.applied then
+        frag.own_title(frame, tabindex)
+    end
     if not frag.enabled() then
         return argList
     end
@@ -1471,36 +1770,513 @@ function Mini_addons_FRAGMENTATION_SET_FILTER_SECTION(frame, tabindex)
     return argList
 end
 
+-- 一覧を作り直した**後**に残っている選択を外す。
+--
+-- 素の FRAGMENTATION_CLEAR_ALL_SLOTS は ClearIconAll と FRAGMENTATION_GUID の消去しか
+-- しておらず、選択フラグを Select(0) していない。ClearIconAll が選択まで落とすかは
+-- C++ 側の話で素の Lua からは分からないが、**落とさないなら実害がある**。
+-- 絞り込みでスロットには別の耳飾りが入り直すので、位置に選択だけが残っていると、
+-- 素は入れ替わった後の GUID を読んで**警告も出さずに違う耳飾りを破片化する**。
+-- 落ちるより厄介なので、分からないなら明示的に外す。
+--
+-- **素を呼んだ後に外すこと。** 詰め直しが終わった時点で選択が残っていれば
+-- 「ClearIconAll は選択を落とさない」が確定するので、そのまま計測を兼ねられる
+-- (落とすなら常に 0 件で、ログにも出ない)。
+--
+-- 素の REFRESH_ALL 自身も CHECK_IS_SELECT_ALL_BEFORE を FALSE へ戻していて、
+-- 「更新 = 選択リセット」のつもりで書かれているので、素の意図とも揃う。
+function frag.drop_stale_selection(frame)
+    local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
+    if not slotset then
+        return
+    end
+    AUTO_CAST(slotset)
+    local cleared = 0
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            slot:Select(0)
+            cleared = cleared + 1
+        end
+    end
+    if cleared > 0 then
+        core_g.vlog("mini_addons: 破片化 一覧の更新後に選択が %d 個残っていたので外した", cleared)
+    end
+    local picked = frag.pick_pending(slotset)
+    if cleared > 0 or picked > 0 then
+        slotset:MakeSelectionList()
+    end
+end
+
+-- 25 個ずつの続き。**実行が終わった直後の更新のときだけ**、前回入り切らなかった
+-- ぶんを選び直す(frag.resume が真のときだけ走る)。
+--
+-- **残っているぶんを全部選び直す**(25 個だけに絞らない)。押すたびに
+-- 「75 → 50 → 25」と減っていく見え方になり、あと何個残っているかが一覧で分かる。
+-- 実際に実行されるのは次に押したときに frag.guard_execute が先頭 25 個へ丸めたぶんで、
+-- 溢れたぶんはそこでまた控えに戻る。
+--
+-- **やるのは選択だけで、実行はしない。** 破片化は取り消せないので、押すのは必ず
+-- 利用者にしてもらう(「自動」が ON のときだけ、下の Mini_addons_frag_auto_exec が押す)。
+--
+-- **覚えているのは GUID で、位置ではない。** 実行が終わると消えたぶんだけ詰め直されて
+-- 並びが変わるので、位置で覚えると別の耳飾りを掴む。GUID なら、利用者が最初に
+-- 選んだ実体そのものだけを選び直せる(見当たらないものは黙って落ちる)。
+function frag.pick_pending(slotset)
+    if frag.pending == nil then
+        return 0
+    end
+    if not frag.resume then
+        -- 実行以外の理由で一覧が作り直された(絞り込み / タブ / 開き直し)。
+        -- 並びも中身も変わっているので、前の意思は持ち越さずここで捨てる。
+        -- **確認ダイアログを閉じただけでは一覧は作り直されない**ので、
+        -- そちらは frag.guard_execute が選択へ戻す
+        frag.forget_pending()
+        return 0
+    end
+    local picked = 0
+    local picked_set = {}
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:GetIcon() ~= nil then
+            local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+            if guid ~= nil and guid ~= "None" and frag.pending[guid] then
+                slot:Select(1)
+                picked_set[guid] = true
+                picked = picked + 1
+            end
+        end
+    end
+    -- 控えは選択そのものへ移したので手放す。見当たらなかったぶん(タブや絞り込みを
+    -- 変えた、他で消費した等)も、ここで一緒に忘れる。黙って抱え続けない
+    frag.forget_pending()
+    if picked == 0 then
+        return 0
+    end
+    local limit = frag.base_max_slot or 25
+    core_g.vlog("mini_addons: 破片化 残り %d 個を選び直した 自動=%s", picked, tostring(frag.auto_enabled()))
+    if frag.auto_enabled() then
+        -- **その場で実行しない。** ここは素の完了処理(ON_FRAGMENTATION_END)の
+        -- 最中なので、同じ流れの中から次の送信を始めると素の後始末と噛み合わない。
+        -- 少し置いてから、改めてボタンを押したのと同じ経路へ入る。
+        -- 連鎖は「完了 → 選び直し → 実行」の輪で回るので、完了が来なければ
+        -- そこで自然に止まる(暴走しない)
+        -- **何を選び直したのかを控える。** 予約から実行までの 0.5 秒の間に利用者が
+        -- 選択を足す / 「すべて選択」を押すことがあり、そのまま実行すると意図しない
+        -- 耳飾りを破片化してしまう(取り消せない)。手で押す経路(frag.guard_execute)は
+        -- 同じ確認をしているので、自動だけ素通しにしない
+        frag.auto_expect, frag.auto_expect_n = picked_set, picked
+        ReserveScript("Mini_addons_frag_auto_exec()", 0.5)
+        return picked
+    end
+    ui.SysMsg(frag.lang(
+        "{ol}{#00BFFF}[Nexus Addons P] 残りの " .. picked ..
+            " 個を選び直しました。もう一度「破片へ変換」を押すと、このうち " .. math.min(picked, limit) ..
+            " 個を実行します",
+        "{ol}{#00BFFF}[Nexus Addons P] 남은 " .. picked .. " 개를 다시 선택했습니다. 「파편화」를 한 번 더 누르면 이 중 " ..
+            math.min(picked, limit) .. " 개를 실행합니다",
+        "{ol}{#00BFFF}[Nexus Addons P] Re-selected the remaining " .. picked ..
+            " - press Fragment again to run " .. math.min(picked, limit) .. " of them"))
+    return picked
+end
+
 -- 素の並べ替え本体。**素をそのまま呼び**、その同期実行の間だけ
 -- shared_item_earring.is_able_to_fragmetation を横取りして自前フィルタで落とす。
 -- 横取りは pcall で失敗した経路も含めて必ず戻すこと(戻し忘れると、以降どの窓でも
 -- 破片化の対象判定が壊れる)。
+--
+-- 並べ終えたら frag.drop_stale_selection を必ず 1 回通す(どの経路からでも)。
 function Mini_addons_FRAGMENTATION_SHOW_TARGETS_FROM_INV(frame, tabindex, argList)
     local origin = g.FUNCS["FRAGMENTATION_SHOW_TARGETS_FROM_INV"]
     if not origin then
         return
     end
+    -- **枠を広げている間だけ**後始末をする(素の窓に触っていない利用者の挙動は変えない)
+    local sweep = frag.enabled() or frag.applied
     local state = nil
     if frag.enabled() and tabindex == 0 and type(shared_item_earring) == "table" then
         state = frag.filter_state(frame)
     end
-    if not state then
-        return origin(frame, tabindex, argList)
-    end
-    local able = shared_item_earring.is_able_to_fragmetation
-    if type(able) ~= "function" then
-        return origin(frame, tabindex, argList)
-    end
-    shared_item_earring.is_able_to_fragmetation = function(item)
-        if able(item) == false then
-            return false
+    local able = nil
+    if state then
+        able = shared_item_earring.is_able_to_fragmetation
+        if type(able) ~= "function" then
+            able, state = nil, nil
         end
-        return frag.pass(item, state)
+    end
+    if state then
+        shared_item_earring.is_able_to_fragmetation = function(item)
+            if able(item) == false then
+                return false
+            end
+            return frag.pass(item, state)
+        end
     end
     local ok, err = pcall(origin, frame, tabindex, argList)
-    shared_item_earring.is_able_to_fragmetation = able
+    if state then
+        shared_item_earring.is_able_to_fragmetation = able
+    end
     if not ok then
         core_g.vlog("{#FF6347}mini_addons: 破片化の一覧作成 FAILED{/} %s", tostring(err))
+    end
+    if sweep then
+        frag.drop_stale_selection(frame)
+    end
+end
+
+-- 「自動」が ON のとき、選び直した続きをそのまま実行する。
+-- **押したのと同じ経路を通す**(素の FRAGMENTATION_EXECUTE = こちらのフック)ので、
+-- 枚数の頭打ちも素の確認ダイアログもそのまま効く。
+function Mini_addons_frag_auto_exec()
+    if not frag.auto_enabled() then
+        return
+    end
+    local frame = ui.GetFrame(frag.FRAME)
+    -- 待っている間に窓を閉じられていたら止める
+    if not frame or frame:IsVisible() == 0 then
+        core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(窓が閉じている)")
+        frag.forget_pending()
+        return
+    end
+    local btn = GET_CHILD_RECURSIVELY(frame, "exec_fragmentation")
+    if not btn then
+        core_g.vlog("{#FF6347}mini_addons: 破片化 実行ボタンが見つからないので自動実行しない{/}")
+        return
+    end
+    local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
+    if not slotset then
+        return
+    end
+    AUTO_CAST(slotset)
+    local selected = 0
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            selected = selected + 1
+        end
+    end
+    -- 選び直しの後に利用者が全部外していたら、何もしない
+    if selected == 0 then
+        core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(選択が 0)")
+        frag.auto_expect, frag.auto_expect_n = nil, nil
+        return
+    end
+    -- **選び直したものと今の選択が一致するときだけ実行する。**
+    -- 待っている間に利用者が選択を変えていたら、こちらの都合で実行しない
+    -- **控えは先に手元へ取ってから消すこと**(消した後に読むと必ず nil になる)
+    local expect, expect_n = frag.auto_expect, frag.auto_expect_n
+    frag.auto_expect, frag.auto_expect_n = nil, nil
+    local same = (expect ~= nil and selected == expect_n)
+    if expect ~= nil then
+        for i = 0, slotset:GetSlotCount() - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:IsSelected() == 1 then
+                local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                if guid == nil or guid == "None" or not expect[guid] then
+                    same = false
+                end
+            end
+        end
+    else
+        same = false
+    end
+    if not same then
+        core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(選択が変わっている 選択=%d)", selected)
+        ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 選択が変わったので自動実行を止めました。ご自身で「破片へ変換」を押してください",
+            "{ol}{#00BFFF}[Nexus Addons P] 선택이 바뀌어 자동 실행을 멈췄습니다. 직접 「파편화」를 눌러 주세요",
+            "{ol}{#00BFFF}[Nexus Addons P] Selection changed - auto run stopped. Press Fragment yourself"))
+        frag.forget_pending()
+        return
+    end
+    core_g.vlog("mini_addons: 破片化 続きを自動で実行する 選択=%d", selected)
+    local ok, err = pcall(FRAGMENTATION_EXECUTE, btn, btn)
+    if not ok then
+        core_g.vlog("{#FF6347}mini_addons: 破片化の自動実行が FAILED{/} %s", tostring(err))
+        frag.forget_pending()
+    end
+end
+
+-- 素の実行(破片へ変換)の直前に、**落ちる形になっているスロットを取り除く**。
+--
+-- 素の FRAGMENTATION_EXECUTE は
+--   for i=0, shared_item_earring.MAX_SLOT_CNT-1 do
+--       local slot = slotSet:GetSlotByIndex(i)
+--       if slot:IsSelected()==1 then
+--           local icon = slot:GetIcon(); local iconInfo = icon:GetInfo()
+-- という作りで、次の 2 つをどちらも見ていない。
+--   (a) 選択されているのにアイコンが無いスロット … icon が nil のまま GetInfo を呼ぶ
+--   (b) スロット数より MAX_SLOT_CNT が多い状態 … GetSlotByIndex が nil を返す
+-- (b) は MAX_SLOT_CNT をこちらが書き換えているぶん、こちらの責任でもある。
+--
+-- ここはボタンのイベントスクリプトなので、落ちても debug_log.txt には残らない
+-- (あれは RegisterMsg 経由の分しか記録しない)。**そのため計測値を vlog へ出す。**
+-- 残骸が 1 つでも出れば「ClearIconAll は選択を落とさない」が実証され、
+-- 常に 0 なら原因は別だと分かる。押したときだけ通る経路なので出しすぎにはならない。
+function frag.guard_execute(frame)
+    local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
+    if not slotset then
+        return
+    end
+    AUTO_CAST(slotset)
+    local count = slotset:GetSlotCount()
+    -- **前回の実行が始まらなかったぶんを、選択へ戻してから数える。**
+    -- 素は延性値 / リロール回数を持つものが 1 つでもあると ui.MsgBox を出して実行を
+    -- 委ねるので、「いいえ」で閉じると実行は起きない = FRAGMENTATION_END も来ない。
+    -- ここで戻さないと、直前に「終わったら選び直します」と伝えた超過分が、次に押した
+    -- ときの覚え直しで黙って消える(利用者は手で選び直すことになる)。
+    -- 退避は一覧が作り直されると捨てるので(frag.pick_pending)、ここへ残っているのは
+    -- 「まだ一度も実行に移れていない、同じ一覧に対する意思」だけ。
+    local restored = 0
+    if frag.pending ~= nil then
+        -- **利用者が選び直していたら、退避は捨てる。** 確認ダイアログを「いいえ」で
+        -- 閉じた後に選択を組み替えてから押し直した場合、黙って古い選択を足し戻すと
+        -- **外したはずの耳飾りを破片化してしまう**(取り消せない)。前回そのまま実行
+        -- しようとしていた顔ぶれ(frag.pending_kept)と今の選択が一致するときだけ、
+        -- 「同じ意思の続き」と見なす
+        local same = (frag.pending_kept ~= nil)
+        local now = 0
+        for i = 0, count - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:IsSelected() == 1 then
+                now = now + 1
+                local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                if guid == nil or guid == "None" or not (frag.pending_kept and frag.pending_kept[guid]) then
+                    same = false
+                end
+            end
+        end
+        if not same or now ~= (frag.pending_kept_n or -1) then
+            core_g.vlog("mini_addons: 破片化 選択が変わっているので退避(%d 個)を捨てる", frag.pending_n or 0)
+            frag.forget_pending()
+        end
+    end
+    if frag.pending ~= nil then
+        for i = 0, count - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:GetIcon() ~= nil and slot:IsSelected() == 0 then
+                local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                if guid ~= nil and guid ~= "None" and frag.pending[guid] then
+                    slot:Select(1)
+                    restored = restored + 1
+                end
+            end
+        end
+        if restored > 0 then
+            core_g.vlog("mini_addons: 破片化 実行に移れていなかった %d 個を選択へ戻した", restored)
+        end
+    end
+    local selected, residue = 0, 0
+    for i = 0, count - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            if slot:GetIcon() == nil then
+                slot:Select(0) -- (a) これが残っていると素が nil を触って落ちる
+                residue = residue + 1
+            else
+                selected = selected + 1
+            end
+        end
+    end
+    -- 素はこの後、選択スロットごとに GUID からインベントリの実体を引き直す。
+    --   local targetinvitem = session.GetInvItemByGuid(guid)
+    --   local targetitemobj = GetIES(targetinvitem:GetObject());
+    -- ここも **nil を確かめずに触る**ので、引けない GUID が 1 つでもあると落ちる。
+    -- 同じ GUID が 2 つのスロットに乗っていると session.AddItemID が二重に積まれる。
+    -- どちらも枠を広げて枚数が増えるほど当たりやすくなるので、手前で数えて外す。
+    local unresolved, duplicated = 0, 0
+    local seen = {}
+    for i = 0, count - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+            if guid == nil or guid == "None" then
+                slot:Select(0)
+                unresolved = unresolved + 1
+                selected = selected - 1
+            elseif seen[guid] then
+                slot:Select(0) -- 2 枚目以降は外す(素は同じ実体を二重に積んでしまう)
+                duplicated = duplicated + 1
+                selected = selected - 1
+            else
+                seen[guid] = true
+                local inv_item = session.GetInvItemByGuid(guid)
+                local obj = inv_item and GetIES(inv_item:GetObject())
+                if not obj then
+                    slot:Select(0)
+                    unresolved = unresolved + 1
+                    selected = selected - 1
+                end
+            end
+        end
+    end
+    -- **一度に送れる枚数の頭打ち。** 素は shared_item_earring.MAX_SLOT_CNT(既定 25)を
+    -- 前提に組まれていて、FRAGMENTATION_EXECUTE の
+    --   if slotCnt > shared_item_earring.MAX_SLOT_CNT then return end
+    -- が「枠より多い枚数は実行させない」歯止めになっている。こちらは枠を広げるために
+    -- この上限を col*row へ書き換えるので、その歯止めが外れる。
+    --
+    -- **100 件を選んで実行するとクライアントが落ちる**(実機で再現・2026-09-11)。
+    -- 素の Lua は最後まで通り、session.AddItemID も 100 件積み終えて
+    -- _FRAGMENTATION_EXECUTE まで到達する。落ちているのはその先の
+    -- item.DialogTransaction("FRAGMENTATION_BUNDLE_ITEMS", ...) で、pcall で包んでも
+    -- Lua エラーは出ない = ネイティブ側。よってクライアントからは枚数で避けるしかない。
+    --
+    -- 上限は**素が持っていた値**(frag.base_max_slot)を使う。25 を直書きすると、
+    -- IMC が素の上限を変えたときに付いていけない。
+    local limit = frag.base_max_slot or 25
+    local trimmed = 0
+    -- 押すたびに覚え直す(前回の積み残しを引きずらない)。ここに入るのは
+    -- **利用者が今まさに選んでいたものの GUID** だけで、位置では覚えない。
+    -- 位置で覚えると、実行後に詰め直された別の耳飾りを掴んでしまう
+    frag.forget_pending()
+    if selected > limit then
+        local kept = 0
+        local keep_set = {}
+        local rest = {}
+        local rest_n = 0
+        for i = 0, count - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:IsSelected() == 1 then
+                if kept < limit then
+                    kept = kept + 1
+                    local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                    if guid ~= nil and guid ~= "None" then
+                        keep_set[guid] = true
+                    end
+                else
+                    local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                    if guid ~= nil and guid ~= "None" then
+                        rest[guid] = true
+                        rest_n = rest_n + 1
+                    end
+                    slot:Select(0)
+                    trimmed = trimmed + 1
+                end
+            end
+        end
+        selected = kept
+        if rest_n > 0 then
+            frag.pending = rest
+            frag.pending_n = rest_n
+            -- 次に押されたとき「選び直されていないか」を見るための控え
+            frag.pending_kept = keep_set
+            frag.pending_kept_n = kept
+        end
+        -- **黙って減らさない。** 選んだつもりの枚数と実行される枚数が食い違うので、
+        -- 何個だけ実行するのか・残りはどうすればよいのかをその場で伝える
+        -- **「自動」の ON / OFF で言うことが変わるので、3 言語とも分岐させること。**
+        -- 片方だけ直すと、その言語の利用者だけが「押してください」を知らされないまま
+        -- 待ち続ける(逆に、自動なのに押してくださいと言われる)
+        local auto = frag.auto_enabled()
+        ui.SysMsg(frag.lang(
+            "{ol}{#00BFFF}[Nexus Addons P] 一度に破片化できるのは " .. limit ..
+            " 個までです。先頭の " .. limit .. " 個を実行します(残り " .. trimmed ..
+            (auto and " 個は、終わったら自動で続けます)" or
+                " 個は、終わったら選び直すので、もう一度押してください)"),
+            "{ol}{#00BFFF}[Nexus Addons P] 한 번에 파편화할 수 있는 것은 " .. limit ..
+            " 개까지입니다. 앞의 " .. limit .. " 개를 실행합니다(남은 " .. trimmed ..
+            (auto and " 개는 끝나면 자동으로 이어서 진행합니다)" or
+                " 개는 끝나면 다시 선택하므로 한 번 더 눌러 주세요)"),
+            "{ol}{#00BFFF}[Nexus Addons P] Only " .. limit ..
+            " items can be fragmented at once. Running the first " .. limit .. " (the remaining " ..
+            trimmed .. (auto and " continue automatically when it finishes)" or
+                " are re-selected when it finishes - press Fragment again)")))
+    end
+    if residue > 0 or unresolved > 0 or duplicated > 0 or trimmed > 0 or restored > 0 then
+        slotset:MakeSelectionList()
+    end
+    -- (b) 素は MAX_SLOT_CNT までを回すので、実際のスロット数より多いと nil を掴む。
+    -- 上げたのはこちらなので、実際の枚数へ合わせ直す(素は slotCnt > MAX なら
+    -- 何もせず戻る作りなので、減らす方向へ丸めてはいけない)
+    local max_slot = type(shared_item_earring) == "table" and shared_item_earring.MAX_SLOT_CNT or nil
+    if max_slot ~= nil and max_slot ~= count then
+        shared_item_earring.MAX_SLOT_CNT = count
+    end
+    core_g.vlog(
+        "mini_addons: 破片化 実行前 スロット=%d 選択=%d 空の選択=%d 引けないGUID=%d 重複GUID=%d 減らした=%d 一度の上限=%d 枠の上限=%s",
+        count, selected, residue, unresolved, duplicated, trimmed, limit, tostring(max_slot))
+end
+
+-- 素の実行。**素の中身は写さず**、上の後始末をしてから素へ渡す
+function Mini_addons_FRAGMENTATION_EXECUTE(parent, ctrl)
+    local origin = g.FUNCS["FRAGMENTATION_EXECUTE"]
+    -- **枠を広げている間だけ**触る(素の窓しか使っていない利用者の挙動は変えない)
+    if frag.enabled() or frag.applied then
+        local frame = ui.GetFrame(frag.FRAME)
+        if frame then
+            local ok, err = pcall(frag.guard_execute, frame)
+            if not ok then
+                -- **素へ進めないこと。** guard_execute は最後で MAX_SLOT_CNT を選択数へ
+                -- 合わせ直すので、途中で落ちると枠を広げたままの大きい値が残る。
+                -- 素の「枠より多い枚数は実行させない」歯止めも効かないまま実行へ入り、
+                -- この修正が塞いだはずの「大量選択で落ちる」状態がそのまま再現する
+                core_g.vlog("{#FF6347}mini_addons: 破片化の実行前チェック FAILED{/} %s", tostring(err))
+                ui.SysMsg(frag.lang("{ol}{#FF6347}[Nexus Addons P] 破片化の準備に失敗したので実行を中止しました。選び直してもう一度お試しください",
+                    "{ol}{#FF6347}[Nexus Addons P] 파편화 준비에 실패하여 실행을 중단했습니다. 다시 선택해 주세요",
+                    "{ol}{#FF6347}[Nexus Addons P] Preparation failed - execution cancelled. Please re-select and try again"))
+                frag.forget_pending()
+                return
+            end
+        end
+    end
+    if not origin then
+        return
+    end
+    -- **素を pcall で包む。** ボタンのイベントスクリプトで落ちると debug_log.txt にも
+    -- 何も残らない(あれは RegisterMsg 経由の分だけ)ので、Lua エラーならここで捕まえる。
+    -- 握り潰さず必ずログに出すこと
+    local ok, err = pcall(origin, parent, ctrl)
+    if not ok then
+        core_g.vlog("{#FF6347}mini_addons: 破片化の実行(素)が FAILED{/} %s", tostring(err))
+        return
+    end
+    core_g.vlog("mini_addons: 破片化 素の実行から戻った")
+end
+
+-- 素の送信本体(確認ダイアログの「はい」からも呼ばれる)。
+-- **素は写さない。** 何件をまとめて送ろうとしたかだけ記録して素へ渡す
+function Mini_addons__FRAGMENTATION_EXECUTE(tab_index)
+    local origin = g.FUNCS["_FRAGMENTATION_EXECUTE"]
+    if not origin then
+        return
+    end
+    local cnt = "?"
+    -- **関数を渡さず、ここで呼ぶこと。** pcall(session.GetItemIDList) と書くと
+    -- docs/vanilla_api.py の検査が「素の API を使っている」と見なせず、一覧に載らない
+    local ok_list, list = pcall(function()
+        return session.GetItemIDList()
+    end)
+    if ok_list and list ~= nil then
+        local ok_cnt, n = pcall(function()
+            return list:Count()
+        end)
+        if ok_cnt then
+            cnt = tostring(n)
+        end
+    end
+    core_g.vlog("mini_addons: 破片化 送信する tab=%s 件数=%s", tostring(tab_index), cnt)
+    local ok, err = pcall(origin, tab_index)
+    if not ok then
+        core_g.vlog("{#FF6347}mini_addons: 破片化の送信(素)が FAILED{/} %s", tostring(err))
+        return
+    end
+    core_g.vlog("mini_addons: 破片化 送信から戻った")
+end
+
+-- 素は破片化が終わると一覧を作り直す。**その更新のときだけ**続きを選び直したいので、
+-- ここで印を立てる(絞り込みやタブ切り替えの更新では立てない = 続きは選ばれない)。
+-- 立てたら必ず倒すこと。倒し忘れると、以降どの更新でも勝手に選択が付く
+function Mini_addons_ON_FRAGMENTATION_END(frame)
+    local origin = g.FUNCS["ON_FRAGMENTATION_END"]
+    frag.resume = true
+    local ok, err = pcall(function()
+        if origin then
+            origin(frame)
+        end
+    end)
+    frag.resume = false
+    if not ok then
+        core_g.vlog("{#FF6347}mini_addons: 破片化の完了処理(素)が FAILED{/} %s", tostring(err))
     end
 end
 
@@ -1510,6 +2286,8 @@ function Mini_addons_FRAGMENTATION_CLOSE(frame)
     if origin then
         origin(frame)
     end
+    -- 閉じたら続きは忘れる(次に開いたときに勝手に選択が付かないように)
+    frag.forget_pending()
     Mini_addons_frag_keep_close()
 end
 
@@ -1549,6 +2327,9 @@ function Mini_addons_FRAGMENTATION_BUNDLE_FAILED(frame, msg, str, num)
         return
     end
     local col, row = frag.col_row()
+    -- **失敗したら続きは抱えない。** 何が起きたか分からない状態で次の 25 個を
+    -- 選び直すと、利用者が意図しない実行につながる
+    frag.forget_pending()
     core_g.vlog("{#FF6347}mini_addons: 破片化に失敗(枠 %dx%d = %d 枚に拡張中){/}", col, row, col * row)
 end
 
@@ -1563,5 +2344,17 @@ function Mini_addons_frag_setup()
     g.setup_hook(Mini_addons_FRAGMENTATION_SHOW_TARGETS_FROM_INV, "FRAGMENTATION_SHOW_TARGETS_FROM_INV")
     g.setup_hook(Mini_addons_FRAGMENTATION_INIT_FILTER, "FRAGMENTATION_INIT_FILTER")
     g.setup_hook(Mini_addons_FRAGMENTATION_CLOSE, "FRAGMENTATION_CLOSE")
+    -- 素の実行ボタン。**素が nil を触って落ちるのを手前で止める**(frag.guard_execute)
+    if type(_G["FRAGMENTATION_EXECUTE"]) == "function" then
+        g.setup_hook(Mini_addons_FRAGMENTATION_EXECUTE, "FRAGMENTATION_EXECUTE")
+        if type(_G["_FRAGMENTATION_EXECUTE"]) == "function" then
+            g.setup_hook(Mini_addons__FRAGMENTATION_EXECUTE, "_FRAGMENTATION_EXECUTE")
+        end
+        if type(_G["ON_FRAGMENTATION_END"]) == "function" then
+            g.setup_hook(Mini_addons_ON_FRAGMENTATION_END, "ON_FRAGMENTATION_END")
+        end
+    else
+        core_g.vlog("mini_addons: FRAGMENTATION_EXECUTE が無いので実行前チェックは掛けない")
+    end
     core_g.register_msg("FRAGMENTATION_BUNDLE_ITEMS_FAILED", "Mini_addons_FRAGMENTATION_BUNDLE_FAILED")
 end
