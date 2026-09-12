@@ -101,6 +101,13 @@ function frag.enabled()
     return cfg ~= nil and cfg.use == 1
 end
 
+-- 続き(入り切らなかったぶん)の控えを手放す。**控えは 2 つで 1 組**なので、
+-- 片方だけ消すと「選び直されたか」の判定が狂う。捨てるときは必ずここを通すこと
+function frag.forget_pending()
+    frag.pending, frag.pending_n = nil, nil
+    frag.pending_kept, frag.pending_kept_n = nil, nil
+end
+
 -- 25 個ずつの続きを自動で実行するか。**既定は OFF**(設定画面の「自動」ボタン)。
 -- 破片化は取り消せないので、押すのを省くかどうかは利用者に決めてもらう
 function frag.auto_enabled()
@@ -488,6 +495,12 @@ function Mini_addons_frag_apply(frame)
             shared_item_earring.MAX_SLOT_CNT = frag.base_max_slot
         end
         frame:SetLayerLevel(frag.base.layer)
+        -- **見出しはここで素へ戻すこと。** この後の FRAGMENTATION_REFRESH_ALL で走る
+        -- Mini_addons_FRAGMENTATION_SET_FILTER_SECTION は「enabled か applied のとき」
+        -- しか見出しに触らないが、その時点では既に両方 false なので一度も呼ばれない。
+        -- 素の SET_FILTER_SECTION も SetTextByKey するだけで ShowWindow(1) はしないため、
+        -- ここで戻さないと**隠した素の見出しがセッション中ずっと消えたまま**になる
+        frag.own_title(frame, nil)
         frag.applied = false -- 素へ戻したので、次からはまた触らない
     end
     local slot_h = row * (slot + frag.SPC)
@@ -1781,7 +1794,7 @@ function frag.pick_pending(slotset)
         -- 並びも中身も変わっているので、前の意思は持ち越さずここで捨てる。
         -- **確認ダイアログを閉じただけでは一覧は作り直されない**ので、
         -- そちらは frag.guard_execute が選択へ戻す
-        frag.pending, frag.pending_n = nil, nil
+        frag.forget_pending()
         return 0
     end
     local picked = 0
@@ -1797,7 +1810,7 @@ function frag.pick_pending(slotset)
     end
     -- 控えは選択そのものへ移したので手放す。見当たらなかったぶん(タブや絞り込みを
     -- 変えた、他で消費した等)も、ここで一緒に忘れる。黙って抱え続けない
-    frag.pending, frag.pending_n = nil, nil
+    frag.forget_pending()
     if picked == 0 then
         return 0
     end
@@ -1878,7 +1891,7 @@ function Mini_addons_frag_auto_exec()
     -- 待っている間に窓を閉じられていたら止める
     if not frame or frame:IsVisible() == 0 then
         core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(窓が閉じている)")
-        frag.pending, frag.pending_n = nil, nil
+        frag.forget_pending()
         return
     end
     local btn = GET_CHILD_RECURSIVELY(frame, "exec_fragmentation")
@@ -1907,7 +1920,7 @@ function Mini_addons_frag_auto_exec()
     local ok, err = pcall(FRAGMENTATION_EXECUTE, btn, btn)
     if not ok then
         core_g.vlog("{#FF6347}mini_addons: 破片化の自動実行が FAILED{/} %s", tostring(err))
-        frag.pending, frag.pending_n = nil, nil
+        frag.forget_pending()
     end
 end
 
@@ -1942,6 +1955,29 @@ function frag.guard_execute(frame)
     -- 退避は一覧が作り直されると捨てるので(frag.pick_pending)、ここへ残っているのは
     -- 「まだ一度も実行に移れていない、同じ一覧に対する意思」だけ。
     local restored = 0
+    if frag.pending ~= nil then
+        -- **利用者が選び直していたら、退避は捨てる。** 確認ダイアログを「いいえ」で
+        -- 閉じた後に選択を組み替えてから押し直した場合、黙って古い選択を足し戻すと
+        -- **外したはずの耳飾りを破片化してしまう**(取り消せない)。前回そのまま実行
+        -- しようとしていた顔ぶれ(frag.pending_kept)と今の選択が一致するときだけ、
+        -- 「同じ意思の続き」と見なす
+        local same = (frag.pending_kept ~= nil)
+        local now = 0
+        for i = 0, count - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:IsSelected() == 1 then
+                now = now + 1
+                local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                if guid == nil or guid == "None" or not (frag.pending_kept and frag.pending_kept[guid]) then
+                    same = false
+                end
+            end
+        end
+        if not same or now ~= (frag.pending_kept_n or -1) then
+            core_g.vlog("mini_addons: 破片化 選択が変わっているので退避(%d 個)を捨てる", frag.pending_n or 0)
+            frag.forget_pending()
+        end
+    end
     if frag.pending ~= nil then
         for i = 0, count - 1 do
             local slot = slotset:GetSlotByIndex(i)
@@ -2020,9 +2056,10 @@ function frag.guard_execute(frame)
     -- 押すたびに覚え直す(前回の積み残しを引きずらない)。ここに入るのは
     -- **利用者が今まさに選んでいたものの GUID** だけで、位置では覚えない。
     -- 位置で覚えると、実行後に詰め直された別の耳飾りを掴んでしまう
-    frag.pending, frag.pending_n = nil, nil
+    frag.forget_pending()
     if selected > limit then
         local kept = 0
+        local keep_set = {}
         local rest = {}
         local rest_n = 0
         for i = 0, count - 1 do
@@ -2030,6 +2067,10 @@ function frag.guard_execute(frame)
             if slot and slot:IsSelected() == 1 then
                 if kept < limit then
                     kept = kept + 1
+                    local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                    if guid ~= nil and guid ~= "None" then
+                        keep_set[guid] = true
+                    end
                 else
                     local guid = slot:GetUserValue("FRAGMENTATION_GUID")
                     if guid ~= nil and guid ~= "None" then
@@ -2045,6 +2086,9 @@ function frag.guard_execute(frame)
         if rest_n > 0 then
             frag.pending = rest
             frag.pending_n = rest_n
+            -- 次に押されたとき「選び直されていないか」を見るための控え
+            frag.pending_kept = keep_set
+            frag.pending_kept_n = kept
         end
         -- **黙って減らさない。** 選んだつもりの枚数と実行される枚数が食い違うので、
         -- 何個だけ実行するのか・残りはどうすればよいのかをその場で伝える
@@ -2090,7 +2134,16 @@ function Mini_addons_FRAGMENTATION_EXECUTE(parent, ctrl)
         if frame then
             local ok, err = pcall(frag.guard_execute, frame)
             if not ok then
+                -- **素へ進めないこと。** guard_execute は最後で MAX_SLOT_CNT を選択数へ
+                -- 合わせ直すので、途中で落ちると枠を広げたままの大きい値が残る。
+                -- 素の「枠より多い枚数は実行させない」歯止めも効かないまま実行へ入り、
+                -- この修正が塞いだはずの「大量選択で落ちる」状態がそのまま再現する
                 core_g.vlog("{#FF6347}mini_addons: 破片化の実行前チェック FAILED{/} %s", tostring(err))
+                ui.SysMsg(frag.lang("{ol}{#FF6347}[Nexus Addons P] 破片化の準備に失敗したので実行を中止しました。選び直してもう一度お試しください",
+                    "{ol}{#FF6347}[Nexus Addons P] 파편화 준비에 실패하여 실행을 중단했습니다. 다시 선택해 주세요",
+                    "{ol}{#FF6347}[Nexus Addons P] Preparation failed - execution cancelled. Please re-select and try again"))
+                frag.forget_pending()
+                return
             end
         end
     end
@@ -2158,7 +2211,7 @@ function Mini_addons_FRAGMENTATION_CLOSE(frame)
         origin(frame)
     end
     -- 閉じたら続きは忘れる(次に開いたときに勝手に選択が付かないように)
-    frag.pending, frag.pending_n = nil, nil
+    frag.forget_pending()
     Mini_addons_frag_keep_close()
 end
 
@@ -2200,7 +2253,7 @@ function Mini_addons_FRAGMENTATION_BUNDLE_FAILED(frame, msg, str, num)
     local col, row = frag.col_row()
     -- **失敗したら続きは抱えない。** 何が起きたか分からない状態で次の 25 個を
     -- 選び直すと、利用者が意図しない実行につながる
-    frag.pending, frag.pending_n = nil, nil
+    frag.forget_pending()
     core_g.vlog("{#FF6347}mini_addons: 破片化に失敗(枠 %dx%d = %d 枚に拡張中){/}", col, row, col * row)
 end
 
