@@ -227,8 +227,11 @@ function frag.own_title(frame, tabindex)
     end
     local own = GET_CHILD_RECURSIVELY(box, frag.TITLE_BOX)
     local text = frag.enabled() and frag.title_text(tabindex) or nil
-    -- 耳飾りタブは自前の行が見出しごと描くので、素の入れ物は丸ごと隠す
-    if frag.enabled() and tabindex == 0 then
+    -- 耳飾りタブは自前の行が見出しごと描くので、素の入れ物は丸ごと隠す。
+    -- **ただし自前の行が在るときだけ。** 行を作るのは Mini_addons_frag_apply の
+    -- capture_base が通ったときだけなので、失敗した経路で隠してしまうと
+    -- 「素の見出しは消えているのに自前の見出しも無い」= 見出しが消える
+    if frag.enabled() and tabindex == 0 and GET_CHILD_RECURSIVELY(frame, frag.GROUP) ~= nil then
         box:ShowWindow(0)
         return
     end
@@ -560,6 +563,27 @@ function frag.read_number(ctrl)
     return tonumber(plain)
 end
 
+-- 破片化の窓で今いくつ選ばれているか(窓が出ていなければ 0)
+function frag.count_selected()
+    local frame = ui.GetFrame(frag.FRAME)
+    if not frame or frame:IsVisible() == 0 then
+        return 0
+    end
+    local slotset = GET_CHILD_RECURSIVELY(frame, "fragmentation_slotset", "ui::CSlotSet")
+    if not slotset then
+        return 0
+    end
+    AUTO_CAST(slotset)
+    local n = 0
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        if slot and slot:IsSelected() == 1 then
+            n = n + 1
+        end
+    end
+    return n
+end
+
 function frag.edit_apply(ctrl, key, def, high)
     local value = frag.read_number(ctrl)
     g.settings.fragmentation = g.settings.fragmentation or {}
@@ -580,6 +604,19 @@ function frag.edit_apply(ctrl, key, def, high)
     end
     value = frag.clamp(value, 1, high)
     frag.edit_set(ctrl, value)
+    -- **選択が消えることを黙って起こさない。** 枠を変えるとスロットを作り直すので、
+    -- 選んでいたものは全部外れる(一覧の作り直しで frag.drop_stale_selection を通る)。
+    -- 入力欄が破片化の窓の中にも在るので、選び終えてから触ってしまうことがある
+    if value ~= (g.settings.fragmentation[key] or def) then
+        local cleared = frag.count_selected()
+        if cleared > 0 then
+            ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 枠を変えたので、選んでいた " .. cleared ..
+                                    " 個の選択は解除されました",
+                "{ol}{#00BFFF}[Nexus Addons P] 칸을 바꿨으므로 선택했던 " .. cleared .. " 개는 해제되었습니다",
+                "{ol}{#00BFFF}[Nexus Addons P] Grid changed - the " .. cleared ..
+                    " items you had selected were deselected"))
+        end
+    end
     g.settings.fragmentation[key] = value
     Mini_addons_save_settings()
     -- 設定画面と窓の両方へ当て直す(窓が開いていなければ次に開いたときに載る)
@@ -1798,12 +1835,14 @@ function frag.pick_pending(slotset)
         return 0
     end
     local picked = 0
+    local picked_set = {}
     for i = 0, slotset:GetSlotCount() - 1 do
         local slot = slotset:GetSlotByIndex(i)
         if slot and slot:GetIcon() ~= nil then
             local guid = slot:GetUserValue("FRAGMENTATION_GUID")
             if guid ~= nil and guid ~= "None" and frag.pending[guid] then
                 slot:Select(1)
+                picked_set[guid] = true
                 picked = picked + 1
             end
         end
@@ -1822,6 +1861,11 @@ function frag.pick_pending(slotset)
         -- 少し置いてから、改めてボタンを押したのと同じ経路へ入る。
         -- 連鎖は「完了 → 選び直し → 実行」の輪で回るので、完了が来なければ
         -- そこで自然に止まる(暴走しない)
+        -- **何を選び直したのかを控える。** 予約から実行までの 0.5 秒の間に利用者が
+        -- 選択を足す / 「すべて選択」を押すことがあり、そのまま実行すると意図しない
+        -- 耳飾りを破片化してしまう(取り消せない)。手で押す経路(frag.guard_execute)は
+        -- 同じ確認をしているので、自動だけ素通しにしない
+        frag.auto_expect, frag.auto_expect_n = picked_set, picked
         ReserveScript("Mini_addons_frag_auto_exec()", 0.5)
         return picked
     end
@@ -1914,6 +1958,34 @@ function Mini_addons_frag_auto_exec()
     -- 選び直しの後に利用者が全部外していたら、何もしない
     if selected == 0 then
         core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(選択が 0)")
+        frag.auto_expect, frag.auto_expect_n = nil, nil
+        return
+    end
+    -- **選び直したものと今の選択が一致するときだけ実行する。**
+    -- 待っている間に利用者が選択を変えていたら、こちらの都合で実行しない
+    -- **控えは先に手元へ取ってから消すこと**(消した後に読むと必ず nil になる)
+    local expect, expect_n = frag.auto_expect, frag.auto_expect_n
+    frag.auto_expect, frag.auto_expect_n = nil, nil
+    local same = (expect ~= nil and selected == expect_n)
+    if expect ~= nil then
+        for i = 0, slotset:GetSlotCount() - 1 do
+            local slot = slotset:GetSlotByIndex(i)
+            if slot and slot:IsSelected() == 1 then
+                local guid = slot:GetUserValue("FRAGMENTATION_GUID")
+                if guid == nil or guid == "None" or not expect[guid] then
+                    same = false
+                end
+            end
+        end
+    else
+        same = false
+    end
+    if not same then
+        core_g.vlog("mini_addons: 破片化 自動実行を取りやめ(選択が変わっている 選択=%d)", selected)
+        ui.SysMsg(frag.lang("{ol}{#00BFFF}[Nexus Addons P] 選択が変わったので自動実行を止めました。ご自身で「破片へ変換」を押してください",
+            "{ol}{#00BFFF}[Nexus Addons P] 선택이 바뀌어 자동 실행을 멈췄습니다. 직접 「파편화」를 눌러 주세요",
+            "{ol}{#00BFFF}[Nexus Addons P] Selection changed - auto run stopped. Press Fragment yourself"))
+        frag.forget_pending()
         return
     end
     core_g.vlog("mini_addons: 破片化 続きを自動で実行する 選択=%d", selected)
@@ -2169,7 +2241,11 @@ function Mini_addons__FRAGMENTATION_EXECUTE(tab_index)
         return
     end
     local cnt = "?"
-    local ok_list, list = pcall(session.GetItemIDList)
+    -- **関数を渡さず、ここで呼ぶこと。** pcall(session.GetItemIDList) と書くと
+    -- docs/vanilla_api.py の検査が「素の API を使っている」と見なせず、一覧に載らない
+    local ok_list, list = pcall(function()
+        return session.GetItemIDList()
+    end)
     if ok_list and list ~= nil then
         local ok_cnt, n = pcall(function()
             return list:Count()
