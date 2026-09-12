@@ -174,7 +174,9 @@ local function create_setting_row(gbox, setting, y)
                                     "{ol}X = 가로 개수(열) 1~10 기본 5" or "{ol}X = columns 1~10 Default 5")
         col_edit:SetFontName("white_16_ol")
         col_edit:SetTextAlign("center", "center")
-        col_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.col) or 5))
+        -- **{ol} を混ぜない**(混ぜると GetText がそのまま返し、次の Enter で
+        -- 「無効な値」と見なされて既定へ戻る)。縁取りは上の SetFontName が受け持つ
+        col_edit:SetText(tostring((g.settings.fragmentation and g.settings.fragmentation.col) or 5))
         local row_label = gbox:CreateOrGetControl("richtext", "fragmentation_row_text", right + 87, y + 3, 14, 25)
         AUTO_CAST(row_label)
         row_label:SetText("{ol}Y")
@@ -185,8 +187,29 @@ local function create_setting_row(gbox, setting, y)
                                     "{ol}Y = 세로 개수(행) 1~10 기본 5" or "{ol}Y = rows 1~10 Default 5")
         row_edit:SetFontName("white_16_ol")
         row_edit:SetTextAlign("center", "center")
-        row_edit:SetText("{ol}" .. ((g.settings.fragmentation and g.settings.fragmentation.row) or 5))
-        right = right + 104 + 45
+        row_edit:SetText(tostring((g.settings.fragmentation and g.settings.fragmentation.row) or 5))
+        -- 一度に実行できるのは素と同じ 25 個まで(超えるとクライアントが落ちる)。
+        -- 超えたぶんは終わると自動で選び直すが、**押すところまで自動にするか**はここで選ぶ。
+        -- 破片化は取り消せないので既定は OFF
+        -- **ボタンの手前にラベルを出す。** X / Y と同じ理由で、裸の ON / OFF だけだと
+        -- ツールチップを出すまで何の切り替えなのか分からない
+        local auto_label = gbox:CreateOrGetControl("richtext", "fragmentation_auto_text", right + 159, y + 3, 40, 25)
+        AUTO_CAST(auto_label)
+        auto_label:SetText("{ol}" ..
+                               (g.lang == "Japanese" and "自動" or g.lang == "kr" and "자동" or "Auto"))
+        local auto_btn = gbox:CreateOrGetControl("button", "fragmentation_auto_btn", right + 203, y - 5, 50, 30)
+        AUTO_CAST(auto_btn)
+        -- 見た目の決め方は破片化側へ寄せてある(この行と破片化の窓の 2 か所に
+        -- 同じボタンがあるので、片方だけ直して食い違うのを防ぐ)
+        local auto_on = (g.settings.fragmentation and g.settings.fragmentation.auto == 1)
+        Mini_addons_frag_auto_btn_apply(auto_btn, auto_on)
+        auto_btn:SetTextTooltip(g.lang == "Japanese" and
+                                    "{ol}一度に破片化できるのは 25 個までです{nl}ON にすると、残りを自動で選び直して続けて実行します{nl}(OFF のときは選び直しまで。実行は毎回ご自身で押します)" or
+                                    g.lang == "kr" and
+                                    "{ol}한 번에 파편화할 수 있는 것은 25 개까지입니다{nl}ON 이면 남은 것을 자동으로 다시 선택해 이어서 실행합니다" or
+                                    "{ol}Only 25 items can be fragmented at once{nl}ON: automatically re-select and run the rest")
+        auto_btn:SetEventScript(ui.LBUTTONUP, "Mini_addons_frag_auto_toggle")
+        right = right + 203 + 50
     elseif setting.name == "event_shout" then
         local event_shout_btn = gbox:CreateOrGetControl("button", "event_shout_btn", right + 15, y - 5, 50, 30)
         AUTO_CAST(event_shout_btn)
