@@ -21,6 +21,9 @@ ipf_unpack.exe
 # docs/verify_ipf.py が docs/bundle_from_src.py を import するため生成される
 __pycache__/
 
+# docs/vanilla_api.py --verify-client が OK だったときの控え（手元のクライアントの指紋）
+/docs/.vanilla_api_verified.json
+
 # nexus_addons_p: 生成物（source of truth は nexus_addons_p/src/**。
 # docs/bundle_from_src.py で再生成する）。手書きの .xml と配布 .ipf は追跡継続。
 #

@@ -17,7 +17,8 @@ python docs/bundle_from_src.py --bless      # 配布物を変える意図があ�
 sh docs/tests/syntax_check.sh               # 連結後の Lua 構文チェック（WSL の luajit）
 python docs/check_forward_refs.py           # local function の前方参照
 python docs/check_frame_hittest.py          # 窓の当たり判定の塞ぎ忘れ
-python docs/vanilla_api.py --verify-client  # 素のクライアントとの突き合わせ（ローカル専用・PR 前に必ず）
+python docs/vanilla_api.py --verify-client  # 素のクライアントとの突き合わせ（ローカル専用・PR 前にだけ。
+                                            #   ビルドや実機確認のたびには流さない。前回 OK から不変なら省略）
 python docs/vanilla_api.py --update         # 素の API 一覧を更新（--verify-client の後に流す）
 python docs/verify_ipf.py                   # .ipf の中身と版番号の三者一致
 python docs/check_version_freeze.py         # 先行採番の検出（main への PR）
