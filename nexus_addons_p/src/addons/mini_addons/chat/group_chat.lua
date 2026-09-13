@@ -186,9 +186,17 @@ function Mini_addons_group_chat_setting(chat, target_id)
     edit_to_bg:Resize(title_to:GetWidth() + 20, edit_to_bg:GetOriginalHeight())
     edit_to_bg:SetVisible(1)
     offset_x = offset_x + edit_to_bg:GetWidth()
+    -- **GetOriginalWidth() は XML の 415 のまま**。chat_new_btn(ボタン追加)が mainchat を
+    -- 585 へ広げていても、ここを通った時点で原寸基準へ戻る。算出結果をログへ出して、
+    -- 実機で入力欄が潰れていないかを見られるようにする
     local width = mainchat:GetOriginalWidth() - edit_to_bg:GetWidth() - button_type:GetWidth()
+    core_g.vlog(
+        "mini_addons: group_chat_setting room=%s name=%s mainchat orig_w=%s - edit_to_bg=%s - button_type=%s => %s offset_x=%s",
+        tostring(target_id), tostring(group_data.name), tostring(mainchat:GetOriginalWidth()),
+        tostring(edit_to_bg:GetWidth()), tostring(button_type:GetWidth()), tostring(width), tostring(offset_x))
     mainchat:Resize(width, mainchat:GetOriginalHeight())
     mainchat:SetOffset(offset_x, mainchat:GetOriginalY())
+    Mini_addons_chat_frame_vlog("group_chat_setting")
 end
 
 function Mini_addons_CHAT_SET_TO_TITLENAME_(chat)

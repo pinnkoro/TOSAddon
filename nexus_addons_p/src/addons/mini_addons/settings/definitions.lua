@@ -112,6 +112,9 @@ local DEFAULT_SETTINGS = {
         use = 0,
         col = 5,
         row = 5,
+        -- 25 個ずつの続きを自動で実行するか(1 で自動)。**既定は 0**。
+        -- 破片化は取り消せないので、押すのを省くのは利用者に選ばせる
+        auto = 0,
         -- 「破片化しないで残す条件」。1 件 = {ctrl=系統, cls=クラス, rank=1〜3, lv=1〜5}。
         -- 指定しない項目はキーごと持たない(= 指定なし)
         keep = {}
@@ -183,7 +186,10 @@ local MAIN_FRAME_SETTINGS = {{
     name = "chat_new_btn",
     text_jp = "チャット入力フレームにボタン追加",
     text_kr = "채팅 입력 창에 버튼을 추가했습니다",
-    text_en = "Added a button to the chat input frame"
+    text_en = "Added a button to the chat input frame",
+    updated = "2.8.0",
+    updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
+    updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
 }, {
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
@@ -220,9 +226,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Expand the Item Fragmentation grid and filter earrings in more detail",
     -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
     since = "2.6.0",
-    updated = "2.6.1",
-    updated_note_jp = "「残す条件」のプリセットを専用ファイルへ分けました。そのファイルを渡すだけで、他の人へプリセットを共有できます",
-    updated_note_en = "Keep-rule presets now live in their own file, so you can share them by handing over that one file"
+    updated = "2.8.0",
+    updated_note_jp = "たくさん選んでから破片化するとクライアントが落ちていたのを直しました。一度に実行できるのは素と同じ 25 個までですが、超えたぶんは終わると自動で選び直します。設定の「自動」を ON にすると最後まで自動で実行します",
+    updated_note_en = "Fixed a client crash when fragmenting many items at once. Up to 25 per run (same as vanilla); the rest is re-selected automatically, and the new Auto toggle runs them all"
 }, {
     name = "inventory_mod",
     text_jp = "インベントリのスロットを少し改造",
@@ -291,7 +297,10 @@ local SUB_FRAME_SETTINGS = {
         name = "group_chat",
         text_jp = "グループチャットをチャットフレームから選択出来ます",
         text_kr = "채팅 프레임에서 그룹 채팅을 선택할 수 있습니다",
-        text_en = "Group chats can be selected from chat frame"
+        text_en = "Group chats can be selected from chat frame",
+        updated = "2.8.0",
+        updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
+        updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
     }, {
         name = "baubas_call",
         text_jp = "バウバス登場をお知らせ",

@@ -73,7 +73,7 @@ end
 * `old_init_func` は「**個別配布されている旧版**が同じ名前を公開していたら自分を無効化する」
   判定に使う（`core/20_lifecycle.lua` の `_nexus_addons_p_origin_addon_present`）。
   **本家の検出はこれとは別経路**で、`guard_open.lua` / `guard_close.lua` の
-  `g.detect_origin_addon()` と `_NEXUS_ADDONS_P_ON_INIT` が担う（CLAUDE.md の
+  `g.detect_origin_addon()` と `_NEXUS_ADDONS_P_ON_INIT` が担う（[COEXIST.md](COEXIST.md) の
   「本家との共存対策」）。**新規アドオンには対応する旧版が無いので `""`**。
 
 **説明**（`g._nexus_addons_p_trans`）: `ja` / `etc` / `kr` の 3 言語。改行は `{nl}`。
@@ -95,7 +95,7 @@ end
   `| [表示名](src/addons/<key>/README.md) | 概要 |`
   **[docs/tests/test_core.lua](tests/test_core.lua) の [27] が検査する**ので、
   節を間違えるとテストが落ちる。
-* **更新履歴**の `* **（次回リリース）**` へ追記（CLAUDE.md のルール）。
+* **更新履歴**の `* **（次回リリース）**` へ追記（[RELEASE.md](RELEASE.md) のルール）。
 
 ---
 
@@ -110,7 +110,7 @@ end
 | 位置決め | `g.settings_frame_pos(w, h)` | 素で `list_frame:GetX()` を呼ぶと、Addons Menu から開いたとき nil で落ちて空の窓が出る |
 | 検索欄 | `g.setup_incremental_search` / `g.setup_enter_search` | 「×」が出ない・打鍵で全件を組み立てて固まる |
 
-詳細は [CLAUDE.md](../CLAUDE.md) の各節に判断基準まで書いてある。
+詳細は [CODING_RULES.md](CODING_RULES.md) / [UI_RULES.md](UI_RULES.md) / [COEXIST.md](COEXIST.md) に判断基準まで書いてある。
 
 ---
 
@@ -221,7 +221,7 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
 
 **直した経路を実機のログで確かめる。** `g.vlog(fmt, ...)` を仕込み、設定画面の
 「詳細なログをシステムに出力する」を ON にして `../addons/_nexus_addons_p/verbose_log.txt`
-を読む。調査が終わってもログは消さない（CLAUDE.md の該当節）。
+を読む。調査が終わってもログは消さない（[DEBUGGING.md](DEBUGGING.md)）。
 
 ---
 
