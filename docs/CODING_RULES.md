@@ -110,6 +110,9 @@ item.DialogTransaction("FRAGMENTATION_BUNDLE_ITEMS", ...)       -- 本当の制�
   おらず、間は未測定。安全側（素が持っていた値）に寄せてある。
 
 検出は [check_vanilla_writes.py](check_vanilla_writes.py)（CI の `bundle` ジョブでも走る）。
+自前の変数と素のテーブルの見分けは **1 行の中で閉じて判定する**（`local\s+...` で
+ファイル全体を見ると、初期化子の無い前方宣言 1 行で素通りできてしまう。PR #178 の
+レビューで指摘されて直した）。この境界条件は `--self-test` で固定してあり、CI でも走る。
 通したいものは `ALLOW` へ**理由付きで**足すこと（`check_frame_hittest.py` の `ALLOW` と
 同じ考え方で、残骸が残っていても落ちる）。足すときの基準は 2 つ。
 

@@ -66,14 +66,23 @@ ALLOW = {
 
 # `名前.フィールド = `（`==` は除く）。`a.b.c = ` のような深い形も拾う。
 ASSIGN = re.compile(r"^\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)\s*=\s*(?!=)")
-# 同じファイルで `local <名前>` / `for ... <名前>` / 仮引数として使われていたら、
-# 素のテーブルではなく自前の変数。market_favorite_rebuild の `for _, item in ...` が
-# 素の `item` テーブルと同じ名前を持つのが実例。
-SHADOW = re.compile(
-    r"\blocal\s+(?:[\w\s,]*\b)?{name}\b"
-    r"|\bfor\s+[\w\s,]*\b{name}\b\s*(?:=|in\b)"
-    r"|\bfunction\s*[\w.:]*\s*\([^)]*\b{name}\b"
-)
+# 同じファイルで自前の変数として宣言されている名前は、素のテーブルではない。
+# market_favorite_rebuild の `for _, item in ipairs(...)` が素の `item` テーブルと
+# 同じ名前を持つのが実例。
+#
+# **判定は必ず 1 行の中で閉じること。** 最初は `local\s+[\w\s,]*<名前>` のような形で
+# ファイル全体を見ていたが、`\s` は改行を含むので
+#     local handle            <- 初期化子が無い前方宣言
+#     shared_item_earring.MAX_SLOT_CNT = 100
+# が「handle と同じ local 文の続き」と読めてしまい、**本物の書き込みを見逃していた**
+# （`local handle = 1` なら `=` で切れて検出できる、という無関係な条件で挙動が変わる）。
+# 前方宣言を 1 行足すだけで素通りできるのでは、見張りの意味が無い。
+DECL_LOCAL = re.compile(r"\blocal\b([^=\n]*)")
+DECL_FOR = re.compile(r"\bfor\b([^\n]*?)\b(?:in\b|=)")
+DECL_PARAM = re.compile(r"\bfunction\b[^(\n]*\(([^)\n]*)\)")
+NAME = re.compile(r"[A-Za-z_]\w*")
+# `local function foo()` の function は名前ではない。
+KEYWORDS = {"function", "in", "do", "then", "end", "local"}
 
 
 def vanilla_tables():
@@ -84,11 +93,45 @@ def vanilla_tables():
     return names, tables
 
 
-def shadowed(text: str, head: str) -> bool:
-    return re.search(SHADOW.pattern.format(name=re.escape(head)), text) is not None
+def local_names(text: str) -> set:
+    """そのファイルで自前の変数として宣言されている名前を集める（1 行ずつ見る）。"""
+    names = set()
+    for line in text.splitlines():
+        for pat in (DECL_LOCAL, DECL_FOR, DECL_PARAM):
+            for m in pat.finditer(line):
+                for n in NAME.findall(m.group(1)):
+                    if n not in KEYWORDS:
+                        names.add(n)
+    return names
+
+
+def self_test() -> int:
+    """境界条件の自己テスト。**改行をまたいで見逃さないこと**を固定する。"""
+    cases = [
+        # (Lua, その名前を自前の変数と見なすか)
+        ("shared_item_earring", "local handle\nshared_item_earring.MAX_SLOT_CNT = 100\n", False),
+        ("shared_item_earring", "local shared_item_earring = {}\nshared_item_earring.X = 1\n", True),
+        ("item", "local a, item = 1, {}\n", True),
+        ("item", "for _, item in ipairs(list) do\n", True),
+        ("item", "function f(item)\n", True),
+        ("item", "local x = 1\nitem.clsid = 2\n", False),
+        ("item", "local function item_name()\n", False),
+    ]
+    bad = 0
+    for head, src, want in cases:
+        got = head in local_names(src)
+        if got != want:
+            bad += 1
+            print(f"NG self-test: {src!r} の {head} … 期待 {want} / 実際 {got}")
+    if bad:
+        return 1
+    print(f"  OK self-test: {len(cases)} 件")
+    return 0
 
 
 def main() -> int:
+    if "--self-test" in sys.argv:
+        return self_test()
     if not API.is_file():
         print(f"NG {API} が無い。先に python docs/vanilla_api.py --update を流すこと")
         return 1
@@ -99,6 +142,7 @@ def main() -> int:
     for path in sorted(SRC.rglob("*.lua")):
         rel = str(path.relative_to(SRC)).replace(os.sep, "/")
         text = path.read_text(encoding="utf-8")
+        mine = local_names(text)
         for i, line in enumerate(text.splitlines(), 1):
             m = ASSIGN.match(line)
             if not m:
@@ -107,7 +151,7 @@ def main() -> int:
             head = name.split(".")[0]
             if head not in tables and name not in names:
                 continue
-            if shadowed(text, head):
+            if head in mine:
                 continue  # 同名の自前の変数
             key = f"{rel}:{name}"
             if key in ALLOW:
