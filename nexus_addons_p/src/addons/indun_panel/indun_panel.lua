@@ -3026,10 +3026,32 @@ function Indun_panel_get_my_housing_point_callback(code, ret_json)
     end
 end
 
-function Indun_panel_item_buy_use(recipe_name)
-    local recipe_cls = GetClass("ItemTradeShop", recipe_name)
+-- ショップで 1 枚買い、届いた券を使う。買いに行ったら true。
+--
+-- **ticket_ids(その経路の券の候補)を必ず渡すこと。** 取引名の売り物は運営の都合で
+-- 黙って差し替わる。2026-09 には分裂 520 の EVENT_TOS_WHOLE_SHOP_314 がライマラの券に、
+-- チャレンジ 520 の _315 がベリオラの券に変わっていて、「購入」の段で**別レイドの券を
+-- 買って使ってしまっていた**(利用者の報告で発覚)。取引名は数字の連番で中身が読めず、
+-- 構文チェックもテストも通り抜けて、実機で券を溶かすまで気付けない。
+-- そこで売り物(TargetItem)が候補に入っていないときは買わない。
+function Indun_panel_item_buy_use(recipe_name, ticket_ids)
+    local recipe_cls = recipe_name and recipe_name ~= "" and GetClass("ItemTradeShop", recipe_name)
     if not recipe_cls then
-        return
+        return false
+    end
+    local target_cls = GetClass("Item", TryGetProp(recipe_cls, "TargetItem", "None"))
+    local target_id = target_cls and target_cls.ClassID
+    local sells_ticket = false
+    for _, class_id in ipairs(ticket_ids or {}) do
+        if class_id == target_id then
+            sells_ticket = true
+            break
+        end
+    end
+    if not sells_ticket then
+        g.vlog("indun_panel: 取引 %s の売り物 %s(%s)は入場券の候補に無いので買わない", recipe_name,
+            tostring(TryGetProp(recipe_cls, "TargetItem", "None")), tostring(target_id))
+        return false
     end
     session.ResetItemList()
     session.AddItemID(tostring(0), 1)
@@ -3041,7 +3063,9 @@ function Indun_panel_item_buy_use(recipe_name)
         item.DialogTransaction("PVP_MINE_SHOP", itemlist, cnt_text)
     end
     local item_name = recipe_cls.TargetItem
+    g.vlog("indun_panel: 取引 %s で %s を買って使う", recipe_name, tostring(item_name))
     ReserveScript(string.format("Indun_panel_inv_item_use('%s')", item_name), 1.0)
+    return true
 end
 
 function Indun_panel_inv_item_use(item_name)
@@ -3122,6 +3146,10 @@ function Indun_panel_get_entrance_count(indun_type, index)
 end
 
 function Indun_panel_get_recipe_trade_count(recipe_name)
+    -- ショップを持たない段(520)は取引名が nil で来る
+    if not recipe_name or recipe_name == "" then
+        return 0
+    end
     local recipe_cls = GetClass("ItemTradeShop", recipe_name)
     if not recipe_cls then
         return 0
@@ -3210,10 +3238,11 @@ local CHALLENGE_CONFIG = {
 }
 -- 前方宣言してある(ファイル上部)。ここは代入なので local を付けないこと
 CHALLENGE_TIERS = {{
+    -- 520 は **ショップを持たない**(tos_recipe を書かない)。以前の EVENT_TOS_WHOLE_SHOP_315 は
+    -- 売り物がベリオラの券に差し替わり、TOS ショップに 520 の券はもう無い(2026-09 に確認)。
     label = "520",
     solo = 1001,
     config = "LOW",
-    tos_recipe = "EVENT_TOS_WHOLE_SHOP_315",
     count_index = 2
 }, {
     label = "540",
@@ -3256,9 +3285,13 @@ function Indun_panel_ticket_tooltip(with_click_hint, coin_img)
     end
     table.insert(parts, is_jp and "優先順位{nl}" or "Priority{nl}")
     local lines = {}
-    for i, kind in ipairs(Indun_panel_ticket_order("challenge")) do
+    -- coin_img が nil = ショップを持たない段(520)。「購入」の行は出さない(押しても買わないので)
+    local i = 0
+    for _, kind in ipairs(Indun_panel_ticket_order("challenge")) do
         local label
-        if kind == "buy" then
+        if kind == "buy" and not coin_img then
+            label = nil
+        elseif kind == "buy" then
             local sz = Indun_panel_s(20)
             label = is_jp and string.format("{img %s %d %d}チケット(買って使います)", coin_img, sz, sz) or
                         string.format("{img %s %d %d}tickets(buy and use)", coin_img, sz, sz)
@@ -3266,7 +3299,10 @@ function Indun_panel_ticket_tooltip(with_click_hint, coin_img)
             local def = Indun_panel_ticket_kind_def(kind)
             label = def and (is_jp and def.jp or def.en) or kind
         end
-        table.insert(lines, string.format("%d.%s", i, label))
+        if label then
+            i = i + 1
+            table.insert(lines, string.format("%d.%s", i, label))
+        end
     end
     table.insert(parts, table.concat(lines, "{nl}"))
     return table.concat(parts)
@@ -3275,8 +3311,13 @@ end
 local function challenge_shop_button(indun_panel, name, x, y, recipe, indun_type, mode, icon, icon_text, tooltip)
     local btn = indun_panel:CreateOrGetControl('button', name, x, y, Indun_panel_s(100), Indun_panel_s(30))
     AUTO_CAST(btn)
-    btn:SetText(string.format("{ol}{#EE7800}USEor%s{img %s %d %d}{#FFFFFF}%s", Indun_panel_f(16), icon,
-        Indun_panel_s(15), Indun_panel_s(15), Indun_panel_get_recipe_trade_count(recipe) or 0))
+    if recipe then
+        btn:SetText(string.format("{ol}{#EE7800}USEor%s{img %s %d %d}{#FFFFFF}%s", Indun_panel_f(16), icon,
+            Indun_panel_s(15), Indun_panel_s(15), Indun_panel_get_recipe_trade_count(recipe) or 0))
+    else
+        -- ショップを持たない段(520)。手持ちの券を使うだけなので、通貨と購入枠は出さない
+        btn:SetText("{ol}{#EE7800}USE")
+    end
     btn:SetTextTooltip(icon_text .. tooltip)
     btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
     btn:SetEventScriptArgString(ui.LBUTTONUP, mode)
@@ -3327,7 +3368,8 @@ function Indun_panel_challenge_frame(indun_panel, key, sub_key, indun_type, y, x
             offset = offset + Indun_panel_s(40)
             -- クリックの案内は PT ボタンがある段だけ(tier.pt)。
             -- 消費の優先順位は設定から組み立てるので、段による書き分けは無くなった。
-            local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil, "icon_item_Tos_Event_Coin")
+            local tooltip_tos = Indun_panel_ticket_tooltip(tier.pt ~= nil,
+                tier.tos_recipe and "icon_item_Tos_Event_Coin" or nil)
             local tos_btn = challenge_shop_button(indun_panel, "buyuse_tos" .. suffix, x + offset, y, tier.tos_recipe,
                 pt_indun_type, "tos", "icon_item_Tos_Event_Coin", icon_text, tooltip_tos)
             if tier.pt then
@@ -3373,6 +3415,8 @@ function Indun_panel_challenge_item_use(indun_panel, ctrl, mode, indun_type)
     end
     if need_ticket then
         Indun_panel_process_ticket(indun_type, mode, CHALLENGE_CONFIG[tier.config])
+    else
+        g.vlog("indun_panel: チャレンジ %d は券が要らない(回数=%s)ので使わない", indun_type, tostring(entrance_count))
     end
 end
 
@@ -3408,8 +3452,8 @@ function Indun_panel_process_ticket(indun_type, mode, config)
             Indun_panel_enter_reserve(enter_mode, indun_type)
         end,
         on_buy = function()
-            if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
-                Indun_panel_item_buy_use(recipe_name)
+            if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 and
+                Indun_panel_item_buy_use(recipe_name, ticket_ids) then
                 Indun_panel_enter_reserve(enter_mode, indun_type)
                 return true
             end
@@ -3438,8 +3482,7 @@ function Indun_panel_process_ticket(indun_type, mode, config)
     -- 追加で買える枠なので、持っている券を使い切ってから手を付けるのが今までの動きで、
     -- 設定の「購入」(通常の購入枠)とは意味が違う。
     if mode == "pvp" and recipe_name ~= "" then
-        if Indun_panel_overbuy_count(recipe_name) > 0 then
-            Indun_panel_item_buy_use(recipe_name)
+        if Indun_panel_overbuy_count(recipe_name) > 0 and Indun_panel_item_buy_use(recipe_name, ticket_ids) then
             Indun_panel_enter_reserve(enter_mode, indun_type)
             g.vlog("indun_panel: 入場券を追加購入枠(OverBuy)で買った recipe=%s", recipe_name)
         end
@@ -3484,9 +3527,11 @@ local SINGULARITY_CONFIG = {
 }
 -- 前方宣言してある(ファイル上部)。ここは代入なので local を付けないこと
 SINGULARITY_TIERS = {{
+    -- 520 は **ショップを持たない**(tos_recipe を書かない)。以前の EVENT_TOS_WHOLE_SHOP_314 は
+    -- 売り物がライマラの券に差し替わっていて、押すとライマラの券を買って使っていた
+    -- (利用者の報告)。TOS ショップに 520 の券はもう無い(2026-09 に確認)。
     label = "520",
-    indun = 2000,
-    tos_recipe = "EVENT_TOS_WHOLE_SHOP_314"
+    indun = 2000
 }, {
     label = "540",
     indun = 2001,
@@ -3543,13 +3588,18 @@ function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y,
             -- **手書きの固定文にしないこと。** 消費の順序は設定で変わるので、
             -- 書き固めると説明と動きが食い違う(食い違いは実機で券を 1 枚使うまで見えない)。
             -- チャレンジと同じ組み立て(グループも同じ "challenge")。
-            local tooltip = Indun_panel_ticket_tooltip(false, "icon_item_Tos_Event_Coin")
+            local tooltip = Indun_panel_ticket_tooltip(false, tier.tos_recipe and "icon_item_Tos_Event_Coin" or nil)
             local tos_btn = indun_panel:CreateOrGetControl('button', 'ticket_tos' .. suffix, x + offset, y,
                 Indun_panel_s(100), Indun_panel_s(30))
             AUTO_CAST(tos_btn)
-            tos_btn:SetText(string.format("{ol}{#EE7800}USEor%s{img %s %d %d}{#FFFFFF}%s", Indun_panel_f(16),
-                "icon_item_Tos_Event_Coin", Indun_panel_s(15), Indun_panel_s(15),
-                Indun_panel_get_recipe_trade_count(tier.tos_recipe) or 0))
+            if tier.tos_recipe then
+                tos_btn:SetText(string.format("{ol}{#EE7800}USEor%s{img %s %d %d}{#FFFFFF}%s", Indun_panel_f(16),
+                    "icon_item_Tos_Event_Coin", Indun_panel_s(15), Indun_panel_s(15),
+                    Indun_panel_get_recipe_trade_count(tier.tos_recipe) or 0))
+            else
+                -- ショップを持たない段(520)。手持ちの券を使うだけなので、通貨と購入枠は出さない
+                tos_btn:SetText("{ol}{#EE7800}USE")
+            end
             tos_btn:SetTextTooltip(icon_text .. tooltip)
             tos_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
             tos_btn:SetEventScriptArgString(ui.LBUTTONUP, "tos")
@@ -3586,6 +3636,7 @@ end
 function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
     local ent_count = Indun_panel_get_entrance_count(indun_type, 4)
     if tonumber(ent_count) > 0 then
+        g.vlog("indun_panel: 分裂 %d はまだ入場できる(%s)ので券を使わない", indun_type, tostring(ent_count))
         return
     end
     local config = SINGULARITY_CONFIG[indun_type]
@@ -3620,8 +3671,7 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
         end,
         on_buy = function()
             for _, recipe in ipairs(recipes) do
-                if Indun_panel_get_recipe_trade_count(recipe) >= 1 then
-                    Indun_panel_item_buy_use(recipe)
+                if Indun_panel_get_recipe_trade_count(recipe) >= 1 and Indun_panel_item_buy_use(recipe, ticket_ids) then
                     ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
                     return true
                 end
@@ -3841,9 +3891,26 @@ local function Indun_panel_induninfo_set_buttons(indun_type, ctrl)
         if dungeon_type == "Raid" then
             btn_info_cls = INDUNINFO_SET_BUTTONS_FIND_CLASS(indun_cls)
         end
+        if not btn_info_cls then
+            g.vlog("indun_panel: indun %d (%s) の IndunInfoButton が見つからない", indun_type, dungeon_type)
+            return
+        end
         local red_button_scp = TryGetProp(btn_info_cls, "RedButtonScp")
         ctrl:SetUserValue('MOVE_INDUN_CLASSID', indun_cls.ClassID)
         ctrl:SetEventScript(ui.LBUTTONUP, red_button_scp)
+        -- **素の INDUNINFO_SET_BUTTON_ACTION を通すこと。** 素の RedButtonScp が
+        -- REQ_ENTER_INDUNINFO(shared_induninfo_button.on_click)に変わった行があり、そちらは
+        -- MOVE_INDUN_CLASSID ではなく INDUNINFO_BUTTON_INDUN_CLASSID / INDUNINFO_BUTTON_CLASSID /
+        -- INDUNINFO_ACTION_BUTTON を読む。入れておかないと on_click が黙って return し、
+        -- **押しても何も起きない**(焔の記憶 Hard = EarringRaid がこれ。利用者の報告で発覚)。
+        -- 素と同じく、Action を持たない行(RaidHardMode など)は上の RedButtonScp のまま動く。
+        -- 素の関数が無いクライアント(古い版)では従来どおり。
+        local via_action = false
+        if type(INDUNINFO_SET_BUTTON_ACTION) == "function" then
+            via_action = INDUNINFO_SET_BUTTON_ACTION(ctrl, indun_cls, btn_info_cls, "RedButton", 1) == true
+        end
+        g.vlog("indun_panel: HARD indun %d (%s) button=%s scp=%s action=%s", indun_type, dungeon_type,
+            tostring(TryGetProp(btn_info_cls, "ClassName", "None")), tostring(red_button_scp), tostring(via_action))
     end
 end
 
@@ -3966,8 +4033,8 @@ function Indun_panel_buyuse_telharsha(indun_panel, ctrl, recipe_name, indun_type
             ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.5)
         end,
         on_buy = function()
-            if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 then
-                Indun_panel_item_buy_use(recipe_name)
+            if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 and
+                Indun_panel_item_buy_use(recipe_name, TELHARSHA_CONFIG.tickets) then
                 ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
                 return true
             end
@@ -4051,8 +4118,7 @@ function Indun_panel_buyuse_vel(indun_panel, ctrl, recipe_name, indun_type)
         on_buy = function()
             local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
             local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
-            if trade_count >= 1 or overbuy_limit > 0 then
-                Indun_panel_item_buy_use(recipe_name)
+            if (trade_count >= 1 or overbuy_limit > 0) and Indun_panel_item_buy_use(recipe_name, VELNICE_CONFIG.tickets) then
                 ReserveScript(reserve_script, 1.5)
                 return true
             end

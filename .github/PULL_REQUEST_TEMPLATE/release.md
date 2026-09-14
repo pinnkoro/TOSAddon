@@ -6,6 +6,8 @@
   重要: この PR の本文が、そのまま GitHub Release（移動タグ nexus_addons_p）の
   リリースノートになります（.github/workflows/release-nexus.yml が release への
   push を検知して公開）。マージすると nexus_addons_p-<version>.ipf が添付されます。
+  あわせて、タイトル（# 見出し）と「## 🇯🇵 日本語」〜最初の「---」までが Discord の
+  チャンネルにも投稿されます。この 2 つの見出しと区切り線は変えないでください。
 
   **どのセクションも、アドオン名を太字の見出しにして項目をその下へまとめます**
   （新機能・バグ修正・安定化のすべて）。
