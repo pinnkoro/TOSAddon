@@ -169,7 +169,11 @@ def post(webhook: str, content: str) -> None:
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
             if e.code == 429:
-                wait = float(json.loads(detail or "{}").get("retry_after", 1))
+                # 手前の Cloudflare が返す 429 は本文が HTML のことがあるので、ヘッダーへ逃がす。
+                try:
+                    wait = float(json.loads(detail).get("retry_after", 1))
+                except (ValueError, AttributeError):
+                    wait = float(e.headers.get("Retry-After") or 1)
                 time.sleep(wait + 0.5)
                 continue
             # URL（= 秘密）は出さない。Discord の応答本文だけ出す。
