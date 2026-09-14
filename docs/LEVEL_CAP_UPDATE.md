@@ -185,5 +185,7 @@ ipf_crypt._check_bodies(ipf_crypt.decrypt(open(placed,'rb').read()))
 `since` / `updated` には `g.VER_NEXT` を書く。採番は `release-prep/vX.Y.Z` で行い、
 そこで `g.VER_NEXT` を実際の版へ置き換える。詳細は [UPDATE_BADGE.md](UPDATE_BADGE.md) を参照。
 
-**見た目が変わるので、スクリーンショット撮り直しの Issue を立てること**（画像はゲームを起動しないと撮れない）。
+**見た目が変わるので、動作確認のときにスクリーンショットも撮ってもらい、同じ PR で差し替えること**
+（画像はゲームを起動しないと撮れない）。動作確認の観点と一緒に撮影リストを渡す。
 対象は `indun_panel/images/01-panel.png` `02-set.png` と `indun_list_viewer/images/01-list.png`。
+その PR の中で撮れないとき（新レイドにまだ入れない等）だけ Issue を立てる。

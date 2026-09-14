@@ -25,7 +25,11 @@
 
 ## 動作確認
 
-<!-- ゲーム内での確認結果・確認できていない点など -->
+<!--
+  ゲーム内での確認結果・確認できていない点など。
+  画面の見た目を変えた場合は、確認時に撮ったスクリーンショットをここに貼り、
+  同じ画像で nexus_addons_p/images/ も差し替える（撮れなかった分は Issue 番号を書く）。
+-->
 
 ## チェックリスト
 
@@ -34,6 +38,8 @@
 - [ ] **バージョン情報を変更していない**（`00_header.lua` の `ver` / `addons.json` の
       `fileVersion` / `.ipf` のファイル名。手元での確認は `python docs/check_version_freeze.py`）
 - [ ] **`nexus_addons_p/README.md` の更新履歴に追記した**（`（次回リリース）` 見出しへ / CLAUDE.md ルール）
+- [ ] 画面の見た目を変えた場合、動作確認で撮ったスクリーンショットで `images/` を差し替え、alt テキストも直した
+      （その PR で撮れなかった分は Issue にして番号を本文に書いた）
 - [ ] 素のクライアント API の使い方を変えた場合、**手元で
       `python docs/vanilla_api.py --verify-client` を先に流し**、
       `python docs/vanilla_api.py --update` で一覧を更新した
