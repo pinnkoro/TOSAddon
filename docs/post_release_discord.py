@@ -8,6 +8,7 @@ release-nexus.yml が、公開した直後に呼ぶ。リリースノートは m
 
 * 先頭の `# ` 見出し（`# 🛠️ Nexus Addons P v2.8.0（v2.7.0 → v2.8.0）`）
 * `## 🇯🇵` の見出しの次の行から、最初の `---` か次の `## ` 見出しの手前まで
+  （ただし毎回同じ文面の `### 📥 導入方法` の節は除く）
 
 ## Discord 側の制約
 
@@ -49,6 +50,9 @@ import urllib.request
 
 LIMIT = 2000
 EMBED_LIMIT = 10
+# 毎回同じ文面の節。チャンネルで毎回読ませても情報が無いので、Discord には流さない
+# （Release のページには残す。新しく入れる人はそちらから辿ってくる）。
+SKIP_SECTION = "### 📥"
 SUPPRESS_EMBEDS = 1 << 2
 # alt は 1 段だけ [] の入れ子を許す（README の alt に「[AAS] 左クリック: 登録」のような書き方がある）
 IMAGE_MD = re.compile(r'!\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
@@ -72,11 +76,14 @@ def extract_japanese(notes: str) -> str | None:
     if start is None:
         return None
 
-    body = []
+    body, skipping = [], False
     for line in lines[start + 1:]:
         if line.strip() == "---" or line.startswith("## "):
             break
-        body.append(line)
+        if line.startswith("### "):
+            skipping = line.startswith(SKIP_SECTION)
+        if not skipping:
+            body.append(line)
     text = "\n".join(body).strip()
     if not text:
         return None
@@ -242,6 +249,12 @@ def self_test() -> int:
                   extract_japanese(template.replace("\n", "\r\n")) == text))
     cases.append(("--- が無くても次の ## で止まる",
                   extract_japanese("## 🇯🇵 日本語\n\n- a\n\n## 🇰🇷 한국어\n\n- b\n") == "- a"))
+    cases.append(("導入方法の節は流さない（末尾）",
+                  extract_japanese(template.replace(
+                      "---", "### 📥 導入方法\n\nアドオンマネージャーから入れる。\n\n---", 1)) == text))
+    cases.append(("導入方法の節は流さない（途中でも次の ### から戻る）",
+                  extract_japanese("## 🇯🇵 日本語\n\n### 📥 導入方法\n\n- 入れる\n\n"
+                                   "### 🐛 修正\n\n- 直した\n") == "### 🐛 修正\n\n- 直した"))
 
     cases.append(("絵文字は 2 文字で数える", discord_len("🛠️") == 3 and discord_len("あ") == 1))
 
