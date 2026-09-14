@@ -50,7 +50,8 @@ import urllib.request
 LIMIT = 2000
 EMBED_LIMIT = 10
 SUPPRESS_EMBEDS = 1 << 2
-IMAGE_MD = re.compile(r'!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
+# alt は 1 段だけ [] の入れ子を許す（README の alt に「[AAS] 左クリック: 登録」のような書き方がある）
+IMAGE_MD = re.compile(r'!\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
 IMAGE_HTML = re.compile(r'<img\b[^>]*?\bsrc\s*=\s*["\']([^"\']+)["\'][^>]*>', re.I)
 REPO = "pinnkoro/TOSAddon"
 USER_AGENT = f"DiscordBot (https://github.com/{REPO}, 1.0)"
@@ -281,12 +282,18 @@ def self_test() -> int:
                   urls == [f"{raw}01.png", f"{raw}02.png", f"{raw}03.png", "images/04.png"]))
     cases.append(("画像だけの行は消え、文の後ろの画像は文を残す",
                   body == "**Indun Panel**\n\n- 並びを変えた。\n\n- ボタンを足した。\n\n次の段落。"))
-    cases.append(("相対パスは送らない", image_batches(urls) == [[f"{raw}01.png", f"{raw}02.png", f"{raw}03.png"]]))
+    cases.append(("相対パスは送らない",
+                  image_batches(urls) == [[f"{raw}01.png", f"{raw}02.png", f"{raw}03.png"]]))
+    nested_body, nested_urls = extract_images(
+        f"- 足した。\n\n![[AAS] 左クリック: 登録 の画面]({raw}05.png)\n")
+    cases.append(("alt に [] を含む画像も抜き取る",
+                  nested_body == "- 足した。" and nested_urls == [f"{raw}05.png"]))
     many = image_batches([f"{raw}{i}.png" for i in range(23)])
     cases.append(("画像は 10 枚ごとに分ける", [len(b) for b in many] == [10, 10, 3]))
     payload = image_payload([f"{raw}01.png"])
     cases.append(("画像のメッセージはプレビューを消さない",
-                  "flags" not in payload and payload["embeds"] == [{"image": {"url": f"{raw}01.png"}}]))
+                  "flags" not in payload
+                  and payload["embeds"] == [{"image": {"url": f"{raw}01.png"}}]))
 
     bad = [label for label, ok in cases if not ok]
     for label in bad:
