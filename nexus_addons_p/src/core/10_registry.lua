@@ -292,7 +292,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.8.1",
     updated_note_jp = "分裂特異点 520 の USEor ボタンが、ライマラの入場券を買って使っていたのを修正しました(チャレンジ 520 もベリオラの券を買う状態でした)。520 の券はショップから無くなったため、520 の段は USE(手持ちの券を使うだけ)になります。焔の記憶の HARD ボタンで入場できなかったのを修正しました",
     updated_note_en = "Fixed the Singularity 520 USEor button buying and using a Laimara entry ticket (Challenge 520 was buying a Veliora ticket the same way). 520 tickets are no longer sold in the shop, so the 520 buttons are now USE (uses tickets you hold). Fixed the Memory of Flame HARD button not entering the raid",
     data = {
