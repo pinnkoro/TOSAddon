@@ -76,6 +76,11 @@ jobs:
           python3 docs/check_vanilla_writes.py --self-test
           python3 docs/check_vanilla_writes.py
 
+      # 公開時に Discord へ流す日本語のリリースノートの切り出しと分割。
+      # 公開の瞬間にしか走らない経路なので、壊れていても release に入るまで気付けない。
+      - name: Discord 投稿の切り出し・分割の自己テスト
+        run: python3 docs/post_release_discord.py --self-test
+
       # ゲーム API をスタブに差し替えて動かせる範囲の回帰テスト。
       # 実機でしか確認できない箇所を壊しても気付けないため、最低限だけ機械で見る。
       - name: core のロジックテスト
