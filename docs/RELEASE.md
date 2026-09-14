@@ -112,6 +112,25 @@ main の addons.json : v1.0.3  →  取りに行く  nexus_addons_p-v1.0.3.ipf
   * 同じ版のまま再実行すると、保存用 Release はノートとアセットが上書きされる（タグの位置は動かない）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
+### Discord への投稿
+
+公開が済むと、同じワークフローが**リリースノートの日本語セクションだけ**を Discord のチャンネルへ
+投稿する（[docs/post_release_discord.py](post_release_discord.py)）。送り先は、リポジトリの Secret
+`DISCORD_WEBHOOK_URL` に登録したチャンネルの Webhook。
+
+* 切り出すのは、先頭の `#` 1 つの見出し（タイトル）と、`## 🇯🇵` から最初の `---` まで。**テンプレートの見出しを
+  変えると切り出せなくなる**（切り出せないときはジョブが赤くなる。配布は済んでいる）。
+* **自動で投稿されるのは、その版を初めて公開したときだけ**（保存用の版番号タグの Release がまだ
+  無いとき）。同じ版で公開をやり直しても、お知らせは重ねて流れない。
+  * 送り直したい / 投稿だけ失敗したときは、手動実行で `discord` を ON にする:
+    `gh workflow run release-nexus.yml --ref release -f discord=true`
+    （ジョブの Re-run では投稿されない。その時点で保存用 Release があるため）。
+* Discord は 1 メッセージ 2000 文字まで。超えたら段落の区切りで複数に分けて送る。
+* 公開前に文面を確かめるには、PR 本文をファイルに保存して
+  `python docs/post_release_discord.py notes.md --dry-run`（送らずに分割結果を表示する）。
+* 公開済みの版を手元から送り直すなら `python3 docs/post_release_discord.py --release v2.8.0`
+  （本文とリンクを GitHub から取ってくる。`DISCORD_WEBHOOK_URL` を環境変数に入れ、WSL で実行する）。
+
 ### ブランチルール（GitHub ruleset で機械的に強制している）
 
 上の運用は口約束だと守れないので、`main` / `release` に ruleset を設定して GitHub 側で止めている。

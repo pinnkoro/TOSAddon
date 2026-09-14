@@ -8,11 +8,18 @@ name: Release Nexus Addons P
 # Release も別に作り、過去版を後から辿れるようにする。
 # リリースノートは release へのマージ元 PR(main -> release)の本文をそのまま流用する。
 # (PR を介さずローカルマージで push した場合は本文が無いので既定ノートにフォールバック)
+# 公開したら、リリースノートの日本語セクションだけを Discord のチャンネルにも投稿する
+# (docs/post_release_discord.py。Webhook の URL は Secret の DISCORD_WEBHOOK_URL)。
 
 on:
   push:
     branches: [release] # main -> release のマージを push として検知
-  workflow_dispatch: {} # 手動でも同じ処理を再実行できるようにする
+  workflow_dispatch: # 手動でも同じ処理を再実行できるようにする
+    inputs:
+      discord:
+        description: "Discord にも投稿する（手動の再実行は既定で投稿しない。二重投稿を防ぐため）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write # Release / タグの作成・削除
@@ -61,8 +68,14 @@ jobs:
             printf 'Nexus Addons P %s\n' "$version" > "${RUNNER_TEMP}/notes.md"
           fi
 
+          # 保存用 Release（版番号タグ）がまだ無い = この版を初めて公開する。
+          # Discord へはこのときだけ自動で投稿する。同じ版で再実行（ノートの修正 / リラン）
+          # するたびに流れると、チャンネルに同じお知らせが並ぶため。
+          if gh release view "$version" >/dev/null 2>&1; then first_publish=false; else first_publish=true; fi
+
           {
             echo "version=$version"
+            echo "first_publish=$first_publish"
             echo "asset_path=${RUNNER_TEMP}/${asset}"
             echo "notes_path=${RUNNER_TEMP}/notes.md"
           } >> "$GITHUB_OUTPUT"
@@ -119,3 +132,15 @@ jobs:
               --latest=false \
               "$ASSET_PATH"
           fi
+
+      # リリースノートの日本語セクションだけを Discord のチャンネルへ流す。
+      # 公開（上の 2 ステップ）が済んでから送るので、ここが落ちても配布には影響しない。
+      # 失敗したときや送り直したいときは、手動実行で discord にチェックを入れる
+      # （ジョブの Re-run では、保存用 Release が既にあるので投稿されない）。
+      - name: Discord へ日本語のリリースノートを投稿
+        if: ${{ (github.event_name == 'push' && steps.meta.outputs.first_publish == 'true') || inputs.discord }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTES_PATH: ${{ steps.meta.outputs.notes_path }}
+          LINK: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.meta.outputs.version }}
+        run: python3 docs/post_release_discord.py "$NOTES_PATH" --link "$LINK"
