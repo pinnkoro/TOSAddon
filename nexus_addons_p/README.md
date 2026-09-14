@@ -192,6 +192,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Continue Reinforce](src/addons/continue_reinforce/README.md) | ゴッデス装備を成功するまで連続強化（回数制限・補助剤の自動選択つき） |
 | [Cupole Manager](src/addons/cupole_manager/README.md) | クポル未登録キャラでも街に入ると自動で 3 体呼び出す |
 | [Goddess Icor Manager](src/addons/goddess_icor_manager/README.md) | 刻印ページ × 8 部位のイコルを一覧表示し、セット単位で付け替え |
+| [Icor Planner](src/addons/icor_planner/README.md) | 目標ステータスに届くまでイコルを何個更新すればよいかを算出（マーケット評価つき） |
 | [Monster Card Changer](src/addons/monster_card_changer/README.md) | モンスターカードのプリセットを 10 個に拡張し、倉庫との出し入れも自動化 |
 | [Relic Change](src/addons/relic_change/README.md) | レリックのシアンジェム付け替えをボタン 1 つで |
 | [Skill Gem Tooltip](src/addons/skill_gem_tooltip/README.md) | スキルジェムに対象スキルのツールチップを併記 |
@@ -280,6 +281,15 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
+
+* **（次回リリース）**
+  * **Icor Planner を追加しました**（新規）。目標にしたいステータス（クリ発・各種相殺・
+    種族攻撃・材質攻撃・パフェ・主ステなど）と目標値を決めると、**そこへ届くまでに
+    オプションをあと何個更新すればよいか**と、**武器 / 防具のイコルに何を載せればよいか**
+    （オススメのイコル構成）を出します。持っているイコルと、**マーケットに出ているイコル**を
+    「目標の不足をどれだけ埋められるか」で並べ、オススメの構成をマーケットの条件検索へ
+    まとめて入れられます。「試算」タブでは、インベントリやマーケットのイコルに替えたら
+    （1 枠リロールしたら）どうなるかを見られます。
 
 * **v2.9.1**
   * Indun Panel: **チャレンジマップの予定表が 1 日先へずれていた**のを修正しました。
