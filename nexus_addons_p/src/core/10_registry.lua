@@ -282,7 +282,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_list_viewer",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.9.0",
     updated_note_jp = "偽りの輝翼 / 堕落した審判の翼をハード列にも出すようにしました",
     updated_note_en = "False Radiant Wings / Fallen Judgment Wings now also appear in the Hard column",
     data = {
@@ -295,7 +295,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.9.0",
     updated_note_jp = "偽りの輝翼 / 堕落した審判の翼のハードに対応し、HARD ボタンとハードの入場回数を出すようにしました",
     updated_note_en = "Added Hard mode for False Radiant Wings / Fallen Judgment Wings: the HARD button and Hard entry count now appear",
     data = {
@@ -452,7 +452,7 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.9.0",
     updated_note_jp = "偽りの輝翼 / 堕落した審判の翼のハードでも、属性に合わせたポーションへ差し替えるようにしました",
     updated_note_en = "Potions are now also swapped by race in Hard of False Radiant Wings / Fallen Judgment Wings",
     data = {
