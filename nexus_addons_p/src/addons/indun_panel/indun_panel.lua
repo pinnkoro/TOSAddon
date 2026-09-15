@@ -1137,6 +1137,32 @@ function Indun_panel_INDUN_ALREADY_PLAYING_dilay()
     end
 end
 
+-- Indun_panel_challenge(入場時の覚え直し)と Indun_panel_challenge_map_context(予定表)の両方から
+-- 呼ぶので、両方より前に置く
+local function indun_panel_get_server_elapsed_days(base_date)
+    if not base_date or base_date == "" or base_date == 0 then
+        return 0
+    end
+    local server_time_str = date_time.get_lua_now_datetime_str()
+    if not server_time_str then
+        return 0
+    end
+    local y, m, d = server_time_str:match("(%d+)-(%d+)-(%d+)")
+    if not y then
+        return 0
+    end
+    local server_now = os.time({
+        year = tonumber(y),
+        month = tonumber(m),
+        day = tonumber(d),
+        hour = 12
+    })
+    local base_tbl = os.date("*t", base_date)
+    base_tbl.hour = 12
+    local server_base = os.time(base_tbl)
+    return math.floor((server_now - server_base) / 86400)
+end
+
 function Indun_panel_challenge(_nexus_addons_p)
     if not g.indun_panel_challenge_start_time then
         _nexus_addons_p:StopUpdateScript("Indun_panel_challenge")
@@ -1159,12 +1185,28 @@ function Indun_panel_challenge(_nexus_addons_p)
         ui.DestroyFrame(Indun_panel_config_frame_name())
         _nexus_addons_p:StopUpdateScript("Indun_panel_challenge")
         g.indun_panel_challenge_start_time = nil
-        if g.indun_panel_settings.etc.base_date ~= "" then
-            return 0
+        local etc = g.indun_panel_settings.etc
+        local challenge_map_list, count = GetClassList('challenge_mode_auto_map')
+        -- **覚えている予定と合っていれば書き込まない。** 以前は最初の 1 回だけ覚えて以後は
+        -- 見なかったので、覚え間違えると予定表が永久にずれたままだった(利用者報告で 4 日遅れ)。
+        -- 入るたびに書くと無駄なので、「今日はこのマップのはず」と食い違ったときだけ覚え直す。
+        -- 同じ MapName が表に 2 行ある(f_dcapital_20_5 / f_castle_101)ので、判定は
+        -- ClassID ではなく「予定の行の MapName が今のマップか」で行う。
+        local expected_index = nil
+        local saved_clsid = tonumber(etc.challenge_map)
+        if etc.base_date ~= "" and saved_clsid and saved_clsid >= 1 and count > 0 then
+            -- challenge_map は ClassID(1 始まり)。添字(0 始まり)へ直してから足す
+            expected_index = (saved_clsid - 1 + indun_panel_get_server_elapsed_days(etc.base_date)) % count
+            local expected_cls = GetClassByIndexFromList(challenge_map_list, expected_index)
+            if expected_cls and expected_cls.MapName == g.map_name then
+                g.vlog("indun_panel: チャレンジマップは予定どおり map=%s index=%d", tostring(g.map_name),
+                    expected_index)
+                return 0
+            end
         end
         local cnt = 0
         local found_clsid = nil
-        local challenge_map_list, count = GetClassList('challenge_mode_auto_map')
+        local found_index = nil
         for i = 0, count - 1 do
             local map_cls = GetClassByIndexFromList(challenge_map_list, i)
             if map_cls then
@@ -1173,10 +1215,16 @@ function Indun_panel_challenge(_nexus_addons_p)
                     cnt = cnt + 1
                     if found_clsid == nil then
                         found_clsid = map_cls.ClassID
+                        found_index = i
                     end
                 end
             end
         end
+        -- 覚え直しが起きた / 起きなかった理由を実機で確かめる材料(挑戦マップへ入ったときだけ)
+        g.vlog("indun_panel: チャレンジマップが予定と違う map=%s 予定index=%s 実際index=%s 候補数=%d " ..
+                   "保存ClassID=%s base_date=%s 鯖時刻=%s", tostring(g.map_name), tostring(expected_index),
+            tostring(found_index), cnt, tostring(etc.challenge_map), tostring(etc.base_date),
+            tostring(date_time.get_lua_now_datetime_str()))
         if cnt == 1 and found_clsid then
             g.indun_panel_settings.etc.challenge_map = found_clsid
             local server_time_str = date_time.get_lua_now_datetime_str()
@@ -1214,30 +1262,6 @@ for i = 0, count - 1 do
     end
 end]]
 
-local function indun_panel_get_server_elapsed_days(base_date)
-    if not base_date or base_date == "" or base_date == 0 then
-        return 0
-    end
-    local server_time_str = date_time.get_lua_now_datetime_str()
-    if not server_time_str then
-        return 0
-    end
-    local y, m, d = server_time_str:match("(%d+)-(%d+)-(%d+)")
-    if not y then
-        return 0
-    end
-    local server_now = os.time({
-        year = tonumber(y),
-        month = tonumber(m),
-        day = tonumber(d),
-        hour = 12
-    })
-    local base_tbl = os.date("*t", base_date)
-    base_tbl.hour = 12
-    local server_base = os.time(base_tbl)
-    return math.floor((server_now - server_base) / 86400)
-end
-
 function Indun_panel_challenge_map_context(indun_panel, ctrl)
     local base_date = g.indun_panel_settings.etc.base_date
     if not base_date or base_date == "" or base_date == 0 then
@@ -1247,7 +1271,9 @@ function Indun_panel_challenge_map_context(indun_panel, ctrl)
     local elapsed_days = indun_panel_get_server_elapsed_days(base_date)
     local context = ui.CreateContextMenu("challenge_map_schedule", "{ol}Challenge Map Schedule", 0, 100, 0, 0)
     local challenge_map_list, count = GetClassList('challenge_mode_auto_map')
-    local start_index = g.indun_panel_settings.etc.challenge_map
+    -- challenge_map は ClassID(1 始まり)で、GetClassByIndexFromList は添字(0 始まり)。
+    -- そのまま足すと予定表が常に 1 日先へずれる(実機で確認: 9/15 がシルドゲラなのにピスティス森と出た)
+    local start_index = (tonumber(g.indun_panel_settings.etc.challenge_map) or 1) - 1
     for i = 0, 6 do
         local map_index = (start_index + elapsed_days + i) % count
         local map_cls = GetClassByIndexFromList(challenge_map_list, map_index)
@@ -1368,6 +1394,13 @@ function Indun_panel_frame_init(is_toggle, msg)
             return
         end
     end
+    -- **チャレンジマップの判定はマップの判定より前で始めること。** チャレンジマップは
+    -- MapType が Field(d_thorn_20 など)なので、「フィールドで表示」が OFF だと下の "hide" で
+    -- 抜けてしまい、以前はパネルを作った後で始めていたこの判定が走らなかった。
+    -- その結果、OFF の人は予定を覚えることも覚え直すこともできなかった(実機で確認)。
+    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
+    g.indun_panel_challenge_start_time = imcTime.GetAppTimeMS()
+    _nexus_addons_p:RunUpdateScript("Indun_panel_challenge", 0.1)
     local map_verdict = Indun_panel_map_verdict()
     if map_verdict == "keep" then
         return
@@ -1417,9 +1450,6 @@ function Indun_panel_frame_init(is_toggle, msg)
             Indun_panel_frame_open(indun_panel)
         end
     end
-    local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
-    g.indun_panel_challenge_start_time = imcTime.GetAppTimeMS()
-    _nexus_addons_p:RunUpdateScript("Indun_panel_challenge", 0.1)
     return indun_panel
 end
 
