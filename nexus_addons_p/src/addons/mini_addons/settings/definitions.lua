@@ -352,7 +352,7 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "アーク/エンブレム装備忘れ通知",
         text_kr = "아크/엠블렘 장비 미착용 알림",
         text_en = "Notification for unequipped Ark/Emblem",
-        updated = core_g.VER_NEXT,
+        updated = "2.9.0",
         updated_note_jp = "偽りの輝翼 / 堕落した審判の翼のハードでも出るようにしました。ズメイのハードで出ていなかったのも修正しました",
         updated_note_en = "Now also shown for Hard of False Radiant Wings / Fallen Judgment Wings. Fixed it not showing for Zmei Hard"
     }, {
