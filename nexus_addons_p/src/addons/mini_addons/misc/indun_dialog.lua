@@ -10,7 +10,8 @@ function Mini_addons_SHOW_INDUNENTER_DIALOG(my_frame, my_msg)
     end
     local indun_frame = ui.GetFrame("indunenter")
     local indun_type = indun_frame:GetUserValue("INDUN_TYPE")
-    local target_indun_list = {665, 670, 675, 678, 681, 628, 687, 690, 697, 709, 712, 718, 724, 727}
+    -- レイドの Hard(パーティ)。731 = ズメイ、735 / 738 = 偽りの輝翼 / 堕落した審判の翼
+    local target_indun_list = {665, 670, 675, 678, 681, 628, 687, 690, 697, 709, 712, 718, 724, 727, 731, 735, 738}
     local is_target = false
     for i = 1, #target_indun_list do
         if tostring(target_indun_list[i]) == tostring(indun_type) then
