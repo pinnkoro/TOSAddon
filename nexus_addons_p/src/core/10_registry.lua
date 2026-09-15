@@ -295,7 +295,7 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_panel",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.9.1",
     updated_note_jp = "チャレンジマップの予定表が 1 日先へずれていたのを修正しました。覚えている予定と違うマップに入ったときは、予定を覚え直します(「フィールドで表示」が OFF でも覚えます)",
     updated_note_en = "Fixed the Challenge Map schedule being one day ahead. The schedule is now re-learned when you enter a map that differs from it (even with Field Mode off)",
     data = {
