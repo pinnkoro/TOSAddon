@@ -452,6 +452,9 @@ g._nexus_addons_p = {{
 }, {
     key = "quickslot_operate",
     category = "battle",
+    updated = g.VER_NEXT,
+    updated_note_jp = "偽りの輝翼 / 堕落した審判の翼のハードでも、属性に合わせたポーションへ差し替えるようにしました",
+    updated_note_en = "Potions are now also swapped by race in Hard of False Radiant Wings / Fallen Judgment Wings",
     data = {
         use = 0,
         name = "Quickslot Operate",
