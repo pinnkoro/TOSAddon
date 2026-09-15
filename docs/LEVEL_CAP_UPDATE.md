@@ -113,6 +113,9 @@ PY="C:/Users/pinnk/AppData/Local/Programs/Python/Python312/python.exe"
 * **Hard が後から来ることがある。** 偽りの輝翼 / 堕落した審判の翼は Solo と Auto だけで実装され、
   Party の ID（735 / 738）が欠番だった。`Indun_panel_create_frame_onsweep` は **`h` があるときだけ**
   HARD ボタンを作る。後から `h = 735` を足すだけで出る。
+  実際に後から実装されたときは、`indun_list_viewer` の `hard` と `ver` 繰り上げ、
+  `quickslot_operate_raid_list`、Mini Addons の着け忘れお知らせ（`indun_dialog.lua` の
+  `target_indun_list`）にも Hard の ID を足した。**Hard の ID を持つ表はこの 4 か所**。
 * **ボスのアイコンが使い回されることがある。** Uriel 系はモンスター 9 体すべて `Icon = "boss_uriel"` で、
   ボス画像にすると 2 行が同じ絵になる。**見分けが付かないときは入場券のアイコンを使う。**
 * **新しい女神のショップボタン画像は無いことがある。** `baseskinset` の `goddess*_shop_btn` は 5 枚で、
@@ -185,5 +188,7 @@ ipf_crypt._check_bodies(ipf_crypt.decrypt(open(placed,'rb').read()))
 `since` / `updated` には `g.VER_NEXT` を書く。採番は `release-prep/vX.Y.Z` で行い、
 そこで `g.VER_NEXT` を実際の版へ置き換える。詳細は [UPDATE_BADGE.md](UPDATE_BADGE.md) を参照。
 
-**見た目が変わるので、スクリーンショット撮り直しの Issue を立てること**（画像はゲームを起動しないと撮れない）。
+**見た目が変わるので、動作確認のときにスクリーンショットも撮ってもらい、同じ PR で差し替えること**
+（画像はゲームを起動しないと撮れない）。動作確認の観点と一緒に撮影リストを渡す。
 対象は `indun_panel/images/01-panel.png` `02-set.png` と `indun_list_viewer/images/01-list.png`。
+その PR の中で撮れないとき（新レイドにまだ入れない等）だけ Issue を立てる。

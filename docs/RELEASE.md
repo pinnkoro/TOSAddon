@@ -112,6 +112,24 @@ main の addons.json : v1.0.3  →  取りに行く  nexus_addons_p-v1.0.3.ipf
   * 同じ版のまま再実行すると、保存用 Release はノートとアセットが上書きされる（タグの位置は動かない）。
 * 手動で公開をやり直したいときは `gh workflow run release-nexus.yml --ref release`。
 
+### リリースノートに画像を載せる
+
+見た目を変えた PR では、動作確認のときに撮った画像を `images/` に commit して同じ PR で差し替えている。
+**リリースノートには撮り直さずにその画像を載せる。**
+
+* 前回の版から変わった画像の一覧: `git diff --name-status v2.8.1..main -- 'nexus_addons_p/*images/*'`
+  * **`**/images/*` と書かない。** git の pathspec では `**/` が空に縮まず、`nexus_addons_p/images/` 直下
+    （Addons Menu の画像）だけが一覧から漏れる。`*images/*` なら直下も `src/addons/<key>/images/` も出る。
+* 書き方（項目の下へ 1 行。alt はその言語で書く。パスは一覧に出たものをそのまま）:
+  `![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/vX.Y.Z/＜一覧に出たパス＞)`
+* **URL の版は今回の版番号タグにする。** `main` を指すと、後で同じファイル名で撮り直したときに
+  **過去のリリースノートの画像まで新しい画面に差し替わる**。タグは公開と同時に作られるので、
+  PR のプレビューでは表示されない（公開後に Release のページで確かめる）。
+* **相対パスと、PR にドラッグで貼った画像（`github.com/user-attachments/...`）は使わない。**
+  相対パスは Release のページで表示されず、Discord へも送れない。ドラッグで貼った画像は
+  Discord が取りに行けるか保証が無い。
+* 日本語セクションの画像は、Discord にも本文の後ろへ画像だけのメッセージで流れる（下記）。
+
 ### Discord への投稿
 
 公開が済むと、同じワークフローが**リリースノートの日本語セクションだけ**を Discord のチャンネルへ
@@ -120,12 +138,16 @@ main の addons.json : v1.0.3  →  取りに行く  nexus_addons_p-v1.0.3.ipf
 
 * 切り出すのは、先頭の `#` 1 つの見出し（タイトル）と、`## 🇯🇵` から最初の `---` まで。**テンプレートの見出しを
   変えると切り出せなくなる**（切り出せないときはジョブが赤くなる。配布は済んでいる）。
+  * **`### 📥 導入方法` の節は Discord には流さない。** 毎回同じ文面でチャンネルでは情報にならないため。
+    Release のページには残る（新しく入れる人はそちらから辿ってくる）。
 * **自動で投稿されるのは、その版を初めて公開したときだけ**（保存用の版番号タグの Release がまだ
   無いとき）。同じ版で公開をやり直しても、お知らせは重ねて流れない。
   * 送り直したい / 投稿だけ失敗したときは、手動実行で `discord` を ON にする:
     `gh workflow run release-nexus.yml --ref release -f discord=true`
     （ジョブの Re-run では投稿されない。その時点で保存用 Release があるため）。
 * Discord は 1 メッセージ 2000 文字まで。超えたら段落の区切りで複数に分けて送る。
+* **本文の画像（`![alt](url)` / `<img>`）は Discord では文字のまま出てしまう**ので、本文からは抜き取り、
+  本文を送り終えてから画像だけのメッセージ（1 通 10 枚まで）で送る。絶対 URL でない画像は警告を出して飛ばす。
 * 公開前に文面を確かめるには、PR 本文をファイルに保存して
   `python docs/post_release_discord.py notes.md --dry-run`（送らずに分割結果を表示する）。
 * 公開済みの版を手元から送り直すなら `python3 docs/post_release_discord.py --release v2.8.0`

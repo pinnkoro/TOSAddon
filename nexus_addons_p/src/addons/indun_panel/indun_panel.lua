@@ -13,14 +13,15 @@ local induns = {{
         icon = {"Item", 11030017}
     }
 }, {
-    -- Lv560。実装時点では Solo/Auto のみで Hard(パーティ) は未実装(indun ID 735 が欠番)。
-    -- 追加されたら h = 735 を足すだけでよい(HARD ボタンは h があるときだけ出る)。
+    -- Lv560。実装時点では Solo/Auto のみで、Hard(パーティ) の 735 は後から入った
+    -- (Goddess_Raid_LightUriel_Party。indun.ies で確認)。HARD ボタンは h があるときだけ出る。
     -- アイコンは**入場券**を使う。他のレイドはボス(Monster)の画像だが、
     -- Uriel 系は monster.ies の Icon が 9 体すべて "boss_uriel" の 1 枚で、
     -- ボスの画像にすると偽りの輝翼と堕落した審判の翼が同じ絵になって見分けが付かない。
     -- 入場券なら item_Boss_LightUriel_Auto_Enter / item_Boss_DarkUriel_Auto_Enter で別絵になる。
     -- 参照する ID は raid_tbl の期限なし(通常)の券。嘆きの墓地 / 共鳴の聖所と同じ持ち方。
     light_uriel = {
+        h = 735,
         s = 734,
         a = 733,
         ac = 80049,
@@ -28,8 +29,9 @@ local induns = {{
         icon = {"Item", 11210072}
     }
 }, {
-    -- Lv560。上と対の実装で、こちらも Hard(パーティ) は未実装(indun ID 738 が欠番)。
+    -- Lv560。上と対の実装で、こちらも Hard(パーティ) の 738 が後から入った(Goddess_Raid_DarkUriel_Party)。
     dark_uriel = {
+        h = 738,
         s = 737,
         a = 736,
         ac = 80051,
@@ -2773,23 +2775,30 @@ end
 -- パネルの組み立ては FPS_UPDATE 経由で何度も走るので、毎回出すとログが流れて埋もれる。
 -- 見るのは「その ID の Indun クラスが引けたか」と「引けた場合の ClassName」。
 -- 引けていなければ ID がずれている(データ側で差し替わった)ということなので、ここで分かる。
+-- 印は g.vlog が実際に出力したときだけ立てる(00_header.lua の g.vlog のコメント)。
+-- 先に立てていたので、詳細ログが OFF の間にパネルを開くと印だけ消費され、
+-- 後から ON にしても二度と出なかった(Hard 735 / 738 の実機確認で 1 行も出ず発覚)。
 local vlog_new_induns_done = false
 local function vlog_new_induns()
     if vlog_new_induns_done then
         return
     end
-    vlog_new_induns_done = true
-    local targets = {733, 734, 736, 737, 732, 1006, 1007, 2003}
+    local targets = {733, 734, 735, 736, 737, 738, 732, 1006, 1007, 2003}
     for _, indun_type in ipairs(targets) do
         local cls = GetClassByType("Indun", indun_type)
+        local written
         if cls then
-            g.vlog("indun_panel: Lv560 indun %d = %s (Lv%s, Ticket=%s)", indun_type,
+            written = g.vlog("indun_panel: Lv560 indun %d = %s (Lv%s, Ticket=%s)", indun_type,
                 tostring(TryGetProp(cls, 'ClassName', 'None')), tostring(TryGetProp(cls, 'Level', 0)),
                 tostring(TryGetProp(cls, 'TicketingType', 'None')))
         else
-            g.vlog("indun_panel: Lv560 indun %d が引けない(ID が変わった可能性)", indun_type)
+            written = g.vlog("indun_panel: Lv560 indun %d が引けない(ID が変わった可能性)", indun_type)
+        end
+        if not written then
+            return
         end
     end
+    vlog_new_induns_done = true
 end
 
 function Indun_panel_frame_contents(configbtn)
@@ -3775,7 +3784,7 @@ function Indun_panel_create_frame_onsweep(indun_panel, key, sub_key, sub_value, 
         btn_sweep:SetEventScriptArgString(ui.LBUTTONUP, "SWEEP")
     elseif sub_key == "h" then -- Hard
         -- HARD ボタンと回数は h を持つレイドだけに作る。以前は無条件に作っていたので、
-        -- Hard がまだ実装されていないレイド(偽りの輝翼 / 堕落した審判の翼)を足すと
+        -- Hard がまだ実装されていないレイド(Lv560 の偽りの輝翼 / 堕落した審判の翼が当初そうだった)を足すと
         -- 押しても何も起きない HARD ボタンが並んでしまう
         local ent_count = Indun_panel_get_entrance_count(sub_value, 2)
         if ent_count then
