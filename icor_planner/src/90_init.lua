@@ -54,7 +54,9 @@ function g.register_menu_item()
     _G["norisan"]["MENU"]["Icor Planner"] = {
         name = "Icor Planner",
         func = "Icor_planner_open",
-        icon = "icon_item_Goddess_Icor"
+        -- **素に在る画像名を使うこと。** 無い名前だと絵が出ない(利用者は
+        -- Addons Menu の設定から好きなアイコンへ変えられる)
+        icon = "goddess_type"
     }
 end
 
