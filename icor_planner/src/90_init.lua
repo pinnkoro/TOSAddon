@@ -31,6 +31,7 @@ function _ICOR_PLANNER_GAME_START()
     g.create_folder(string.format("../addons/%s/%s", "_icor_planner", g.active_id),
         string.format("../addons/%s/%s/mkdir.txt", "_icor_planner", g.active_id))
     g.load_core_settings()
+    g.migrate_from_nexus()
     g.icor_planner_settings = nil
     local ok, err = pcall(icor_planner_on_init)
     if not ok then
@@ -41,6 +42,35 @@ function _ICOR_PLANNER_GAME_START()
     g.setup_open_button()
     g.vlog("icor_planner: 初期化した (lang=%s aid=%s cid=%s)", tostring(g.lang), tostring(g.active_id),
         tostring(g.cid))
+end
+
+-- Nexus Addons P に入っていた頃の目標プリセットを引き継ぐ。
+--
+-- **自分側にまだ設定が無いときだけ**写す(初回起動のとき)。既に自分の設定があるのに
+-- 走らせると、あちらの古い内容で上書きしてしまう(Nexus Addons P が本家から引き継ぐのと同じ作法)。
+-- 写すだけで、あちら側は消さない(Nexus Addons P を使い続ける人の設定を壊さないため)。
+function g.migrate_from_nexus()
+    local mine = string.format("../addons/_icor_planner/%s/icor_planner.json", g.active_id)
+    local file = io.open(mine, "r")
+    if file then
+        file:close()
+        return
+    end
+    local theirs = string.format("../addons/_nexus_addons_p/%s/icor_planner.json", g.active_id)
+    local src = io.open(theirs, "r")
+    if not src then
+        return
+    end
+    src:close()
+    if g.copy_file(theirs, mine) then
+        -- **黙って引き継がないこと。** 目標が入っている状態で開くので、
+        -- どこから来た設定なのかが分からないと混乱する
+        ui.SysMsg("{ol}{#00BFFF}[IP]{/} Nexus Addons P の Icor Planner の目標を引き継ぎました")
+        g.vlog("icor_planner: 目標を引き継いだ %s -> %s", theirs, mine)
+    else
+        ui.SysMsg("{ol}{#FF6347}[IP]{/} Nexus Addons P の目標の引き継ぎに失敗しました(手で写してください)")
+        g.vlog("{#FF6347}icor_planner: 目標の引き継ぎに失敗した %s{/}", theirs)
+    end
 end
 
 -- Addons Menu(norisan さん系のメニューボタン)へ相乗りする。

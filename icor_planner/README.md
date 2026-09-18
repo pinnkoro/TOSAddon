@@ -4,9 +4,21 @@
 
 | 項目 | 内容 |
 | --- | --- |
-| キー | `icor_planner` |
-| ソース | [icor_planner.lua](icor_planner.lua) / [window.lua](window.lua) / [market.lua](market.lua) |
+| アドオン名 | `_icor_planner` |
+| ソース | [src/](src/)（`00_header.lua` / `90_init.lua` / `icor_planner.lua` / `window.lua` / `market.lua`） |
+| 共通部品 | [shared/src/](../shared/src/)（Nexus Addons P と共有。ビルド時に `.ipf` へ入る） |
 | 設定画面 | 診断ウィンドウの中（「目標」タブ） |
+
+## 導入方法
+
+1. [Releases](https://github.com/pinnkoro/TOSAddon/releases) から `icor_planner-vX.Y.Z.ipf` を取得します
+2. ファイル名を **`_icor_planner-⛄-vX.Y.Z.ipf`**（⛄ = U+26C4）にして、ゲームの `data` フォルダへ置きます
+3. ゲームを起動すると、画面に **「イコル計画」ボタン**が出ます
+
+アドオンマネージャー（[Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager)）からも入れられます。
+
+**Nexus Addons P とは別のアドオンです。** 両方入れても問題ありません
+（Nexus Addons P v2.9.0 までに入っていた Icor Planner は、こちらへ移しました）。
 
 ## 何をするアドオンか
 
@@ -25,8 +37,11 @@
 
 ## 使い方
 
-アドオン一覧の行にある**窓のボタン**（歯車）を押すと診断ウィンドウが開きます。
-Addons Menu のショートカット（行の☆）にも載せられます。ESC で閉じます。
+次のどれからでも診断ウィンドウを開けます。ESC で閉じます。
+
+* 画面の **「イコル計画」ボタン**（掴んで動かせます。位置は覚えます）
+* **Addons Menu**（norisan さん系のメニューボタン。入っている環境では「Icor Planner」の行が出ます）
+* マーケットの **「イコル診断」ボタン**（横の評価パネルから「診断を開く」）
 
 ### 「目標」タブ
 
@@ -398,7 +413,12 @@ ON / OFF とは無関係に動きます。
 
 ## 保存先
 
-`../addons/_nexus_addons_p/<アカウントID>/icor_planner.json`
+`../addons/_icor_planner/<アカウントID>/icor_planner.json`（目標のプリセット）
+`../addons/_icor_planner/settings.json`（詳細ログの ON / OFF とボタンの位置）
+
+**Nexus Addons P に入っていた頃の目標は、初回起動のときに引き継ぎます**
+（`../addons/_nexus_addons_p/<アカウントID>/icor_planner.json` があり、こちら側にまだ設定が無いときだけ）。
+引き継いだらチャットに 1 行出ます。あちら側のファイルは消しません。
 
 ```json
 {
