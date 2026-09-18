@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent / "nexus_addons_p" / "src"
+# 共通部品(複数のアドオンの .ipf へ同じソースを入れる)
+SHARED = Path(__file__).resolve().parent.parent / "shared" / "src"
 
 CREATE = re.compile(
     r"(?:local\s+)?([A-Za-z_]\w*)\s*=\s*(?:ui\.CreateNewFrame\(|(?:core_)?g\.create_persistent_frame\()"
@@ -122,8 +124,12 @@ def main() -> int:
     seen_allow = set()
     seen_delegate = set()
 
-    for path in sorted(SRC.rglob("*.lua")):
-        rel = path.relative_to(SRC).as_posix()
+    for path in sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")),
+                       key=lambda p: p.as_posix()):
+        try:
+            rel = path.relative_to(SRC).as_posix()
+        except ValueError:
+            rel = "shared/" + path.relative_to(SHARED).as_posix()
         lines = strip_comments(path.read_text(encoding="utf-8")).split("\n")
         spans = blocks(lines)
 

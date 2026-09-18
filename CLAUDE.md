@@ -34,6 +34,9 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
 
 * **source of truth は `nexus_addons_p/src/**`。** 連結後の bundle は生成物なので直接編集しない。
   連結順は `src/build_manifest.json` が決める（**未登録のファイルはビルドから黙って脱落する**）。
+* **複数のアドオンで使う共通部品は [shared/src/](shared/) に 1 つだけ置く。** ゲーム内では `.ipf` 同士で
+  関数を共有できないので、**共有はビルド時**に行う（manifest に `shared/xxx.lua` と書くと、
+  そのターゲットへ連結される）。共通部品からは特定のアドオンの名前や設定を見ないこと。
 * `src/core/**` … 共通基盤。`00_header.lua`（グローバル `g` と共通部品）/ `10_registry.lua`（アドオン一覧の定義）/
   `20_lifecycle.lua`（初期化・ESC）/ `30_maintenance.lua`（バックアップ）/ `90_addons_menu.lua`（メニューボタン）。
 * `src/addons/**` … アドオン本体。`guard_open.lua` / `guard_close.lua` に挟まれ、

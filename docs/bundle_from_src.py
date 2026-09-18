@@ -37,6 +37,27 @@ SRC = os.path.join(REPO, "nexus_addons_p", "src")
 MANIFEST = os.path.join(SRC, "build_manifest.json")
 BUNDLE_DIR = os.path.join(REPO, "nexus_addons_p", "_nexus_addons_p")
 
+# 共通部品の置き場所。**1 つのソースを複数のアドオンの .ipf へ入れるための仕組み。**
+# ゲーム内では .ipf 同士で関数を共有できないので、共有はここでのビルド時に行う。
+# manifest では "shared/xxx.lua" と書き、ここからの相対で解決する。
+SHARED = os.path.join(REPO, "shared", "src")
+SHARED_PREFIX = "shared/"
+
+
+def part_path(rel):
+    """manifest の part 表記を実ファイルのパスにする。"""
+    if rel.startswith(SHARED_PREFIX):
+        return os.path.join(SHARED, rel[len(SHARED_PREFIX):])
+    return os.path.join(SRC, rel)
+
+
+def bundle_dir_for(manifest, target):
+    """そのターゲットの書き出し先ディレクトリ。manifest["outputs"] で指定する。"""
+    out_dir = (manifest.get("outputs") or {}).get(target)
+    if out_dir:
+        return os.path.join(REPO, *out_dir.split("/"))
+    return BUNDLE_DIR
+
 
 def load_manifest():
     with open(MANIFEST, encoding="utf-8") as f:
@@ -46,11 +67,14 @@ def load_manifest():
 def all_src_lua():
     """src/** 配下の実 .lua を manifest 表記（"/" 区切りの相対パス）の集合で返す。"""
     found = set()
-    for dirpath, _dirs, names in os.walk(SRC):
-        for name in names:
-            if name.endswith(".lua"):
-                full = os.path.join(dirpath, name)
-                found.add(os.path.relpath(full, SRC).replace("\\", "/"))
+    for root, prefix in ((SRC, ""), (SHARED, SHARED_PREFIX)):
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, names in os.walk(root):
+            for name in names:
+                if name.endswith(".lua"):
+                    full = os.path.join(dirpath, name)
+                    found.add(prefix + os.path.relpath(full, root).replace("\\", "/"))
     return found
 
 
@@ -64,7 +88,7 @@ def build(manifest):
         parts = []
         for rel in rels:
             referenced.add(rel)
-            path = os.path.join(SRC, rel)
+            path = part_path(rel)
             if not os.path.isfile(path):
                 raise SystemExit(f"[bundle] src が無い: {rel}")
             with open(path, "rb") as f:
@@ -87,7 +111,7 @@ def build(manifest):
     return out
 
 
-def prune_stale(targets):
+def prune_stale(manifest, targets):
     """manifest に無い生成 .lua を bundle ディレクトリから消す。
 
     **消さないと配布に混ざる。** manifest からターゲットを 1 つ外しても、以前の
@@ -98,12 +122,14 @@ def prune_stale(targets):
 
     手書きの .xml は生成物ではないので触らない。
     """
-    if not os.path.isdir(BUNDLE_DIR):
-        return
-    for name in sorted(os.listdir(BUNDLE_DIR)):
-        if name.endswith(".lua") and name not in targets:
-            os.remove(os.path.join(BUNDLE_DIR, name))
-            print(f"  removed stale {name} (manifest に無い生成物)")
+    dirs = {bundle_dir_for(manifest, t) for t in targets} | {BUNDLE_DIR}
+    for out_dir in sorted(dirs):
+        if not os.path.isdir(out_dir):
+            continue
+        for name in sorted(os.listdir(out_dir)):
+            if name.endswith(".lua") and name not in targets:
+                os.remove(os.path.join(out_dir, name))
+                print(f"  removed stale {name} (manifest に無い生成物)")
 
 
 def verify_sha(manifest, out):
@@ -155,9 +181,11 @@ def main():
     if not no_verify and not verify_sha(manifest, out):
         sys.exit(1)
 
-    prune_stale(set(out))
+    prune_stale(manifest, set(out))
     for target, data in out.items():
-        dst = os.path.join(BUNDLE_DIR, target)
+        out_dir = bundle_dir_for(manifest, target)
+        os.makedirs(out_dir, exist_ok=True)
+        dst = os.path.join(out_dir, target)
         old = open(dst, "rb").read() if os.path.isfile(dst) else None
         with open(dst, "wb") as f:
             f.write(data)

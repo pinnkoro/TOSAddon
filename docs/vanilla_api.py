@@ -71,6 +71,8 @@ import ipf_crypt  # noqa: E402  （PKware 復号とファイルテーブルの�
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "nexus_addons_p" / "src"
+# 共通部品(複数のアドオンの .ipf へ同じソースを入れる)
+SHARED = REPO / "shared" / "src"
 LOCK = Path(__file__).resolve().parent / "vanilla_api.json"
 
 # ゲーム本体の導入先。環境変数で上書きできるようにしておく（Steam ライブラリの位置は
@@ -498,7 +500,18 @@ HOOK_EVENT_RE = re.compile(
 
 
 def src_files():
-    return sorted(SRC.rglob("*.lua"), key=lambda p: p.as_posix())
+    # 共通部品(shared/src)も同じ配布物に入るので一緒に見る。
+    # rel は "shared/xxx.lua" と書く(build_manifest.json の part 表記と同じ)。
+    return sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")),
+                  key=lambda p: p.as_posix())
+
+
+def src_rel(path):
+    """走査したファイルの表示用の相対パス。"""
+    try:
+        return path.relative_to(SRC).as_posix()
+    except ValueError:
+        return "shared/" + path.relative_to(SHARED).as_posix()
 
 
 def scan_src():
@@ -538,7 +551,7 @@ def scan_src():
             blocks[bid][name] = line
 
     for path in src_files():
-        rel = path.relative_to(SRC).as_posix()
+        rel = src_rel(path)
         text = path.read_text(encoding="utf-8")
         body = strip_lua(text)
         bodies[rel] = body

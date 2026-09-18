@@ -2,6 +2,11 @@
   "targets": {
     "_nexus_addons_p.lua": [
       "core/00_header.lua",
+      "shared/10_json.lua",
+      "shared/20_vlog.lua",
+      "shared/30_frame.lua",
+      "shared/40_esc.lua",
+      "shared/50_frame_pos.lua",
       "core/10_registry.lua",
       "core/20_lifecycle.lua",
       "core/30_maintenance.lua",
@@ -141,5 +146,8 @@
   },
   "sha256": {
     "_nexus_addons_p.lua": "3b2f3cd18666bf0ac77835ba2dba5259e9e5c5f873ef2ee6b78c6bab63b64b92"
+  },
+  "outputs": {
+    "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p"
   }
 }

@@ -197,86 +197,10 @@ function _nexus_addons_p_schedule_esc_probe(reason)
 end
 
 -- ESC で閉じるのは、開いている自作ウィンドウのうち一番手前の 1 枚だけ。
--- 登録は各アドオンがフレームを開いたところで g.esc_register する(詳細は core/00_header.lua)。
+-- 登録は各アドオンがフレームを開いたところで g.esc_register する(詳細は shared/src/40_esc.lua)。
+-- **購読はこの 1 か所だけ**(アドオン側で個別に購読しないこと)。中身は共通部品にある。
 function _nexus_addons_p_ESCAPE_PRESSED()
-    -- ESC は 2 経路で届きうる: g.esc_sync_scp が仕込む ui.SetEscapeScp と、
-    -- ゲームからアドオンへ一斉配信される ESCAPE_PRESSED。どちらが来る(あるいは両方来る)かは
-    -- クライアント任せなので、同じ押下で二重に閉じないよう直後の再入は捨てる。
-    -- 押下ごとに 1 行出す。**「ESC がこちらへ届いているか」を切り分けるのに要る。**
-    --
-    -- かつてここを黙らせていたのは、esc_probe(1 回で 30 行以上)を毎押下で回していた頃の
-    -- 話。1 行なら実用上の重さは出ないので戻した。既定は詳細ログ OFF なので普段は黙る。
-    -- この行が無いと「押しても何も起きない」を追えない: 閉じたときしか行が出ないため、
-    -- **こちらへ届いていないのか、届いたが閉じる対象が無かったのかが区別できない**
-    -- (実機で Easy Buff / Market Favorite が「1 回目は空振り、2 回目で閉じる」と報告され、
-    --  ログからは press 1 の行跡が一切拾えなかった)。
-    if g.esc_is_reentry() then
-        g.vlog("ESCAPE_PRESSED: 同じ押下の再入として捨てた (stack=%d)", #g.esc_stack)
-        return
-    end
-    g.esc_last_ms = imcTime.GetAppTimeMS()
-    g.vlog("ESCAPE_PRESSED: 受けた (stack=%d scp=%s)", #g.esc_stack, tostring(g.esc_scp_set))
-    local entry = g.esc_pop_top()
-    if not entry then
-        -- スタックに閉じるものが無いときだけ、Addons Menu 側(一覧と設定画面)を畳む。
-        -- ゲーム側の ESC は chat_memberlist 由来のフレームを「隠す」が、それは IsVisible() に
-        -- 出ないので、こちらの開閉判定と食い違う分をここで合わせる
-        -- (詳細は core/90_addons_menu.lua の addons_menu_on_escape)。
-        --
-        -- **スタックより先に呼んではいけない。** 以前は無条件に先頭で呼んでいたため、
-        -- 手前の自作ウィンドウを閉じる押下で Addons Menu の設定画面まで一緒に消えていた
-        -- (「1 回の ESC でまとめて消える」を防ぐためのスタックが、ここだけ素通りしていた)。
-        local ok, closed = pcall(addons_menu_on_escape)
-        if ok and closed then
-            -- 実際に畳んだ押下は「使った」扱いにする。そうしないと設定画面が閉じるのと
-            -- 同時にシステムメニューが開き、indun_panel のトグルまで走る。
-            g.esc_closed_ms = imcTime.GetAppTimeMS()
-            g.esc_sync_scp()
-            return
-        end
-        -- 閉じるものが無いのに ESC が回ってきた = SetEscapeScp を戻し損ねている。
-        -- そのままだとシステムメニューが開けなくなるので、ここで必ず戻す。
-        -- ここは force を付けない。押下のたびに SetEscapeScp("") を撃つと、
-        -- ゲーム側が自分の都合で入れた割り込み先(開いているダイアログを閉じる等)まで
-        -- 消してしまい、次の 1 回が空振りする = ESC の効きが悪くなる。
-        -- こちらが握ったままの状態は GAME_START の force 同期で必ず解ける。
-        g.esc_sync_scp()
-        -- 右クリックの付け直しもここではやらない。ESC は押すたびに必ず通る経路なので、
-        -- 毎回 UI を触る処理を積むほど反応が鈍る(ログで実証済み。上のコメント参照)。
-        -- 付け直しは GAME_START(マップ移動のたび)に任せる。もし移動を挟まずに
-        -- 外れる事例が出たら、mini_addons が sysmenu へ掛けているような
-        -- 数秒周期の更新スクリプトで直すこと。ESC の経路には戻さない。
-        -- ここで esc_probe を回していたが、押下のたびに 30 行以上の vlog(ファイル書き込み +
-        -- チャットへのシステムメッセージ)が走り、ESC の反応を悪くしていた。
-        -- 調べたかったこと(システムメニュー = フレーム "apps")は分かったので、
-        -- 定期的な調査は起動後 1 回(GAME_START)だけにする。
-        return
-    end
-    -- close は関数そのものか、グローバル関数の名前(g.esc_register 参照)。
-    local close_func = entry.close
-    if type(close_func) ~= "function" then
-        close_func = _G[close_func]
-    end
-    if type(close_func) ~= "function" then
-        g.vlog("ESCAPE_PRESSED: close func not found frame=%s func=%s", tostring(entry.frame), tostring(entry.close))
-        g.esc_sync_scp()
-        return
-    end
-    g.vlog("ESCAPE_PRESSED: close %s (残り %d)", tostring(entry.frame), #g.esc_stack)
-    -- 閉じる処理が転んでもゲーム側の ESC 処理を巻き込まないよう握る
-    local ok, err = pcall(close_func)
-    if ok then
-        -- ESCAPE_PRESSED を購読している側(indun_panel)が「この押下は使われた」と
-        -- 判断できるよう、実際に閉じられたときだけ印を置く。転んだ押下(まだ表示が
-        -- 残っているかもしれない)や閉じるものが無かった押下は「使っていない」扱いにし、
-        -- 購読側/ゲーム側へそのまま渡す。ここで無条件に印を置くと、閉じ損ねているのに
-        -- indun_panel のトグルを無効化してしまう。
-        g.esc_closed_ms = imcTime.GetAppTimeMS()
-    else
-        g.vlog("ESCAPE_PRESSED: close failed frame=%s err=%s", tostring(entry.frame), tostring(err))
-    end
-    -- 最後の 1 枚を閉じたら ESC をゲームへ返す
-    g.esc_sync_scp()
+    g.esc_on_escape()
 end
 
 -- A: 本家が同居している間は機能を止め、削除を促すメッセージだけ出す。
