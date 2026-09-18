@@ -75,10 +75,14 @@ MANIFEST = SRC / "build_manifest.json"
 SHARED = ROOT / "shared" / "src"
 
 
+ICOR = ROOT / "icor_planner" / "src"
+
+
 def part_path(rel):
     """manifest の part 表記を実ファイルのパスにする(bundle_from_src.py と同じ規則)。"""
-    if rel.startswith("shared/"):
-        return SHARED / rel[len("shared/"):]
+    for prefix, root in (("shared/", SHARED), ("icor_planner/", ICOR)):
+        if rel.startswith(prefix):
+            return root / rel[len(prefix):]
     return SRC / rel
 
 # 自分たちのグローバル。ここへの書き込みは見張らない。

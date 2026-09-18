@@ -2212,7 +2212,9 @@ function icor_planner_on_init()
     if not g.icor_planner_settings then
         Icor_planner_load_settings()
     end
-    local root = ui.GetFrame("_nexus_addons_p")
+    -- 更新スクリプトを掛ける土台。**自分のアドオンのフレーム**(単体版は _icor_planner、
+    -- Nexus Addons P に入れるときは _nexus_addons_p)
+    local root = ui.GetFrame(addon_name_lower)
     if g.settings.icor_planner.use == 0 then
         ui.DestroyFrame(addon_name_lower .. "icor_planner")
         ui.DestroyFrame(addon_name_lower .. "icor_planner_market")

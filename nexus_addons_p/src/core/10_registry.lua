@@ -267,17 +267,6 @@ g._nexus_addons_p = {{
         old_init_func = "GODDESS_ICOR_MANAGER_ON_INIT"
     }
 }, {
-    key = "icor_planner",
-    category = "gear",
-    since = g.VER_NEXT,
-    data = {
-        use = 0,
-        name = "Icor Planner",
-        frame_use = true,
-        config_func = "Icor_planner_open",
-        old_init_func = ""
-    }
-}, {
     key = "guild_event_warp",
     category = "content",
     updated = "2.6.0",
@@ -861,11 +850,6 @@ g._nexus_addons_p_trans = {
         ja = "{ol}インベントリにボタンが出来ます{nl}イコルのオプション付与を一覧表示して簡易化します",
         etc = "{ol}A button will be added to the inventory{nl}It simplifies Icor option{nl}granting by displaying them in a list",
         kr = "{ol}인벤토리에 버튼이 생깁니다{nl}이코르의 옵션 부여를 일람 표시하여 간소화합니다"
-    },
-    ["icor_planner"] = { --
-        ja = "{ol}目標のステータスを決めて、届くまでにイコルを何個更新すればよいかを出します{nl}マーケットを開くと横に評価パネルが出ます",
-        etc = "{ol}Set target stats and see how many icors you still need to update{nl}Shows an evaluation panel next to the market",
-        kr = "{ol}목표 스탯을 정하고 도달까지 이코르를 몇 개 갱신해야 하는지 계산합니다{nl}마켓을 열면 옆에 평가 패널이 표시됩니다"
     },
     ["tavern_of_soul"] = { -- "archeology_helper"
         ja = "{ol}簡易検索用データベース",

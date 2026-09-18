@@ -58,10 +58,14 @@ def check(path):
 
 def main():
     with io.open(MANIFEST, encoding="utf-8") as f:
-        targets = json.load(f)["targets"]
+        manifest = json.load(f)
+    targets = manifest["targets"]
+    # 生成物の置き場はターゲットごとに違う(単体アドオンは自分のフォルダへ出す)
+    outputs = manifest.get("outputs") or {}
     total = 0
     for target in targets:
-        path = os.path.join(BUNDLE_DIR, target)
+        out_dir = outputs.get(target)
+        path = os.path.join(REPO, *out_dir.split("/"), target) if out_dir else os.path.join(BUNDLE_DIR, target)
         if not os.path.isfile(path):
             raise SystemExit(
                 f"[forward-refs] bundle が無い: {path}\n"

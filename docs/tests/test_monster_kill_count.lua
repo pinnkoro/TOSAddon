@@ -23,7 +23,7 @@ local PARTS = {
     "shared/src/20_vlog.lua",
     "shared/src/30_frame.lua",
     "shared/src/40_esc.lua",
-    "shared/src/50_frame_pos.lua",
+    "shared/src/50_frame_pos.lua", "shared/src/60_files.lua",
     "nexus_addons_p/src/core/10_registry.lua",
     "nexus_addons_p/src/core/20_lifecycle.lua",
     "nexus_addons_p/src/addons/monster_kill_count/monster_kill_count.lua",

@@ -32,3 +32,4 @@ __pycache__/
 # （_nexus_addons_p_conclude.lua で実際に起きた）。無視から外せば未追跡ファイルとして
 # 目に見えるし、docs/bundle_from_src.py の prune_stale が生成時に消す。
 /nexus_addons_p/_nexus_addons_p/_nexus_addons_p.lua
+/icor_planner/_icor_planner/_icor_planner.lua

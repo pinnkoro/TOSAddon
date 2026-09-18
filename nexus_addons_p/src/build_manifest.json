@@ -7,6 +7,7 @@
       "shared/30_frame.lua",
       "shared/40_esc.lua",
       "shared/50_frame_pos.lua",
+      "shared/60_files.lua",
       "core/10_registry.lua",
       "core/20_lifecycle.lua",
       "core/30_maintenance.lua",
@@ -27,9 +28,6 @@
       "addons/indun_list_viewer/indun_list_viewer.lua",
       "addons/characters_item_serch/characters_item_serch.lua",
       "addons/goddess_icor_manager/goddess_icor_manager.lua",
-      "addons/icor_planner/icor_planner.lua",
-      "addons/icor_planner/window.lua",
-      "addons/icor_planner/market.lua",
       "addons/vakarine_equip/vakarine_equip.lua",
       "addons/sub_slotset/sub_slotset.lua",
       "addons/muteki/muteki.lua",
@@ -142,12 +140,31 @@
       "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
       "guard_close.lua",
       "conclude_scope_close.lua"
+    ],
+    "_icor_planner.lua": [
+      "icor_planner/00_header.lua",
+      "shared/10_json.lua",
+      "shared/20_vlog.lua",
+      "shared/30_frame.lua",
+      "shared/40_esc.lua",
+      "shared/50_frame_pos.lua",
+      "shared/60_files.lua",
+      "icor_planner/icor_planner.lua",
+      "icor_planner/window.lua",
+      "icor_planner/market.lua",
+      "icor_planner/90_init.lua"
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "3b2f3cd18666bf0ac77835ba2dba5259e9e5c5f873ef2ee6b78c6bab63b64b92"
+    "_nexus_addons_p.lua": "a7a9c387ecb6c9c44ea7059e43e9df739ff8293d8c33c50caeb06645c3820d67",
+    "_icor_planner.lua": "c84afc0661068c0ae3346e84b56c7e0a3cb49a6df464d9afa96698f903f5c9bc"
   },
   "outputs": {
-    "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p"
+    "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p",
+    "_icor_planner.lua": "icor_planner/_icor_planner"
+  },
+  "roots": {
+    "shared": "shared/src",
+    "icor_planner": "icor_planner/src"
   }
 }

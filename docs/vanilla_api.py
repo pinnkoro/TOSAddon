@@ -73,6 +73,8 @@ REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "nexus_addons_p" / "src"
 # 共通部品(複数のアドオンの .ipf へ同じソースを入れる)
 SHARED = REPO / "shared" / "src"
+# 単体アドオン(Icor Planner)の src。build_manifest.json の roots と同じ
+ICOR = REPO / "icor_planner" / "src"
 LOCK = Path(__file__).resolve().parent / "vanilla_api.json"
 
 # ゲーム本体の導入先。環境変数で上書きできるようにしておく（Steam ライブラリの位置は
@@ -502,16 +504,18 @@ HOOK_EVENT_RE = re.compile(
 def src_files():
     # 共通部品(shared/src)も同じ配布物に入るので一緒に見る。
     # rel は "shared/xxx.lua" と書く(build_manifest.json の part 表記と同じ)。
-    return sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")),
+    return sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")) + list(ICOR.rglob("*.lua")),
                   key=lambda p: p.as_posix())
 
 
 def src_rel(path):
-    """走査したファイルの表示用の相対パス。"""
-    try:
-        return path.relative_to(SRC).as_posix()
-    except ValueError:
-        return "shared/" + path.relative_to(SHARED).as_posix()
+    """走査したファイルの表示用の相対パス(build_manifest.json の part 表記と同じ)。"""
+    for root, prefix in ((SRC, ""), (SHARED, "shared/"), (ICOR, "icor_planner/")):
+        try:
+            return prefix + path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
 
 
 def scan_src():

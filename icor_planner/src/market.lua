@@ -267,8 +267,10 @@ function Icor_planner_attach_market_btn()
     if fav then
         x = fav:GetX() + fav:GetWidth() + 5
         y = fav:GetY()
-    elseif g.settings.market_favorite_rebuild == nil or g.settings.market_favorite_rebuild.use == 0 then
-        -- あちらが OFF なら「お気に入り」は出ないので、その位置をこちらが使う
+    elseif g.settings.market_favorite_rebuild ~= nil and g.settings.market_favorite_rebuild.use == 0 then
+        -- あちらが OFF なら「お気に入り」は出ないので、その位置をこちらが使う。
+        -- **単体版では判断材料が無い**(相手の設定を読めない)ので、既定位置のまま待つ。
+        -- あちらが後からボタンを作れば、次の見回りで隣へ寄せ直す
         x = 610
     elseif not g.icor_planner_fav_missing_logged then
         -- あちらが ON なのに見つからない。名前が変わった可能性があるので 1 回だけ残す

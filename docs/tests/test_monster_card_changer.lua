@@ -21,7 +21,7 @@ local PARTS = {"nexus_addons_p/src/core/00_header.lua",
     "shared/src/20_vlog.lua",
     "shared/src/30_frame.lua",
     "shared/src/40_esc.lua",
-    "shared/src/50_frame_pos.lua",
+    "shared/src/50_frame_pos.lua", "shared/src/60_files.lua",
                "nexus_addons_p/src/addons/monster_card_changer/monster_card_changer.lua"}
 
 -- ===== ゲーム API のスタブ =====

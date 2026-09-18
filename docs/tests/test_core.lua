@@ -18,7 +18,7 @@ local CORE_PARTS = {
     "shared/src/20_vlog.lua",
     "shared/src/30_frame.lua",
     "shared/src/40_esc.lua",
-    "shared/src/50_frame_pos.lua",
+    "shared/src/50_frame_pos.lua", "shared/src/60_files.lua",
     "nexus_addons_p/src/core/10_registry.lua", -- 設定のプルーニング検査に登録リストが要る
     "nexus_addons_p/src/core/20_lifecycle.lua",
     "nexus_addons_p/src/core/30_maintenance.lua", -- 全 OFF / 設定のバックアップ・復元

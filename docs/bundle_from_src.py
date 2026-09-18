@@ -42,12 +42,22 @@ BUNDLE_DIR = os.path.join(REPO, "nexus_addons_p", "_nexus_addons_p")
 # manifest では "shared/xxx.lua" と書き、ここからの相対で解決する。
 SHARED = os.path.join(REPO, "shared", "src")
 SHARED_PREFIX = "shared/"
+# manifest["roots"] が無い古い形でも動くよう、既定を持っておく
+DEFAULT_ROOTS = {"shared": "shared/src"}
 
 
-def part_path(rel):
+def roots_of(manifest):
+    """manifest 表記の先頭 → src ルート。"shared/xxx.lua" のように書く。"""
+    roots = dict(DEFAULT_ROOTS)
+    roots.update(manifest.get("roots") or {})
+    return {k + "/": os.path.join(REPO, *v.split("/")) for k, v in roots.items()}
+
+
+def part_path(rel, roots):
     """manifest の part 表記を実ファイルのパスにする。"""
-    if rel.startswith(SHARED_PREFIX):
-        return os.path.join(SHARED, rel[len(SHARED_PREFIX):])
+    for prefix, root in roots.items():
+        if rel.startswith(prefix):
+            return os.path.join(root, rel[len(prefix):])
     return os.path.join(SRC, rel)
 
 
@@ -64,10 +74,11 @@ def load_manifest():
         return json.load(f)
 
 
-def all_src_lua():
+def all_src_lua(manifest):
     """src/** 配下の実 .lua を manifest 表記（"/" 区切りの相対パス）の集合で返す。"""
     found = set()
-    for root, prefix in ((SRC, ""), (SHARED, SHARED_PREFIX)):
+    roots = [(SRC, "")] + [(root, prefix) for prefix, root in sorted(roots_of(manifest).items())]
+    for root, prefix in roots:
         if not os.path.isdir(root):
             continue
         for dirpath, _dirs, names in os.walk(root):
@@ -81,6 +92,7 @@ def all_src_lua():
 def build(manifest):
     """{target: bytes} を返す。src 欠落・orphan があれば SystemExit。"""
     targets = manifest["targets"]
+    roots = roots_of(manifest)
 
     referenced = set()
     out = {}
@@ -88,7 +100,7 @@ def build(manifest):
         parts = []
         for rel in rels:
             referenced.add(rel)
-            path = part_path(rel)
+            path = part_path(rel, roots)
             if not os.path.isfile(path):
                 raise SystemExit(f"[bundle] src が無い: {rel}")
             with open(path, "rb") as f:
@@ -103,7 +115,7 @@ def build(manifest):
         out[target] = b"".join(parts)
 
     # manifest に未登録の src .lua があれば黙って脱落するので失敗させる。
-    orphans = sorted(all_src_lua() - referenced)
+    orphans = sorted(all_src_lua(manifest) - referenced)
     if orphans:
         raise SystemExit(
             "[bundle] manifest 未登録の src ファイル（ビルドから脱落）:\n  "
