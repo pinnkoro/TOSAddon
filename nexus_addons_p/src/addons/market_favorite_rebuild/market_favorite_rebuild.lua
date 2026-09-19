@@ -395,8 +395,10 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     g.setup_hook_and_event(addon, "ON_MARKET_SELL_LIST", "Market_favorite_rebuild_ON_MARKET_SELL_LIST", false)
     g.setup_hook_and_event(addon, "ON_CABINET_ITEM_LIST", "Market_favorite_rebuild_ON_CABINET_ITEM_LIST", false)
     g.setup_hook_and_event(addon, "MARKET_SELL_REGISTER", "Market_favorite_rebuild_MARKET_SELL_REGISTER", false)
-    -- 再出品で入れた単価を、相場の返事が来た後に入れ直す(素が平均額で上書きするため)
-    g.setup_hook_and_event(addon, "ON_MARKET_MINMAX_INFO", "Market_favorite_rebuild_ON_MARKET_MINMAX_INFO", true)
+    -- 再出品で入れた単価と個数を、相場の返事が来た後に入れ直す(素が平均額で上書きするため)。
+    -- **素を呼ぶのはこちら(bool=false)。** 素は相場が引けなかったときに REQ_ITEMID を
+    -- 'None' へ戻すので、素の後では「どのアイテムの返事か」が読めなくなる
+    g.setup_hook_and_event(addon, "ON_MARKET_MINMAX_INFO", "Market_favorite_rebuild_ON_MARKET_MINMAX_INFO", false)
     g.setup_hook_and_event(addon, "MARKET_DRAW_CTRLSET_OPTMISC", "Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC",
         false)
     g.setup_hook_and_event(addon, "MARKET_DRAW_CTRLSET_EQUIP", "Market_favorite_rebuild_MARKET_DRAW_CTRLSET_EQUIP",
@@ -1597,6 +1599,14 @@ end
 -- 受け取り → 販売タブへ入力、の 2 手。**続けて呼んではいけない。** 受け取りはサーバへの
 -- 要求なので、送った直後はまだインベントリに無い。届いたのを見てから販売タブを開く。
 function Market_favorite_rebuild_relist_exec(item_id, clsid)
+    -- **待ち合わせ中は受けないこと。** 到着の判定は「同じアイテムの手持ちが増えた」
+    -- 「受領箱が減った」という汎い条件なので、2 つ走らせると先に届いたほうを
+    -- 後から押した行のものと取り違え、**別の行の単価で入力してしまう**
+    if g.relist_wait then
+        ui.SysMsg(g.lang == "Japanese" and "前の再出品を処理しています。終わってから押してください" or
+                      "The previous relist is still in progress. Please wait")
+        return
+    end
     local data = Market_favorite_rebuild_find_sell_record(item_id, clsid)
     if not data then
         return
@@ -1667,15 +1677,9 @@ function Market_favorite_rebuild_relist_wait()
         end
     end
     if inv_item ~= nil then
-        -- **使い終わった控えは外すこと。** 受領箱から出た時点でこの控えは用済みで、
-        -- 残すと同じアイテムの控えが増えて、GUID が変わるアイテムで代用が効かなくなる
-        local sell_items = g.get_sell_items()
-        for i, saved_item in ipairs(sell_items) do
-            if saved_item == wait.data then
-                table.remove(sell_items, i)
-                break
-            end
-        end
+        -- **控えを外すのはここではない。** 入力まで終わってから外す
+        -- (Market_favorite_rebuild_relist_fill)。到着の判定を外したときに控えが
+        -- 消えていると、再出品もツールチップも二度と出せなくなる
         wait.inv_guid = tostring(inv_item:GetIESID())
         wait.stage = "fill"
         wait.ticks = 0
@@ -1720,6 +1724,19 @@ end
 -- 相場の返事が来た後に、再出品で入れた単価へ戻す。素は平均額を入れる作りなので、
 -- **素を呼んだ後に上書きする**(素の動きは変えない。再出品を使っていないときは素のまま)。
 function Market_favorite_rebuild_ON_MARKET_MINMAX_INFO(my_frame, my_msg)
+    local frame, msg, argStr, argNum = g.get_event_args(my_msg)
+    -- **どのアイテムの返事かは、素を呼ぶ前に読むこと。** 素は相場が引けなかったとき
+    -- (argNum ~= 1)に REQ_ITEMID を 'None' へ戻してから枠を作り直すので、素の後では
+    -- 読めない。読めないと、**単価が 0 に・個数が束の全数に戻ったまま**放置される
+    local req_id = (frame ~= nil) and tostring(frame:GetUserValue('REQ_ITEMID')) or "None"
+    -- **素は必ず呼ぶこと。** 呼ばないと最低価格・最高価格・入力できる上限が入らず、
+    -- 値段を決める材料ごと消える。控えが取れていないときは何もせずに戻る
+    local origin = g.FUNCS["ON_MARKET_MINMAX_INFO"]
+    if origin == nil then
+        core_g.vlog("{#FF6347}market_favorite_rebuild: ON_MARKET_MINMAX_INFO の素が控えられていない{/}")
+        return
+    end
+    origin(frame, msg, argStr, argNum)
     local pending = g.relist_price
     if not pending then
         return
@@ -1734,7 +1751,7 @@ function Market_favorite_rebuild_ON_MARKET_MINMAX_INFO(my_frame, my_msg)
     end
     -- 素が問い合わせの相手を控えている(MARKET_SELL_REQUEST_PRICE_INFO)。
     -- **別のアイテムの返事なら触らない。** 控えは消さずに残し、期限で片付ける
-    if tostring(sell_frame:GetUserValue('REQ_ITEMID')) ~= pending.guid then
+    if req_id ~= pending.guid then
         return
     end
     g.relist_price = nil
@@ -1841,6 +1858,16 @@ function Market_favorite_rebuild_relist_fill(sell_frame, wait)
         end
     end
     local applied = Market_favorite_rebuild_relist_apply(sell_frame, wait.data.count, wait.data.price)
+    -- **入れ終えてから控えを外すこと。** 受領箱から出た時点でこの控えは用済みで、
+    -- 残すと同じアイテムの控えが増えて GUID が変わるアイテムで代用が効かなくなるが、
+    -- 先に外すと、途中で失敗したときに単価が分からなくなって復旧できない
+    local sell_items = g.get_sell_items()
+    for i, saved_item in ipairs(sell_items) do
+        if saved_item == wait.data then
+            table.remove(sell_items, i)
+            break
+        end
+    end
     -- **ここで入れただけでは残らない。** 枠へ入れた時点で相場(最低・最高・平均)を問い合わせており、
     -- 返事が届くと素の ON_MARKET_MINMAX_INFO が単価を**平均額で上書きする**(実機で発生)。
     -- 返事は後から来るので、そのときに入れ直せるよう控えておく。
