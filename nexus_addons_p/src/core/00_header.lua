@@ -27,6 +27,12 @@ local g = _G["ADDONS"][author][addon_name]
 _G["_nexus_addons_p_core_g"] = g
 -- 詳細ログ(共通部品 shared/src/20_vlog.lua)がチャットへ出すときの印
 g.vlog_tag = "NAP"
+-- ESC の割り込み先(共通部品 shared/src/40_esc.lua が ui.SetEscapeScp へ渡す)。
+-- **購読しているグローバルと同じ名前にすること。**
+g.esc_scp_call = "_nexus_addons_p_ESCAPE_PRESSED()"
+-- スタックに閉じるものが無いときだけ畳むもの(Addons Menu の一覧と設定画面)。
+-- 閉じたら true を返す約束。共通部品からは名前で引く
+g.esc_extra_close = "addons_menu_on_escape"
 local json = require("json")
 
 local function ts(...)

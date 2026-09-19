@@ -25,6 +25,10 @@ local json = require("json")
 
 -- 詳細ログ(共通部品 shared/src/20_vlog.lua)がチャットへ出すときの印
 g.vlog_tag = "IP"
+-- ESC の割り込み先(共通部品 shared/src/40_esc.lua が ui.SetEscapeScp へ渡す)。
+-- **90_init.lua で購読しているグローバルと同じ名前にすること。**
+-- ここが合っていないと、窓を開いた後に ESC でシステムメニューが開かなくなる
+g.esc_scp_call = "_ICOR_PLANNER_ESCAPE_PRESSED()"
 
 -- 共通部品と本体が見る設定の入れ物。
 --   verbose_log … 詳細ログを出すか(0 / 1)

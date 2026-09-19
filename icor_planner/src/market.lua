@@ -14,6 +14,13 @@ function Icor_planner_market_watch()
         Icor_planner_market_close()
         return 1
     end
+    -- **ESC のスタックを実際の表示に合わせ直す。** × ボタンで窓を閉じたときは
+    -- 登録が残ったままなので、ここで拾って割り込み先を戻す。戻し損ねると
+    -- ESC でシステムメニューが開かなくなる(Nexus Addons P は FPS_UPDATE でやっている。
+    -- こちらは 0.5 秒ごとのこの見回りで足りる。PR #191 のレビュー指摘)
+    if #g.esc_stack > 0 then
+        g.esc_sync_scp()
+    end
     local market = ui.GetFrame("market")
     local visible = (market ~= nil and market:IsVisible() == 1)
     local panel = ui.GetFrame(addon_name_lower .. g.icor_planner_market_frame)
@@ -344,7 +351,10 @@ function Icor_planner_market_fill()
     end
     AUTO_CAST(list)
     list:RemoveAllChild()
-    -- 出品一覧が入れ替わると素の行も作り直されるので、印は持ち越さない
+    -- **印(赤い行)は必ず戻してから捨てる。** 組み立て直しは出品一覧の入れ替えだけでなく、
+    -- プリセットや並び順の切り替えからも来る。そちらは素の行を作り直さないので、
+    -- 添字だけ捨てると赤いまま二度と消せなくなる(PR #191 のレビュー指摘)
+    Icor_planner_market_clear_mark()
     g.icor_planner_marked_index = nil
     local diag, diag_scan = Icor_planner_diagnose()
     local mark, spent = Icor_planner_market_elapsed(started)
