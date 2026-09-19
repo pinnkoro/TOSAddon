@@ -1591,21 +1591,37 @@ function Market_favorite_rebuild_relist_exec(item_id, clsid)
         guid = tostring(item_id),
         clsid = tonumber(clsid) or tonumber(data.clsid) or 0,
         data = data,
-        limit_ms = imcTime.GetAppTimeMS() + 5000
+        ticks = 0,
+        limit_ms = imcTime.GetAppTimeMS() + 10000
     }
     market.ReqGetCabinetItem(tostring(item_id))
     core_g.vlog("market_favorite_rebuild: 再出品 受け取りを要求した guid=%s 単価=%s 個数=%s 期間=%s",
         tostring(item_id), tostring(data.price), tostring(data.count), tostring(data.time))
-    local frame = ui.GetFrame(addon_name_lower)
-    if frame then
-        frame:RunUpdateScript("Market_favorite_rebuild_relist_wait", 0.1)
+    -- **待ち合わせの置き場は、マーケットを閉じても生きているフレームにすること。**
+    -- 以前はこのアドオン自身のウィンドウ(お気に入り)へ乗せていたが、開いたことが無ければ
+    -- 存在せず、`if frame then` を黙って素通りして**受け取りだけして出品しなかった**
+    -- (実機で発生。ログに「受け取りを要求した」だけが残り、その後の行が出なかった)。
+    local host = ui.GetFrame(core_addon_name_lower) or ui.GetFrame(addon_name_lower)
+    if not host then
+        g.relist_wait = nil
+        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 待ち合わせの置き場が無いので出品しない{/}")
+        ui.SysMsg(g.lang == "Japanese" and "受け取りだけ行いました(再出品できませんでした)" or
+                      "Only received the item (could not relist)")
+        return
     end
+    host:RunUpdateScript("Market_favorite_rebuild_relist_wait", 0.1)
 end
 
 function Market_favorite_rebuild_relist_wait()
     local wait = g.relist_wait
     if not wait then
         return 1
+    end
+    -- 0.1 秒ごとに走るので、ログは 1 秒に 1 行だけにする(CLAUDE.md「毎フレームの経路は絞る」)
+    wait.ticks = (wait.ticks or 0) + 1
+    if wait.ticks % 10 == 1 then
+        core_g.vlog("market_favorite_rebuild: 再出品 インベントリを待っている guid=%s clsid=%s 経過=%.1f秒",
+            wait.guid, tostring(wait.clsid), wait.ticks * 0.1)
     end
     -- **同じ GUID で戻るとは限らない。** まとめ置きできるアイテムは受け取った時点で
     -- 手持ちの束へ混ざるので、束のほうの GUID で出品することになる
@@ -1629,8 +1645,11 @@ function Market_favorite_rebuild_relist_wait()
         g.relist_wait = nil
         -- 届かなかった理由はいくつもある(インベントリが一杯 / 受け取りそのものが弾かれた)。
         -- 黙って諦めると「押したのに何も起きない」になるので、出品しなかったことを伝える
-        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 受け取ったものがインベントリに見つからない guid=%s{/}",
-            wait.guid)
+        -- 受領箱に残ったままなら、受け取りそのものが通っていない(出品の手前の段で失敗している)。
+        -- 減っているのに見つからないなら、受け取れてはいるが手元での探し方が合っていない
+        core_g.vlog(
+            "{#FF6347}market_favorite_rebuild: 再出品 受け取ったものがインベントリに見つからない guid=%s clsid=%s 受領箱の残り=%s{/}",
+            wait.guid, tostring(wait.clsid), tostring(session.market.GetCabinetItemCount()))
         ui.SysMsg(g.lang == "Japanese" and
                       "受け取ったアイテムが見つからないので、再出品は行いませんでした" or
                       "The received item was not found, so it was not relisted")
