@@ -153,14 +153,13 @@ def pack_targets(manifest, built):
     ここで絞らないと「_nexus_addons_p/_icor_planner.lua が .ipf に入っていない」という
     的外れな不一致になり、release 経路の ipf ジョブが常に落ちる。
     """
-    outputs = manifest.get("outputs", {})
     want_dir = os.path.normpath(BUNDLE_DIR)
     keep = {}
     for target, data in built.items():
-        out_dir = outputs.get(target)
-        if out_dir is None:
-            continue
-        if os.path.normpath(os.path.join(REPO, out_dir)) == want_dir:
+        # 出力先の正本は bundle_from_src.bundle_dir_for。**未指定の既定はこの .ipf 行き**
+        # なので、ここで自前に判定を書くと「未指定だから対象外」と逆に取りかねない
+        # （docs/check_forward_refs.py / docs/tests/syntax_check.sh も既定はこの .ipf 行き）。
+        if os.path.normpath(bundle_from_src.bundle_dir_for(manifest, target)) == want_dir:
             keep[target] = data
     return keep
 
