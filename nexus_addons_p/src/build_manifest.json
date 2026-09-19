@@ -2,6 +2,12 @@
   "targets": {
     "_nexus_addons_p.lua": [
       "core/00_header.lua",
+      "shared/10_json.lua",
+      "shared/20_vlog.lua",
+      "shared/30_frame.lua",
+      "shared/40_esc.lua",
+      "shared/50_frame_pos.lua",
+      "shared/60_files.lua",
       "core/10_registry.lua",
       "core/20_lifecycle.lua",
       "core/30_maintenance.lua",
@@ -134,9 +140,31 @@
       "addons/market_favorite_rebuild/market_favorite_rebuild.lua",
       "guard_close.lua",
       "conclude_scope_close.lua"
+    ],
+    "_icor_planner.lua": [
+      "icor_planner/00_header.lua",
+      "shared/10_json.lua",
+      "shared/20_vlog.lua",
+      "shared/30_frame.lua",
+      "shared/40_esc.lua",
+      "shared/50_frame_pos.lua",
+      "shared/60_files.lua",
+      "icor_planner/icor_planner.lua",
+      "icor_planner/window.lua",
+      "icor_planner/market.lua",
+      "icor_planner/90_init.lua"
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "3b2f3cd18666bf0ac77835ba2dba5259e9e5c5f873ef2ee6b78c6bab63b64b92"
+    "_nexus_addons_p.lua": "230bf2eec3cbd89c169a7b2834e114599ff32b92b2028b8f5171f35f3cb929c5",
+    "_icor_planner.lua": "1e8bf79cb5425bc51658b456933e701131080236608108562cedc2809be01b8a"
+  },
+  "outputs": {
+    "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p",
+    "_icor_planner.lua": "icor_planner/_icor_planner"
+  },
+  "roots": {
+    "shared": "shared/src",
+    "icor_planner": "icor_planner/src"
   }
 }

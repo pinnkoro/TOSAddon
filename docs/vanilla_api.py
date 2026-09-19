@@ -71,6 +71,10 @@ import ipf_crypt  # noqa: E402  （PKware 復号とファイルテーブルの�
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "nexus_addons_p" / "src"
+# 共通部品(複数のアドオンの .ipf へ同じソースを入れる)
+SHARED = REPO / "shared" / "src"
+# 単体アドオン(Icor Planner)の src。build_manifest.json の roots と同じ
+ICOR = REPO / "icor_planner" / "src"
 LOCK = Path(__file__).resolve().parent / "vanilla_api.json"
 
 # ゲーム本体の導入先。環境変数で上書きできるようにしておく（Steam ライブラリの位置は
@@ -498,7 +502,20 @@ HOOK_EVENT_RE = re.compile(
 
 
 def src_files():
-    return sorted(SRC.rglob("*.lua"), key=lambda p: p.as_posix())
+    # 共通部品(shared/src)も同じ配布物に入るので一緒に見る。
+    # rel は "shared/xxx.lua" と書く(build_manifest.json の part 表記と同じ)。
+    return sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")) + list(ICOR.rglob("*.lua")),
+                  key=lambda p: p.as_posix())
+
+
+def src_rel(path):
+    """走査したファイルの表示用の相対パス(build_manifest.json の part 表記と同じ)。"""
+    for root, prefix in ((SRC, ""), (SHARED, "shared/"), (ICOR, "icor_planner/")):
+        try:
+            return prefix + path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
 
 
 def scan_src():
@@ -538,7 +555,7 @@ def scan_src():
             blocks[bid][name] = line
 
     for path in src_files():
-        rel = path.relative_to(SRC).as_posix()
+        rel = src_rel(path)
         text = path.read_text(encoding="utf-8")
         body = strip_lua(text)
         bodies[rel] = body
@@ -1052,12 +1069,58 @@ def report(problems, notices, known):
         print("      「使わなくなった」は素の作りが変わった合図で、まだ動く場合もある。")
 
 
+# --verify-client が通ったときの「何に対して通ったか」の控え（.gitignore 済み）。
+STAMP = Path(__file__).resolve().parent / ".vanilla_api_verified.json"
+
+
+def verify_fingerprint(root):
+    """--verify-client の結果を決める入力の指紋。**これが同じなら結果も同じ。**
+
+    結果を左右するのは次の 3 つだけで、src は見ていない（src と一覧の食い違いは
+    --check の担当）。
+      * 素のクライアントの .ipf … Steam の更新で差し替わると、名前・サイズ・更新日時の
+        どれかが変わる。中身のハッシュは取らない（data/ は数 GB あり、それでは遅いまま）。
+        `_` で始まるアドオンの .ipf は read_client_lua と同じく除く。テスト用の
+        `-dev.ipf` を置き換えるたびに照合し直しになるのを避けるため。
+      * 一覧（vanilla_api.json）… 新しい素の API を使い始めて --update したら変わる。
+      * 検査の実装（このファイルと ipf_crypt.py）… COPIES / EXPECTED_NOT_IN_CLIENT /
+        KNOWN_ISSUES や判定の直しもここに含まれる。
+    """
+    root = Path(root)
+    candidates = (glob.glob(str(root / "data" / "*.ipf"))
+                  + glob.glob(str(root / "patch" / "*.ipf")))
+    h = hashlib.sha256()
+    for p in sorted(c for c in candidates if not os.path.basename(c).startswith("_")):
+        st = os.stat(p)
+        h.update(f"{os.path.relpath(p, root)}|{st.st_size}|{st.st_mtime_ns}\n".encode("utf-8"))
+    for p in (LOCK, Path(__file__).resolve(), Path(ipf_crypt.__file__).resolve()):
+        h.update(p.name.encode("utf-8") + b"|" + hashlib.sha256(p.read_bytes()).digest())
+    return {"client_root": str(root), "sha256": h.hexdigest()}
+
+
+def load_stamp():
+    try:
+        return json.loads(STAMP.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def cmd_verify_client(args):
     """ローカル専用。記録した素の事実が今のクライアントと合っているかを見る。"""
     lock = load_lock()
     if lock is None:
         print(f"NG: {LOCK.name} が無い。--update で作ること")
         return 2
+    # **前回 OK だったときから入力が何も変わっていなければ、照合を飛ばす。**
+    # 数 GB の .ipf から素の Lua を取り出すので重く、PR のたびに流すと待たされる。
+    # 覚えるのは OK のときだけ（NG を覚えると、直したつもりで飛ばされて緑に見える）。
+    fingerprint = None
+    if Path(args.client_root).is_dir():
+        fingerprint = verify_fingerprint(args.client_root)
+        if not args.force and load_stamp() == fingerprint:
+            print(f"OK: 前回の照合から素のクライアント・一覧・検査のどれも変わっていないので省略"
+                  f"（照合し直すなら --force）")
+            return 0
     try:
         cg, cn = scan_client(args.client_root, wanted=set(lock["symbols"]))
     except FileNotFoundError as e:
@@ -1073,6 +1136,8 @@ def cmd_verify_client(args):
     if problems:
         print("      確かめたうえで src を直し、--update で一覧を作り直すこと。")
         return 1
+    if fingerprint is not None:
+        STAMP.write_text(json.dumps(fingerprint, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"OK: 素のクライアント（{args.client_root}）と一致。"
           f"{len(lock['symbols'])} 件 + 写し元 {len(COPIES)} 件を照合")
     return 0
@@ -1163,7 +1228,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="src と一覧の一致だけを見る（CI 用）")
     ap.add_argument("--verify-client", action="store_true",
-                    help="素のクライアントと突き合わせる（ローカル専用）")
+                    help="素のクライアントと突き合わせる（ローカル専用。前回 OK から"
+                         "何も変わっていなければ省略する）")
+    ap.add_argument("--force", action="store_true",
+                    help="--verify-client で、前回 OK の控えがあっても照合し直す")
     ap.add_argument("--update", action="store_true", help="一覧を作り直す")
     ap.add_argument("--accept-client-changes", action="store_true",
                     help="--update で、素が変わっていても承知のうえで取り込む")

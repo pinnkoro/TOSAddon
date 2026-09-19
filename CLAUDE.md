@@ -17,7 +17,8 @@ python docs/bundle_from_src.py --bless      # 配布物を変える意図があ�
 sh docs/tests/syntax_check.sh               # 連結後の Lua 構文チェック（WSL の luajit）
 python docs/check_forward_refs.py           # local function の前方参照
 python docs/check_frame_hittest.py          # 窓の当たり判定の塞ぎ忘れ
-python docs/vanilla_api.py --verify-client  # 素のクライアントとの突き合わせ（ローカル専用・PR 前に必ず）
+python docs/vanilla_api.py --verify-client  # 素のクライアントとの突き合わせ（ローカル専用・PR 前にだけ。
+                                            #   ビルドや実機確認のたびには流さない。前回 OK から不変なら省略）
 python docs/vanilla_api.py --update         # 素の API 一覧を更新（--verify-client の後に流す）
 python docs/verify_ipf.py                   # .ipf の中身と版番号の三者一致
 python docs/check_version_freeze.py         # 先行採番の検出（main への PR）
@@ -33,6 +34,9 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
 
 * **source of truth は `nexus_addons_p/src/**`。** 連結後の bundle は生成物なので直接編集しない。
   連結順は `src/build_manifest.json` が決める（**未登録のファイルはビルドから黙って脱落する**）。
+* **複数のアドオンで使う共通部品は [shared/src/](shared/) に 1 つだけ置く。** ゲーム内では `.ipf` 同士で
+  関数を共有できないので、**共有はビルド時**に行う（manifest に `shared/xxx.lua` と書くと、
+  そのターゲットへ連結される）。共通部品からは特定のアドオンの名前や設定を見ないこと。
 * `src/core/**` … 共通基盤。`00_header.lua`（グローバル `g` と共通部品）/ `10_registry.lua`（アドオン一覧の定義）/
   `20_lifecycle.lua`（初期化・ESC）/ `30_maintenance.lua`（バックアップ）/ `90_addons_menu.lua`（メニューボタン）。
 * `src/addons/**` … アドオン本体。`guard_open.lua` / `guard_close.lua` に挟まれ、

@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.9.1"
+local ver = "2.10.0"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -25,6 +25,14 @@ local g = _G["ADDONS"][author][addon_name]
 -- (詳細は conclude_header.lua)。main 側はこの local g を上位値として持ち続けるので
 -- 気付けず、「一部のアドオンだけ無反応」という分かりにくい形だけが残る。
 _G["_nexus_addons_p_core_g"] = g
+-- 詳細ログ(共通部品 shared/src/20_vlog.lua)がチャットへ出すときの印
+g.vlog_tag = "NAP"
+-- ESC の割り込み先(共通部品 shared/src/40_esc.lua が ui.SetEscapeScp へ渡す)。
+-- **購読しているグローバルと同じ名前にすること。**
+g.esc_scp_call = "_nexus_addons_p_ESCAPE_PRESSED()"
+-- スタックに閉じるものが無いときだけ畳むもの(Addons Menu の一覧と設定画面)。
+-- 閉じたら true を返す約束。共通部品からは名前で引く
+g.esc_extra_close = "addons_menu_on_escape"
 local json = require("json")
 
 local function ts(...)
@@ -67,21 +75,6 @@ end
 -- 起動のたびに空振りさせないためのガード。フォルダを作る箇所はすべてここを通すこと。
 --
 -- folder_path はそのまま cmd へ渡す。区切り文字の扱いは呼び出し側の既存挙動を
--- 変えないよう、こちらでは正規化しない(monster_kill_count はバックスラッシュ、
--- mkdir_new_folder はスラッシュのまま渡してきた)。
-function g.create_folder(folder_path, marker_path)
-    local file = io.open(marker_path, "r")
-    if file then
-        file:close()
-        return
-    end
-    os.execute('mkdir "' .. folder_path .. '"')
-    file = io.open(marker_path, "w")
-    if file then
-        file:write("A new file has been created")
-        file:close()
-    end
-end
 
 function g.mkdir_new_folder()
     g.create_folder(string.format("../addons/%s", addon_name_lower),
@@ -115,24 +108,6 @@ end
 
 -- 1 ファイルをバイナリコピーする。xcopy が使えなかったときの最後の手段として、
 -- 本家からの引き継ぎ(下)と設定のバックアップ/復元(core/30_maintenance.lua)から使う。
-function g.copy_file(src_path, dst_path)
-    local src_file = io.open(src_path, "rb")
-    if not src_file then
-        return false
-    end
-    local data = src_file:read("*all")
-    src_file:close()
-    if not data then
-        return false
-    end
-    local dst_file = io.open(dst_path, "wb")
-    if not dst_file then
-        return false
-    end
-    local ok = dst_file:write(data)
-    dst_file:close()
-    return ok and true or false
-end
 
 -- 利用者へ 1 行チャットで知らせる。**vlog だけで済ませてよいのは調査用の情報だけ。**
 -- 詳細ログは既定 OFF なので、設定の引き継ぎ失敗のように「黙って既定値に戻ったように
@@ -662,20 +637,6 @@ function g.setup_hook(my_func, origin_func_name, owner)
     return origin_func
 end
 
--- tmp を path へ差し替える(remove→rename)。成功可否を返す。
--- 厳密なアトミック差し替えではない: remove と rename の間でクラッシュすると path は
--- 消えるが、tmp に完全な内容が残るため次回 load の .tmp リカバリで復旧できる。この
--- tmp リカバリと対で実効的な原子性(=設定を失わない)を担保する。
--- Windows の os.rename は移動先が存在すると失敗するため先に remove する。
--- rename 失敗時は path が remove 済みのまま false を返す(呼び出し側が検知して報告)。
-function g.atomic_replace(tmp_path, path)
-    os.remove(path)
-    local ok, err = os.rename(tmp_path, path)
-    if not ok then
-        return false, err
-    end
-    return true
-end
 
 function g.save_lua(path, tbl)
     local function serialize(o)
@@ -737,160 +698,7 @@ function g.load_lua(path)
     return nil
 end
 
--- path の .tmp をデコード成功時のみ path へ昇格し、(true, 値) を返す。
--- 壊れた/空/不在の .tmp は昇格させず(リカバリ元を失わないため) false を返す。
--- 本体ファイルが開けない/空の 2 経路で共通のリカバリ手順。
-local function load_json_recover_from_tmp(path)
-    local tmp_file = io.open(path .. ".tmp", "r")
-    if not tmp_file then
-        return false
-    end
-    local tmp_content = tmp_file:read("*all")
-    tmp_file:close()
-    if not tmp_content or tmp_content == "" then
-        return false
-    end
-    local s, r = pcall(json.decode, tmp_content)
-    if not s then
-        return false
-    end
-    g.atomic_replace(path .. ".tmp", path)
-    return true, r
-end
 
-function g.load_json(path)
-    local file = io.open(path, "r")
-    if not file then
-        local ok, recovered = load_json_recover_from_tmp(path)
-        if ok then
-            return recovered, nil
-        end
-        return nil, "Error opening file: " .. path
-    end
-    local content = file:read("*all")
-    file:close()
-    if not content or content == "" then
-        local ok, recovered = load_json_recover_from_tmp(path)
-        if ok then
-            return recovered, nil
-        end
-        return nil, "File content is empty or could not be read: " .. path
-    end
-    if string.sub(content, 1, 3) == "\239\187\191" then
-        content = string.sub(content, 4)
-    end
-    local success, result = pcall(json.decode, content)
-    if success then
-        return result, nil
-    else
-        return nil, result
-    end
-end
-
-function g.save_json(path, tbl)
-    -- 先にエンコードしてから書き込む。エンコード失敗時に本体ファイルを
-    -- 空に潰さないよう、まず tmp に書いてから rename でアトミックに差し替える。
-    -- (load_json の .tmp リカバリと対になる)
-    local success, str = pcall(json.encode, tbl)
-    if not success then
-        print(string.format("[g.save_json] JSON Encode Error in '%s': %s", tostring(path), tostring(str)))
-        return false
-    end
-    local tmp_path = path .. ".tmp"
-    local file, err = io.open(tmp_path, "w")
-    if not file then
-        print(string.format("[g.save_json] Error opening file for write: %s (Error: %s)", tostring(tmp_path), tostring(err)))
-        return false
-    end
-    local ok_w, w_err = file:write(str)
-    file:close()
-    if not ok_w then
-        print(string.format("[g.save_json] Write Error in '%s': %s", tostring(tmp_path), tostring(w_err)))
-        return false
-    end
-    local ok_r, r_err = g.atomic_replace(tmp_path, path)
-    if not ok_r then
-        print(string.format("[g.save_json] Rename Error in '%s': %s", tostring(path), tostring(r_err)))
-        return false
-    end
-    return true
-end
-
--- 詳細ログ。アドオンメニューボタン右クリックの設定画面にある
--- 「詳細なログをシステムに出力する」が ON のときだけ、チャットのシステムメッセージへ出す。
--- 既定は OFF なので、通常の利用者のチャットは今までどおり静かなまま。
---
--- 保存先は g.settings(= ../addons/_nexus_addons_p/<AID>/settings.json)。
--- UI を出している 90_addons_menu.lua 側の addons_menu.json はメニューの位置と
--- 表示設定だけを持つので、アドオン全体の設定であるこれは置かない(詳細は 90 側のコメント)。
---
--- 初期化前(g.settings がまだ nil)や、本家検出で初期化を止めた場合も黙って何もしない。
--- 書式化の失敗でデバッグ用のログが本体を巻き込んで落とすことがないよう pcall で包む。
---
--- チャットは流れてしまい後から読み返せないので、同じ内容をファイルにも残す。
--- 不具合報告用に「そのまま送れる」ことを狙っており、
---   * 出力先は debug_log.txt とは別。あちらはエラーの履歴を追記し続ける用途で、
---     詳細ログを混ぜると際限なく育ち、必要な部分も探しにくくなる。
---   * 作り直すのはクライアント起動後の最初の 1 行だけ(下の vlog_write)。
---   * 色やタグ({ol} 等)は読みづらいだけなので、ファイル側では外す。
-local vlog_file_path = string.format('../addons/%s/verbose_log.txt', addon_name_lower)
--- 行数の上限。マップ移動のたびに全アドオンの init 行(50 行前後)が出るため、
--- 1 回のプレイでも積み上がる。到達したら取り直して際限なく育たないようにする。
-local vlog_max_lines = 20000
-
-local function vlog_write(line)
-    local mode, notice = "a", nil
-    if not g.vlog_started then
-        -- 作り直すのはここだけ。GAME_START はマップ移動のたびに来るので、
-        -- そこで毎回作り直すと直前のマップのログ(初期化エラーを含む)が消える。
-        -- g はクライアント起動中ずっと生きるので、1 回のプレイで 1 ファイルになる。
-        mode = "w"
-    elseif g.vlog_lines >= vlog_max_lines then
-        mode = "w"
-        notice = "===== 行数が上限に達したのでここから取り直し ====="
-    end
-    local file = io.open(vlog_file_path, mode)
-    if not file then
-        -- 開けなかったときは状態を進めない。ここで vlog_started を立ててしまうと、
-        -- 作り直しに失敗したまま次回から追記モードになり、前回起動分のログに
-        -- 書き足す形になる(「中身は常に今回の起動分だけ」が崩れ、報告用に使えない)。
-        -- 上限到達時も同じで、取り直せていないのに行数だけ 0 に戻すと以後伸び続ける。
-        return
-    end
-    g.vlog_started = true
-    if mode == "w" then
-        g.vlog_lines = 0
-    end
-    local stamp = os.date("[%H:%M:%S] ")
-    if notice then
-        file:write(stamp .. notice .. "\n")
-        g.vlog_lines = g.vlog_lines + 1
-    end
-    file:write(stamp .. line .. "\n")
-    file:close()
-    g.vlog_lines = g.vlog_lines + 1
-end
-
--- 実際に出力したときだけ true を返す。
---
--- 「同じ行を 1 回だけ出す」ために印を立てる呼び出し側が幾つかあるが、印を先に立てると
--- **既定 OFF の間に印だけ消費され、後から ON にしても二度と出ない**。特に
--- ログイン直後の非同期初期化はログを ON にする前に走り切るので、一番知りたい
--- 起動時の 1 回が必ず消える(実機で発生)。印は必ずこの戻り値で立てること:
---     if not g.foo_logged and g.vlog("...") then g.foo_logged = true end
-function g.vlog(fmt, ...)
-    if not g.settings or g.settings.verbose_log ~= 1 then
-        return false
-    end
-    local ok, msg = pcall(string.format, fmt, ...)
-    if not ok then
-        msg = tostring(fmt)
-    end
-    ui.SysMsg("{ol}{#00BFFF}[NAP]{/} " .. msg)
-    local plain = msg:gsub("{[^}]*}", "")
-    vlog_write(plain)
-    return true
-end
 
 -- 呼び出し箇所が 50 を超えており、FPS_UPDATE 経由で毎フレーム走る経路もある。
 -- GetClass は IES 引きで重い一方、MapType は同じマップなら不変なので、
@@ -1046,37 +854,6 @@ function g.clear_error_once(key)
     g.error_logged[key] = nil
 end
 
--- ESC で消えない常時表示フレームを作る。常時出しておきたいフレームは必ずこれを使うこと。
---
--- ゲーム側の chat_memberlist.xml は <option hideable="true"> で、ESC はこの hideable な
--- フレームを閉じる。notice_on_pc は hideable="false" なので消えない。
--- ESC による非表示は IsVisible() に反映されないため、_nexus_addons_p_update_frames の
--- 毎フレーム復帰では検出も復旧もできない。土台の選択で防ぐしかない。
-function g.create_persistent_frame(frame_name)
-    return ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
-end
-
--- ウィンドウの裏をクリックできてしまうのを防ぐ。**窓を開いたら必ず呼ぶこと。**
---
--- 土台の notice_on_pc.xml は <input ... hittestframe="false"/> なので、既定では
--- フレーム自身の背景(コントロールが乗っていない部分)が当たり判定を持たない。
--- そこを押した入力は下の 3D 画面へ抜けてしまい、窓の上をクリックしたつもりが
--- キャラクターが歩き出す・敵を選ぶ、という動きになる。
--- (子のボタンやスロットは各自の EnableHitTest で受けるので、そこだけは抜けない。
---  つまり「窓の余白を押したときだけ裏に通る」という分かりにくい出方をする)
---
--- 逆に**通したいもの**では呼ばないこと。常時表示の HUD(always_status / muteki /
--- monster_kill_count のように、利用者の「固定」「ロック」設定で通す/通さないを
--- 切り替える作りのもの)、マーカー、ツールチップ、大きさ 0 の入れ物フレームが当たる。
--- ここで塞ぐと、画面の一部が押せなくなる。
--- (indun_panel は畳んでいても展開していても塞ぐ。「フレームを固定」は**動かさない**
---  だけの設定で、当たり判定まで捨てる意味は無い。Indun_panel_setup_frame を参照)
-function g.block_click_through(frame)
-    if not frame then
-        return
-    end
-    frame:EnableHittestFrame(1)
-end
 
 -- スクロールできる groupbox の、今のスクロール位置を返す。
 --
@@ -1105,188 +882,6 @@ function g.scroll_cur_pos(gbox)
     return 0
 end
 
--- ESC で閉じる自作フレームの重なり(開いた順)スタック。
---
--- 土台が notice_on_pc のフレームはゲーム側の ESC では消えない(上のコメント参照)ので、
--- ESC で閉じているのは各アドオンが購読した ESCAPE_PRESSED のハンドラ。これはゲームから
--- 登録済みハンドラ全部へ一斉に配られるため、各自が素直に自分のフレームを閉じると
--- 「開いている自作ウィンドウが 1 回の ESC で全部消える」。
--- そこで開いたフレームをここへ積んでおき、閉じるのは一番手前(= 最後に開いた)1 枚だけにする。
---
--- 判定と close 呼び出しは core/20_lifecycle.lua の _nexus_addons_p_ESCAPE_PRESSED に集約する。
--- アドオンごとに ESCAPE_PRESSED を購読したままだと、先に閉じた側でスタックの中身が変わり、
--- 後から呼ばれたハンドラが「今度は自分が一番手前」と判断して結局まとめて消えてしまう。
-g.esc_stack = g.esc_stack or {}
-
--- ESC で閉じたいフレームを開いたときに呼ぶ。
---   frame_name: ui.GetFrame に渡すフレーム名
---   close_func: 閉じ方。次のどちらでもよい
---     * グローバル関数の**名前**(引数無しで呼べること) … 既存の閉じる処理を使い回すとき
---     * 関数そのもの(引数無しで呼ばれる)               … その場の無名関数で足りるとき
---   後者を許すのは、閉じる処理がフレーム名を引数に取る作りのアドオンが多く、
---   そのたびに引数無しのラッパをグローバルへ足していると名前が増えるだけだから。
--- 開き直しは積み直し = 最前面扱いにする。
--- **フレームを作って ShowWindow(1) した後で呼ぶこと**。まだ出ていない状態で呼ぶと、
--- 直後の同期で「閉じ終わった登録」と見なされてその場で捨てられる。
-function g.esc_register(frame_name, close_func)
-    for i = #g.esc_stack, 1, -1 do
-        if g.esc_stack[i].frame == frame_name then
-            table.remove(g.esc_stack, i)
-        end
-    end
-    table.insert(g.esc_stack, {
-        frame = frame_name,
-        close = close_func
-    })
-    g.esc_sync_scp()
-end
-
--- 既に積んである登録は動かさずに積む。**中身を作り直す初期化関数から積むときはこちら**。
---
--- esc_register は「開き直し = 最前面」なので、同じフレームをもう一度積むと一番上へ来る。
--- 検索し直しのように「その窓自身を開き直した」ときはそれで正しいが、
--- **子の一覧を開いたまま親の設定画面を組み立て直す**作り(battle_ritual / muteki は
--- スキルやバフを足すたびに設定画面の初期化関数を呼び直す)でこれを使うと、
--- 親が子より手前に積み直され、ESC 1 回で親の close が走って子まで道連れになる
--- = スタックが防ぐはずの「まとめて消える」がそのまま出る。
---
--- **ここで「その登録が生きているか」を見ても意味が無い。** 呼ばれる時点ではフレームを
--- 作って ShowWindow(1) した直後なので、開き直した場合でも必ず生きていると出る。
--- 「閉じた窓の登録が下に残っている」状態を作らせないのは esc_top の掃除の役目
--- (毎フレームの esc_sync_scp から呼ばれる)。そちらを参照。
-function g.esc_register_keep(frame_name, close_func)
-    for _, entry in ipairs(g.esc_stack) do
-        if entry.frame == frame_name then
-            -- 位置は動かさず、閉じ方だけ最新にする
-            entry.close = close_func
-            g.esc_sync_scp()
-            return
-        end
-    end
-    g.esc_register(frame_name, close_func)
-end
-
--- 「ESC で破棄する」だけの窓のための短縮形。閉じるときに保存などの後始末が要らない、
--- ui.DestroyFrame するだけの窓はこれで足りる(自作ウィンドウの大半がこれ)。
-function g.esc_register_destroy(frame_name)
-    g.esc_register(frame_name, function()
-        ui.DestroyFrame(frame_name)
-    end)
-end
-
--- 「ESC で隠す」だけの窓のための短縮形。作り直せない土台(chat_memberlist など)や、
--- 破棄すると持っている参照が無効になる窓はこちらを使う。
-function g.esc_register_hide(frame_name)
-    g.esc_register(frame_name, function()
-        local frame = ui.GetFrame(frame_name)
-        if frame then
-            AUTO_CAST(frame)
-            frame:ShowWindow(0)
-        end
-    end)
-end
-
--- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。
--- × ボタンで閉じた分は登録解除されないまま残るので、ここで一緒に捨てる。
--- 戻り値の 2 つ目はスタック上の位置(esc_pop_top が外すのに使う)。
---
--- **掃除は「一番手前の生きた登録」で打ち切らず、スタック全体に対して行うこと。**
--- 途中で止めると、下に沈んだ死んだ登録が永久に残る。そうなると esc_register_keep が
--- それを掴んで位置を据え置き、**閉じた窓を開き直しても手前に来ない**:
---   一覧を開く → 別の窓を開く(一覧の上) → 一覧を × で閉じる(登録は下に残る)
---   → 一覧を開き直す → 据え置かれて下のまま → ESC が別の窓を先に閉じる
--- 全体を見ても、スタックに載るのは開いている自作ウィンドウだけ(実測で数枚)なので、
--- 毎フレーム呼ばれても走査は数回の ui.GetFrame で済む。
-function g.esc_top()
-    for i = #g.esc_stack, 1, -1 do
-        local entry = g.esc_stack[i]
-        local frame = ui.GetFrame(entry.frame)
-        if frame == nil or frame:IsVisible() ~= 1 then
-            -- 捨てた理由を残す。「開いているのに ESC で閉じられない」「開いた直後に
-            -- 登録が消える」を追うとき、フレームが無いのか表示扱いでないのかで原因が別。
-            -- 捨てるときしか出ないので、毎フレーム呼ばれてもログは流れない。
-            g.vlog("esc_stack: %s を捨てた(frame=%s visible=%s)", tostring(entry.frame), frame and "有" or "無",
-                frame and tostring(frame:IsVisible()) or "-")
-            -- 下から順に詰めるので、i より下の位置は動かない(上向きに走査しているため安全)。
-            table.remove(g.esc_stack, i)
-        end
-    end
-    local top = #g.esc_stack
-    if top == 0 then
-        return nil
-    end
-    return g.esc_stack[top], top
-end
-
--- 一番手前の登録を 1 つ取り出す(閉じた後に開き直せば esc_register で積み直される)。
-function g.esc_pop_top()
-    local entry, index = g.esc_top()
-    if entry then
-        table.remove(g.esc_stack, index)
-    end
-    return entry
-end
-
--- 1 回の押下を 2 度処理しないための間隔(ms)。ESC の届く経路は 2 つあり(g.esc_sync_scp 参照)、
--- その 2 経路の配信間隔は 1 フレーム未満なので、ここはそれを吸収できる最小限で十分。
--- 長くすると 2 つ実害が出る:
---   (1) 意図した ESC 連打(手前を閉じてすぐ下を閉じる)を握り潰す = esc_is_reentry
---   (2) 最後の 1 枚を閉じた後、この時間だけ esc_taken() が true を返し続け、
---       indun_panel の ESC トグルを無効化する = esc_taken
--- 60fps の 1 フレーム≒16ms に対しフレーム落ちの余裕を見て 50ms とする
--- (旧値 200ms は上記 2 つをはっきり踏むほど長すぎた)。
-local ESC_DEDUP_MS = 50
-
--- 「今回の ESC はスタック側(= 手前の自作ウィンドウ)が使ったか」の問い合わせ。
---
--- ESCAPE_PRESSED はスタックに積めないものからも購読されている(indun_panel は常時表示の
--- パネルで、積むと ESC を常に横取りしてシステムメニューが開けなくなる)。そちら側が
--- 「手前にウィンドウがあるときは何もしない」を判断するのに使う。
--- ハンドラの呼ばれる順番はゲーム任せなので、次のどちらかなら true にする:
---   * まだ手前に生きているウィンドウがある      … 自分より後にそれが閉じられる
---   * この押下で 1 枚閉じた直後                  … 自分より先に閉じられていた
-function g.esc_taken()
-    if g.esc_top() then
-        return true
-    end
-    return g.esc_closed_ms ~= nil and imcTime.GetAppTimeMS() - g.esc_closed_ms < ESC_DEDUP_MS
-end
-
--- 同じ押下での再入(2 経路)を捨てるための判定。閉じた側は g.esc_closed_ms を更新する。
-function g.esc_is_reentry()
-    return g.esc_last_ms ~= nil and imcTime.GetAppTimeMS() - g.esc_last_ms < ESC_DEDUP_MS
-end
-
--- 自作ウィンドウが開いている間だけ、ESC をこちらへ回してもらう。
---
--- ui.SetEscapeScp はゲーム側の「この ESC はこれを実行する」を差し替える口で、素の ESC
--- (チャットなど hideable なフレームを閉じる / システムメニューを開く)の代わりに走る。
--- これを設定しないと、自作ウィンドウを閉じるついでにチャットが消えたりシステムメニューが
--- 開いたりする。クライアントの uiscp/enchantchip.lua・uiscp/moru.lua・
--- fixframe/deletewarningbox/deletewarningbox.lua が「開いている間だけ設定し、
--- 閉じたら "" に戻す」使い方をしているので、それに倣う。
---
--- 現在値を読む API はクライアントに無い(SetEscapeScp だけ)ので、自分が設定したかどうかを
--- 覚えて、状態が変わったときだけ呼ぶ。毎フレーム呼ぶとゲーム側が設定した分を潰してしまう。
--- 閉じ忘れると ESC でシステムメニューが二度と開かなくなるため、× で閉じた場合も拾えるよう
--- _nexus_addons_p_update_frames(FPS_UPDATE)からも呼んで実際の表示状態に合わせ続ける。
--- force=true のときは「覚えている状態」を無視して必ず設定し直す。
--- 記憶(g.esc_scp_set)はこちらが最後に書いた値でしかなく、クライアント側の実際の値とは
--- ずれうる。特に g.esc_scp_set を nil に戻した直後は want=false と「記憶なし(=false 扱い)」が
--- 一致してしまい、こちらが割り込み先を握ったままでも clear が一度も飛ばない。
--- こうなると ESC はすべてこちらへ来て、閉じるものが無いので何も起きない
--- = 利用者から見ると「ESC でシステムメニューが開かない」になる(実機で発生)。
-function g.esc_sync_scp(force)
-    local want = g.esc_top() ~= nil
-    if not force and want == (g.esc_scp_set or false) then
-        return
-    end
-    g.esc_scp_set = want
-    g.vlog("esc_scp: %s (stack=%d force=%s)", want and "set" or "clear", #g.esc_stack, tostring(force or false))
-    -- 古いクライアントに SetEscapeScp が無くても、ここで巻き込んで落とさない
-    -- (その場合は ESCAPE_PRESSED の一斉配信だけで従来どおり動く)。
-    pcall(ui.SetEscapeScp, want and "_nexus_addons_p_ESCAPE_PRESSED()" or "")
-end
 
 -- ===== 調査用: ESC で開くシステムメニューの正体を掴む =====
 --
@@ -1768,43 +1363,6 @@ function g.init_estimate_sec(count, batch)
     return math.ceil(count / per_tick) * g.INIT_TICK_SEC
 end
 
--- アドオンの設定画面を置く位置を返す。
---
--- 従来はどの設定画面も「アドオン一覧(list_frame)の右隣」に決め打ちしていたが、
--- **Addons Menu のショートカットから開くと一覧は開いていない**。そのとき
--- ui.GetFrame は nil を返し、素で :GetX() を呼ぶとそこで落ちる。**窓は既に作った後**なので、
--- 利用者からは中身が何も無い空の窓が出るように見える
--- (実機で Auto Repair / Boss Direction で発生。同じ書き方が 11 アドオンにあった)。
---
--- 一覧が開いていればこれまでどおり右隣、開いていなければ画面の中央へ置く。
--- width / height は分かっていれば渡すこと(中央寄せと、画面からはみ出さないための丸めに使う)。
-function g.settings_frame_pos(width, height)
-    local list = ui.GetFrame(addon_name_lower .. "list_frame")
-    local map_ui = ui.GetFrame("map")
-    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
-    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
-    width = width or 400
-    height = height or 400
-    local x, y
-    if list then
-        x, y = list:GetX() + list:GetWidth(), list:GetY()
-    else
-        x, y = math.floor((screen_w - width) / 2), math.floor((screen_h - height) / 2)
-    end
-    if x + width > screen_w then
-        x = screen_w - width
-    end
-    if y + height > screen_h then
-        y = screen_h - height
-    end
-    if x < 0 then
-        x = 0
-    end
-    if y < 0 then
-        y = 0
-    end
-    return x, y
-end
 
 -- ===== Addons Menu のショートカット設定 =====
 --
