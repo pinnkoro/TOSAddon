@@ -1469,20 +1469,41 @@ end
 -- 入れ直さない」= ツールチップの無い行になる。
 --
 -- 1 秒ごとに走らない経路(上段のボタン・設定ウィンドウ)は素の SetTextTooltip のままでよい。
-function Indun_panel_set_tooltip(ctrl, text)
-    if not ctrl then
-        return
-    end
+--
+-- 覚え書きと突き合わせて、値が変わっていれば覚え直して true を返す。
+--
+-- **ログは 2 巡目以降の入れ直しだけ出す。** 作り直した直後の 1 巡目は当然すべてが
+-- 「変わった」になるので、そこまで出すと 1 回のマップ移動で数十行流れて肝心の行が埋もれる。
+-- 点滅の原因になるのは「値は同じなのに 1 秒ごとに入れ直す」ほうなので、
+-- 2 巡目以降に出た行がそのまま「まだ無駄に入れ直しているもの」の一覧になる
+-- (直っていれば、所持数が実際に変わったときにだけ出る)。巡目は Indun_panel_frame_contents が数える。
+function Indun_panel_cache_changed(cache_key, value)
     if not g.indun_panel_tooltip_cache then
         g.indun_panel_tooltip_cache = {}
     end
-    -- 鍵はコントロール名。パネルの子は CreateOrGetControl で名前を一意にしているので衝突しない
-    local name = ctrl:GetName()
-    if g.indun_panel_tooltip_cache[name] == text then
-        return
+    local prev = g.indun_panel_tooltip_cache[cache_key]
+    if prev == value then
+        return false
     end
-    g.indun_panel_tooltip_cache[name] = text
+    g.indun_panel_tooltip_cache[cache_key] = value
+    if (g.indun_panel_draw_pass or 0) > 1 then
+        g.vlog("indun_panel: %s を入れ直した(%d 巡目) 前=%s 後=%s", cache_key, g.indun_panel_draw_pass,
+            tostring(prev), tostring(value))
+    end
+    return true
+end
+
+-- 鍵はコントロール名。パネルの子は CreateOrGetControl で名前を一意にしているので衝突しない
+-- (種類ごとの接頭辞を付けるので、同じコントロールの文字列と絵柄も混ざらない)。
+function Indun_panel_set_tooltip(ctrl, text)
+    if not ctrl then
+        return false
+    end
+    if not Indun_panel_cache_changed("tip:" .. ctrl:GetName(), text) then
+        return false
+    end
     ctrl:SetTextTooltip(text)
+    return true
 end
 
 -- 行の名前など、1 秒ごとの描き直しでも変わらない文字列を入れ直さないための版。
@@ -1491,14 +1512,9 @@ function Indun_panel_set_text(ctrl, text)
     if not ctrl then
         return false
     end
-    if not g.indun_panel_tooltip_cache then
-        g.indun_panel_tooltip_cache = {}
-    end
-    local cache_key = "txt:" .. ctrl:GetName()
-    if g.indun_panel_tooltip_cache[cache_key] == text then
+    if not Indun_panel_cache_changed("txt:" .. ctrl:GetName(), text) then
         return false
     end
-    g.indun_panel_tooltip_cache[cache_key] = text
     ctrl:SetText(text)
     return true
 end
@@ -1508,21 +1524,18 @@ function Indun_panel_set_image(ctrl, image)
     if not ctrl then
         return false
     end
-    if not g.indun_panel_tooltip_cache then
-        g.indun_panel_tooltip_cache = {}
-    end
-    local cache_key = "img:" .. ctrl:GetName()
-    if g.indun_panel_tooltip_cache[cache_key] == image then
+    if not Indun_panel_cache_changed("img:" .. ctrl:GetName(), image) then
         return false
     end
-    g.indun_panel_tooltip_cache[cache_key] = image
     ctrl:SetImage(image)
     return true
 end
 
 function Indun_panel_setup_frame(indun_panel)
-    -- ツールチップと文字列の覚え書きは、ここから先でコントロールごと作り直すので捨てる
+    -- ツールチップと文字列の覚え書きは、ここから先でコントロールごと作り直すので捨てる。
+    -- 巡目も一緒に戻す(作り直した直後の 1 巡目はログを出さないため)。
     g.indun_panel_tooltip_cache = {}
+    g.indun_panel_draw_pass = 0
     local map = ui.GetFrame("map")
     local width = map:GetWidth()
     local x = g.indun_panel_settings.etc.x
@@ -2901,6 +2914,10 @@ local function vlog_new_induns()
 end
 
 function Indun_panel_frame_contents(configbtn)
+    -- 何巡目の描き直しか。1 秒ごとに呼ばれるので、Indun_panel_cache_changed の
+    -- ログを 2 巡目以降に絞るために数える(setup_frame で 0 に戻る)。
+    -- 途中で return する経路があるので、数えるのは必ず先頭で。
+    g.indun_panel_draw_pass = (g.indun_panel_draw_pass or 0) + 1
     vlog_new_induns()
     local indun_panel = ui.GetFrame(addon_name_lower .. "indun_panel")
     local shop_buttons = {"gabija", "vakarine", "rada", "jurate", "austeja", "saule"}
