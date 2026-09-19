@@ -23,7 +23,7 @@
 | [market_sell.lua](market_sell.lua) | — | マーケット出店時に、持っている最大数を自動で入れる |
 | [raid_record.lua](raid_record.lua) | `raid_record` | レイドレコードが 2 度呼ばれる不具合を直し、サイズと位置を変えられるようにする |
 | [effect_settings.lua](effect_settings.lua) | `my_effect` / `other_effect` / `boss_effect` | 自分 / 他人 / ボスのエフェクト量（1〜100）を覚えて戻す |
-| [indun_dialog.lua](indun_dialog.lua) | `equip_info` / `automatch_layer` / `restart_move` | アーク・エンブレムの着け忘れ通知。オートマッチ中のフレームのレイヤーを下げる。死亡時の選択肢フレームの移動とマウス位置 |
+| [indun_dialog.lua](indun_dialog.lua) | `equip_info` / `automatch_layer` / `indun_enter_fit` / `restart_move` | アーク・エンブレムの着け忘れ通知。オートマッチ中のフレームのレイヤーを下げる。入場ウィンドウの枠を中身ぴったりへ詰めて、右側に残る見えない当たり判定を消す。死亡時の選択肢フレームの移動とマウス位置 |
 | [duel_and_restart.lua](duel_and_restart.lua) | `auto_accept_duel` / `restart_colony` | 決闘の申し込みを自動で受ける。コロニー死亡時の 30 秒タイマーの修正 |
 | [dialog.lua](dialog.lua) | `dialog_ctrl` | 各種ダイアログの選択を進める |
 | [pc_name.lua](pc_name.lua) | `pc_name` | 左上の名前をファミリーネームからキャラクター名へ |
