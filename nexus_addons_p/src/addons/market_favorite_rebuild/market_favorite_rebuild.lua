@@ -1671,7 +1671,11 @@ function Market_favorite_rebuild_relist_wait()
         end
         -- 素のタブ切り替えをそのまま使う(market / market_cabinet を閉じて market_sell を開く)。
         -- 落ちても気付けるように包む(落ちた先でこの関数ごと止まるため、素通りだと原因が残らない)
-        local ok, err = pcall(MARKET_SELLMODE, ui.GetFrame("market_cabinet") or ui.GetFrame("market"))
+        -- **呼び出しの形で書くこと。** pcall へ名前だけ渡すと docs/vanilla_api.py が
+        -- 「素の API を使っている」と見なさず、一覧から落ちて突き合わせの対象外になる
+        local ok, err = pcall(function()
+            MARKET_SELLMODE(ui.GetFrame("market_cabinet") or ui.GetFrame("market"))
+        end)
         if not ok then
             core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブへの切り替えで落ちた err=%s{/}",
                 tostring(err))
@@ -1738,7 +1742,9 @@ function Market_favorite_rebuild_relist_fill_wait()
     local sell_frame = ui.GetFrame("market_sell")
     if sell_frame ~= nil and sell_frame:IsVisible() == 1 then
         g.relist_wait = nil
-        local ok, err = pcall(Market_favorite_rebuild_relist_fill, sell_frame, wait)
+        local ok, err = pcall(function()
+            Market_favorite_rebuild_relist_fill(sell_frame, wait)
+        end)
         if not ok then
             core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブへの入力で落ちた err=%s{/}", tostring(err))
             ui.SysMsg(g.lang == "Japanese" and "販売タブへの入力に失敗しました" or
