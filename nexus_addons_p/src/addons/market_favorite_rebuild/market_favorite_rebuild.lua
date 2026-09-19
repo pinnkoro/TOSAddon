@@ -395,6 +395,8 @@ function Market_favorite_rebuild_ON_INIT(addon, frame)
     g.setup_hook_and_event(addon, "ON_MARKET_SELL_LIST", "Market_favorite_rebuild_ON_MARKET_SELL_LIST", false)
     g.setup_hook_and_event(addon, "ON_CABINET_ITEM_LIST", "Market_favorite_rebuild_ON_CABINET_ITEM_LIST", false)
     g.setup_hook_and_event(addon, "MARKET_SELL_REGISTER", "Market_favorite_rebuild_MARKET_SELL_REGISTER", false)
+    -- 再出品で入れた単価を、相場の返事が来た後に入れ直す(素が平均額で上書きするため)
+    g.setup_hook_and_event(addon, "ON_MARKET_MINMAX_INFO", "Market_favorite_rebuild_ON_MARKET_MINMAX_INFO", true)
     g.setup_hook_and_event(addon, "MARKET_DRAW_CTRLSET_OPTMISC", "Market_favorite_rebuild_MARKET_DRAW_CTRLSET_OPTMISC",
         false)
     g.setup_hook_and_event(addon, "MARKET_DRAW_CTRLSET_EQUIP", "Market_favorite_rebuild_MARKET_DRAW_CTRLSET_EQUIP",
@@ -1691,6 +1693,37 @@ function Market_favorite_rebuild_relist_wait()
     return 0
 end
 
+-- 相場の返事が来た後に、再出品で入れた単価へ戻す。素は平均額を入れる作りなので、
+-- **素を呼んだ後に上書きする**(素の動きは変えない。再出品を使っていないときは素のまま)。
+function Market_favorite_rebuild_ON_MARKET_MINMAX_INFO(my_frame, my_msg)
+    local pending = g.relist_price
+    if not pending then
+        return
+    end
+    if imcTime.GetAppTimeMS() > pending.limit_ms then
+        g.relist_price = nil
+        return
+    end
+    g.relist_price = nil
+    local sell_frame = ui.GetFrame("market_sell")
+    if sell_frame == nil or sell_frame:IsVisible() == 0 then
+        return
+    end
+    local groupbox = sell_frame:GetChild("groupbox")
+    if groupbox == nil then
+        return
+    end
+    local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
+    if edit_price == nil then
+        return
+    end
+    edit_price:SetText(tostring(pending.price))
+    -- 桁区切り・手数料・受取額の入れ直しは素に任せる
+    UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
+    core_g.vlog("market_favorite_rebuild: 再出品 相場の返事の後に単価を入れ直した 単価=%s 表示=%s",
+        tostring(pending.price), tostring(edit_price:GetText()))
+end
+
 -- 販売タブが開くのを待って入力する。**ui.OpenFrame の中で素の MARKET_SELL_OPEN が
 -- 登録枠を空にするので、開き切ってから入れること**(先に入れると素に消される)。
 function Market_favorite_rebuild_relist_fill_wait()
@@ -1757,6 +1790,15 @@ function Market_favorite_rebuild_relist_fill(sell_frame, wait)
     local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
     edit_price:SetText(tostring(wait.data.price))
     UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
+    -- **ここで入れただけでは残らない。** 枠へ入れた時点で相場(最低・最高・平均)を問い合わせており、
+    -- 返事が届くと素の ON_MARKET_MINMAX_INFO が単価を**平均額で上書きする**(実機で発生)。
+    -- 返事は後から来るので、そのときに入れ直せるよう控えておく。
+    -- 期限を持たせるのは、返事が来ないまま別のアイテムを枠へ入れたときに、
+    -- 関係の無い出品へこの単価を差し込まないため
+    g.relist_price = {
+        price = wait.data.price,
+        limit_ms = imcTime.GetAppTimeMS() + 10000
+    }
     core_g.vlog("market_favorite_rebuild: 再出品 販売タブへ入れた 単価=%s 個数=%s 期間=%s",
         tostring(wait.data.price), tostring(wait.data.count), tostring(wait.data.time))
     ui.SysMsg(g.lang == "Japanese" and "前回と同じ条件を入れました。最低価格を見てから登録してください" or
