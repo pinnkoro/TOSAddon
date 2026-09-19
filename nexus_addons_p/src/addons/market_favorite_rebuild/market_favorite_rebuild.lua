@@ -1601,9 +1601,18 @@ function Market_favorite_rebuild_relist_exec(item_id, clsid)
     if not data then
         return
     end
+    -- **受け取る前の手持ちを控えること。** まとめ置きできるアイテムは受け取ると GUID が
+    -- 変わるので下の待ち合わせが clsid で探すことになるが、それだけだと「要求より前から
+    -- 持っていた同じアイテム」に当たって、受け取りが失敗していても成功と誤判定する。
+    -- 控えを消してから販売タブへ進んでしまい、控え無しでは再出品もツールチップも
+    -- 二度と出せなくなるので、**増えたこと**を見て区別する
+    local want_clsid = tonumber(clsid) or tonumber(data.clsid) or 0
+    local held = (want_clsid ~= 0) and session.GetInvItemByType(want_clsid) or nil
     g.relist_wait = {
         guid = tostring(item_id),
-        clsid = tonumber(clsid) or tonumber(data.clsid) or 0,
+        clsid = want_clsid,
+        inv_before = (held ~= nil) and (tonumber(held.count) or 0) or 0,
+        cab_before = session.market.GetCabinetItemCount(),
         data = data,
         ticks = 0,
         limit_ms = imcTime.GetAppTimeMS() + 10000
@@ -1643,8 +1652,19 @@ function Market_favorite_rebuild_relist_wait()
     local inv_item = session.GetInvItemByGuid(wait.guid)
     local found_by = "guid"
     if inv_item == nil and wait.clsid ~= 0 then
-        inv_item = session.GetInvItemByType(wait.clsid)
-        found_by = "clsid"
+        -- **「持っているか」だけで決めないこと。** 要求より前から持っていた同じアイテムに
+        -- 当たってしまう。手持ちが増えたか、受領箱から減ったかのどちらかを確かめる
+        local held = session.GetInvItemByType(wait.clsid)
+        if held ~= nil then
+            local now_count = tonumber(held.count) or 0
+            if now_count > wait.inv_before then
+                inv_item = held
+                found_by = "clsid(増えた)"
+            elseif session.market.GetCabinetItemCount() < wait.cab_before then
+                inv_item = held
+                found_by = "clsid(受領箱が減った)"
+            end
+        end
     end
     if inv_item ~= nil then
         -- **使い終わった控えは外すこと。** 受領箱から出た時点でこの控えは用済みで、
@@ -1708,24 +1728,21 @@ function Market_favorite_rebuild_ON_MARKET_MINMAX_INFO(my_frame, my_msg)
         g.relist_price = nil
         return
     end
-    g.relist_price = nil
     local sell_frame = ui.GetFrame("market_sell")
     if sell_frame == nil or sell_frame:IsVisible() == 0 then
         return
     end
-    local groupbox = sell_frame:GetChild("groupbox")
-    if groupbox == nil then
+    -- 素が問い合わせの相手を控えている(MARKET_SELL_REQUEST_PRICE_INFO)。
+    -- **別のアイテムの返事なら触らない。** 控えは消さずに残し、期限で片付ける
+    if tostring(sell_frame:GetUserValue('REQ_ITEMID')) ~= pending.guid then
         return
     end
-    local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
-    if edit_price == nil then
-        return
-    end
-    edit_price:SetText(tostring(pending.price))
-    -- 桁区切り・手数料・受取額の入れ直しは素に任せる
-    UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
-    core_g.vlog("market_favorite_rebuild: 再出品 相場の返事の後に単価を入れ直した 単価=%s 表示=%s",
-        tostring(pending.price), tostring(edit_price:GetText()))
+    g.relist_price = nil
+    -- **個数もここで入れ直すこと。** 相場が引けなかったときの経路(argNum ~= 1)では
+    -- 素が MARKET_SELL_UPDATE_REG_SLOT_ITEM を呼び直すので、個数も束の全数へ戻る
+    local applied = Market_favorite_rebuild_relist_apply(sell_frame, pending.count, pending.price)
+    core_g.vlog("market_favorite_rebuild: 再出品 相場の返事の後に入れ直した 単価=%s 個数=%s",
+        tostring(pending.price), tostring(applied))
 end
 
 -- 販売タブが開くのを待って入力する。**ui.OpenFrame の中で素の MARKET_SELL_OPEN が
@@ -1762,6 +1779,39 @@ function Market_favorite_rebuild_relist_fill_wait()
     return 0
 end
 
+-- 販売タブの個数と単価を、出品したときの値へ入れ直す。入れた個数を返す。
+--
+-- **個数も入れ直すこと。** 素は枠へ入れるとき「手持ちの束の全数」を入れる
+-- (MARKET_SELL_UPDATE_REG_SLOT_ITEM)ので、出品していた個数とは限らない。
+-- 100 個持っているうち 10 個だけ出していた場合、受け取った 10 個は束へ混ざるため
+-- 個数欄には 100 が入る。ただし**素が入れた数(= 出せる上限)は超えない**。
+function Market_favorite_rebuild_relist_apply(sell_frame, count, price)
+    local groupbox = sell_frame:GetChild("groupbox")
+    if groupbox == nil then
+        return 0
+    end
+    local edit_count = GET_CHILD_RECURSIVELY(groupbox, "edit_count", "ui::CEditControl")
+    local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
+    if edit_count == nil or edit_price == nil then
+        return 0
+    end
+    local max_count = tonumber((string.gsub(edit_count:GetText(), ",", ""))) or 0
+    local want_count = tonumber(count) or 0
+    if want_count > 0 and max_count > 0 then
+        if want_count > max_count then
+            want_count = max_count
+        end
+        edit_count:SetText(tostring(want_count))
+    else
+        want_count = max_count
+    end
+    edit_price:SetText(tostring(price))
+    -- 桁区切り・手数料・受取額の入れ直しは素に任せる(自分で書き写さない)。
+    -- **個数を直した後に呼ぶこと**(手数料と総額は個数を掛けて出すため)
+    UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
+    return want_count
+end
+
 -- 販売タブへ、出品したときと同じ条件を入れる。**登録は押さない。**
 -- 枠へ入れるところは素の MARKET_SELL_LBUTTON_ITEM_CLICK に任せる(インベントリの
 -- アイテムを左クリックしたときと同じ経路。最低価格の問い合わせもこの中で走るので、
@@ -1790,23 +1840,23 @@ function Market_favorite_rebuild_relist_fill(sell_frame, wait)
             break
         end
     end
-    -- 単価。素の UPDATE_MARKET_MONEY_STRING が桁区切り・手数料・受取額まで入れ直すので、
-    -- 数字を入れてから呼ぶ(自分で書き写さない)
-    local groupbox = sell_frame:GetChild("groupbox")
-    local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
-    edit_price:SetText(tostring(wait.data.price))
-    UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
+    local applied = Market_favorite_rebuild_relist_apply(sell_frame, wait.data.count, wait.data.price)
     -- **ここで入れただけでは残らない。** 枠へ入れた時点で相場(最低・最高・平均)を問い合わせており、
     -- 返事が届くと素の ON_MARKET_MINMAX_INFO が単価を**平均額で上書きする**(実機で発生)。
     -- 返事は後から来るので、そのときに入れ直せるよう控えておく。
     -- 期限を持たせるのは、返事が来ないまま別のアイテムを枠へ入れたときに、
     -- 関係の無い出品へこの単価を差し込まないため
     g.relist_price = {
+        -- **どのアイテム向けかを持たせること。** 相場の返事は枠へ入れるたびに来るので、
+        -- 印が無いと、再出品の返事が来ないまま(ロック中 / 取引制限などで素が問い合わせずに
+        -- 抜ける経路がある)別のアイテムを手で入れたときに、その単価を上書きしてしまう
+        guid = tostring(inv_item:GetIESID()),
         price = wait.data.price,
+        count = wait.data.count,
         limit_ms = imcTime.GetAppTimeMS() + 10000
     }
-    core_g.vlog("market_favorite_rebuild: 再出品 販売タブへ入れた 単価=%s 個数=%s 期間=%s",
-        tostring(wait.data.price), tostring(wait.data.count), tostring(wait.data.time))
+    core_g.vlog("market_favorite_rebuild: 再出品 販売タブへ入れた 単価=%s 個数=%s(控え %s) 期間=%s",
+        tostring(wait.data.price), tostring(applied), tostring(wait.data.count), tostring(wait.data.time))
     ui.SysMsg(g.lang == "Japanese" and "前回と同じ条件を入れました。最低価格を見てから登録してください" or
                   "Filled in the previous terms. Check the lowest price before registering")
 end
@@ -1853,10 +1903,15 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
         if cab_items[saved_item.iesid] then
             saved_item.status = cab_items[saved_item.iesid]
             table.insert(clean_items, saved_item)
+        elseif saved_item.status == 'selling' then
+            -- **出品中の判定を clsid より先に置くこと。** cab_clsids は受領箱の全行から
+            -- ClassID だけで作っているので、まとめ置きできるアイテムを複数口出していると、
+            -- 1 口を取り消しただけで**まだ出品中の残りの口**まで status を書き換えてしまう
+            -- (書き換わると find_sell_record の候補に混ざって clsid_multi を誘発し、
+            --  ON_MARKET_SELL_LIST の 'selling' 判定にも二度と当たらなくなる)
+            table.insert(clean_items, saved_item)
         elseif saved_item.clsid and cab_clsids[saved_item.clsid] then
             saved_item.status = cab_clsids[saved_item.clsid]
-            table.insert(clean_items, saved_item)
-        elseif saved_item.status == 'selling' then
             table.insert(clean_items, saved_item)
         elseif (stale_total - stale_seen) <= SELL_ITEM_KEEP then
             stale_seen = stale_seen + 1
