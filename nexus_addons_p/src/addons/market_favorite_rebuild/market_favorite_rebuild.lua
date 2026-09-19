@@ -1500,9 +1500,13 @@ function Market_favorite_rebuild_req_register_item(itemGuid, floorprice, count, 
 end
 
 -- 受領箱の「再出品」ボタン。**販売取り消し / 期限切れで戻ってきた行にだけ出す**
--- (買った物や売れた物は出し直す相手が居ない)。押すと受け取ってから、出品したときと
--- 同じ単価 / 個数 / 販売期間でもう一度出品する。条件は出品時に控えた g.get_sell_items()
--- の行から取るので、単価を打ち直さなくて済むのが狙い。
+-- (買った物や売れた物は出し直す相手が居ない)。押すと受け取って販売タブを開き、
+-- 出品したときと同じ単価 / 個数 / 販売期間を入れた状態にする。
+--
+-- **出品はしない。登録ボタンを押す手前で止める。** 出し直す値段は、そのときの
+-- 最低価格を見てから決めたいもので、勝手に前と同じ値段で並べると押し間違いが起きる。
+-- ここがやるのは「打ち直しの手間を省く」ところまで。条件は出品時に控えた
+-- g.get_sell_items() の行から取る。
 --
 -- **行は使い回されるので、出す側でも毎回作り直すこと。** CreateOrGetControl は名前で
 -- 拾うため、同じ行が別の種別に変わってもボタンは残る(呼び元で先に隠している)。
@@ -1522,9 +1526,11 @@ function Market_favorite_rebuild_relist_button(ctrlSet, itemID, clsid, data)
     -- GUID だけでは引けない(Market_favorite_rebuild_find_sell_record のコメント)
     relist_btn:SetEventScriptArgNumber(ui.LBUTTONUP, clsid or 0)
     local tooltip = g.lang == "Japanese" and
-                        string.format("{ol}受け取ってから、同じ条件で出品し直します{nl}単価: %s / %s 個 / %s 日",
+                        string.format(
+            "{ol}受け取って販売タブを開き、前と同じ条件を入れます{nl}単価: %s / %s 個 / %s 日{nl}{#FFFF00}登録は押しません",
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
-                        string.format("{ol}Receive it, then list it again on the same terms{nl}%s each / %s / %s days",
+                        string.format(
+            "{ol}Receive it, open the Sell tab and fill in the same terms{nl}%s each / %s / %s days{nl}{#FFFF00}It does not press Register",
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
     relist_btn:SetTextTooltip(tooltip)
     relist_btn:ShowWindow(1)
@@ -1580,19 +1586,14 @@ function Market_favorite_rebuild_relist_click(frame, ctrl, item_id, clsid)
                       "The original listing terms are not saved, so it cannot be relisted")
         return
     end
-    -- **確認を挟むこと。** 出品には手数料が掛かるので、押し間違いで銀貨が減らないようにする
-    local msg = g.lang == "Japanese" and
-                    string.format("単価 %s / %s 個 / %s 日 で出品し直します。よろしいですか？",
-            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
-                    string.format("List again at %s each, %s, for %s days. Are you sure?",
-            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
-    ui.MsgBox(msg, string.format("Market_favorite_rebuild_relist_exec('%s', %d)", tostring(item_id),
-        tonumber(clsid) or 0), "None")
+    -- **確認は挟まない。** 銀貨が減るのは登録ボタンを押したときで、ここでやるのは
+    -- 受け取りと入力だけ。受け取りは素の「受け取る」と同じことなので、押した本人が
+    -- 待たされる意味が無い
+    Market_favorite_rebuild_relist_exec(item_id, clsid)
 end
 
--- 受け取り → 出品の 2 手。**続けて呼んではいけない。** 受け取りはサーバへの要求なので、
--- 送った直後はまだインベントリに無く、その GUID で出品を頼んでも弾かれる。
--- インベントリへ届いたのを見てから出品する。
+-- 受け取り → 販売タブへ入力、の 2 手。**続けて呼んではいけない。** 受け取りはサーバへの
+-- 要求なので、送った直後はまだインベントリに無い。届いたのを見てから販売タブを開く。
 function Market_favorite_rebuild_relist_exec(item_id, clsid)
     local data = Market_favorite_rebuild_find_sell_record(item_id, clsid)
     if not data then
@@ -1608,6 +1609,7 @@ function Market_favorite_rebuild_relist_exec(item_id, clsid)
     market.ReqGetCabinetItem(tostring(item_id))
     core_g.vlog("market_favorite_rebuild: 再出品 受け取りを要求した guid=%s 単価=%s 個数=%s 期間=%s",
         tostring(item_id), tostring(data.price), tostring(data.count), tostring(data.time))
+    -- 置き場が無いと受け取りだけして終わるので、そのときは黙らず伝える
     -- **待ち合わせの置き場は、マーケットを閉じても生きているフレームにすること。**
     -- 以前はこのアドオン自身のウィンドウ(お気に入り)へ乗せていたが、開いたことが無ければ
     -- 存在せず、`if frame then` を黙って素通りして**受け取りだけして出品しなかった**
@@ -1615,9 +1617,9 @@ function Market_favorite_rebuild_relist_exec(item_id, clsid)
     local host = ui.GetFrame(core_addon_name_lower) or ui.GetFrame(addon_name_lower)
     if not host then
         g.relist_wait = nil
-        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 待ち合わせの置き場が無いので出品しない{/}")
-        ui.SysMsg(g.lang == "Japanese" and "受け取りだけ行いました(再出品できませんでした)" or
-                      "Only received the item (could not relist)")
+        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 待ち合わせの置き場が無い{/}")
+        ui.SysMsg(g.lang == "Japanese" and "受け取りだけ行いました(販売タブの入力はできませんでした)" or
+                      "Only received the item (could not fill in the Sell tab)")
         return
     end
     host:RunUpdateScript("Market_favorite_rebuild_relist_wait", 0.1)
@@ -1631,11 +1633,29 @@ function Market_favorite_rebuild_relist_wait()
     -- 0.1 秒ごとに走るので、ログは 1 秒に 1 行だけにする(CLAUDE.md「毎フレームの経路は絞る」)
     wait.ticks = (wait.ticks or 0) + 1
     if wait.ticks % 10 == 1 then
-        core_g.vlog("market_favorite_rebuild: 再出品 インベントリを待っている guid=%s clsid=%s 経過=%.1f秒",
-            wait.guid, tostring(wait.clsid), wait.ticks * 0.1)
+        core_g.vlog("market_favorite_rebuild: 再出品 待っている 段=%s guid=%s clsid=%s 経過=%.1f秒",
+            tostring(wait.stage or "inventory"), wait.guid, tostring(wait.clsid), wait.ticks * 0.1)
+    end
+    if wait.stage == "fill" then
+        -- 販売タブが開くのを待つ。ui.OpenFrame の中で素の MARKET_SELL_OPEN が枠を空にするので、
+        -- **開き切ってから入れること**(先に入れると素に消される)
+        local sell_frame = ui.GetFrame("market_sell")
+        if sell_frame ~= nil and sell_frame:IsVisible() == 1 then
+            g.relist_wait = nil
+            Market_favorite_rebuild_relist_fill(sell_frame, wait)
+            return 1
+        end
+        if imcTime.GetAppTimeMS() > wait.limit_ms then
+            g.relist_wait = nil
+            core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブが開かない{/}")
+            ui.SysMsg(g.lang == "Japanese" and "受け取りました(販売タブを開けませんでした)" or
+                          "Received the item (could not open the Sell tab)")
+            return 1
+        end
+        return 0
     end
     -- **同じ GUID で戻るとは限らない。** まとめ置きできるアイテムは受け取った時点で
-    -- 手持ちの束へ混ざるので、束のほうの GUID で出品することになる
+    -- 手持ちの束へ混ざるので、束のほうの GUID を使うことになる
     local inv_item = session.GetInvItemByGuid(wait.guid)
     local found_by = "guid"
     if inv_item == nil and wait.clsid ~= 0 then
@@ -1643,11 +1663,8 @@ function Market_favorite_rebuild_relist_wait()
         found_by = "clsid"
     end
     if inv_item ~= nil then
-        g.relist_wait = nil
-        local guid = tostring(inv_item:GetIESID())
-        -- **使い終わった控えは外すこと。** このあと同じアイテムの控えが新しく足されるので、
-        -- 古いほうを残すと「同じ clsid の控えが 2 件」になり、GUID が変わるアイテムで
-        -- 代用が効かなくなる(候補が絞れないときは出さない作りにしてあるため)
+        -- **使い終わった控えは外すこと。** 受領箱から出た時点でこの控えは用済みで、
+        -- 残すと同じアイテムの控えが増えて、GUID が変わるアイテムで代用が効かなくなる
         local sell_items = g.get_sell_items()
         for i, saved_item in ipairs(sell_items) do
             if saved_item == wait.data then
@@ -1655,28 +1672,69 @@ function Market_favorite_rebuild_relist_wait()
                 break
             end
         end
-        core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけたので出品する guid=%s (%s で一致)", guid,
-            found_by)
-        -- 控えの作り直し(market_guid の書き込み待ちを含む)ごと任せる
-        Market_favorite_rebuild_req_register_item(guid, wait.data.price, wait.data.count, 1, wait.data.time,
-            wait.data.clsid)
-        return 1
+        wait.inv_guid = tostring(inv_item:GetIESID())
+        wait.stage = "fill"
+        wait.ticks = 0
+        wait.limit_ms = imcTime.GetAppTimeMS() + 5000
+        core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけた guid=%s (%s で一致) 販売タブを開く",
+            wait.inv_guid, found_by)
+        -- 素のタブ切り替えをそのまま使う(market / market_cabinet を閉じて market_sell を開く)
+        MARKET_SELLMODE(ui.GetFrame("market_cabinet") or ui.GetFrame("market"))
+        return 0
     end
     if imcTime.GetAppTimeMS() > wait.limit_ms then
         g.relist_wait = nil
         -- 届かなかった理由はいくつもある(インベントリが一杯 / 受け取りそのものが弾かれた)。
-        -- 黙って諦めると「押したのに何も起きない」になるので、出品しなかったことを伝える
-        -- 受領箱に残ったままなら、受け取りそのものが通っていない(出品の手前の段で失敗している)。
-        -- 減っているのに見つからないなら、受け取れてはいるが手元での探し方が合っていない
+        -- 受領箱に残ったままなら受け取りが通っていない、減っているのに見つからないなら
+        -- 受け取れてはいるが手元での探し方が合っていない
         core_g.vlog(
             "{#FF6347}market_favorite_rebuild: 再出品 受け取ったものがインベントリに見つからない guid=%s clsid=%s 受領箱の残り=%s{/}",
             wait.guid, tostring(wait.clsid), tostring(session.market.GetCabinetItemCount()))
-        ui.SysMsg(g.lang == "Japanese" and
-                      "受け取ったアイテムが見つからないので、再出品は行いませんでした" or
-                      "The received item was not found, so it was not relisted")
+        ui.SysMsg(g.lang == "Japanese" and "受け取ったアイテムが見つかりませんでした" or
+                      "The received item was not found")
         return 1
     end
     return 0
+end
+
+-- 販売タブへ、出品したときと同じ条件を入れる。**登録は押さない。**
+-- 枠へ入れるところは素の MARKET_SELL_LBUTTON_ITEM_CLICK に任せる(インベントリの
+-- アイテムを左クリックしたときと同じ経路。最低価格の問い合わせもこの中で走るので、
+-- 値段を決める材料が画面に出る)。その上から販売期間と単価だけ前の値に直す。
+function Market_favorite_rebuild_relist_fill(sell_frame, wait)
+    local inv_item = session.GetInvItemByGuid(wait.inv_guid)
+    if inv_item == nil and wait.clsid ~= 0 then
+        inv_item = session.GetInvItemByType(wait.clsid)
+    end
+    if inv_item == nil then
+        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブで手元のアイテムを引けない guid=%s{/}",
+            tostring(wait.inv_guid))
+        return
+    end
+    MARKET_SELL_LBUTTON_ITEM_CLICK(sell_frame, inv_item)
+    -- 販売期間。段の日数は MARKET_SELL_OPEN が TIME_0.. に控えているので、
+    -- 前と同じ日数の段を選び直す(無ければ素が選んだままにする)
+    local time_count = GetMarketTimeCount()
+    for i = 0, time_count - 1 do
+        if sell_frame:GetUserIValue('TIME_' .. i) == tonumber(wait.data.time) then
+            local radio = GET_CHILD_RECURSIVELY(sell_frame, "feePerTime_" .. (i + 1))
+            if radio ~= nil then
+                AUTO_CAST(radio)
+                radio:SetCheck(true)
+            end
+            break
+        end
+    end
+    -- 単価。素の UPDATE_MARKET_MONEY_STRING が桁区切り・手数料・受取額まで入れ直すので、
+    -- 数字を入れてから呼ぶ(自分で書き写さない)
+    local groupbox = sell_frame:GetChild("groupbox")
+    local edit_price = GET_CHILD_RECURSIVELY(groupbox, "edit_price", "ui::CEditControl")
+    edit_price:SetText(tostring(wait.data.price))
+    UPDATE_MARKET_MONEY_STRING(groupbox, edit_price)
+    core_g.vlog("market_favorite_rebuild: 再出品 販売タブへ入れた 単価=%s 個数=%s 期間=%s",
+        tostring(wait.data.price), tostring(wait.data.count), tostring(wait.data.time))
+    ui.SysMsg(g.lang == "Japanese" and "前回と同じ条件を入れました。最低価格を見てから登録してください" or
+                  "Filled in the previous terms. Check the lowest price before registering")
 end
 
 function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
