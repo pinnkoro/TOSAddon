@@ -71,6 +71,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "nexus_addons_p" / "src"
 MANIFEST = SRC / "build_manifest.json"
+# 共通部品(複数のアドオンの .ipf へ同じソースを入れる)。manifest では "shared/xxx.lua"
+SHARED = ROOT / "shared" / "src"
+
+
+ICOR = ROOT / "icor_planner" / "src"
+
+
+def part_path(rel):
+    """manifest の part 表記を実ファイルのパスにする(bundle_from_src.py と同じ規則)。"""
+    for prefix, root in (("shared/", SHARED), ("icor_planner/", ICOR)):
+        if rel.startswith(prefix):
+            return root / rel[len(prefix):]
+    return SRC / rel
 
 # 自分たちのグローバル。ここへの書き込みは見張らない。
 OURS = {"g", "core_g", "_G"}
@@ -258,7 +271,7 @@ def concat():
         owner = []  # 1 始まりの行 → src の相対パス
         for rel in rels:
             # 連結の規則は bundle_from_src.build と同じ（src は末尾 LF 前提）。
-            text = (SRC / rel).read_text(encoding="utf-8")
+            text = part_path(rel).read_text(encoding="utf-8")
             part = text.splitlines()
             lines.extend(part)
             owner.extend([rel] * len(part))
