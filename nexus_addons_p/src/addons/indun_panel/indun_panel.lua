@@ -1453,7 +1453,76 @@ function Indun_panel_frame_init(is_toggle, msg)
     return indun_panel
 end
 
+-- ツールチップは**中身が変わったときだけ**入れ直す。
+--
+-- 展開中のパネルは Indun_panel_frame_contents が 1 秒ごと(frame_open の
+-- RunUpdateScript)に行を描き直し、以前はそのたびに同じ文字列で SetTextTooltip を
+-- 呼び直していた。ツールチップを入れ直すと素が今出ている枠を畳むので、マウスを
+-- 載せたままだと「1 秒ごとに消えて、すぐまた出る」= 点滅になる
+-- (チャレンジ行で利用者報告。入場券や所持数のツールチップも同じ経路)。
+--
+-- 所持数のように文字列そのものが変わるものは今までどおり入れ直される
+-- (変わったときだけ 1 回点くのは、中身が変わったのだから素の動きとして正しい)。
+--
+-- **覚え書きはパネルを組み直すときに捨てること**(Indun_panel_setup_frame)。
+-- コントロールは RemoveAllChild で消えるので、持ち越すと「作り直したのに
+-- 入れ直さない」= ツールチップの無い行になる。
+--
+-- 1 秒ごとに走らない経路(上段のボタン・設定ウィンドウ)は素の SetTextTooltip のままでよい。
+function Indun_panel_set_tooltip(ctrl, text)
+    if not ctrl then
+        return
+    end
+    if not g.indun_panel_tooltip_cache then
+        g.indun_panel_tooltip_cache = {}
+    end
+    -- 鍵はコントロール名。パネルの子は CreateOrGetControl で名前を一意にしているので衝突しない
+    local name = ctrl:GetName()
+    if g.indun_panel_tooltip_cache[name] == text then
+        return
+    end
+    g.indun_panel_tooltip_cache[name] = text
+    ctrl:SetTextTooltip(text)
+end
+
+-- 行の名前など、1 秒ごとの描き直しでも変わらない文字列を入れ直さないための版。
+-- 入れ直したときだけ true を返す(続けて AdjustFontSizeByWidth を掛けるため)。
+function Indun_panel_set_text(ctrl, text)
+    if not ctrl then
+        return false
+    end
+    if not g.indun_panel_tooltip_cache then
+        g.indun_panel_tooltip_cache = {}
+    end
+    local cache_key = "txt:" .. ctrl:GetName()
+    if g.indun_panel_tooltip_cache[cache_key] == text then
+        return false
+    end
+    g.indun_panel_tooltip_cache[cache_key] = text
+    ctrl:SetText(text)
+    return true
+end
+
+-- 絵柄も同様に、変わったときだけ入れ直す。入れ直したときだけ true を返す。
+function Indun_panel_set_image(ctrl, image)
+    if not ctrl then
+        return false
+    end
+    if not g.indun_panel_tooltip_cache then
+        g.indun_panel_tooltip_cache = {}
+    end
+    local cache_key = "img:" .. ctrl:GetName()
+    if g.indun_panel_tooltip_cache[cache_key] == image then
+        return false
+    end
+    g.indun_panel_tooltip_cache[cache_key] = image
+    ctrl:SetImage(image)
+    return true
+end
+
 function Indun_panel_setup_frame(indun_panel)
+    -- ツールチップと文字列の覚え書きは、ここから先でコントロールごと作り直すので捨てる
+    g.indun_panel_tooltip_cache = {}
     local map = ui.GetFrame("map")
     local width = map:GetWidth()
     local x = g.indun_panel_settings.etc.x
@@ -2848,7 +2917,7 @@ function Indun_panel_frame_contents(configbtn)
             local count = GET_COMMAED_STRING(TryGetProp(account_obj, shop_props[i], "0"))
             local name = g.lang == "Japanese" and shop_names_jp[i] or shop_names_en[i]
             local tooltip = string.format("{ol}%s{nl}{#FFFF00}%s", name, count)
-            btn:SetTextTooltip(tooltip)
+            Indun_panel_set_tooltip(btn, tooltip)
         end
     end
     local prefix = "DD"
@@ -2893,8 +2962,9 @@ function Indun_panel_frame_contents(configbtn)
                     x - Indun_panel_s(140), y + Indun_panel_s(5), Indun_panel_s(20), Indun_panel_s(20))
                 AUTO_CAST(img_icon)
                 local icon_cls = Indun_panel_row_icon_class(key, value)
-                if icon_cls then
-                    img_icon:SetImage(icon_cls.Icon)
+                -- 絵柄も 1 秒ごとの描き直しでは基本変わらない(jsr のフィールドボスだけが
+                -- 入れ替わる)。同じ絵を入れ直さないのは SetText / SetTextTooltip と同じ理由。
+                if icon_cls and Indun_panel_set_image(img_icon, icon_cls.Icon) then
                     img_icon:SetEnableStretch(1)
                     img_icon:EnableHitTest(0)
                 end
@@ -2906,7 +2976,12 @@ function Indun_panel_frame_contents(configbtn)
                     display_name = value.jp
                 end
                 local font_tag = is_jp_mode and Indun_panel_f(16) or Indun_panel_f(20)
-                text:SetText(string.format("{ol}{#FFFFFF}%s%s", font_tag, display_name))
+                -- 行の名前は 1 秒ごとの描き直しでも変わらない。同じ文字列で SetText を
+                -- 呼び直すとツールチップと同じく素が枠を畳むので、変わったときだけ入れ直す
+                -- (Indun_panel_set_tooltip のコメント参照)。
+                if Indun_panel_set_text(text, string.format("{ol}{#FFFFFF}%s%s", font_tag, display_name)) then
+                    text:AdjustFontSizeByWidth(Indun_panel_s(120))
+                end
                 index = index + 1
                 if key == "challenge" then
                     local tooltip = g.lang == "Japanese" and
@@ -2914,12 +2989,11 @@ function Indun_panel_frame_contents(configbtn)
                                         "{ol}Left Click: Display the schedule for one week of the Challenge Map"
                     img_icon:EnableHitTest(1)
                     img_icon:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_map_context")
-                    img_icon:SetTextTooltip(tooltip)
+                    Indun_panel_set_tooltip(img_icon, tooltip)
                     text:EnableHitTest(1)
                     text:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_map_context")
-                    text:SetTextTooltip(tooltip)
+                    Indun_panel_set_tooltip(text, tooltip)
                 end
-                text:AdjustFontSizeByWidth(Indun_panel_s(120))
             end
             if type(value) == "table" then
                 if key == "challenge" then
@@ -3002,7 +3076,7 @@ function Indun_panel_create_currency_display(indun_panel, y)
         y + Indun_panel_s(5))
     AUTO_CAST(bonusTP_count)
     bonusTP_count:SetText("{ol}{#FFD900}" .. Indun_panel_f(18) .. account_obj.Medal)
-    bonusTP_count:SetTextTooltip("{ol}Free TP")
+    Indun_panel_set_tooltip(bonusTP_count, "{ol}Free TP")
     local housing_btn = indun_panel:CreateOrGetControl("richtext", "housing_btn", Indun_panel_s(370),
         y + Indun_panel_s(5))
     AUTO_CAST(housing_btn)
@@ -3012,7 +3086,7 @@ function Indun_panel_create_currency_display(indun_panel, y)
         y + Indun_panel_s(5))
     AUTO_CAST(housing_count)
     -- housing_count:SetText("{ol}{#FFD900}{s18}...")
-    housing_count:SetTextTooltip("{ol}Housing Point")
+    Indun_panel_set_tooltip(housing_count, "{ol}Housing Point")
     local current_time = imcTime.GetAppTime()
     if not g.indun_panel_housing_call_time or (current_time - g.indun_panel_housing_call_time) > 5 then
         g.indun_panel_housing_call_time = current_time
@@ -3357,7 +3431,7 @@ local function challenge_shop_button(indun_panel, name, x, y, recipe, indun_type
         -- ショップを持たない段(520)。手持ちの券を使うだけなので、通貨と購入枠は出さない
         btn:SetText("{ol}{#EE7800}USE")
     end
-    btn:SetTextTooltip(icon_text .. tooltip)
+    Indun_panel_set_tooltip(btn, icon_text .. tooltip)
     btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_challenge_item_use")
     btn:SetEventScriptArgString(ui.LBUTTONUP, mode)
     btn:SetEventScriptArgNumber(ui.LBUTTONUP, indun_type)
@@ -3639,7 +3713,7 @@ function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y,
                 -- ショップを持たない段(520)。手持ちの券を使うだけなので、通貨と購入枠は出さない
                 tos_btn:SetText("{ol}{#EE7800}USE")
             end
-            tos_btn:SetTextTooltip(icon_text .. tooltip)
+            Indun_panel_set_tooltip(tos_btn, icon_text .. tooltip)
             tos_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
             tos_btn:SetEventScriptArgString(ui.LBUTTONUP, "tos")
             tos_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
@@ -3653,7 +3727,7 @@ function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y,
                     "pvpmine_shop_btn_total", Indun_panel_s(18), Indun_panel_s(18),
                     Indun_panel_get_recipe_trade_count(tier.pvp_recipes[1]) or 0,
                     Indun_panel_get_recipe_trade_count(tier.pvp_recipes[2]) or 0))
-                pvp_btn:SetTextTooltip(icon_text .. tooltip_pvp)
+                Indun_panel_set_tooltip(pvp_btn, icon_text .. tooltip_pvp)
                 pvp_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use_sin")
                 pvp_btn:SetEventScriptArgString(ui.LBUTTONUP, "pvp")
                 pvp_btn:SetEventScriptArgNumber(ui.LBUTTONUP, tier.indun)
@@ -3665,9 +3739,9 @@ function Indun_panel_singularity_frame(indun_panel, key, sub_key, indun_type, y,
         Indun_panel_s(25), Indun_panel_s(25))
     AUTO_CAST(singularity_check)
     singularity_check:SetEventScript(ui.LBUTTONUP, "Indun_panel_ischecked")
-    singularity_check:SetTextTooltip(g.lang == "Japanese" and
-                                         "{ol}チェックをすると自動マッチングボタンを押しません" or
-                                         "{ol}If checked, the automatic matching button will not be pressed")
+    Indun_panel_set_tooltip(singularity_check, g.lang == "Japanese" and
+        "{ol}チェックをすると自動マッチングボタンを押しません" or
+        "{ol}If checked, the automatic matching button will not be pressed")
     singularity_check:SetCheck(g.indun_panel_settings.etc.singularity_check)
     Indun_panel_note_row_width(offset + Indun_panel_s(30))
 end
@@ -3785,7 +3859,8 @@ function Indun_panel_create_frame_onsweep(indun_panel, key, sub_key, sub_value, 
         if item_cls then
             local fmt = g.lang == "Japanese" and "{ol}{img %s %d %d } %d枚持っています" or
                             "{ol}{img %s %d %d } Quantity in Inventory: %d"
-            use_btn:SetTextTooltip(string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25), count))
+            Indun_panel_set_tooltip(use_btn,
+                string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25), count))
         end
         use_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_raid_itemuse")
         use_btn:SetEventScriptArgNumber(ui.LBUTTONUP, sub_value)
@@ -4039,7 +4114,7 @@ function Indun_panel_telharsha_frame(indun_panel, key, value, y, x)
                         "{ol}{img %s %d %d } Quantity in Inventory: %d"
         icon_text = string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25), count)
     end
-    ticket_btn:SetTextTooltip(icon_text)
+    Indun_panel_set_tooltip(ticket_btn, icon_text)
     ticket_btn:SetText("{ol}{#EE7800}" .. Indun_panel_f(14) .. "BUYUSE")
     ticket_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_buyuse_telharsha")
     ticket_btn:SetEventScriptArgString(ui.LBUTTONUP, TELHARSHA_CONFIG.recipe)
@@ -4111,7 +4186,7 @@ function Indun_panel_velnice_frame(indun_panel, key, value, y, x)
                         "{ol}{img %s %d %d } Quantity in Inventory: %d"
         icon_text = string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25), count)
     end
-    ticket_btn:SetTextTooltip(icon_text)
+    Indun_panel_set_tooltip(ticket_btn, icon_text)
     ticket_btn:SetText("{ol}{#EE7800}" .. Indun_panel_f(14) .. "BUYUSE")
     ticket_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_buyuse_vel")
     ticket_btn:SetEventScriptArgString(ui.LBUTTONUP, VELNICE_CONFIG.recipe)
@@ -4225,8 +4300,8 @@ function Indun_panel_create_common_ticket_frame(indun_panel, key, indun_type, y,
         if item_cls then
             local fmt = g.lang == "Japanese" and "{ol}{img %s %d %d } %d枚持っています" or
                             "{ol}{img %s %d %d } Quantity in Inventory: %d"
-            ticket_btn:SetTextTooltip(string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25),
-                inv_count))
+            Indun_panel_set_tooltip(ticket_btn,
+                string.format(fmt, item_cls.Icon, Indun_panel_s(25), Indun_panel_s(25), inv_count))
         end
     end
     ticket_btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_item_use")
