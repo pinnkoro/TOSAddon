@@ -40,6 +40,13 @@ function _ICOR_PLANNER_GAME_START()
     end
     g.register_menu_item()
     g.setup_open_button()
+    -- **重い下ごしらえはログイン直後に済ませておく。**
+    -- 範囲の引き当て(素の表と手持ちのイコル探し)は初回だけ重く、そのままだと
+    -- 「ログイン後に初めてマーケットを開いたとき」にまとめて出る(実機で指摘された)。
+    -- GAME_START の続きでやると移動のたびに走るので、少し置いてから 1 回だけ。
+    if g.frame ~= nil and not g.icor_planner_warmed then
+        g.frame:RunUpdateScript("Icor_planner_warm_up", 3)
+    end
     g.vlog("icor_planner: 初期化した (lang=%s aid=%s cid=%s)", tostring(g.lang), tostring(g.active_id),
         tostring(g.cid))
 end
@@ -146,4 +153,25 @@ function g.remember_button_pos()
         y = y
     }
     g.save_core_settings()
+end
+
+-- 範囲の溜め込みを先に作っておく(初回のマーケット表示を軽くするため)。
+-- **1 回だけ**。更新スクリプトは 0 を返して自分で外れる。
+function Icor_planner_warm_up(frame)
+    frame:StopUpdateScript("Icor_planner_warm_up")
+    if g.icor_planner_warmed then
+        return 0
+    end
+    g.icor_planner_warmed = true
+    local ok_now, started = pcall(imcTime.GetAppTimeMS)
+    for _, spot in ipairs({"Weapon", "Armor"}) do
+        pcall(Icor_planner_top_range, "STR", spot)
+    end
+    if ok_now then
+        local ok_end, now = pcall(imcTime.GetAppTimeMS)
+        if ok_end then
+            g.vlog("icor_planner: 下ごしらえに %d ms", now - started)
+        end
+    end
+    return 0
 end

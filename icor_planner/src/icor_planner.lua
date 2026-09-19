@@ -982,7 +982,25 @@ end
 -- 8 部位のイコルを読む。**ここで合計は作らない。**
 -- 現在値はステータス画面と同じものを Icor_planner_current が PC から取る。
 -- ここが持つのは「どの部位のどの枠に何が載っているか」= 更新の対象を決める材料。
+-- 装備 8 部位の読み取りは**溜める**。
+--
+-- 1 回の組み立てで、診断・オススメ(平均と最低の 2 通り)・それ以外の分の引き算から
+-- 何度も呼ばれる。1 回の読み取りで GET_ITEM_RANDOMOPTION_DIC と素の範囲引きが
+-- 最大 32 回走るので、そのままだと**同じ内容を何十回も読み直す**ことになる
+-- (ログイン後にマーケットを初めて開いたときが特に重かった。実機で指摘された)。
+-- 中身が変わる操作(装備替え・差し替えの試算・「更新するイコル」の切り替え)では
+-- Icor_planner_reset_scan() で捨てる。
+function Icor_planner_reset_scan()
+    g.icor_planner_scan_cache = nil
+end
+
 function Icor_planner_scan()
+    -- 試算中は差し替えた姿を読むので、別の溜め込みにする
+    local key = g.icor_planner_trial_on and "trial" or "real"
+    g.icor_planner_scan_cache = g.icor_planner_scan_cache or {}
+    if g.icor_planner_scan_cache[key] then
+        return g.icor_planner_scan_cache[key]
+    end
     local scan = {
         slots = {},
         spot_max = {}
@@ -996,6 +1014,7 @@ function Icor_planner_scan()
             scan.spot_max[i] = {}
         end
     end
+    g.icor_planner_scan_cache[key] = scan
     return scan
 end
 
@@ -1233,6 +1252,17 @@ function Icor_planner_best_icor_class(spot)
             consider(GetClass("Item", icor_name))
         end
     end
+    -- **素の表で引ける段に届いていれば、そこで探索を打ち切る。**
+    -- 下のインベントリ / マーケットの走査は 1 件ずつ GetIES を呼ぶので、持ち物が多いと
+    -- 目に見えて時間がかかる(ログイン後の初回が特に重かった。実機で指摘された)。
+    -- 素の表の段より高いイコルは存在しないので、そこへ届いたら探す意味が無い
+    local top_lv = Icor_planner_detect_max_lv(spot)
+    if best ~= nil and top_lv ~= nil and best.lv >= top_lv then
+        g.icor_planner_best_icor[spot] = best
+        g.vlog("icor_planner: %s の目安は装備のイコル Lv%s で足りる(探索を打ち切り)", tostring(spot),
+            tostring(best.lv))
+        return best
+    end
     local inv_list = session.GetInvItemList()
     if inv_list ~= nil then
         local guid_list = inv_list:GetGuidList()
@@ -1243,6 +1273,12 @@ function Icor_planner_best_icor_class(spot)
                 consider(obj)
             end
         end
+    end
+    if best ~= nil and top_lv ~= nil and best.lv >= top_lv then
+        g.icor_planner_best_icor[spot] = best
+        g.vlog("icor_planner: %s の目安はインベントリの Lv%s で足りる(マーケットは見ない)", tostring(spot),
+            tostring(best.lv))
+        return best
     end
     -- **マーケットに並んでいるイコルも見る。** 装備にもインベントリにも無い部位だと
     -- 素の表(レベル指定)へ落ちてしまい、そちらは実物より古い段で頭打ちになることがある。
@@ -1282,6 +1318,8 @@ end
 -- 利用者が「その前提なら何個」と読み替えられるようにする方を取った。
 function Icor_planner_diagnose()
     local preset = Icor_planner_cur_preset()
+    -- **毎回読み直す。** 装備を替えた後に「再計算」を押したら、その姿で出したい
+    Icor_planner_reset_scan()
     local scan = Icor_planner_scan()
     local result = {
         rows = {},

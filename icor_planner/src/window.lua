@@ -193,8 +193,9 @@ function Icor_planner_build_tab()
         end
     end
     bg:RemoveAllChild()
-    -- 計算しないイコル / 差し替えを変えた後に古い足し引きを使わないよう、作り直すたびに捨てる
+    -- 計算しないイコル / 差し替えを変えた後に古い値を使わないよう、作り直すたびに捨てる
     Icor_planner_reset_delta()
+    Icor_planner_reset_scan()
     if g.icor_planner_tab == 0 then
         Icor_planner_build_diagnosis(bg)
     elseif g.icor_planner_tab == 1 then

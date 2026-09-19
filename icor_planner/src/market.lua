@@ -321,7 +321,19 @@ function Icor_planner_market_sort_select(parent, ctrl)
     Icor_planner_market_fill()
 end
 
+-- 組み立てにかかった時間を出す。**初回だけ重い**という相談を追えるようにするため、
+-- 段ごとに残す(詳細ログが ON のときだけ)
+function Icor_planner_market_elapsed(since)
+    local ok, now = pcall(imcTime.GetAppTimeMS)
+    if not ok or type(now) ~= "number" or type(since) ~= "number" then
+        return 0, nil
+    end
+    return now, now - since
+end
+
 function Icor_planner_market_fill()
+    local ok_now, started = pcall(imcTime.GetAppTimeMS)
+    started = ok_now and started or nil
     local panel = ui.GetFrame(addon_name_lower .. g.icor_planner_market_frame)
     if not panel then
         return
@@ -335,6 +347,10 @@ function Icor_planner_market_fill()
     -- 出品一覧が入れ替わると素の行も作り直されるので、印は持ち越さない
     g.icor_planner_marked_index = nil
     local diag, diag_scan = Icor_planner_diagnose()
+    local mark, spent = Icor_planner_market_elapsed(started)
+    if spent then
+        g.vlog("icor_planner: マーケット 診断に %d ms", spent)
+    end
     if #diag.rows == 0 and #diag.slot_rows == 0 then
         local empty = list:CreateOrGetControl("richtext", "empty", 10, 10, 0, 0)
         AUTO_CAST(empty)
@@ -346,6 +362,10 @@ function Icor_planner_market_fill()
     local y_sets = Icor_planner_fill_set_buttons(list, diag, diag_scan)
     local y0 = Icor_planner_fill_search_buttons(list, diag, y_sets)
     local rows, unappraised = Icor_planner_market_rows(diag)
+    local mark2, spent2 = Icor_planner_market_elapsed(mark)
+    if spent2 then
+        g.vlog("icor_planner: マーケット %d 件の評価に %d ms", #rows, spent2)
+    end
     local head = list:CreateOrGetControl("richtext", "head", 10, y0, 0, 0)
     AUTO_CAST(head)
     if #rows == 0 then
