@@ -1557,7 +1557,16 @@ function Market_favorite_rebuild_find_sell_record(item_id, clsid)
         return candidates[1], "clsid"
     end
     if #candidates > 1 then
-        return nil, "clsid_multi"
+        -- 条件が全部同じなら、どれを使っても出し直す内容は変わらないので先頭で構わない。
+        -- 違う値段が混ざっていたら**どれの控えか決められないので出さない**
+        local first = candidates[1]
+        for i = 2, #candidates do
+            local other = candidates[i]
+            if other.price ~= first.price or other.count ~= first.count or other.time ~= first.time then
+                return nil, "clsid_multi"
+            end
+        end
+        return first, "clsid_same"
     end
     return nil, "none"
 end
@@ -1692,7 +1701,22 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             cab_clsids[cab_obj.ClassID] = cabinetItem:GetWhereFrom()
         end
     end
+    -- **「今の受領箱に居ない」だけで控えを捨ててはいけない。** 出品を取り消してから
+    -- 受領箱へ届くまでには間があり、その隙に受領箱の一覧が更新されると、まだ届いていない
+    -- 控えを消してしまう(実機で発生。取り消した直後の掃除が 受領箱=0 件 で走り、
+    -- その 1 秒後に届いたときには控えが無くなっていた)。
+    -- 代わりに、行き先の分からない控えは**新しいほうから SELL_ITEM_KEEP 件だけ**残す。
+    -- 捨てる目的は際限なく溜めないことなので、件数で頭打ちにすれば足りる。
+    local SELL_ITEM_KEEP = 30
+    local stale_total = 0
+    for _, saved_item in ipairs(g.get_sell_items()) do
+        if not cab_items[saved_item.iesid] and not (saved_item.clsid and cab_clsids[saved_item.clsid]) and
+            saved_item.status ~= 'selling' then
+            stale_total = stale_total + 1
+        end
+    end
     local clean_items = {}
+    local stale_seen = 0
     for _, saved_item in ipairs(g.get_sell_items()) do
         if cab_items[saved_item.iesid] then
             saved_item.status = cab_items[saved_item.iesid]
@@ -1702,7 +1726,11 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             table.insert(clean_items, saved_item)
         elseif saved_item.status == 'selling' then
             table.insert(clean_items, saved_item)
+        elseif (stale_total - stale_seen) <= SELL_ITEM_KEEP then
+            stale_seen = stale_seen + 1
+            table.insert(clean_items, saved_item)
         else
+            stale_seen = stale_seen + 1
             -- **捨てたものは必ず残すこと。** ここで黙って消えると、受領箱に並んでいるのに
             -- 「出品したときの条件が無い」状態になり、後から理由を追えない
             core_g.vlog("market_favorite_rebuild: 控えを捨てた iesid=%s clsid=%s 状態=%s", tostring(saved_item.iesid),
