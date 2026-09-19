@@ -1487,6 +1487,8 @@ function Market_favorite_rebuild_req_register_item(itemGuid, floorprice, count, 
     }
     local sell_items = g.get_sell_items()
     table.insert(sell_items, data)
+    core_g.vlog("market_favorite_rebuild: 出品の控えを足した iesid=%s clsid=%s キャラ=%s 控え=%d 件", tostring(itemGuid),
+        tostring(clsid), tostring(g.login_name), #sell_items)
     -- **索引ではなく行そのものを覚えること。** market_guid は登録の直後には分からず、
     -- 次の販売一覧(ON_MARKET_SELL_LIST)まで待って書き込む。その間に
     -- g.get_sell_items() の返す器が入れ替わりうる(キャラ名が取れずに捨て器を使っていて、
@@ -1634,6 +1636,16 @@ function Market_favorite_rebuild_relist_wait()
     if inv_item ~= nil then
         g.relist_wait = nil
         local guid = tostring(inv_item:GetIESID())
+        -- **使い終わった控えは外すこと。** このあと同じアイテムの控えが新しく足されるので、
+        -- 古いほうを残すと「同じ clsid の控えが 2 件」になり、GUID が変わるアイテムで
+        -- 代用が効かなくなる(候補が絞れないときは出さない作りにしてあるため)
+        local sell_items = g.get_sell_items()
+        for i, saved_item in ipairs(sell_items) do
+            if saved_item == wait.data then
+                table.remove(sell_items, i)
+                break
+            end
+        end
         core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけたので出品する guid=%s (%s で一致)", guid,
             found_by)
         -- 控えの作り直し(market_guid の書き込み待ちを含む)ごと任せる
@@ -1690,8 +1702,15 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             table.insert(clean_items, saved_item)
         elseif saved_item.status == 'selling' then
             table.insert(clean_items, saved_item)
+        else
+            -- **捨てたものは必ず残すこと。** ここで黙って消えると、受領箱に並んでいるのに
+            -- 「出品したときの条件が無い」状態になり、後から理由を追えない
+            core_g.vlog("market_favorite_rebuild: 控えを捨てた iesid=%s clsid=%s 状態=%s", tostring(saved_item.iesid),
+                tostring(saved_item.clsid), tostring(saved_item.status))
         end
     end
+    core_g.vlog("market_favorite_rebuild: 受領箱の掃除 キャラ=%s 受領箱=%d 件 控え=%d 件 → %d 件",
+        tostring(g.login_name), cnt, #g.get_sell_items(), #clean_items)
     -- キャラ名が取れていないときは書き戻さない(nil 鍵で落ちるうえ、clean_items は
     -- 捨て器を絞った結果でしかない)。詳細は g.get_sell_items。
     if g.login_name then
