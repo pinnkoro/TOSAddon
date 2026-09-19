@@ -1447,7 +1447,10 @@ g.icor_planner_full_percent_opts = {
 
 function Icor_planner_value_buttons(right, t, is_slot, spot, y, key)
     local btns = g.icor_planner_target_btns
-    local labels = g.lang == "Japanese" and {"最低", "平均", "最大"} or {"Min", "Avg", "Max"}
+    -- **最低 / 最大 / 限凸。** 限凸(上限突破)は、素のツールチップが紫にする線
+    -- (equip_tooltip.lua の DRAW_EQUIP_GODDESS_ICOR: floor(最大値 × 1.5) - 1 以上)。
+    -- 「上限突破のイコルを狙う」目標をそのまま入れられるようにするため
+    local labels = g.lang == "Japanese" and {"最低", "最大", "限凸"} or {"Min", "Max", "Break"}
     local counter = Icor_planner_is_counter(t.opt)
     local full = (not is_slot) and g.icor_planner_full_percent_opts[t.opt] == true
     for i = 1, 3 do
@@ -1455,9 +1458,11 @@ function Icor_planner_value_buttons(right, t, is_slot, spot, y, key)
             0, 0)
         AUTO_CAST(btn)
         btn:SetSkinName("test_pvp_btn")
-        local enabled = ((counter or full) and i == 3) or (not counter and is_slot)
+        -- 合計の目標で使えるのは「最大」だけ(相殺は 50%、全ての〜 は 100% の値が入る)。
+        -- 各部位の目標では 3 つとも使える
+        local enabled = ((counter or full) and i == 2) or (not counter and is_slot)
         if enabled then
-            btn:SetText("{ol}{s14}" .. labels[i])
+            btn:SetText("{ol}{s14}" .. (i == 3 and "{#DA70D6}" or "") .. labels[i])
             btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_fill_value")
             btn:SetEventScriptArgString(ui.LBUTTONUP, tostring(t.id or 0))
             btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
@@ -1469,17 +1474,41 @@ function Icor_planner_value_buttons(right, t, is_slot, spot, y, key)
                 btn:SetTextTooltip(g.lang == "Japanese" and
                                        "{ol}ステータスの割合が 100% になる値を入れます(イコル以外の分も含めた合計)" or
                                        "{ol}Fills the value that reaches 100% on the status screen")
+            elseif i == 3 then
+                btn:SetTextTooltip(Icor_planner_break_tooltip(t.opt, spot))
             else
                 btn:SetTextTooltip(Icor_planner_range_tooltip(t.opt, spot))
             end
         else
             btn:SetText("{ol}{s14}{#666666}" .. labels[i])
             btn:SetTextTooltip(g.lang == "Japanese" and
-                                   (counter and "{ol}相殺では最大値のみ使えます" or
+                                   (counter and "{ol}相殺では「最大」(割合 50% の値)だけ使えます" or
                                        "{ol}「各部位」のときだけ使えます(合計は分担の仕方で変わるため)") or
                                    "{ol}Only available for per-slot targets")
         end
     end
+end
+
+-- 「限凸」ボタンの説明。上限突破の値がどう決まるかを出す
+function Icor_planner_break_tooltip(opt, spot)
+    if g.lang ~= "Japanese" then
+        return "{ol}Fills the value that counts as a limit break"
+    end
+    local function line(label, sp)
+        local _, max_value = Icor_planner_top_range(opt, sp)
+        if max_value <= 0 then
+            return string.format("{nl}%s: 取れませんでした", label)
+        end
+        return string.format("{nl}%s: 最大 %s → 限凸 %s 以上", label, GET_COMMAED_STRING(max_value),
+            GET_COMMAED_STRING(Icor_planner_break_limit(max_value)))
+    end
+    local head = "{ol}上限突破(限凸)と見なされる値を入れます{nl}{#AAAAAA}素のツールチップが紫にする線と同じ" ..
+                     "(最大値 × 1.5 の切り捨て − 1 以上){/}"
+    if spot == "both" then
+        return head .. line("武器", "Weapon") .. line("防具", "Armor") ..
+                   "{nl}{#FFA500}両方に載せる目標なので、小さい方を入れます"
+    end
+    return head .. line(Icor_planner_spot_label(spot), spot)
 end
 
 -- 目安ボタンの説明。**武器と防具で 1 枚に載る値が違う**ので、
@@ -1520,8 +1549,9 @@ function Icor_planner_fill_value(parent, ctrl, id_str, which)
                 local min_value, max_value = Icor_planner_top_range(opt, Icor_planner_target_spot(t))
                 if which == 1 then
                     value = min_value
-                elseif which == 2 then
-                    value = math.floor((min_value + max_value) / 2)
+                elseif which == 3 then
+                    -- 限凸。素のツールチップが紫にする線(Icor_planner_break_limit)
+                    value = Icor_planner_break_limit(max_value)
                 else
                     value = max_value
                 end
