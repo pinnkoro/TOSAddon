@@ -373,7 +373,7 @@ local SUB_FRAME_SETTINGS = {
         text_kr = "던전 입장 창 오른쪽에 남는 보이지 않는 클릭 영역을 없앱니다",
         text_en = "Remove the invisible click area left on the right of the dungeon entry window",
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-        since = core_g.VER_NEXT
+        since = "2.10.0"
     }, {
         name = "raid_record",
         text_jp = "レイドレコードを移動可能にしてサイズを変更",

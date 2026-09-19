@@ -144,6 +144,27 @@ def stray_untracked(built):
     return sorted(strays)
 
 
+def pack_targets(manifest, built):
+    """この .ipf に詰まる生成物だけを返す。
+
+    build_manifest.json は 1 本で複数のアドオンの bundle を組み立てる
+    （icor_planner を足したときからそうなった）。manifest の outputs が指す出力先が
+    nexus_addons_p/_nexus_addons_p でないものは、この .ipf には入らない。
+    ここで絞らないと「_nexus_addons_p/_icor_planner.lua が .ipf に入っていない」という
+    的外れな不一致になり、release 経路の ipf ジョブが常に落ちる。
+    """
+    outputs = manifest.get("outputs", {})
+    want_dir = os.path.normpath(BUNDLE_DIR)
+    keep = {}
+    for target, data in built.items():
+        out_dir = outputs.get(target)
+        if out_dir is None:
+            continue
+        if os.path.normpath(os.path.join(REPO, out_dir)) == want_dir:
+            keep[target] = data
+    return keep
+
+
 def expected_contents(built):
     """{内部パス: 平文bytes} を組み立てる。
 
@@ -163,7 +184,8 @@ def expected_contents(built):
 
 def check_content(ipf_path):
     manifest = bundle_from_src.load_manifest()
-    built = bundle_from_src.build(manifest)  # manifest 脱落チェックもここで走る
+    # manifest 脱落チェックもここで走る。詰めるのはこの .ipf 向けの生成物だけ
+    built = pack_targets(manifest, bundle_from_src.build(manifest))
     expected = expected_contents(built)
     actual = read_ipf_table(ipf_path)
 

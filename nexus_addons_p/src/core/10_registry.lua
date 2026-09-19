@@ -296,7 +296,7 @@ g._nexus_addons_p = {{
     key = "indun_panel",
     category = "content",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = g.VER_NEXT,
+    updated = "2.10.0",
     updated_note_jp = "パネルの行にマウスを載せたとき、ツールチップが 1 秒ごとに出たり消えたりして点滅していたのを直しました(チャレンジの行で特に目立っていました)",
     updated_note_en = "Fixed panel row tooltips flickering once per second while hovering (most visible on the Challenge row)",
     data = {
@@ -599,7 +599,7 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = g.VER_NEXT,
+    updated = "2.10.0",
     updated_note_jp = "受領箱の「販売取り消し」に**再出品ボタン**を足しました。押すと受け取って販売タブを開き、出品したときと同じ単価・個数・販売期間を入れた状態にします(**登録は押しません**。最低価格を見てから自分で押せます)。ツールチップの販売単価と販売個数も 3 桁ごとの桁区切りで出すようにしました",
     updated_note_en = "Added a Relist button to Sale cancelled rows in the receive box. It receives the item, opens the Sell tab and fills in the same unit price, quantity and period (it does NOT press Register, so you can check the lowest price first). The unit price and quantity in the tooltip are now comma-separated",
     data = {
