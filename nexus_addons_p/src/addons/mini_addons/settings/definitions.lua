@@ -19,6 +19,7 @@ local DEFAULT_SETTINGS = {
     coin_use = 0,
     equip_info = 0,
     automatch_layer = 0,
+    indun_enter_fit = 0,
     quest_hide = 0,
     pc_name = 0,
     auto_gacha = 0,
@@ -124,7 +125,7 @@ local DEFAULT_SETTINGS = {
 }
 
 local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info", "pc_name", "quest_hide",
-                       "automatch_layer", "equip_info", "under_staff", "raid_record", "party_buff", "chat_system",
+                       "automatch_layer", "indun_enter_fit", "equip_info", "under_staff", "raid_record", "party_buff", "chat_system",
                        "channel_display", "mini_btn", "market_display", "restart_move", "pet_init", "dialog_ctrl",
                        "auto_cast", "coin_use", "auto_gacha", "skill_enchant", "party_info", "relic_gauge",
                        "raid_check", "coin_count", "bgm", "vakarine", "weekly_boss_reward", "solodun_reward",
@@ -367,6 +368,13 @@ local SUB_FRAME_SETTINGS = {
         text_en = "Removed the cooldown sound when a skill is spammed"
     }},
     frames = {{
+        name = "indun_enter_fit",
+        text_jp = "ダンジョン入場ウィンドウの右側に残る、見えないクリック判定を消します",
+        text_kr = "던전 입장 창 오른쪽에 남는 보이지 않는 클릭 영역을 없앱니다",
+        text_en = "Remove the invisible click area left on the right of the dungeon entry window",
+        -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+        since = core_g.VER_NEXT
+    }, {
         name = "raid_record",
         text_jp = "レイドレコードを移動可能にしてサイズを変更",
         text_kr = "레이드 기록의 이동이 가능하고, 크기 조절을 할 수 있습니다",
@@ -505,6 +513,7 @@ local SETTING_SECTIONS = {{
 }, {
     name = "frames",
     names = {"raid_record", "mini_btn", "market_display", "restart_move", "restart_colony", "automatch_layer",
+             "indun_enter_fit",
              "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "pt_info", "party_buff",
              "cupole_portion", "separated_buff", "pet_ring", "daily_quest", "inventory_mod", "icor_status_search",
              "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort",

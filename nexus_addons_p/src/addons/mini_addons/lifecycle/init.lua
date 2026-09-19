@@ -238,6 +238,11 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     g.setup_hook_and_event(g.addon, "SHOW_INDUNENTER_DIALOG", "Mini_addons_SHOW_INDUNENTER_DIALOG", true)
     -- 自動マッチのレイヤーを下げる
     g.setup_hook_and_event(g.addon, "INDUNENTER_AUTOMATCH_TYPE", "Mini_addons_INDUNENTER_AUTOMATCH_TYPE", true)
+    -- 入場ウィンドウの右側に残る見えない当たり判定を消す(設定 indun_enter_fit。OFF なら素の大きさへ返す)。
+    -- **小さいモードとの往復も拾うこと。** 素は大きいモードへ戻すとき枠を bigmode の大きさ(= 倍数モードの
+    -- 箱を含む幅)へ resize し直すので、SHOW_INDUNENTER_DIALOG だけだと往復したときに死んだ判定が戻る
+    g.setup_hook_and_event(g.addon, "SHOW_INDUNENTER_DIALOG", "Mini_addons_indunenter_fit_frame", true)
+    g.setup_hook_and_event(g.addon, "INDUNENTER_SMALL", "Mini_addons_indunenter_fit_frame", true)
     -- 死んだ時のマウス位置制御
     g.setup_hook_and_event(g.addon, "RESTART_CONTENTS_ON_HERE", "Mini_addons_RESTART_CONTENTS_ON_HERE", true)
     -- オートキャスティングをキャラ毎に設定
