@@ -156,8 +156,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "8e8ca821da6fea0bdb32f90ee3e1e3993ea459a702e87a9759f56ecaa60bb469",
-    "_nexus_addons_p.lua": "9861c7bf39d9e59a6a54fa9f25383504354a184722970607245e4653701b3ac3",
+    "_nexus_addons_p.lua": "ea59dd3760db64d03031967c309d79dff064cf41e8873ce6272c1aaf2c73944f",
     "_icor_planner.lua": "1e8bf79cb5425bc51658b456933e701131080236608108562cedc2809be01b8a"
   },
   "outputs": {
