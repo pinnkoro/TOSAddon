@@ -596,6 +596,11 @@ g._nexus_addons_p = {{
     -- 同上。こちらは設定画面を持たず、マーケットを開くと出るウィンドウが本体。
     key = "market_favorite_rebuild",
     category = "storage",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
+    updated = g.VER_NEXT,
+    updated_note_jp = "受領箱の「販売取り消し」に**再出品ボタン**を足しました。押すと受け取ってから、出品したときと同じ単価・個数・販売期間でもう一度出品します(手数料が掛かるので確認が出ます)。ツールチップの販売単価と販売個数も 3 桁ごとの桁区切りで出すようにしました",
+    updated_note_en = "Added a Relist button to Sale cancelled rows in the receive box. It receives the item and lists it again at the same unit price, quantity and period (a confirmation is shown because a fee applies). The unit price and quantity in the tooltip are now comma-separated",
     data = {
         use = 0,
         name = "Market Favorite Rebuild",

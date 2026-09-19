@@ -1497,6 +1497,112 @@ function Market_favorite_rebuild_req_register_item(itemGuid, floorprice, count, 
     market.ReqRegisterItem(itemGuid, tonumber(floorprice), tonumber(count), 1, tonumber(needTime))
 end
 
+-- 受領箱の「再出品」ボタン。**販売取り消し / 期限切れで戻ってきた行にだけ出す**
+-- (買った物や売れた物は出し直す相手が居ない)。押すと受け取ってから、出品したときと
+-- 同じ単価 / 個数 / 販売期間でもう一度出品する。条件は出品時に控えた g.get_sell_items()
+-- の行から取るので、単価を打ち直さなくて済むのが狙い。
+--
+-- **行は使い回されるので、出す側でも毎回作り直すこと。** CreateOrGetControl は名前で
+-- 拾うため、同じ行が別の種別に変わってもボタンは残る(呼び元で先に隠している)。
+function Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
+    local relist_btn = ctrlSet:CreateOrGetControl('button', 'relist_btn', 0, 0, 80, 44)
+    AUTO_CAST(relist_btn)
+    relist_btn:SetSkinName('test_gray_button')
+    relist_btn:SetFontName('white_16_ol')
+    relist_btn:SetText(g.lang == "Japanese" and "{@st41b}再出品" or "{@st41b}Relist")
+    -- 「受け取る」の左隣。素の btn は右へ 8px の余白で幅 80px(controlset.xml の
+    -- market_cabinet_item_detail)なので、その左へ 5px 空けて置く
+    relist_btn:SetGravity(ui.RIGHT, ui.CENTER_VERT)
+    relist_btn:SetMargin(0, 0, 93, 0)
+    relist_btn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_relist_click")
+    relist_btn:SetEventScriptArgString(ui.LBUTTONUP, tostring(itemID))
+    local tooltip = g.lang == "Japanese" and
+                        string.format("{ol}受け取ってから、同じ条件で出品し直します{nl}単価: %s / %s 個 / %s 日",
+            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
+                        string.format("{ol}Receive it, then list it again on the same terms{nl}%s each / %s / %s days",
+            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
+    relist_btn:SetTextTooltip(tooltip)
+    relist_btn:ShowWindow(1)
+end
+
+-- 出品したときの条件を控えから引く。受領箱の行の itemID は出品したときのアイテムの
+-- GUID と同じ(ON_CABINET_ITEM_LIST の突き合わせがこれで成り立っている)
+function Market_favorite_rebuild_relist_find(item_id)
+    for _, saved_item in ipairs(g.get_sell_items()) do
+        if saved_item.iesid == tostring(item_id) then
+            return saved_item
+        end
+    end
+    return nil
+end
+
+function Market_favorite_rebuild_relist_click(frame, ctrl, item_id)
+    local data = Market_favorite_rebuild_relist_find(item_id)
+    if not data then
+        -- 控えが無いのは、別のキャラから出品した / 設定を消した / この機能を入れる前の出品。
+        -- 単価が分からないので黙って何もせず、理由だけ伝える
+        ui.SysMsg(g.lang == "Japanese" and "出品したときの条件が残っていないので、再出品できません" or
+                      "The original listing terms are not saved, so it cannot be relisted")
+        return
+    end
+    -- **確認を挟むこと。** 出品には手数料が掛かるので、押し間違いで銀貨が減らないようにする
+    local msg = g.lang == "Japanese" and
+                    string.format("単価 %s / %s 個 / %s 日 で出品し直します。よろしいですか？",
+            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
+                    string.format("List again at %s each, %s, for %s days. Are you sure?",
+            GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
+    ui.MsgBox(msg, string.format("Market_favorite_rebuild_relist_exec('%s')", tostring(item_id)), "None")
+end
+
+-- 受け取り → 出品の 2 手。**続けて呼んではいけない。** 受け取りはサーバへの要求なので、
+-- 送った直後はまだインベントリに無く、その GUID で出品を頼んでも弾かれる。
+-- インベントリへ届いたのを見てから出品する。
+function Market_favorite_rebuild_relist_exec(item_id)
+    local data = Market_favorite_rebuild_relist_find(item_id)
+    if not data then
+        return
+    end
+    g.relist_wait = {
+        guid = tostring(item_id),
+        data = data,
+        limit_ms = imcTime.GetAppTimeMS() + 5000
+    }
+    market.ReqGetCabinetItem(tostring(item_id))
+    core_g.vlog("market_favorite_rebuild: 再出品 受け取りを要求した guid=%s 単価=%s 個数=%s 期間=%s",
+        tostring(item_id), tostring(data.price), tostring(data.count), tostring(data.time))
+    local frame = ui.GetFrame(addon_name_lower)
+    if frame then
+        frame:RunUpdateScript("Market_favorite_rebuild_relist_wait", 0.1)
+    end
+end
+
+function Market_favorite_rebuild_relist_wait()
+    local wait = g.relist_wait
+    if not wait then
+        return 1
+    end
+    if session.GetInvItemByGuid(wait.guid) ~= nil then
+        g.relist_wait = nil
+        core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけたので出品する guid=%s", wait.guid)
+        -- 控えの作り直し(market_guid の書き込み待ちを含む)ごと任せる
+        Market_favorite_rebuild_req_register_item(wait.guid, wait.data.price, wait.data.count, 1, wait.data.time,
+            wait.data.clsid)
+        return 1
+    end
+    if imcTime.GetAppTimeMS() > wait.limit_ms then
+        g.relist_wait = nil
+        -- 届かなかった理由はいくつもある(インベントリが一杯 / 受け取りそのものが弾かれた)。
+        -- 黙って諦めると「押したのに何も起きない」になるので、出品しなかったことを伝える
+        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 受け取ったものがインベントリに見つからない guid=%s{/}",
+            wait.guid)
+        ui.SysMsg(g.lang == "Japanese" and
+                      "受け取ったアイテムが見つからないので、再出品は行いませんでした" or
+                      "The received item was not found, so it was not relisted")
+        return 1
+    end
+    return 0
+end
+
 function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
     local frame = g.get_event_args(my_msg)
     local itemGbox = GET_CHILD(frame, "itemGbox");
@@ -1629,13 +1735,22 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
         else
             btn:SetEnable(0);
         end
+        -- 再出品ボタンは行を使い回すので、毎回いったん隠してから出し直す
+        -- (CreateOrGetControl は名前で拾うため、前に「販売取り消し」を出していた行が
+        --  別の種別になっても、消さなければボタンだけ残る)
+        local relist_btn = GET_CHILD(ctrlSet, "relist_btn")
+        if relist_btn then
+            relist_btn:ShowWindow(0)
+        end
         if whereFrom == 'market_cancel' or whereFrom == 'market_expire' then -- 판매 취소, 판매 기한 완료
             for index, data in ipairs(g.get_sell_items()) do
                 local iesid = data.iesid
                 if tostring(itemID) == iesid then
                     local register_time = data.register_time
-                    local price = data.price
-                    local count = data.count
+                    -- **単価と個数は桁区切りで出すこと。** 5000000 のような生の数字は
+                    -- 桁を数えないと読めず、出し直すときの入力を間違える
+                    local price = GET_COMMAED_STRING(data.price)
+                    local count = GET_COMMAED_STRING(data.count)
                     local period = data.time
                     local temp_text = g.lang == "Japanese" and "{ol}登録日: " .. register_time ..
                                           "{nl}販売期間: " .. period .. "日{nl}販売単価: " .. price ..
@@ -1644,6 +1759,7 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
                                           "{nl}Quantity: " .. count
                     typeText:SetTextTooltip(temp_text)
                     btn:SetTextTooltip(temp_text)
+                    Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
                     break
                 end
             end
