@@ -13,12 +13,16 @@ g.icor_planner_cols = {0, 330, 510, 690, 870}
 -- **見出しと行が同じ表を見る**こと。別々に書くと必ずずれる
 -- 項目 / 数え方 / 対象部位 / 現在 / 入力欄 / 目標値の％
 -- 項目 / (行を足す) / 数え方 / 部位 / 現在 / 入力欄 / 目標値の％
-g.icor_planner_target_cols = {8, 240, 312, 378, 500, 745}
+--
+-- **右端の ％ が切れないよう、列は左へ詰めてある。** 右の一覧の幅は
+-- 窓の幅(1280) - 450 = 790 しかないので、目安ボタンの右に ％ の 80px を残すこと
+-- (実機で 100.0% が切れていた)。
+g.icor_planner_target_cols = {8, 210, 282, 344, 460, 702}
 -- 「行を足す」ボタンの左端。項目名の右、数え方の左
-g.icor_planner_target_add_x = 206
+g.icor_planner_target_add_x = 178
 
--- 目標値の目安ボタン(最低 / 平均 / 最大)の左端
-g.icor_planner_target_btns = {600, 648, 696}
+-- 目標値の目安ボタン(最低 / 最大 / 限凸)の左端
+g.icor_planner_target_btns = {556, 604, 652}
 g.icor_planner_tab = g.icor_planner_tab or 0
 
 function Icor_planner_open()
