@@ -1504,7 +1504,7 @@ end
 --
 -- **行は使い回されるので、出す側でも毎回作り直すこと。** CreateOrGetControl は名前で
 -- 拾うため、同じ行が別の種別に変わってもボタンは残る(呼び元で先に隠している)。
-function Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
+function Market_favorite_rebuild_relist_button(ctrlSet, itemID, clsid, data)
     local relist_btn = ctrlSet:CreateOrGetControl('button', 'relist_btn', 0, 0, 80, 44)
     AUTO_CAST(relist_btn)
     relist_btn:SetSkinName('test_gray_button')
@@ -1516,6 +1516,9 @@ function Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
     relist_btn:SetMargin(0, 0, 93, 0)
     relist_btn:SetEventScript(ui.LBUTTONUP, "Market_favorite_rebuild_relist_click")
     relist_btn:SetEventScriptArgString(ui.LBUTTONUP, tostring(itemID))
+    -- clsid も渡す。押した時点でもう一度控えを引くが、GUID が変わるアイテムは
+    -- GUID だけでは引けない(Market_favorite_rebuild_find_sell_record のコメント)
+    relist_btn:SetEventScriptArgNumber(ui.LBUTTONUP, clsid or 0)
     local tooltip = g.lang == "Japanese" and
                         string.format("{ol}受け取ってから、同じ条件で出品し直します{nl}単価: %s / %s 個 / %s 日",
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
@@ -1523,21 +1526,42 @@ function Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
     relist_btn:SetTextTooltip(tooltip)
     relist_btn:ShowWindow(1)
+    -- 出したはずなのに見えないときの切り分け(作れているのか、位置や大きさが壊れているのか)
+    core_g.vlog("market_favorite_rebuild: 再出品ボタンを出した guid=%s 表示=%s 幅=%s 高さ=%s", tostring(itemID),
+        tostring(relist_btn:IsVisible()), tostring(relist_btn:GetWidth()), tostring(relist_btn:GetHeight()))
 end
 
--- 出品したときの条件を控えから引く。受領箱の行の itemID は出品したときのアイテムの
--- GUID と同じ(ON_CABINET_ITEM_LIST の突き合わせがこれで成り立っている)
-function Market_favorite_rebuild_relist_find(item_id)
+-- 出品したときの条件を控えから引く。第 2 の戻り値はどうやって引けたか(ログ用)。
+--
+-- 1) まず GUID(iesid)で引く。装備のように 1 個ずつ別物のアイテムは、出品から受領箱まで
+--    GUID が変わらないのでこれで当たる。
+-- 2) **まとめ置きできるアイテム(ポーションなど)は GUID が変わる。** 束から切り出して
+--    出品するため、戻ってきたものは別の GUID になっていて 1) では当たらない。
+--    そのときだけ、同じアイテム(clsid)の控えで代用する。
+--    **候補が 2 件以上あるときは諦める。** どの値段の控えなのか決められず、
+--    黙って別の値段で出し直すほうが害が大きい。
+function Market_favorite_rebuild_find_sell_record(item_id, clsid)
+    local guid = tostring(item_id)
+    local candidates = {}
     for _, saved_item in ipairs(g.get_sell_items()) do
-        if saved_item.iesid == tostring(item_id) then
-            return saved_item
+        if saved_item.iesid == guid then
+            return saved_item, "guid"
+        end
+        if clsid and clsid ~= 0 and saved_item.clsid == clsid and saved_item.status ~= 'selling' then
+            table.insert(candidates, saved_item)
         end
     end
-    return nil
+    if #candidates == 1 then
+        return candidates[1], "clsid"
+    end
+    if #candidates > 1 then
+        return nil, "clsid_multi"
+    end
+    return nil, "none"
 end
 
-function Market_favorite_rebuild_relist_click(frame, ctrl, item_id)
-    local data = Market_favorite_rebuild_relist_find(item_id)
+function Market_favorite_rebuild_relist_click(frame, ctrl, item_id, clsid)
+    local data = Market_favorite_rebuild_find_sell_record(item_id, clsid)
     if not data then
         -- 控えが無いのは、別のキャラから出品した / 設定を消した / この機能を入れる前の出品。
         -- 単価が分からないので黙って何もせず、理由だけ伝える
@@ -1551,19 +1575,21 @@ function Market_favorite_rebuild_relist_click(frame, ctrl, item_id)
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time)) or
                     string.format("List again at %s each, %s, for %s days. Are you sure?",
             GET_COMMAED_STRING(data.price), GET_COMMAED_STRING(data.count), tostring(data.time))
-    ui.MsgBox(msg, string.format("Market_favorite_rebuild_relist_exec('%s')", tostring(item_id)), "None")
+    ui.MsgBox(msg, string.format("Market_favorite_rebuild_relist_exec('%s', %d)", tostring(item_id),
+        tonumber(clsid) or 0), "None")
 end
 
 -- 受け取り → 出品の 2 手。**続けて呼んではいけない。** 受け取りはサーバへの要求なので、
 -- 送った直後はまだインベントリに無く、その GUID で出品を頼んでも弾かれる。
 -- インベントリへ届いたのを見てから出品する。
-function Market_favorite_rebuild_relist_exec(item_id)
-    local data = Market_favorite_rebuild_relist_find(item_id)
+function Market_favorite_rebuild_relist_exec(item_id, clsid)
+    local data = Market_favorite_rebuild_find_sell_record(item_id, clsid)
     if not data then
         return
     end
     g.relist_wait = {
         guid = tostring(item_id),
+        clsid = tonumber(clsid) or tonumber(data.clsid) or 0,
         data = data,
         limit_ms = imcTime.GetAppTimeMS() + 5000
     }
@@ -1581,11 +1607,21 @@ function Market_favorite_rebuild_relist_wait()
     if not wait then
         return 1
     end
-    if session.GetInvItemByGuid(wait.guid) ~= nil then
+    -- **同じ GUID で戻るとは限らない。** まとめ置きできるアイテムは受け取った時点で
+    -- 手持ちの束へ混ざるので、束のほうの GUID で出品することになる
+    local inv_item = session.GetInvItemByGuid(wait.guid)
+    local found_by = "guid"
+    if inv_item == nil and wait.clsid ~= 0 then
+        inv_item = session.GetInvItemByType(wait.clsid)
+        found_by = "clsid"
+    end
+    if inv_item ~= nil then
         g.relist_wait = nil
-        core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけたので出品する guid=%s", wait.guid)
+        local guid = tostring(inv_item:GetIESID())
+        core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけたので出品する guid=%s (%s で一致)", guid,
+            found_by)
         -- 控えの作り直し(market_guid の書き込み待ちを含む)ごと任せる
-        Market_favorite_rebuild_req_register_item(wait.guid, wait.data.price, wait.data.count, 1, wait.data.time,
+        Market_favorite_rebuild_req_register_item(guid, wait.data.price, wait.data.count, 1, wait.data.time,
             wait.data.clsid)
         return 1
     end
@@ -1611,15 +1647,27 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
     local cnt = session.market.GetCabinetItemCount();
     local sysTime = geTime.GetServerSystemTime();
     local cab_items = {}
+    -- **アイテムの種類でも控えておくこと。** まとめ置きできるアイテム(ポーションなど)は
+    -- 束から切り出して出品するため、受領箱へ戻ってきた時点で GUID が変わっている。
+    -- GUID だけで突き合わせると、受領箱に並んでいるのに控えのほうを消してしまい、
+    -- 出品したときの条件(単価・販売期間)が二度と分からなくなる
+    local cab_clsids = {}
     for i = 0, cnt - 1 do
         local cabinetItem = session.market.GetCabinetItemByIndex(i)
         local item_id = tostring(cabinetItem:GetItemID())
         cab_items[item_id] = cabinetItem:GetWhereFrom()
+        local cab_obj = GetIES(cabinetItem:GetObject())
+        if cab_obj then
+            cab_clsids[cab_obj.ClassID] = cabinetItem:GetWhereFrom()
+        end
     end
     local clean_items = {}
     for _, saved_item in ipairs(g.get_sell_items()) do
         if cab_items[saved_item.iesid] then
             saved_item.status = cab_items[saved_item.iesid]
+            table.insert(clean_items, saved_item)
+        elseif saved_item.clsid and cab_clsids[saved_item.clsid] then
+            saved_item.status = cab_clsids[saved_item.clsid]
             table.insert(clean_items, saved_item)
         elseif saved_item.status == 'selling' then
             table.insert(clean_items, saved_item)
@@ -1743,25 +1791,27 @@ function Market_favorite_rebuild_ON_CABINET_ITEM_LIST(my_frame, my_msg)
             relist_btn:ShowWindow(0)
         end
         if whereFrom == 'market_cancel' or whereFrom == 'market_expire' then -- 판매 취소, 판매 기한 완료
-            for index, data in ipairs(g.get_sell_items()) do
-                local iesid = data.iesid
-                if tostring(itemID) == iesid then
-                    local register_time = data.register_time
-                    -- **単価と個数は桁区切りで出すこと。** 5000000 のような生の数字は
-                    -- 桁を数えないと読めず、出し直すときの入力を間違える
-                    local price = GET_COMMAED_STRING(data.price)
-                    local count = GET_COMMAED_STRING(data.count)
-                    local period = data.time
-                    local temp_text = g.lang == "Japanese" and "{ol}登録日: " .. register_time ..
-                                          "{nl}販売期間: " .. period .. "日{nl}販売単価: " .. price ..
-                                          "{nl}販売個数: " .. count or "{ol}Reg. Date: " .. register_time ..
-                                          "{nl}Sales Period: " .. period .. " Days{nl}Unit Price: " .. price ..
-                                          "{nl}Quantity: " .. count
-                    typeText:SetTextTooltip(temp_text)
-                    btn:SetTextTooltip(temp_text)
-                    Market_favorite_rebuild_relist_button(ctrlSet, itemID, data)
-                    break
-                end
+            local data, how = Market_favorite_rebuild_find_sell_record(itemID, itemObj.ClassID)
+            if data then
+                local register_time = data.register_time
+                -- **単価と個数は桁区切りで出すこと。** 5000000 のような生の数字は
+                -- 桁を数えないと読めず、出し直すときの入力を間違える
+                local price = GET_COMMAED_STRING(data.price)
+                local count = GET_COMMAED_STRING(data.count)
+                local period = data.time
+                local temp_text = g.lang == "Japanese" and "{ol}登録日: " .. register_time .. "{nl}販売期間: " ..
+                                      period .. "日{nl}販売単価: " .. price .. "{nl}販売個数: " .. count or
+                                      "{ol}Reg. Date: " .. register_time .. "{nl}Sales Period: " .. period ..
+                                      " Days{nl}Unit Price: " .. price .. "{nl}Quantity: " .. count
+                typeText:SetTextTooltip(temp_text)
+                btn:SetTextTooltip(temp_text)
+                Market_favorite_rebuild_relist_button(ctrlSet, itemID, itemObj.ClassID, data)
+            else
+                -- 控えが無ければ単価が分からないので、ボタンもツールチップも出さない。
+                -- **黙って出ないと「壊れている」のか「控えが無い」のか分からない**ので、
+                -- どちらなのかをログに残す(控え 0 件なら、このキャラから出品していない)
+                core_g.vlog("market_favorite_rebuild: 再出品 控えが無い guid=%s clsid=%s 理由=%s 控え=%d 件",
+                    tostring(itemID), tostring(itemObj.ClassID), tostring(how), #g.get_sell_items())
             end
         end
     end
