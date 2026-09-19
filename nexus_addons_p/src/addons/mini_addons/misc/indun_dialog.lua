@@ -86,3 +86,51 @@ function Mini_addons_RESTART_CONTENTS_ON_HERE(my_frame, my_msg)
     local x, y = GET_SCREEN_XY(btn_restart + item_width / 2, btn_restart + item_height / 2)
     mouse.SetPos(x, y)
 end
+-- 入場ウィンドウの右側に残る、見えないクリック判定を消す(設定 indun_enter_fit)
+--
+-- 素の indunenter は枠が 1100x800 で `hittestframe="true"`(= 枠の矩形まるごとがクリックを受ける)。
+-- ところが実際に描くのは bigmode 1020x700 の中の mainBox 730x650 だけで、右の 300px は倍数モードの
+-- 箱(multiBox)。**レイドでは INDUNENTER_MAKE_MULTI_BOX が multiBox:ShowWindow(0) で消すのに、枠は
+-- 1100 のまま**なので、消えた箱のぶんがクリックを飲み続ける(後ろの 3D 画面を触れない)。
+--
+-- **EnableHittestFrame(0) で判定を切ってはいけない。** この窓はタイトルバーを描かず
+-- moveintitlebar="false" なので、枠の判定がドラッグ移動そのもの。切ると窓を動かせなくなる上、
+-- 見えている部分のクリックが 3D 画面へ抜けてキャラクターが歩き出す。
+-- 代わりに枠を中身ぴったりへ詰め直す。素自身が INDUNENTER_SMALL で
+-- topFrame:Resize(bigmode の大きさ) → INDUNENTER_AMEND_OFFSET(topFrame) をしているので、同じ手順。
+function Mini_addons_indunenter_fit_frame()
+    local indunenter = ui.GetFrame("indunenter")
+    if not indunenter or indunenter:IsVisible() == 0 then
+        return
+    end
+    -- 小さいモード(自動マッチ中)は素が smallmode の大きさへ縮めている。ここで触ると喧嘩になる
+    if indunenter:GetUserValue("FRAME_MODE") ~= "BIG" then
+        return
+    end
+    if g.settings.indun_enter_fit == 0 then
+        -- OFF へ戻した人のために素の大きさへ返す。返さないと縮めたまま残る
+        local origin_w = indunenter:GetOriginalWidth()
+        local origin_h = indunenter:GetOriginalHeight()
+        if origin_w > 0 and origin_h > 0 and indunenter:GetWidth() ~= origin_w then
+            indunenter:Resize(origin_w, origin_h)
+            INDUNENTER_AMEND_OFFSET(indunenter)
+        end
+        return
+    end
+    local bigmode = GET_CHILD_RECURSIVELY(indunenter, "bigmode")
+    local main_box = GET_CHILD_RECURSIVELY(indunenter, "mainBox")
+    local multi_box = GET_CHILD_RECURSIVELY(indunenter, "multiBox")
+    if not bigmode or not main_box or not multi_box then
+        return
+    end
+    -- 倍数モードの箱が出ているダンジョンでは bigmode の幅が要る(素が大きいモードへ戻すときと同じ値)。
+    -- 消えているレイドでは mainBox の幅で足りる(bottomBox 708 も etcInfoGbox 728 も mainBox の中に収まる)
+    local width = bigmode:GetWidth()
+    if multi_box:IsVisible() == 0 then
+        width = main_box:GetWidth()
+    end
+    core_g.vlog("mini_addons: 入場ウィンドウを詰める %dx%d → %dx%d (multiBox 表示=%d)", indunenter:GetWidth(),
+        indunenter:GetHeight(), width, bigmode:GetHeight(), multi_box:IsVisible())
+    indunenter:Resize(width, bigmode:GetHeight())
+    INDUNENTER_AMEND_OFFSET(indunenter)
+end
