@@ -1636,24 +1636,6 @@ function Market_favorite_rebuild_relist_wait()
         core_g.vlog("market_favorite_rebuild: 再出品 待っている 段=%s guid=%s clsid=%s 経過=%.1f秒",
             tostring(wait.stage or "inventory"), wait.guid, tostring(wait.clsid), wait.ticks * 0.1)
     end
-    if wait.stage == "fill" then
-        -- 販売タブが開くのを待つ。ui.OpenFrame の中で素の MARKET_SELL_OPEN が枠を空にするので、
-        -- **開き切ってから入れること**(先に入れると素に消される)
-        local sell_frame = ui.GetFrame("market_sell")
-        if sell_frame ~= nil and sell_frame:IsVisible() == 1 then
-            g.relist_wait = nil
-            Market_favorite_rebuild_relist_fill(sell_frame, wait)
-            return 1
-        end
-        if imcTime.GetAppTimeMS() > wait.limit_ms then
-            g.relist_wait = nil
-            core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブが開かない{/}")
-            ui.SysMsg(g.lang == "Japanese" and "受け取りました(販売タブを開けませんでした)" or
-                          "Received the item (could not open the Sell tab)")
-            return 1
-        end
-        return 0
-    end
     -- **同じ GUID で戻るとは限らない。** まとめ置きできるアイテムは受け取った時点で
     -- 手持ちの束へ混ざるので、束のほうの GUID を使うことになる
     local inv_item = session.GetInvItemByGuid(wait.guid)
@@ -1678,9 +1660,21 @@ function Market_favorite_rebuild_relist_wait()
         wait.limit_ms = imcTime.GetAppTimeMS() + 5000
         core_g.vlog("market_favorite_rebuild: 再出品 インベントリで見つけた guid=%s (%s で一致) 販売タブを開く",
             wait.inv_guid, found_by)
-        -- 素のタブ切り替えをそのまま使う(market / market_cabinet を閉じて market_sell を開く)
-        MARKET_SELLMODE(ui.GetFrame("market_cabinet") or ui.GetFrame("market"))
-        return 0
+        -- **入力待ちは別の更新スクリプトに分けること。** ここでフレームを開け閉めすると、
+        -- 走っているこの更新スクリプトがそのまま止まる(実機で発生。販売タブには切り替わるのに
+        -- 段=fill のログが 1 行も出なかった)。同じ名前で張り直すと取り合いになるので名前を分ける。
+        local host = ui.GetFrame(core_addon_name_lower) or ui.GetFrame(addon_name_lower)
+        if host ~= nil then
+            host:RunUpdateScript("Market_favorite_rebuild_relist_fill_wait", 0.1)
+        end
+        -- 素のタブ切り替えをそのまま使う(market / market_cabinet を閉じて market_sell を開く)。
+        -- 落ちても気付けるように包む(落ちた先でこの関数ごと止まるため、素通りだと原因が残らない)
+        local ok, err = pcall(MARKET_SELLMODE, ui.GetFrame("market_cabinet") or ui.GetFrame("market"))
+        if not ok then
+            core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブへの切り替えで落ちた err=%s{/}",
+                tostring(err))
+        end
+        return 1
     end
     if imcTime.GetAppTimeMS() > wait.limit_ms then
         g.relist_wait = nil
@@ -1692,6 +1686,38 @@ function Market_favorite_rebuild_relist_wait()
             wait.guid, tostring(wait.clsid), tostring(session.market.GetCabinetItemCount()))
         ui.SysMsg(g.lang == "Japanese" and "受け取ったアイテムが見つかりませんでした" or
                       "The received item was not found")
+        return 1
+    end
+    return 0
+end
+
+-- 販売タブが開くのを待って入力する。**ui.OpenFrame の中で素の MARKET_SELL_OPEN が
+-- 登録枠を空にするので、開き切ってから入れること**(先に入れると素に消される)。
+function Market_favorite_rebuild_relist_fill_wait()
+    local wait = g.relist_wait
+    if not wait then
+        return 1
+    end
+    wait.fill_ticks = (wait.fill_ticks or 0) + 1
+    if wait.fill_ticks % 10 == 1 then
+        core_g.vlog("market_favorite_rebuild: 再出品 販売タブを待っている 経過=%.1f秒", wait.fill_ticks * 0.1)
+    end
+    local sell_frame = ui.GetFrame("market_sell")
+    if sell_frame ~= nil and sell_frame:IsVisible() == 1 then
+        g.relist_wait = nil
+        local ok, err = pcall(Market_favorite_rebuild_relist_fill, sell_frame, wait)
+        if not ok then
+            core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブへの入力で落ちた err=%s{/}", tostring(err))
+            ui.SysMsg(g.lang == "Japanese" and "販売タブへの入力に失敗しました" or
+                          "Failed to fill in the Sell tab")
+        end
+        return 1
+    end
+    if imcTime.GetAppTimeMS() > wait.limit_ms then
+        g.relist_wait = nil
+        core_g.vlog("{#FF6347}market_favorite_rebuild: 再出品 販売タブが開かない{/}")
+        ui.SysMsg(g.lang == "Japanese" and "受け取りました(販売タブを開けませんでした)" or
+                      "Received the item (could not open the Sell tab)")
         return 1
     end
     return 0
