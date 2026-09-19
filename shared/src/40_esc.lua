@@ -184,7 +184,10 @@ function g.esc_sync_scp(force)
     g.vlog("esc_scp: %s (stack=%d force=%s)", want and "set" or "clear", #g.esc_stack, tostring(force or false))
     -- 古いクライアントに SetEscapeScp が無くても、ここで巻き込んで落とさない
     -- (その場合は ESCAPE_PRESSED の一斉配信だけで従来どおり動く)。
-    pcall(ui.SetEscapeScp, want and "_nexus_addons_p_ESCAPE_PRESSED()" or "")
+    -- **割り込み先は取り込む側が決める。** 共通部品から特定のアドオンの関数名を書くと、
+    -- 単体アドオンのバンドルでは存在しない名前を指すことになり、以後 ESC を押しても
+    -- システムメニューが開かなくなる(shared/README.md の決まり。PR #191 のレビュー指摘)
+    pcall(ui.SetEscapeScp, want and (g.esc_scp_call or "") or "")
 end
 
 -- ESC を受けたときの中身。**購読は取り込む側が 1 か所だけで行い**、ここを呼ぶ。
@@ -218,7 +221,16 @@ function g.esc_on_escape()
         -- **スタックより先に呼んではいけない。** 以前は無条件に先頭で呼んでいたため、
         -- 手前の自作ウィンドウを閉じる押下で Addons Menu の設定画面まで一緒に消えていた
         -- (「1 回の ESC でまとめて消える」を防ぐためのスタックが、ここだけ素通りしていた)。
-        local ok, closed = pcall(addons_menu_on_escape)
+        -- **取り込む側が渡したものだけを呼ぶ。** 共通部品から特定のアドオンのグローバルを
+        -- 直接呼ぶと、同居しているときに相手のメニューまで畳んでしまう
+        -- (Icor Planner のスタックが空の ESC で、Nexus Addons P の一覧が閉じていた)
+        local extra = g.esc_extra_close
+        local ok, closed = false, false
+        if type(extra) == "function" then
+            ok, closed = pcall(extra)
+        elseif type(extra) == "string" and type(_G[extra]) == "function" then
+            ok, closed = pcall(_G[extra])
+        end
         if ok and closed then
             -- 実際に畳んだ押下は「使った」扱いにする。そうしないと設定画面が閉じるのと
             -- 同時にシステムメニューが開き、indun_panel のトグルまで走る。

@@ -31,6 +31,10 @@ function _ICOR_PLANNER_GAME_START()
     g.create_folder(string.format("../addons/%s/%s", "_icor_planner", g.active_id),
         string.format("../addons/%s/%s/mkdir.txt", "_icor_planner", g.active_id))
     g.load_core_settings()
+    -- **ESC の割り込み先を入れ直す。** マップ移動で ui.SetEscabeScp 相当の設定が
+    -- 落ちることがあるので、覚えている状態を無視して必ず設定し直す
+    -- (Nexus Addons P の GAME_START と同じ作法)
+    g.esc_sync_scp(true)
     g.migrate_from_nexus()
     g.icor_planner_settings = nil
     local ok, err = pcall(icor_planner_on_init)
