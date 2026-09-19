@@ -86,6 +86,10 @@ function Mini_addons_RESTART_CONTENTS_ON_HERE(my_frame, my_msg)
     local x, y = GET_SCREEN_XY(btn_restart + item_width / 2, btn_restart + item_height / 2)
     mouse.SetPos(x, y)
 end
+-- 入場ウィンドウの枠を縮める前の大きさを控えておく鍵(素のフレームの UserValue)。
+-- 名前がぶつからないよう印を付ける
+local FIT_KEEP_W, FIT_KEEP_H = "NEXUS_FIT_KEEP_W", "NEXUS_FIT_KEEP_H"
+
 -- 入場ウィンドウの右側に残る、見えないクリック判定を消す(設定 indun_enter_fit)
 --
 -- 素の indunenter は枠が 1100x800 で `hittestframe="true"`(= 枠の矩形まるごとがクリックを受ける)。
@@ -108,12 +112,22 @@ function Mini_addons_indunenter_fit_frame()
         return
     end
     if g.settings.indun_enter_fit == 0 then
-        -- OFF へ戻した人のために素の大きさへ返す。返さないと縮めたまま残る
-        local origin_w = indunenter:GetOriginalWidth()
-        local origin_h = indunenter:GetOriginalHeight()
-        if origin_w > 0 and origin_h > 0 and indunenter:GetWidth() ~= origin_w then
-            indunenter:Resize(origin_w, origin_h)
+        -- OFF へ戻した人のために、**自分が縮めたときだけ**元の大きさへ返す。
+        --
+        -- **「XML 宣言値(1100x800)と違う = 自分が縮めた」と見なしてはいけない。**
+        -- 素は小さいモードから大きいモードへ戻すとき、枠を bigmode の大きさ(1020x700)へ
+        -- resize する(indunenter.lua の INDUNENTER_SMALL)。宣言値と比べると、
+        -- **一度も ON にしていない利用者の往復まで「縮んでいる」と誤判定して 1100x800 へ
+        -- 広げてしまい、死角が素より広くなる**。縮める前の大きさを控えておいて、
+        -- 控えがあるときだけ返す。
+        local kept_w = indunenter:GetUserIValue(FIT_KEEP_W)
+        local kept_h = indunenter:GetUserIValue(FIT_KEEP_H)
+        if kept_w > 0 and kept_h > 0 then
+            indunenter:SetUserValue(FIT_KEEP_W, 0)
+            indunenter:SetUserValue(FIT_KEEP_H, 0)
+            indunenter:Resize(kept_w, kept_h)
             INDUNENTER_AMEND_OFFSET(indunenter)
+            core_g.vlog("mini_addons: 入場ウィンドウを元の大きさへ返した %dx%d", kept_w, kept_h)
         end
         return
     end
@@ -128,6 +142,12 @@ function Mini_addons_indunenter_fit_frame()
     local width = bigmode:GetWidth()
     if multi_box:IsVisible() == 0 then
         width = main_box:GetWidth()
+    end
+    -- 縮める前の大きさを控える(OFF へ戻したときの戻り先)。控えるのは最初の 1 回だけで、
+    -- 2 回目以降は自分が縮めた後の大きさなので上書きしない
+    if indunenter:GetUserIValue(FIT_KEEP_W) <= 0 then
+        indunenter:SetUserValue(FIT_KEEP_W, indunenter:GetWidth())
+        indunenter:SetUserValue(FIT_KEEP_H, indunenter:GetHeight())
     end
     core_g.vlog("mini_addons: 入場ウィンドウを詰める %dx%d → %dx%d (multiBox 表示=%d)", indunenter:GetWidth(),
         indunenter:GetHeight(), width, bigmode:GetHeight(), multi_box:IsVisible())
