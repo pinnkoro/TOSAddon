@@ -382,8 +382,8 @@ end
 --
 -- 目標のうち**まだ不足しているもの**を、不足の大きい順にボタンにする。押すと素の
 -- 条件検索(optionGroupSet)へ 1 行足して、オプションと下限値を入れる。
--- **検索の実行まではしない。** 素の検索ボタン(MARKET_REQ_LIST)はサーバへ問い合わせるので、
--- 押した覚えのない通信を起こさない。条件を入れるところまでが仕事。
+-- 条件を入れたら**そのまま検索する**(素の MARKET_REQ_LIST)。押した本人の操作なので、
+-- 通信を起こしてよい(実機で「押したら検索までしてほしい」と指摘された)。
 function Icor_planner_fill_search_buttons(list, diag, base_y)
     base_y = base_y or 6
     local targets = {}
@@ -449,7 +449,7 @@ function Icor_planner_fill_search_buttons(list, diag, base_y)
     local title = list:CreateOrGetControl("richtext", "search_title", 10, base_y, 0, 0)
     AUTO_CAST(title)
     title:SetText(g.lang == "Japanese" and
-                      "{ol}{s15}{#FFD700}オススメの検索条件{#AAAAAA}(押すと下の条件欄に入ります)" or
+                      "{ol}{s15}{#FFD700}オススメの検索条件{#AAAAAA}(押すと条件を足して検索します)" or
                       "{ol}{s15}{#FFD700}Suggested search{#AAAAAA} (fills the search fields)")
     local y = base_y + 22
     for i, row in ipairs(targets) do
@@ -465,7 +465,7 @@ function Icor_planner_fill_search_buttons(list, diag, base_y)
         btn:SetText(string.format("{ol}{s14}%s  >= %s", Icor_planner_option_name(row.opt),
             GET_COMMAED_STRING(min_value)))
         btn:SetTextTooltip(g.lang == "Japanese" and
-                               ("{ol}マーケットの条件検索へこのオプションと下限を入れます{nl}検索は素の検索ボタンを押してください{nl}{#AAAAAA}下限: " ..
+                               ("{ol}この条件を足して検索します{nl}{#AAAAAA}下限: " ..
                                    tostring(row.basis)) or
                                "{ol}Fills the market search with this option and minimum")
         btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_market_search_fill")
@@ -508,7 +508,21 @@ function Icor_planner_market_search_fill(parent, ctrl, opt, min_value)
                       "{ol}The option search area is not open")
         return
     end
-    Icor_planner_market_add_condition(option_group_set, opt, min_value)
+    if Icor_planner_market_add_condition(option_group_set, opt, min_value) then
+        Icor_planner_market_search_now(market)
+    end
+end
+
+-- 素の検索を実行する。**素の関数へ渡すのはフレーム**(中で GetTopParentFrame している)。
+-- 失敗しても握る(条件は入っているので、素の検索ボタンを押せば同じことができる)
+function Icor_planner_market_search_now(market)
+    local ok = pcall(MARKET_REQ_LIST, market)
+    g.vlog("icor_planner: 検索を実行した (成功 %s)", tostring(ok))
+    if not ok then
+        ui.SysMsg(g.lang == "Japanese" and
+                      "{ol}条件は入れました。検索はマーケットの検索ボタンを押してください" or
+                      "{ol}Filled the conditions. Press the market search button")
+    end
 end
 
 -- 条件欄へ 1 行足して、オプションと下限を入れる
@@ -557,7 +571,7 @@ function Icor_planner_fill_set_buttons(list, diag, scan)
                 local title = list:CreateOrGetControl("richtext", "set_title", 10, y, 0, 0)
                 AUTO_CAST(title)
                 title:SetText(jp and
-                                  string.format("{ol}{s15}{#FFD700}%s{#AAAAAA}(押すと条件をまとめて入れます)",
+                                  string.format("{ol}{s15}{#FFD700}%s{#AAAAAA}(押すとまとめて検索します)",
                         avg.update_mode and "更新するイコルのセットで探す" or "オススメのセットで探す") or
                                   "{ol}{s15}{#FFD700}Search by suggested set")
                 y = y + 22
@@ -598,7 +612,7 @@ function Icor_planner_fill_set_buttons(list, diag, scan)
                 AUTO_CAST(btn)
                 btn:SetSkinName("test_pvp_btn")
                 btn:SetText("{ol}{s13}" .. (key == "avg" and (jp and "平均" or "Avg") or (jp and "最低" or "Min")))
-                btn:SetTextTooltip("{ol}" .. (jp and "この条件をまとめて入れます(今の条件は消えます){nl}" or "") ..
+                btn:SetTextTooltip("{ol}" .. (jp and "この条件でまとめて検索します(今の条件は消えます){nl}" or "") ..
                                        table.concat(tips, "{nl}"))
                 btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_market_search_set")
                 btn:SetEventScriptArgString(ui.LBUTTONUP, key)
@@ -639,6 +653,9 @@ function Icor_planner_market_search_set(parent, ctrl, key, idx)
         end
     end
     g.vlog("icor_planner: セットの条件を入れた %s %d/%d 件 (%s)", tostring(set.spot), count, #set.opts, tostring(key))
+    if count > 0 then
+        Icor_planner_market_search_now(market)
+    end
 end
 
 -- 今マーケットに出ている一覧からイコルだけを拾って評価する。
