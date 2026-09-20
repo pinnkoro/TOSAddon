@@ -13,7 +13,7 @@
 - アドオン名:
 
 <!--
-  バージョンはここでは上げません（採番は公開直前の release-prep/vX.Y.Z ブランチのみ）。
+  バージョンはここでは上げません（採番は公開直前の release-prep/** ブランチのみ）。
   main だけ先に採番すると、アドオンマネージャーが main の fileVersion から組み立てる
   アセット名が Release 側に無く、公開までの間だれもインストール／更新できなくなります。
   CI の version-freeze ジョブが変更を検出して落とします。
@@ -45,7 +45,7 @@
       `python docs/vanilla_api.py --update` で一覧を更新した
       （素との突き合わせはローカルでしかできない / [docs/VANILLA_API.md](../../docs/VANILLA_API.md)）
 
-### 採番 PR（`release-prep/vX.Y.Z` -> main）のときだけ
+### 採番 PR（`release-prep/**` -> main）のときだけ
 
 - [ ] 版番号 3 箇所（`ver` / `fileVersion` / `.ipf` ファイル名）を揃えた
 - [ ] `.ipf` を再ビルドし、`python docs/verify_ipf.py` で src との一致を確認した（`docs/BUILD_IPF.md` §4）

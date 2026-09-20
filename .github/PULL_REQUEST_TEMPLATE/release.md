@@ -34,8 +34,11 @@
       git diff --name-status <前回の版のタグ>..main -- '<アドオンのフォルダ>/*images/*'
   （`**/` と書くと <アドオンのフォルダ>/images/ 直下が漏れるので、この形のまま使う）
   載せるときは、項目の下へ 1 行で書きます（alt はその言語で書く。パスは一覧に出たものをそのまま）。
-      ![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/v◯.◯.◯/＜一覧に出たパス＞)
-  * URL の版は **今回の版番号タグ**にします。main にすると、後で同じファイル名で撮り直したときに
+      ![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/<file>-v◯.◯.◯/＜一覧に出たパス＞)
+  * URL の版は **今回の保存用タグ（`<file>-v◯.◯.◯`）**にします
+    （例: `.../TOSAddon/nexus_addons_p-v2.11.0/nexus_addons_p/images/menu.png`）。
+    版番号だけのタグ（`v2.11.0`）はもう作られないので、そう書くと画像が全部 404 になります。
+    main にするのも駄目で、後で同じファイル名で撮り直したときに
     過去のリリースノートの画像まで差し替わります。タグは公開と同時に作られるので、
     それまではプレビューで表示されません（公開後に Release のページで確かめる）。
   * 相対パス（images/…）や PR にドラッグで貼った画像は使いません。前者は Release で表示されず、
@@ -125,7 +128,7 @@ Install **<Addon name>** from the addon manager.
 
 <!--
   公開前チェック:
-  - [ ] 採番 PR(release-prep/vX.Y.Z -> main)をマージ済みで、この PR はその直後に出している
+  - [ ] 採番 PR(release-prep/** -> main)をマージ済みで、この PR はその直後に出している
         (main だけ先に採番された状態が長引くほど、アドオンマネージャーからの取得が
          失敗し続ける時間が延びる)
   - [ ] addons.json の fileVersion が今回のバージョンと一致している
@@ -134,5 +137,6 @@ Install **<Addon name>** from the addon manager.
   - [ ] main に必要な変更が全て入っている（この PR は main -> release）
   - [ ] 日本語 / 한국어 / English の 3 セクションで項目数と順序が揃っている
   - [ ] どのセクションも、アドオン名（またはテーマ）の見出しで項目をまとめてある
-  - [ ] 見た目が変わった項目には images/ の画像を載せ、URL の版を今回の版番号タグにした
+  - [ ] 見た目が変わった項目には images/ の画像を載せ、URL の版を今回の保存用タグ
+        （`<file>-v◯.◯.◯`）にした（版番号だけのタグはもう作られない）
 -->

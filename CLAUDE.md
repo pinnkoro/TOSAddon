@@ -99,7 +99,8 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
 * **PR には README の更新履歴への追記を必ず含める**（[docs/RELEASE.md](docs/RELEASE.md)）。
   見出しは `* **（次回リリース）**`。例外は「利用者から見て何も変わらない変更」だけで、
   その判断と根拠を PR 本文に書く。
-* **版番号は上げない。** 採番は `release-prep/vX.Y.Z` ブランチだけ。main で先に採番すると、
+* **版番号は上げない。** 採番は `release-prep/**` ブランチだけ（`release-prep/v2.11.0` /
+  `release-prep/icor-planner-v1.0.0` のように何を採番するか分かる名前にする）。main で先に採番すると、
   公開までの間ずっと利用者がインストールも更新もできなくなる（[docs/RELEASE.md](docs/RELEASE.md)）。
 * **PR は `?template=` 付きの URL から作る**（ディレクトリ形式のテンプレートは自動適用されない）。
   通常の開発: `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`

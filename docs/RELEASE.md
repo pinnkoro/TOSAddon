@@ -168,8 +168,12 @@ main の addons.json : v1.0.3  →  取りに行く  nexus_addons_p-v1.0.3.ipf
   * 他のアドオンも同じ形（`icor_planner/*images/*`）。前回の版のタグは、保存用タグの
     新しい形（`<file>-vX.Y.Z`）か、Nexus Addons P の v2.10.0 以前なら版番号だけのタグ。
 * 書き方（項目の下へ 1 行。alt はその言語で書く。パスは一覧に出たものをそのまま）:
-  `![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/vX.Y.Z/＜一覧に出たパス＞)`
-* **URL の版は今回の版番号タグにする。** `main` を指すと、後で同じファイル名で撮り直したときに
+  `![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/<file>-vX.Y.Z/＜一覧に出たパス＞)`
+* **URL の版は今回の保存用タグ（`<file>-vX.Y.Z`）にする。** 例:
+  `.../TOSAddon/nexus_addons_p-v2.11.0/nexus_addons_p/images/menu.png`。
+  **版番号だけのタグ（`v2.11.0`）はもう作られない**ので、そう書くと画像が全部 404 になる
+  （v2.10.0 以前の Nexus Addons P の記録だけが版番号だけのタグ）。
+  `main` を指すのも駄目で、後で同じファイル名で撮り直したときに
   **過去のリリースノートの画像まで新しい画面に差し替わる**。タグは公開と同時に作られるので、
   PR のプレビューでは表示されない（公開後に Release のページで確かめる）。
 * **相対パスと、PR にドラッグで貼った画像（`github.com/user-attachments/...`）は使わない。**

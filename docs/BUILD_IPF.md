@@ -78,8 +78,8 @@ Python は python.org 版(`Python312`)を使う(uv 同梱ビルドは避ける�
 ### 方式 B: スクリプトで自動生成(推奨・CI 化可能)
 
 ```bash
-# 0) src -> bundle(.lua 2ファイル)を生成
-#    (nexus_addons_p/src/** を manifest 順に連結。生成物は .gitignore 済み)
+# 0) src -> bundle(.lua)を生成。**全ターゲットが一度に出る**
+#    (manifest 順に連結。生成物は .gitignore 済み)
 #    生成時に golden sha256 照合 + manifest 脱落チェックが走る。sha が合わないと失敗。
 #    アドオンを意図的に変更した場合のみ golden を更新: python docs/bundle_from_src.py --bless
 #    生成せず再現性だけ確認: python docs/bundle_from_src.py --check
@@ -229,7 +229,7 @@ footer 末尾 2 つの u32 が 0 のため、リーダー側は「暗号化あ�
 ## 7. リリース手順(まとめ)
 
 > **1〜2 は通常の開発 PR(-> main)で行い、3〜5 の採番と .ipf の差し替えは公開直前の
-> `release-prep/vX.Y.Z` ブランチでまとめて行う。** main だけ先に採番すると、
+> `release-prep/**` ブランチでまとめて行う。** main だけ先に採番すると、
 > アドオンマネージャーが main の `fileVersion` から組み立てるアセット名が Release 側に
 > まだ無く、公開までの間だれもインストール／更新できなくなる(CI の `version-freeze`
 > ジョブが先行採番を落とす)。詳細は [RELEASE.md](RELEASE.md) を参照。
