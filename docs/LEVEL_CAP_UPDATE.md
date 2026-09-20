@@ -185,7 +185,7 @@ ipf_crypt._check_bodies(ipf_crypt.decrypt(open(placed,'rb').read()))
 ## 5. リリースのとき
 
 版数は**上げない**（`main` 向けの PR では先行採番の禁止）。README の見出しは `（次回リリース）` のまま、
-`since` / `updated` には `g.VER_NEXT` を書く。採番は `release-prep/vX.Y.Z` で行い、
+`since` / `updated` には `g.VER_NEXT` を書く。採番は `release-prep/**` で行い、
 そこで `g.VER_NEXT` を実際の版へ置き換える。詳細は [UPDATE_BADGE.md](UPDATE_BADGE.md) を参照。
 
 **見た目が変わるので、動作確認のときにスクリーンショットも撮ってもらい、同じ PR で差し替えること**

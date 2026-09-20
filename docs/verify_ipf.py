@@ -6,11 +6,17 @@
 バイナリで git 上は不透明なため、そのまま release に流すと**中身が旧版のまま
 新バージョンとして配布される**。それを止めるのがこのスクリプト。
 
+■ 検証するのは `addons.json` の全エントリ
+
+配布物は 1 本ではない（Nexus Addons P と Icor Planner）。対象の一覧と置き場所は
+[addon_targets.py](addon_targets.py) が `addons.json` から導く。ここで 1 本決め打ちに
+すると、**もう片方だけ古い .ipf のまま公開される**（検査を素通りする）。
+
 ■ なぜ復号せずに照合できるか
 
-配布 .ipf は「平文コンテナ → PKware 暗号化」の 2 層だが、`ipf_unpack.exe encrypt`
-が暗号化するのは**各ファイルのデータ本体だけ**で、末尾のファイルテーブルと footer は
-平文のまま残る。テーブルには各ファイルの
+配布 .ipf は「平文コンテナ → PKware 暗号化」の 2 層だが、暗号化されるのは**各ファイルの
+データ本体だけ**で、末尾のファイルテーブルと footer は平文のまま残る。テーブルには
+各ファイルの
 
     checksum(u32) = 平文の CRC32 / uncomp(u32) = 平文の byte 数
 
@@ -24,15 +30,16 @@ src から期待される中身を組み立てて (長さ, CRC32) を突き合�
 
 ■ 併せてバージョンの三者一致も見る
 
-    nexus_addons_p/src/core/00_header.lua の ver
+    <addon>/src/**/00_header.lua の ver
     addons.json の fileVersion
-    nexus_addons_p/*.ipf のファイル名
+    <addon>/*.ipf のファイル名
 
 は手書きで 3 箇所に散っており、ズレたまま公開すると配布物とアドオンマネージャーの
 表示が食い違う。
 
 使い方:
-    python docs/verify_ipf.py          # 中身 + バージョンの両方を検証
+    python docs/verify_ipf.py                  # 全エントリの中身 + バージョン
+    python docs/verify_ipf.py --addon icor_planner
     python docs/verify_ipf.py --version-only
     python docs/verify_ipf.py --content-only
 
@@ -40,7 +47,6 @@ src から期待される中身を組み立てて (長さ, CRC32) を突き合�
 """
 import binascii
 import glob
-import json
 import os
 import re
 import struct
@@ -51,35 +57,34 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+import addon_targets  # noqa: E402
 import bundle_from_src  # noqa: E402  (同ディレクトリのビルド定義を正として再利用)
 
-ADDON = "_nexus_addons_p"
-ADDON_ID = "nexus_addons_p"  # addons.json の file（一度決めたら変えられない永続 ID）
-PACK_ROOT = os.path.join(REPO, "nexus_addons_p")  # .ipf 内部パスはここからの相対
-BUNDLE_DIR = os.path.join(REPO, "nexus_addons_p", ADDON)
-ADDONS_JSON = os.path.join(REPO, "addons.json")
-SRC = os.path.join(REPO, "nexus_addons_p", "src")
-HEADER_LUA = os.path.join(SRC, "core", "00_header.lua")
-IPF_GLOB = os.path.join(REPO, "nexus_addons_p", "*.ipf")
-
-REBUILD_HINT = (
-    "  → src を変更したら .ipf を作り直すこと（docs/BUILD_IPF.md 方式B）:\n"
-    "       python docs/bundle_from_src.py\n"
-    "       python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \\\n"
-    '           "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" \\\n'
-    "           --require _nexus_addons_p/_nexus_addons_p.lua \\\n"
-    "           --encrypt")
+SHARED_SRC = os.path.join(REPO, "shared", "src")
 
 
-def find_ipf():
-    """nexus_addons_p 直下の配布 .ipf を 1 個だけ特定する。"""
-    found = sorted(glob.glob(IPF_GLOB))
+def rebuild_hint(target):
+    return (
+        f"  → src を変更したら .ipf を作り直すこと（docs/BUILD_IPF.md 方式B）:\n"
+        f"       python docs/bundle_from_src.py\n"
+        f"       python docs/build_addon_ipf.py ./{target.dir_rel} {target.addon_folder} \\\n"
+        f'           "{target.dir_rel}/{target.ipf_name}" \\\n'
+        f"           --require {target.addon_folder}/{target.addon_folder}.lua \\\n"
+        f"           --encrypt")
+
+
+def find_ipf(target):
+    """そのアドオンの直下にある配布 .ipf を 1 個だけ特定する。"""
+    found = sorted(glob.glob(os.path.join(target.dir, "*.ipf")))
     if not found:
-        raise SystemExit("[verify] nexus_addons_p 直下に .ipf が無い")
+        raise SystemExit(
+            f"[verify] {target.dir_rel} 直下に .ipf が無い\n"
+            "  addons.json に載せた版は Release から取りに行かれるので、"
+            "配布する .ipf を commit すること")
     if len(found) > 1:
         names = "\n  ".join(os.path.basename(p) for p in found)
         raise SystemExit(
-            "[verify] nexus_addons_p 直下に .ipf が複数ある（旧版は _old/ へ移すこと）:\n  "
+            f"[verify] {target.dir_rel} 直下に .ipf が複数ある（旧版は _old/ へ移すこと）:\n  "
             + names)
     return found[0]
 
@@ -110,7 +115,7 @@ def read_ipf_table(path):
     return entries
 
 
-def tracked_bundle_files():
+def tracked_bundle_files(target):
     """bundle ディレクトリ配下の *追跡されている* ファイルを内部パスで返す。
 
     ディスクを walk して集めると、未追跡の作業ファイル（.bak / .orig / 手で展開した
@@ -120,51 +125,51 @@ def tracked_bundle_files():
     追跡ファイルを正とすれば、手元と CI で同じ判定になる。
     """
     try:
-        out = subprocess.run(["git", "ls-files", "-z", "--", BUNDLE_DIR],
+        out = subprocess.run(["git", "ls-files", "-z", "--", target.bundle_dir],
                              cwd=REPO, check=True, capture_output=True).stdout
     except (OSError, subprocess.CalledProcessError) as exc:
         raise SystemExit(f"[verify] git ls-files を実行できない: {exc}")
     repo_rels = [p for p in out.decode("utf-8").split("\0") if p]
     return {
-        os.path.relpath(os.path.join(REPO, p), PACK_ROOT).replace("\\", "/"): os.path.join(REPO, p)
+        os.path.relpath(os.path.join(REPO, p), target.dir).replace("\\", "/"): os.path.join(REPO, p)
         for p in repo_rels
     }
 
 
-def stray_untracked(built):
+def stray_untracked(target, built):
     """bundle ディレクトリに在る未追跡ファイル（生成物 .lua を除く）を返す。"""
-    known = set(tracked_bundle_files())
-    known |= {f"{ADDON}/{target}" for target in built}
+    known = set(tracked_bundle_files(target))
+    known |= {f"{target.addon_folder}/{name}" for name in built}
     strays = []
-    for dirpath, _dirs, names in os.walk(BUNDLE_DIR):
+    for dirpath, _dirs, names in os.walk(target.bundle_dir):
         for name in names:
-            rel = os.path.relpath(os.path.join(dirpath, name), PACK_ROOT).replace("\\", "/")
+            rel = os.path.relpath(os.path.join(dirpath, name), target.dir).replace("\\", "/")
             if rel not in known:
                 strays.append(rel)
     return sorted(strays)
 
 
-def pack_targets(manifest, built):
+def pack_targets(manifest, built, target):
     """この .ipf に詰まる生成物だけを返す。
 
     build_manifest.json は 1 本で複数のアドオンの bundle を組み立てる
     （icor_planner を足したときからそうなった）。manifest の outputs が指す出力先が
-    nexus_addons_p/_nexus_addons_p でないものは、この .ipf には入らない。
+    このアドオンの bundle ディレクトリでないものは、この .ipf には入らない。
     ここで絞らないと「_nexus_addons_p/_icor_planner.lua が .ipf に入っていない」という
     的外れな不一致になり、release 経路の ipf ジョブが常に落ちる。
     """
-    want_dir = os.path.normpath(BUNDLE_DIR)
+    want_dir = os.path.normpath(target.bundle_dir)
     keep = {}
-    for target, data in built.items():
-        # 出力先の正本は bundle_from_src.bundle_dir_for。**未指定の既定はこの .ipf 行き**
+    for name, data in built.items():
+        # 出力先の正本は bundle_from_src.bundle_dir_for。**未指定の既定はまとめ版行き**
         # なので、ここで自前に判定を書くと「未指定だから対象外」と逆に取りかねない
-        # （docs/check_forward_refs.py / docs/tests/syntax_check.sh も既定はこの .ipf 行き）。
-        if os.path.normpath(bundle_from_src.bundle_dir_for(manifest, target)) == want_dir:
-            keep[target] = data
+        # （docs/check_forward_refs.py / docs/tests/syntax_check.sh も既定はまとめ版行き）。
+        if os.path.normpath(bundle_from_src.bundle_dir_for(manifest, name)) == want_dir:
+            keep[name] = data
     return keep
 
 
-def expected_contents(built):
+def expected_contents(target, built):
     """{内部パス: 平文bytes} を組み立てる。
 
     bundle の .lua は .gitignore 済みなので、ディスクではなく manifest から
@@ -172,24 +177,28 @@ def expected_contents(built):
     それ以外（.xml）は *追跡されている* 実ファイルを正とする。
     """
     out = {}
-    for rel, full in tracked_bundle_files().items():
+    for rel, full in tracked_bundle_files(target).items():
         with open(full, "rb") as f:
             out[rel] = f.read()
     # 生成物はディスクの内容（古いかもしれない）ではなく src 連結結果で上書きする
-    for target, data in built.items():
-        out[f"{ADDON}/{target}"] = data
+    for name, data in built.items():
+        out[f"{target.addon_folder}/{name}"] = data
     return out
 
 
-def check_content(ipf_path):
-    manifest = bundle_from_src.load_manifest()
-    # manifest 脱落チェックもここで走る。詰めるのはこの .ipf 向けの生成物だけ
-    built = pack_targets(manifest, bundle_from_src.build(manifest))
-    expected = expected_contents(built)
+def check_content(target, ipf_path, manifest, all_built):
+    # 詰めるのはこの .ipf 向けの生成物だけ
+    built = pack_targets(manifest, all_built, target)
+    if not built:
+        print(f"\n[verify] {target.id}: build_manifest.json に "
+              f"{target.bundle_dir_rel} へ出力するターゲットが無い"
+              "（outputs の登録漏れ。この .ipf には本体が入らない）")
+        return False
+    expected = expected_contents(target, built)
     actual = read_ipf_table(ipf_path)
 
     problems = []
-    for name in stray_untracked(built):
+    for name in stray_untracked(target, built):
         problems.append(
             f"{name}: bundle ディレクトリに未追跡ファイルが在る"
             "（build_addon_ipf.py はこれも .ipf に詰めてしまう。削除するか commit すること）")
@@ -213,114 +222,141 @@ def check_content(ipf_path):
                 f"      .ipf の中身  : {got_len}B crc={got_crc:08x}")
 
     if problems:
-        print("\n[verify] .ipf が現在の src と一致しない:")
+        print(f"\n[verify] {target.id}: .ipf が現在の src と一致しない:")
         for p in problems:
             print(f"    - {p}")
-        print(REBUILD_HINT)
+        print(rebuild_hint(target))
         return False
     return True
 
 
-def check_version(ipf_path):
+def check_version(target, ipf_path):
     """ver / fileVersion / .ipf ファイル名 の三者一致。表記は 'vX.Y.Z' に正規化。"""
-    def norm(v):
-        return v if v.startswith("v") else "v" + v
-
-    with open(HEADER_LUA, encoding="utf-8") as f:
+    with open(target.header_lua, encoding="utf-8") as f:
         m = re.search(r'^local\s+ver\s*=\s*"([^"]+)"', f.read(), re.M)
     if not m:
-        raise SystemExit(f"[verify] {HEADER_LUA} から ver を読めない")
-    lua_ver = norm(m.group(1))
+        raise SystemExit(f"[verify] {target.header_lua_rel} から ver を読めない")
+    lua_ver = addon_targets.norm_version(m.group(1))
 
-    # 位置（[0]）ではなく永続 ID の file で引く。このリポジトリは複数アドオンを
-    # 収録しうるので、先頭決め打ちだと別アドオンの版数と突き合わせてしまう。
-    with open(ADDONS_JSON, encoding="utf-8") as f:
-        entries = json.load(f)
-    matched = [e for e in entries if e.get("file") == ADDON_ID]
-    if len(matched) != 1:
-        raise SystemExit(
-            f'[verify] addons.json の file == "{ADDON_ID}" のエントリが {len(matched)} 件'
-            "（ちょうど 1 件であること）")
-    json_ver = norm(matched[0]["fileVersion"])
+    # addons.json 側は位置（[0]）ではなく永続 ID の file で引いてある（addon_targets.py）。
+    json_ver = target.version
 
     base = os.path.basename(ipf_path)
     m = re.search(r"-(v\d+\.\d+\.\d+)\.ipf$", base)
     if not m:
         raise SystemExit(
             f"[verify] .ipf のファイル名からバージョンを読めない: {base}\n"
-            "  想定形式: _nexus_addons_p-⛄-vX.Y.Z.ipf")
+            f"  想定形式: {target.addon_folder}-⛄-vX.Y.Z.ipf")
     ipf_ver = m.group(1)
 
-    print(f"  00_header.lua ver : {lua_ver}")
-    print(f"  addons.json       : {json_ver}")
-    print(f"  .ipf ファイル名   : {ipf_ver}")
+    print(f"  ver         : {lua_ver}  ({target.header_lua_rel})")
+    print(f"  fileVersion : {json_ver}  (addons.json)")
+    print(f"  .ipf の名前 : {ipf_ver}  ({base})")
     if lua_ver == json_ver == ipf_ver:
         return True
-    print("\n[verify] バージョンが一致しない。3 箇所すべてを揃えること:\n"
-          "    nexus_addons_p/src/core/00_header.lua の ver\n"
-          "    addons.json の fileVersion\n"
-          "    nexus_addons_p/*.ipf のファイル名")
+    print(f"\n[verify] {target.id}: バージョンが一致しない。3 箇所すべてを揃えること:\n"
+          f"    {target.header_lua_rel} の ver\n"
+          f"    addons.json の fileVersion（file == \"{target.id}\"）\n"
+          f"    {target.dir_rel}/*.ipf のファイル名")
     return False
 
 
-def check_next_placeholder():
+def check_next_placeholder(targets):
     """更新のお知らせの since / updated に "next"（未採番の印）が残っていないか。
 
     main へ入れる PR では版を上げない（先行採番の禁止）ので、開発中の since / updated には
     g.VER_NEXT = "next" を書く。これは**どの版よりも新しいもの**として扱われるため、
     置き換えを忘れたまま配布すると NEW / 更新 の印が永久に消えない。
     release-prep / release でしか走らない検査なので、開発中に引っかかることはない。
+
+    共通部品（shared/src）は全アドオンの .ipf に入るので、対象の一覧へ必ず含める。
     """
     next_re = re.compile(r"^\s*(?:since|updated)\s*=\s*(?:core_)?g\.VER_NEXT", re.M)
+    roots = [t.src for t in targets] + [SHARED_SRC]
     ng = []
-    for root, _dirs, files in os.walk(SRC):
-        for name in sorted(files):
-            if not name.endswith(".lua"):
-                continue
-            path = os.path.join(root, name)
-            with open(path, encoding="utf-8") as f:
-                text = f.read()
-            rel = os.path.relpath(path, REPO)
-            if next_re.search(text):
-                ng.append(f"{rel}: since / updated が未採番（g.VER_NEXT）のまま")
+    for root in roots:
+        for dirpath, _dirs, files in os.walk(root):
+            for name in sorted(files):
+                if not name.endswith(".lua"):
+                    continue
+                path = os.path.join(dirpath, name)
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+                if next_re.search(text):
+                    ng.append(f"{os.path.relpath(path, REPO)}: "
+                              "since / updated が未採番（g.VER_NEXT）のまま")
     if not ng:
         print("  未採番（g.VER_NEXT）の残りなし")
         return True
     print("\n[verify] 未採番の印が残っている。実際の版へ置き換えること:")
-    for line in ng:
+    for line in sorted(set(ng)):
         print(f"    {line}")
     print("    ※ README の更新履歴の見出しを vX.Y.Z に確定させるのと同じ PR で置き換えること")
     return False
 
 
-USAGE = "  使い方: python docs/verify_ipf.py [--version-only | --content-only]"
+USAGE = ("  使い方: python docs/verify_ipf.py "
+         "[--version-only | --content-only] [--addon <id>]")
 
 
-def main():
-    # リリースを止めるためのゲートなので、「何も検証しないまま成功」だけは作らない。
-    # 未知の引数と、両方指定（= 全分岐スキップ）はここで弾く。
-    args = sys.argv[1:]
-    unknown = [a for a in args if a not in ("--version-only", "--content-only")]
-    if unknown:
-        raise SystemExit("[verify] 未知の引数: " + " ".join(unknown) + "\n" + USAGE)
-    version_only = "--version-only" in args
-    content_only = "--content-only" in args
+def parse_args(args):
+    """引数を (version_only, content_only, addon_id) にする。
+
+    リリースを止めるためのゲートなので、「何も検証しないまま成功」だけは作らない。
+    未知の引数と、両方指定（= 全分岐スキップ）はここで弾く。
+    """
+    version_only = content_only = False
+    addon_id = None
+    rest = list(args)
+    while rest:
+        a = rest.pop(0)
+        if a == "--version-only":
+            version_only = True
+        elif a == "--content-only":
+            content_only = True
+        elif a == "--addon":
+            if not rest:
+                raise SystemExit("[verify] --addon にアドオン ID が無い\n" + USAGE)
+            addon_id = rest.pop(0)
+        elif a.startswith("--addon="):
+            addon_id = a.split("=", 1)[1]
+        else:
+            raise SystemExit("[verify] 未知の引数: " + a + "\n" + USAGE)
     if version_only and content_only:
         raise SystemExit(
             "[verify] --version-only と --content-only は同時に指定できない"
             "（何も検証しないまま成功扱いになるため）\n" + USAGE)
-    ipf_path = find_ipf()
-    print(f"[verify] 対象 .ipf: {os.path.relpath(ipf_path, REPO)}")
+    return version_only, content_only, addon_id
+
+
+def main():
+    version_only, content_only, addon_id = parse_args(sys.argv[1:])
+
+    if addon_id:
+        targets = [addon_targets.target_by_id(addon_id)]
+    else:
+        targets = addon_targets.targets()
+    print("[verify] 対象: " + ", ".join(t.id for t in targets))
+
+    manifest = bundle_from_src.load_manifest()
+    # manifest 脱落チェックもここで走る（build() 内）。全ターゲットを 1 回だけ組み立て、
+    # 各 .ipf へはそれぞれの出力先のぶんだけ詰める。
+    all_built = bundle_from_src.build(manifest) if not version_only else {}
 
     ok = True
-    if not version_only:
-        print("[verify] .ipf の中身と src の照合（テーブルの CRC32/長さで比較）")
-        ok &= check_content(ipf_path)
+    for target in targets:
+        ipf_path = find_ipf(target)
+        print(f"\n[verify] {target.id}: {os.path.relpath(ipf_path, REPO)}")
+        if not version_only:
+            print("[verify] .ipf の中身と src の照合（テーブルの CRC32/長さで比較）")
+            ok &= check_content(target, ipf_path, manifest, all_built)
+        if not content_only:
+            print("[verify] バージョンの三者一致")
+            ok &= check_version(target, ipf_path)
+
     if not content_only:
-        print("[verify] バージョンの三者一致")
-        ok &= check_version(ipf_path)
-        print("[verify] 更新のお知らせの未採番チェック")
-        ok &= check_next_placeholder()
+        print("\n[verify] 更新のお知らせの未採番チェック")
+        ok &= check_next_placeholder(targets)
 
     print("[verify] OK" if ok else "[verify] NG")
     sys.exit(0 if ok else 1)

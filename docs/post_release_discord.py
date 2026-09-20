@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """リリースノートの日本語セクションだけを Discord のチャンネルへ投稿する。
 
-release-nexus.yml が、公開した直後に呼ぶ。リリースノートは main -> release の PR 本文で、
+release.yml が、公開した直後に呼ぶ（公開したアドオンごとに 1 回）。リリースノートは main -> release の PR 本文で、
 .github/PULL_REQUEST_TEMPLATE/release.md のとおり 日本語 -> 한국어 -> English の順に並ぶ。
 ここから次の範囲だけを切り出す。
 

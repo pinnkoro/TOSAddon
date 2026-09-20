@@ -20,8 +20,10 @@ python docs/check_frame_hittest.py          # 窓の当たり判定の塞ぎ忘�
 python docs/vanilla_api.py --verify-client  # 素のクライアントとの突き合わせ（ローカル専用・PR 前にだけ。
                                             #   ビルドや実機確認のたびには流さない。前回 OK から不変なら省略）
 python docs/vanilla_api.py --update         # 素の API 一覧を更新（--verify-client の後に流す）
-python docs/verify_ipf.py                   # .ipf の中身と版番号の三者一致
+python docs/verify_ipf.py                   # 配布 .ipf（全アドオン）の中身と版番号の三者一致
+python docs/check_addons_json.py            # addons.json の形（マネージャーが組み立てる URL / 名前）
 python docs/check_version_freeze.py         # 先行採番の検出（main への PR）
+python docs/plan_release.py                 # 次の公開でどのアドオンのリリースが作られるか
 luajit docs/tests/test_core.lua             # ロジックテスト（他のテストも CI の一覧にある）
 ```
 
@@ -32,8 +34,12 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
 
 ## アーキテクチャ
 
-* **source of truth は `nexus_addons_p/src/**`。** 連結後の bundle は生成物なので直接編集しない。
-  連結順は `src/build_manifest.json` が決める（**未登録のファイルはビルドから黙って脱落する**）。
+* **配布物は 2 本**（`addons.json` の `nexus_addons_p` / `icor_planner`）。**それぞれ独立に採番して公開する。**
+  タグ名・アセット名・`.ipf` のファイル名は [docs/addon_targets.py](docs/addon_targets.py) が
+  `addons.json` から導くので、手で組み立てない（[docs/RELEASE.md](docs/RELEASE.md)）。
+* **source of truth は各アドオンの `src/**`。** 連結後の bundle は生成物なので直接編集しない。
+  連結順と出力先は `nexus_addons_p/src/build_manifest.json` が両方ぶん決める
+  （**未登録のファイルはビルドから黙って脱落する**）。
 * **複数のアドオンで使う共通部品は [shared/src/](shared/) に 1 つだけ置く。** ゲーム内では `.ipf` 同士で
   関数を共有できないので、**共有はビルド時**に行う（manifest に `shared/xxx.lua` と書くと、
   そのターゲットへ連結される）。共通部品からは特定のアドオンの名前や設定を見ないこと。
@@ -93,7 +99,8 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
 * **PR には README の更新履歴への追記を必ず含める**（[docs/RELEASE.md](docs/RELEASE.md)）。
   見出しは `* **（次回リリース）**`。例外は「利用者から見て何も変わらない変更」だけで、
   その判断と根拠を PR 本文に書く。
-* **版番号は上げない。** 採番は `release-prep/vX.Y.Z` ブランチだけ。main で先に採番すると、
+* **版番号は上げない。** 採番は `release-prep/**` ブランチだけ（`release-prep/v2.11.0` /
+  `release-prep/icor-planner-v1.0.0` のように何を採番するか分かる名前にする）。main で先に採番すると、
   公開までの間ずっと利用者がインストールも更新もできなくなる（[docs/RELEASE.md](docs/RELEASE.md)）。
 * **PR は `?template=` 付きの URL から作る**（ディレクトリ形式のテンプレートは自動適用されない）。
   通常の開発: `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`

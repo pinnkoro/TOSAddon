@@ -16,7 +16,12 @@ Tree of Savior 用アドオンの配布リポジトリ。
 | アドオン | 概要 | 説明 |
 | --- | --- | --- |
 | **Nexus Addons P** | 40種類以上のアドオンの詰合せ。norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) を元にした派生版 | **[nexus_addons_p/README.md](nexus_addons_p/README.md)** |
+| **Icor Planner** | 目標のステータスを決めて、そこへ届くまでにイコルを何個更新すればよいかを出す。マーケットの出品も同じ基準で評価する | **[icor_planner/README.md](icor_planner/README.md)** |
 
+> 💡 **Nexus Addons P と Icor Planner は別のアドオンです。**
+> それぞれ独立して配布しているので、片方だけでも両方でも入れられます
+> （Nexus Addons P v2.9.0 までに入っていた Icor Planner は、単体アドオンへ移しました）。
+>
 > ⚠️ **Nexus Addons P は本家 Nexus Addons と同時に使えません。**
 > 本家がインストールされている間は Nexus Addons P 側が全機能を停止します。設定は初回起動時に自動で引き継がれます。
 > 乗り換え手順は [nexus_addons_p/README.md](nexus_addons_p/README.md) を参照してください。
@@ -42,7 +47,12 @@ Tree of Savior 用アドオンの配布リポジトリ。
 本家 `ajinorisan/TOSAddon-public` と同じ **JToS タブ = `master` ブランチ**が宛先で、
 `itos` ブランチは国際版タブ用。登録 PR: [JTosAddon/Addons#100](https://github.com/JTosAddon/Addons/pull/100)（マージ済み）
 
-`file`（= `nexus_addons_p`）は一度登録したら**変更してはいけない**永続 ID。
+`file`（= `nexus_addons_p` / `icor_planner`）は一度登録したら**変更してはいけない**永続 ID。
+
+登録は**リポジトリ単位**で、マネージャーは [addons.json](addons.json) を配列として読み、
+**エントリごとに 1 アドオンとして一覧へ並べる**（`TabManager.cs`）。
+1 リポジトリに複数のアドオンを収録してよく、別リポジトリへ分ける必要は無い。
+組み立てられる URL とファイル名は [docs/RELEASE.md](docs/RELEASE.md#1-リポジトリに複数のアドオンを並べてよい実装で確認済み) を参照。
 
 </details>
 
@@ -53,6 +63,8 @@ Tree of Savior 用アドオンの配布リポジトリ。
 | パス | 内容 |
 | --- | --- |
 | [nexus_addons_p/](nexus_addons_p/) | Nexus Addons P 本体（ソース・配布 `.ipf`）。説明は [README](nexus_addons_p/README.md) |
+| [icor_planner/](icor_planner/) | Icor Planner 本体（ソース・配布 `.ipf`）。説明は [README](icor_planner/README.md) |
+| [shared/](shared/) | 両方のアドオンで使う共通部品（ビルド時に各 `.ipf` へ連結される） |
 | [addons.json](addons.json) | アドオンマネージャー向けのメタデータ（配布バージョンはここが正） |
 | [docs/](docs/) | ビルドスクリプトと開発ドキュメント |
 | [.github/workflows/](.github/workflows/) | CI とリリース公開の自動化 |
@@ -63,8 +75,11 @@ Tree of Savior 用アドオンの配布リポジトリ。
 
 * `.ipf` のビルド手順: [docs/BUILD_IPF.md](docs/BUILD_IPF.md)
 * ソース分割の設計: [docs/REFACTOR_SPLIT_DESIGN.md](docs/REFACTOR_SPLIT_DESIGN.md)
-* source of truth は `nexus_addons_p/src/**`。配布 bundle（`_nexus_addons_p.lua` /
-  `_nexus_addons_p_conclude.lua`）は生成物なので直接編集しない。
+* source of truth は各アドオンの `src/**` と [shared/src/](shared/)。
+  配布 bundle（`_nexus_addons_p.lua` / `_icor_planner.lua`）は生成物なので直接編集しない。
+  連結の順番と出力先は [nexus_addons_p/src/build_manifest.json](nexus_addons_p/src/build_manifest.json) が決める。
+* 配布ターゲット（`.ipf` 1 本ぶん）の一覧・タグ名・アセット名は
+  [docs/addon_targets.py](docs/addon_targets.py) が `addons.json` から導く。
 
 ### CI
 
@@ -75,6 +90,7 @@ Tree of Savior 用アドオンの配布リポジトリ。
 | bundle の再現性（golden sha 照合 / manifest 未登録 src の検出） | `main` / `release` |
 | 連結後 bundle の Lua 構文チェック | `main` / `release` |
 | core のロジック回帰テスト（[docs/tests/test_core.lua](docs/tests/test_core.lua)） | `main` / `release` |
+| `addons.json` の形（マネージャーが組み立てる URL とファイル名）（[docs/check_addons_json.py](docs/check_addons_json.py)） | `main` / `release` |
 | リリース前の先行採番の検出（[docs/check_version_freeze.py](docs/check_version_freeze.py)） | `main` への PR |
 | `.ipf` が現 src から作られたものかの検証 + バージョンの三者一致 | `release` 経路 / `release-prep/**` |
 
@@ -86,18 +102,21 @@ Tree of Savior 用アドオンの配布リポジトリ。
 
 * **通常の開発**: 機能ごとに新規ブランチを切り、PR 経由で `main` にマージする。
   **バージョンと `.ipf` はここでは触らない**（CI が変更を検出して落とす）。
-* **配布リリース**: 採番 PR（`release-prep/vX.Y.Z` → `main`）と公開 PR（`main` → `release`）を
+* **配布リリース**: 採番 PR（`release-prep/**` → `main`）と公開 PR（`main` → `release`）を
   続けて出す。
-  * 採番（`00_header.lua` の `ver` / `addons.json` の `fileVersion` / `.ipf` のファイル名）と
-    `.ipf` の再ビルドは、採番 PR でまとめて行う。
+  * 採番（そのアドオンの `00_header.lua` の `ver` / `addons.json` の `fileVersion` /
+    `.ipf` のファイル名）と `.ipf` の再ビルドは、採番 PR でまとめて行う。
   * 先に `main` だけ採番すると、アドオンマネージャーが `main` の `fileVersion` から組み立てる
-    アセット名（`nexus_addons_p-<fileVersion>.ipf`）が Release 側にまだ無く、公開までの間
+    アセット名（`<file>-<fileVersion>.ipf`）が Release 側にまだ無く、公開までの間
     **利用者がインストールも更新もできなくなる**。そのため採番は公開直前に限っている。
-  * `release` への push を [.github/workflows/release-nexus.yml](.github/workflows/release-nexus.yml) が検知し、
-    移動タグ `nexus_addons_p` の GitHub Release を作り直して、`nexus_addons_p/` 直下の `.ipf` を
-    `nexus_addons_p-<version>.ipf` として添付する（`<version>` は `addons.json` の `fileVersion`）。
+  * `release` への push を [.github/workflows/release.yml](.github/workflows/release.yml) が検知し、
+    **版が変わったアドオンについて**移動タグ（= `releaseTag`）の GitHub Release を作り直して、
+    そのアドオンの直下の `.ipf` を `<file>-<version>.ipf` として添付する
+    （`<version>` は `addons.json` の `fileVersion`）。
+    過去版を辿るための保存用 Release（タグ `<file>-vX.Y.Z`）も併せて作る。
   * **リリースノートは `main` → `release` のマージ元 PR の本文**がそのまま使われる。
-* 手動で公開をやり直すときは `gh workflow run release-nexus.yml --ref release`。
+* 手動で公開をやり直すときは `gh workflow run release.yml --ref release`
+  （版が変わっていないアドオンは据え置かれる。作り直したいときは `-f addons=<file>`）。
 
 ---
 

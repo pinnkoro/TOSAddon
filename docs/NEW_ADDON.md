@@ -229,7 +229,7 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
 
 * テンプレート付きの URL から作る（素で作ると本文が空のまま通る）:
   `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`
-* **版番号は上げない。** 採番は公開直前の `release-prep/vX.Y.Z` だけ。
+* **版番号は上げない。** 採番は公開直前の `release-prep/**` だけ。
 * 見た目を変えたなら、**動作確認のときに撮ってもらったスクリーンショットを `images/` へ置いて
   同じ PR に含め**、PR 本文の「動作確認」にも貼る。alt テキストの更新も PR の中で行う。
   その PR の中で撮れないときだけ Issue を作り、**PR 本文に番号を書く**。

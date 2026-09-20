@@ -13,16 +13,22 @@ name: CI
 #   3'''. 素の API 一覧との食い違い    … docs/vanilla_api.json に固定した「素の
 #        クライアント API をどう使っているか」と src がずれていないか。素そのものと
 #        の突き合わせはゲーム本体が要るのでローカル専用(docs/VANILLA_API.md)
+#   3''''. addons.json の形            … アドオンマネージャーは addons.json の値を
+#        そのまま URL とファイル名に埋める。間違っても壊れるのは利用者側だけ(404)で、
+#        リポジトリでは何も起きないので、ここで止める(docs/check_addons_json.py)
 #
 # version-freeze ジョブ（main への PR で毎回）
 #   6. リリース前の先行採番            … main だけ版数が上がると、アドオンマネージャーが
-#      main の addons.json から組み立てたアセット名（nexus_addons_p-<fileVersion>.ipf）が
+#      main の addons.json から組み立てたアセット名（<file>-<fileVersion>.ipf）が
 #      Release 側に存在せず、公開までの間だれもインストール／更新できなくなる（実害あり）。
 #      採番は release-prep/** ブランチでのみ許し、直後に main -> release を出す運用にする。
+#      addons.json へのエントリ追加（新しいアドオンの初公開）も同じ扱い。
 #
 # ipf ジョブ（release 経路と release-prep/** の PR）
 #   4. .ipf の中身が現 src と食い違う  … src を直して .ipf を再ビルドし忘れた
 #   5. バージョンの三者不一致          … ver / fileVersion / .ipf ファイル名
+#   4/5 とも addons.json の全エントリ（Nexus Addons P / Icor Planner）を見る。
+#   対象の一覧は docs/addon_targets.py が addons.json から導く。
 #   通常の main の PR では .ipf を作り直さない運用なので、4/5 を毎回回すと恒常的に
 #   赤くなる。採番を行う経路（release-prep/** と release）でだけ効かせる。
 
@@ -75,6 +81,12 @@ jobs:
         run: |
           python3 docs/check_vanilla_writes.py --self-test
           python3 docs/check_vanilla_writes.py
+
+      # アドオンマネージャーは addons.json の値をそのまま URL とファイル名へ埋める
+      # （取得 URL / 更新日の .atom / data\ へ置く名前）。書き間違えても壊れるのは
+      # 利用者側だけ（404・読み込まれない）で、リポジトリ側は何も起きないので機械で見る。
+      - name: addons.json の形チェック
+        run: python3 docs/check_addons_json.py
 
       # 公開時に Discord へ流す日本語のリリースノートの切り出しと分割。
       # 公開の瞬間にしか走らない経路なので、壊れていても release に入るまで気付けない。
@@ -224,5 +236,7 @@ jobs:
       # .ipf は暗号化バイナリだが、末尾のファイルテーブルは平文で、各ファイルの
       # 平文 CRC32 と byte 数を持つ。復号せずに「中身が現 src と同じか」を判定できる。
       # 併せて ver / fileVersion / .ipf ファイル名の三者一致も見る。
+      # 対象は addons.json の全エントリ。1 本でも欠けていれば落ちる（addons.json に
+      # 載っている = マネージャーが取りに行く、なので .ipf が無いのは公開できない状態）。
       - name: .ipf が現 src から作られたものかを検証
         run: python3 docs/verify_ipf.py
