@@ -73,7 +73,7 @@ updated_note_jp = "アイテムを取り出した後に一覧が更新されな�
 
 ### リリースのときにやること
 
-`release-prep/vX.Y.Z` で、README の `（次回リリース）` 見出しを `vX.Y.Z` に確定させるのと
+`release-prep/**` で、README の `（次回リリース）` 見出しを `vX.Y.Z` に確定させるのと
 **同じ PR で、`since` / `updated` の `g.VER_NEXT` を `"X.Y.Z"` に置き換える**。
 置き換え忘れは `python docs/verify_ipf.py` が落とす（CI では `ipf` ジョブ）。
 **忘れると NEW / Update の印が永久に消えない**（`next` はどの版よりも新しいため）。
