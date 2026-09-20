@@ -13,7 +13,7 @@
 
 1. [Releases](https://github.com/pinnkoro/TOSAddon/releases) から `icor_planner-vX.Y.Z.ipf` を取得します
 2. ファイル名を **`_icor_planner-⛄-vX.Y.Z.ipf`**（⛄ = U+26C4）にして、ゲームの `data` フォルダへ置きます
-3. ゲームを起動すると、画面に **「イコル計画」ボタン**が出ます
+3. ゲームを起動すると、**Addons Menu** に「Icor Planner」の行が出ます
 
 アドオンマネージャー（[Addon-Manager](https://github.com/MizukiBelhi/Addon-Manager)）からも入れられます。
 
@@ -37,11 +37,14 @@
 
 ## 使い方
 
-次のどれからでも診断ウィンドウを開けます。ESC で閉じます。
+次のどちらからでも診断ウィンドウを開けます。ESC で閉じます。
 
-* 画面の **「イコル計画」ボタン**（掴んで動かせます。位置は覚えます）
-* **Addons Menu**（norisan さん系のメニューボタン。入っている環境では「Icor Planner」の行が出ます）
+* **Addons Menu** の **「Icor Planner」** の行（norisan さん系のメニューボタン。
+  Nexus Addons P など、Addons Menu を持つアドオンが入っている環境で出ます）
 * マーケットの **「イコル診断」ボタン**（横の評価パネルから「診断を開く」）
+
+> **Addons Menu を持つアドオンを 1 つも入れていない場合**、入口はマーケットの
+> 「イコル診断」ボタンだけになります（画面に常駐するボタンは出しません）。
 
 ### 「目標」タブ
 

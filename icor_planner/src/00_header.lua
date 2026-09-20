@@ -39,9 +39,7 @@ g.settings = {
     verbose_log = 0,
     icor_planner = {
         use = 1
-    },
-    -- 画面に出す「イコル計画」ボタンの位置(掴んで動かしたら覚える)
-    button_pos = nil
+    }
 }
 
 function g.load_core_settings()
@@ -50,16 +48,12 @@ function g.load_core_settings()
         if loaded.verbose_log == 1 then
             g.settings.verbose_log = 1
         end
-        if type(loaded.button_pos) == "table" then
-            g.settings.button_pos = loaded.button_pos
-        end
     end
 end
 
 function g.save_core_settings()
     g.save_json(g.settings_path, {
-        verbose_log = g.settings.verbose_log,
-        button_pos = g.settings.button_pos
+        verbose_log = g.settings.verbose_log
     })
 end
 

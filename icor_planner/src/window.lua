@@ -26,10 +26,6 @@ g.icor_planner_target_btns = {556, 604, 652}
 g.icor_planner_tab = g.icor_planner_tab or 0
 
 function Icor_planner_open()
-    -- 単体版の入口ボタンを動かしていたら、その位置を覚える
-    if type(g.remember_button_pos) == "function" then
-        g.remember_button_pos()
-    end
     local frame_name = addon_name_lower .. g.icor_planner_frame_name
     local frame = ui.GetFrame(frame_name)
     if frame and frame:IsVisible() == 1 then
