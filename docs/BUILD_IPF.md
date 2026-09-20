@@ -1,7 +1,19 @@
 # アドオン .ipf のビルド方法
 
-このリポジトリのアドオン(`nexus_addons_p` など)を配布用 `.ipf` にする手順をまとめる。
+このリポジトリのアドオンを配布用 `.ipf` にする手順をまとめる。
 GUI(IPFSuite)を使う方法と、スクリプトで自動生成する方法の 2 通りを載せる。
+
+**配布物は 1 本ではない。** `addons.json` のエントリぶん(`nexus_addons_p` / `icor_planner`)を
+それぞれ `.ipf` にする。置き場とファイル名の規約は [addon_targets.py](addon_targets.py) に
+まとめてあり、検証もリリースもそこを通す。
+
+| `file` | ソース | bundle の出力先 | 配布 `.ipf` |
+| --- | --- | --- | --- |
+| `nexus_addons_p` | `nexus_addons_p/src/**` + `shared/src/**` | `nexus_addons_p/_nexus_addons_p/` | `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf` |
+| `icor_planner` | `icor_planner/src/**` + `shared/src/**` | `icor_planner/_icor_planner/` | `icor_planner/_icor_planner-⛄-vX.Y.Z.ipf` |
+
+連結の順番と出力先は [nexus_addons_p/src/build_manifest.json](../nexus_addons_p/src/build_manifest.json)
+が 1 本で両方ぶん持っている(`targets` / `outputs` / `roots`)。
 
 ---
 
@@ -80,6 +92,12 @@ python docs/build_addon_ipf.py ./nexus_addons_p _nexus_addons_p \
     "nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf" \
     --require _nexus_addons_p/_nexus_addons_p.lua \
     --encrypt
+
+# Icor Planner も同じ形(引数はどれも addons.json の file から導ける名前)
+python docs/build_addon_ipf.py ./icor_planner _icor_planner \
+    "icor_planner/_icor_planner-⛄-vX.Y.Z.ipf" \
+    --require _icor_planner/_icor_planner.lua \
+    --encrypt
 ```
 
 平文コンテナのまま確認したいときは `--encrypt` を外す。後から変換もできる:
@@ -128,8 +146,12 @@ python docs/verify_ipf.py
 各ファイルの**平文 CRC32 と非圧縮 byte 数**が入っているので、src から期待される中身を
 組み立てて突き合わせれば、復号鍵なしで「この .ipf は現 src から作られたか」を判定できる。
 
-併せて、バージョンの三者一致(`00_header.lua` の `ver` / `addons.json` の `fileVersion` /
-`.ipf` のファイル名)も検証する。`--content-only` / `--version-only` で片方だけも可。
+**`addons.json` の全エントリが対象**で、1 本でも `.ipf` が欠けていれば落ちる
+(`addons.json` に載っている = マネージャーが取りに行く、なので `.ipf` が無いのは
+公開できない状態)。`--addon <file>` で 1 本だけに絞れる。
+
+併せて、バージョンの三者一致(そのアドオンの `00_header.lua` の `ver` / `addons.json` の
+`fileVersion` / `.ipf` のファイル名)も検証する。`--content-only` / `--version-only` で片方だけも可。
 
 > CRC32 は 32bit なので暗号学的な完全性保証ではない。ここで検出したいのは
 > 「再ビルドし忘れ」であり、長さ一致と併せれば目的には十分。改竄検出には使わないこと。
@@ -212,15 +234,15 @@ footer 末尾 2 つの u32 が 0 のため、リーダー側は「暗号化あ�
 > まだ無く、公開までの間だれもインストール／更新できなくなる(CI の `version-freeze`
 > ジョブが先行採番を落とす)。詳細は [RELEASE.md](RELEASE.md) を参照。
 
-1. ソース(`nexus_addons_p/src/**` の該当アドオンファイル)を編集
+1. ソース(該当アドオンの `src/**`、共通部品なら `shared/src/**`)を編集
    - 新規アドオン追加時は `src/addons/<key>/<key>.lua` 追加 + `src/core/10_registry.lua` に登録 +
      `src/build_manifest.json` の `targets` に連結順を追記(追記漏れは脱落チェックで即エラー)
    - アドオンは 1 つ 1 フォルダ。同じフォルダに利用者向けの `README.md` も置く
      (`.lua` 以外は脱落チェックの対象外なので、ビルドには影響しない)
 2. `python docs/bundle_from_src.py --bless` で golden sha を更新(アドオンを変更したので必須)
    → `python docs/bundle_from_src.py` で bundle(.lua)を再生成 → 方式 B で `.ipf` を生成 → §4 で検証
-3. 旧版 `.ipf` を `nexus_addons_p/etc/` へ移動(最新版だけをアドオン直下に置く慣習)
-4. 新版を `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf` に配置
+3. 旧版 `.ipf` を `<アドオン>/_old/` へ移動(最新版だけをアドオン直下に置く慣習)
+4. 新版を `<アドオン>/_<file>-⛄-vX.Y.Z.ipf` に配置
 5. `addons.json` の該当アドオンの `fileVersion` を更新
 6. コミット & プッシュ
 
@@ -231,7 +253,8 @@ footer 末尾 2 つの u32 が 0 のため、リーダー側は「暗号化あ�
 1. 生成した `.ipf` を
    `C:\Program Files (x86)\Steam\steamapps\common\Tree of Savior (Japanese Ver.)\data\`
    にコピー
-2. `data\` に古い `_nexus_addons_p-⛄-*.ipf` があれば削除(バージョン競合防止)
+2. `data\` に同じアドオンの古い `.ipf` があれば削除(バージョン競合防止)。
+   **1 アドオンにつき 1 本だけ**にする(別のアドオンの `.ipf` は並んでいてよい)
 3. クライアントを**再起動**(`.ipf` は起動時にマウントされるため、差し替え反映には再起動が必要)
 
 > Lua の静的構文チェックはクライアント同梱の LuaJIT が実行ファイルに静的リンクされて

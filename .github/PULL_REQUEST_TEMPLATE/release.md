@@ -3,9 +3,15 @@
   URL の末尾に ?template=release.md を付けると、このテンプレートで本文が埋まります。
   例) https://github.com/pinnkoro/TOSAddon/compare/release...main?template=release.md
 
-  重要: この PR の本文が、そのまま GitHub Release（移動タグ nexus_addons_p）の
-  リリースノートになります（.github/workflows/release-nexus.yml が release への
-  push を検知して公開）。マージすると nexus_addons_p-<version>.ipf が添付されます。
+  重要: この PR の本文が、そのまま GitHub Release（移動タグ = addons.json の releaseTag）の
+  リリースノートになります（.github/workflows/release.yml が release への
+  push を検知して公開）。マージすると <file>-<version>.ipf が添付されます。
+
+  公開されるのは「addons.json の fileVersion が、公開済みのアセット名と違うアドオン」
+  だけです（docs/plan_release.py）。片方だけ採番した回は、もう片方のリリースは
+  据え置かれます（更新日も動きません）。
+  **2 本同時に公開する回は、本文が両方のリリースノートになります**。どちらの話か
+  分かるよう、アドオン名の見出しでまとめてください。
   あわせて、タイトル（# 見出し）と「## 🇯🇵 日本語」〜最初の「---」までが Discord の
   チャンネルにも投稿されます（「### 📥 導入方法」の節だけは毎回同じなので流しません）。
   この 2 つの見出しと区切り線は変えないでください。
@@ -25,8 +31,8 @@
 
   **画像**: 見た目を変えた PR では動作確認のときに撮った画像を images/ へ commit してあるので、
   撮り直さずにそれを載せます。前回の版から変わった画像は次で一覧にできます。
-      git diff --name-status <前回の版>..main -- 'nexus_addons_p/*images/*'
-  （`**/` と書くと nexus_addons_p/images/ 直下が漏れるので、この形のまま使う）
+      git diff --name-status <前回の版のタグ>..main -- '<アドオンのフォルダ>/*images/*'
+  （`**/` と書くと <アドオンのフォルダ>/images/ 直下が漏れるので、この形のまま使う）
   載せるときは、項目の下へ 1 行で書きます（alt はその言語で書く。パスは一覧に出たものをそのまま）。
       ![＜何の画面か＞](https://raw.githubusercontent.com/pinnkoro/TOSAddon/v◯.◯.◯/＜一覧に出たパス＞)
   * URL の版は **今回の版番号タグ**にします。main にすると、後で同じファイル名で撮り直したときに
@@ -39,7 +45,7 @@
   公開前に、この説明用の HTML コメントブロックは削除してください。
 -->
 
-# 🛠️ Nexus Addons P v◯.◯.◯（v◯.◯.◯ → v◯.◯.◯）
+# 🛠️ ＜アドオン名＞ v◯.◯.◯（v◯.◯.◯ → v◯.◯.◯）
 
 ## 🇯🇵 日本語
 
@@ -63,7 +69,7 @@
 
 ### 📥 導入方法
 
-アドオンマネージャーから **Nexus Addons P** をインストールしてください。
+アドオンマネージャーから **＜アドオン名＞** をインストールしてください。
 
 ---
 
@@ -89,7 +95,7 @@
 
 ### 📥 설치 방법
 
-애드온 매니저에서 **Nexus Addons P** 를 설치해 주세요.
+애드온 매니저에서 **<애드온 이름>** 를 설치해 주세요.
 
 ---
 
@@ -115,7 +121,7 @@
 
 ### 📥 Installation
 
-Install **Nexus Addons P** from the addon manager.
+Install **<Addon name>** from the addon manager.
 
 <!--
   公開前チェック:
@@ -123,7 +129,8 @@ Install **Nexus Addons P** from the addon manager.
         (main だけ先に採番された状態が長引くほど、アドオンマネージャーからの取得が
          失敗し続ける時間が延びる)
   - [ ] addons.json の fileVersion が今回のバージョンと一致している
-  - [ ] nexus_addons_p/ 直下に最新版 .ipf が1つだけある（旧版は _old/ へ移動済み）
+  - [ ] 公開するアドオンの直下に最新版 .ipf が1つだけある（旧版は _old/ へ移動済み）
+  - [ ] 今回公開するアドオンを把握している（`python docs/plan_release.py` で判定を確認できる）
   - [ ] main に必要な変更が全て入っている（この PR は main -> release）
   - [ ] 日本語 / 한국어 / English の 3 セクションで項目数と順序が揃っている
   - [ ] どのセクションも、アドオン名（またはテーマ）の見出しで項目をまとめてある
