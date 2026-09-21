@@ -295,6 +295,16 @@ end
 function Icor_planner_fill_trial_candidates(left, scan)
     left:RemoveAllChild()
     local jp = g.lang == "Japanese"
+    -- 「自分で組む」を押している間は、左を組む画面にする
+    if g.icor_planner_trial_custom ~= nil then
+        for _, e in ipairs(scan.slots) do
+            if e.slot_name == g.icor_planner_trial_custom and e.equipped then
+                Icor_planner_draw_trial_custom(left, e)
+                return
+            end
+        end
+        g.icor_planner_trial_custom = nil
+    end
     -- 右の「リロール」を押している間は、左をリロールの画面にする(右は結果だけにしておく)
     if g.icor_planner_trial_edit ~= nil and Icor_planner_trial_swaps()[g.icor_planner_trial_edit] ~= nil then
         Icor_planner_draw_trial_reroll(left, g.icor_planner_trial_edit)
@@ -319,8 +329,18 @@ function Icor_planner_fill_trial_candidates(left, scan)
     AUTO_CAST(cur)
     cur:SetText(string.format(jp and "{ol}{s14}{#FFD700}今のイコル{#FFFFFF}  %s" or "{ol}{s14}{#FFD700}Equipped{#FFFFFF}  %s",
         Icor_planner_options_text(entry.options)))
-    cur:AdjustFontSizeByWidth(left:GetWidth() - 30)
-    y = y + 28
+    cur:AdjustFontSizeByWidth(left:GetWidth() - 140)
+    local custom_btn = left:CreateOrGetControl("button", "custom_open", 100, 28, ui.LEFT, ui.TOP,
+        left:GetWidth() - 124, y - 2, 0, 0)
+    AUTO_CAST(custom_btn)
+    custom_btn:SetSkinName("test_pvp_btn")
+    custom_btn:SetText(jp and "{ol}{s14}自分で組む" or "{ol}{s14}Custom")
+    custom_btn:SetTextTooltip(jp and
+                                  "{ol}載せたいオプションを自分で選んだイコルで試します{nl}値は一番上の段の範囲から決めます。組んだイコルはマーケットで探せます" or
+                                  "{ol}Try an icor with the options you pick")
+    custom_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_custom")
+    custom_btn:SetEventScriptArgString(ui.LBUTTONUP, entry.slot_name)
+    y = y + 32
     local rows = Icor_planner_trial_candidates(entry.spot)
     -- ボタンの引数は添字なので、押したときに同じ並びを引けるよう控える
     g.icor_planner_trial_list = rows
@@ -382,6 +402,8 @@ end
 function Icor_planner_trial_select_slot(parent, ctrl, slot_name)
     g.icor_planner_trial_slot = slot_name
     g.icor_planner_trial_edit = nil
+    g.icor_planner_trial_custom = nil
+    g.icor_planner_custom_pending = nil
     Icor_planner_build_tab()
 end
 
@@ -408,7 +430,12 @@ function Icor_planner_trial_remove(parent, ctrl, slot_name)
     if g.icor_planner_trial_edit == slot_name then
         g.icor_planner_trial_edit = nil
     end
+    if g.icor_planner_trial_custom == slot_name then
+        g.icor_planner_trial_custom = nil
+        g.icor_planner_custom_pending = nil
+    end
     Icor_planner_build_tab()
+    Icor_planner_refresh_market_customs()
 end
 
 -- 左のリロールの画面。右の差し替えの行の「リロール」から入る。
@@ -419,7 +446,8 @@ end
 g.icor_planner_assume_labels = {
     avg = "平均",
     min = "最低",
-    max = "最大"
+    max = "最大",
+    limit = "限凸"
 }
 
 function Icor_planner_draw_trial_reroll(left, slot_name)
@@ -584,7 +612,300 @@ function Icor_planner_trial_reset()
     }
     g.icor_planner_trial_edit = nil
     g.icor_planner_trial_pending = nil
+    g.icor_planner_trial_custom = nil
+    g.icor_planner_custom_pending = nil
     Icor_planner_build_tab()
+    Icor_planner_refresh_market_customs()
+end
+
+-- ===== 試算: 理想のイコルを自分で組む画面(左) =====
+--
+-- 4 枠それぞれで「オプション」と「値の見込み(最低 / 平均 / 最大 / 限凸)」を選び、
+-- 「試す」で差し替える。**値の見込みは枠ごと**(一部の枠だけ限凸、を試すため。実機で要望された)。
+-- 上の 4 つのボタンは全部の枠をまとめて切り替える近道。
+-- リロールの画面と同じく、**選んでいる途中では再計算しない**。
+-- 選んでいる途中の内容は g.icor_planner_custom_pending に持つ。
+-- 最初の中身は、組んだイコルで差し替え中ならその中身、そうでなければ今のイコルのオプション
+g.icor_planner_custom_assumes = {"min", "avg", "max", "limit"}
+
+function Icor_planner_draw_trial_custom(left, entry)
+    local jp = g.lang == "Japanese"
+    local slot_name = entry.slot_name
+    local pending = g.icor_planner_custom_pending
+    if pending == nil or pending.slot ~= slot_name then
+        local swap = Icor_planner_trial_swaps()[slot_name]
+        local opts, assumes = {}, {}
+        if swap ~= nil and swap.source == "custom" then
+            for i, opt in ipairs(swap.custom.opts) do
+                opts[i] = opt
+                assumes[i] = swap.custom.assumes[i]
+            end
+        else
+            for i, op in ipairs(entry.real_options or entry.options) do
+                opts[i] = op.opt
+            end
+        end
+        pending = {
+            slot = slot_name,
+            spot = entry.spot,
+            opts = opts,
+            assumes = assumes
+        }
+        g.icor_planner_custom_pending = pending
+    end
+    local per_icor = 4
+    if shared_item_goddess_icor ~= nil then
+        local ok, count = pcall(shared_item_goddess_icor.get_max_option_count)
+        if ok and type(count) == "number" and count > 0 then
+            per_icor = count
+        end
+    end
+    pending.per_icor = per_icor
+    local y = 8
+    local title = left:CreateOrGetControl("richtext", "cu_title", 10, y, 0, 0)
+    AUTO_CAST(title)
+    local label = (jp and g.icor_planner_exclude_labels[slot_name]) or ClMsg(entry.clmsg)
+    local _, _, top_lv = Icor_planner_top_range("STR", entry.spot)
+    title:SetText(string.format(jp and "{ol}{s16}{#FFD700}自分で組む{#FFFFFF}  %s  {#AAAAAA}(%s・Lv%s の範囲)" or
+                                    "{ol}{s16}{#FFD700}Custom{#FFFFFF}  %s  {#AAAAAA}(%s / Lv%s)", label,
+        Icor_planner_spot_label(entry.spot), tostring(top_lv or "-")))
+    title:AdjustFontSizeByWidth(left:GetWidth() - 30)
+    y = y + 28
+    local note = left:CreateOrGetControl("richtext", "cu_note", 10, y, 0, 0)
+    AUTO_CAST(note)
+    note:SetText(jp and
+                     "{ol}{s13}{#AAAAAA}枠ごとにオプションと値を選んで「試す」を押すと、右で差し替えた結果を計算します{nl}同じオプションは 1 つのイコルに 1 つまでです。限凸 = 最大 × 1.5(切り捨て)" or
+                     "{ol}{s13}{#AAAAAA}Pick an option and a value for each slot, then press Try")
+    y = y + 44
+    local assume_label = left:CreateOrGetControl("richtext", "cu_assume_label", 10, y + 4, 0, 0)
+    AUTO_CAST(assume_label)
+    assume_label:SetText(jp and "{ol}{s14}{#AAAAAA}値(全部の枠)" or "{ol}{s14}{#AAAAAA}Value (all)")
+    for i, key in ipairs(g.icor_planner_custom_assumes) do
+        local btn = left:CreateOrGetControl("button", "cu_assume_" .. key, 60, 26, ui.LEFT, ui.TOP, 120 + (i - 1) * 64,
+            y, 0, 0)
+        AUTO_CAST(btn)
+        btn:SetSkinName("test_pvp_btn")
+        btn:SetText("{ol}{s14}" .. (jp and g.icor_planner_assume_labels[key] or key))
+        btn:SetTextTooltip(jp and "{ol}4 枠の値をまとめてこれにします(試すまで計算しません)" or "{ol}Set all slots")
+        btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_custom_pending_assume_all")
+        btn:SetEventScriptArgString(ui.LBUTTONUP, key)
+    end
+    y = y + 36
+    local choices = Icor_planner_custom_option_list(entry.spot)
+    for i = 1, per_icor do
+        local head = left:CreateOrGetControl("richtext", "cu_head_" .. i, 14, y + 5, 0, 0)
+        AUTO_CAST(head)
+        head:SetText(string.format(jp and "{ol}{s14}{#AAAAAA}枠%d" or "{ol}{s14}{#AAAAAA}Slot %d", i))
+        local drop = left:CreateOrGetControl("droplist", "cu_drop_" .. i, 230, 26, ui.LEFT, ui.TOP, 56, y, 0, 0)
+        AUTO_CAST(drop)
+        drop:SetSkinName("droplist_normal")
+        drop:EnableHitTest(1)
+        drop:ClearItems()
+        drop:AddItem("None", jp and "{ol}{#AAAAAA}(空き)" or "{ol}{#AAAAAA}(empty)")
+        for _, opt in ipairs(choices) do
+            local c = g.icor_planner_group_color[Icor_planner_group_of(opt)] or "{#FFFFFF}"
+            drop:AddItem(opt, "{ol}" .. c .. Icor_planner_option_name(opt))
+        end
+        drop:SelectItemByKey(pending.opts[i] or "None")
+        drop:SetUserValue("INDEX", i)
+        drop:SetSelectedScp("Icor_planner_custom_pending_select")
+        -- 枠ごとの値の見込み
+        local adrop = left:CreateOrGetControl("droplist", "cu_adrop_" .. i, 74, 26, ui.LEFT, ui.TOP, 292, y, 0, 0)
+        AUTO_CAST(adrop)
+        adrop:SetSkinName("droplist_normal")
+        adrop:EnableHitTest(1)
+        adrop:ClearItems()
+        for _, key in ipairs(g.icor_planner_custom_assumes) do
+            adrop:AddItem(key, "{ol}" .. (jp and g.icor_planner_assume_labels[key] or key))
+        end
+        adrop:SelectItemByKey(pending.assumes[i] or "avg")
+        adrop:SetUserValue("INDEX", i)
+        adrop:SetSelectedScp("Icor_planner_custom_pending_assume")
+        -- 選んだ値と一番上の段の範囲。選び直したらこの行だけ書き換える
+        local range = left:CreateOrGetControl("richtext", "cu_range_" .. i, 374, y + 5, 0, 0)
+        AUTO_CAST(range)
+        range:SetText(Icor_planner_custom_range_text(pending.opts[i], entry.spot, pending.assumes[i]))
+        y = y + 32
+    end
+    y = y + 10
+    local buttons = {{
+        name = "cu_ok",
+        text = jp and "試す" or "Try",
+        tip = jp and "{ol}このイコルで差し替えて、右の結果を計算し直します" or "{ol}Swap with this icor",
+        scp = "Icor_planner_custom_pending_apply"
+    }, {
+        name = "cu_rec",
+        text = jp and "オススメから" or "Suggested",
+        tip = jp and "{ol}診断タブのオススメのイコル構成(この部位の種類の 1 個目の中身)を入れます{nl}値は今の選択のまま。まだ試しません" or
+            "{ol}Fill with the suggested set",
+        scp = "Icor_planner_custom_pending_suggest"
+    }, {
+        name = "cu_cancel",
+        text = jp and "キャンセル" or "Cancel",
+        tip = jp and "{ol}変えずに候補の一覧へ戻ります" or "{ol}Back without changes",
+        scp = "Icor_planner_custom_pending_cancel"
+    }}
+    for i, b in ipairs(buttons) do
+        local btn = left:CreateOrGetControl("button", b.name, 120, 32, ui.LEFT, ui.TOP, 20 + (i - 1) * 130, y, 0, 0)
+        AUTO_CAST(btn)
+        btn:SetSkinName("test_pvp_btn")
+        btn:SetText("{ol}{s15}" .. b.text)
+        btn:SetTextTooltip(b.tip)
+        btn:SetEventScript(ui.LBUTTONUP, b.scp)
+    end
+end
+
+-- 「6,168 (3,702〜4,113)」。使う値を段階の色で出し、範囲を添える。空き枠は何も出さない
+function Icor_planner_custom_range_text(opt, spot, assume)
+    if opt == nil or opt == "None" then
+        return ""
+    end
+    local min_value, max_value = Icor_planner_top_range(opt, spot)
+    local value = Icor_planner_custom_value(opt, spot, assume)
+    return string.format("{ol}{s14}%s%s {#AAAAAA}{s13}(%s〜%s)",
+        Icor_planner_state_color(Icor_planner_value_state(value, max_value)), GET_COMMAED_STRING(value),
+        GET_COMMAED_STRING(min_value), GET_COMMAED_STRING(max_value))
+end
+
+-- 枠 index の値の表示だけを書き換える(作り直さない)
+function Icor_planner_custom_refresh_row(left, pending, index)
+    local range = GET_CHILD(left, "cu_range_" .. index)
+    if range ~= nil then
+        AUTO_CAST(range)
+        range:SetText(Icor_planner_custom_range_text(pending.opts[index], pending.spot, pending.assumes[index]))
+    end
+end
+
+function Icor_planner_trial_open_custom(parent, ctrl, slot_name)
+    g.icor_planner_trial_slot = slot_name
+    g.icor_planner_trial_custom = slot_name
+    g.icor_planner_trial_edit = nil
+    g.icor_planner_custom_pending = nil
+    Icor_planner_build_tab()
+end
+
+-- 枠のオプションを選んだ。**作り直さない**(試すまで再計算しない)。値の表示だけ替える
+function Icor_planner_custom_pending_select(parent, ctrl)
+    AUTO_CAST(ctrl)
+    local pending = g.icor_planner_custom_pending
+    if pending == nil then
+        return
+    end
+    local index = tonumber(ctrl:GetUserValue("INDEX")) or 0
+    if index <= 0 then
+        return
+    end
+    for i = #pending.opts + 1, index - 1 do
+        pending.opts[i] = "None"
+    end
+    pending.opts[index] = ctrl:GetSelItemKey()
+    Icor_planner_custom_refresh_row(ctrl:GetParent(), pending, index)
+end
+
+-- 枠の値の見込みを選んだ。値の表示だけ替える
+function Icor_planner_custom_pending_assume(parent, ctrl)
+    AUTO_CAST(ctrl)
+    local pending = g.icor_planner_custom_pending
+    if pending == nil then
+        return
+    end
+    local index = tonumber(ctrl:GetUserValue("INDEX")) or 0
+    if index <= 0 then
+        return
+    end
+    pending.assumes[index] = ctrl:GetSelItemKey()
+    Icor_planner_custom_refresh_row(ctrl:GetParent(), pending, index)
+end
+
+-- 上のボタン。全部の枠の値の見込みをまとめて切り替え、各枠のドロップリストと表示も揃える
+function Icor_planner_custom_pending_assume_all(parent, ctrl, key)
+    local pending = g.icor_planner_custom_pending
+    if pending == nil then
+        return
+    end
+    local left = ctrl:GetParent()
+    for i = 1, pending.per_icor or 4 do
+        pending.assumes[i] = key
+        local adrop = GET_CHILD(left, "cu_adrop_" .. i)
+        if adrop ~= nil then
+            AUTO_CAST(adrop)
+            adrop:SelectItemByKey(key)
+        end
+        Icor_planner_custom_refresh_row(left, pending, i)
+    end
+end
+
+-- 診断タブのオススメのイコル構成から、この部位の種類の 1 個目の中身を入れる。
+-- 差し替える前の姿で組む(試算の印は立てない)。更新するイコルを選んでいれば、その部位に載せる中身になる
+function Icor_planner_custom_pending_suggest()
+    local pending = g.icor_planner_custom_pending
+    if pending == nil then
+        return
+    end
+    local diag, scan = Icor_planner_diagnose()
+    local plan = Icor_planner_recommend(diag, scan, "avg")
+    local tp = plan.types and plan.types[pending.spot]
+    local set = tp and tp.sets and tp.sets[1]
+    g.vlog("icor_planner: 自分で組む <- オススメ %s (%s)", tostring(pending.spot),
+        set and table.concat(set.opts, ",") or "無し")
+    if set == nil then
+        ui.SysMsg(g.lang == "Japanese" and "{ol}この部位の種類にはオススメの中身がありません" or
+                      "{ol}No suggested set for this slot type")
+        return
+    end
+    local opts = {}
+    for _, opt in ipairs(set.opts) do
+        opts[#opts + 1] = opt
+    end
+    pending.opts = opts
+    Icor_planner_build_tab()
+end
+
+function Icor_planner_custom_pending_apply()
+    local pending = g.icor_planner_custom_pending
+    if pending == nil then
+        return
+    end
+    local count = Icor_planner_trial_set_custom(pending.slot, pending.spot, pending.opts, pending.assumes)
+    if count == 0 then
+        ui.SysMsg(g.lang == "Japanese" and "{ol}オプションを 1 つ以上選んでください" or "{ol}Pick at least one option")
+        return
+    end
+    g.icor_planner_custom_pending = nil
+    g.icor_planner_trial_custom = nil
+    Icor_planner_build_tab()
+    Icor_planner_refresh_market_customs()
+end
+
+-- マーケットのパネルの「試算で組んだイコルで探す」を作り直す。
+-- パネルは出品一覧が入れ替わったときにしか組み直さないので、組んだ / 戻した直後はここで呼ぶ
+function Icor_planner_refresh_market_customs()
+    local panel = ui.GetFrame(addon_name_lower .. g.icor_planner_market_frame)
+    if panel ~= nil and panel:IsVisible() == 1 then
+        Icor_planner_market_fill()
+    end
+end
+
+function Icor_planner_custom_pending_cancel()
+    g.icor_planner_custom_pending = nil
+    g.icor_planner_trial_custom = nil
+    Icor_planner_build_tab()
+end
+
+-- 組んだイコルをマーケットで探す。下限は試算に使った値(値の見込み)
+function Icor_planner_trial_search_custom(parent, ctrl, slot_name)
+    local swap = Icor_planner_trial_swaps()[slot_name]
+    if swap == nil or swap.source ~= "custom" then
+        return
+    end
+    local conds = {}
+    for _, op in ipairs(swap.options) do
+        conds[#conds + 1] = {
+            opt = op.opt,
+            min_value = op.value
+        }
+    end
+    Icor_planner_market_search_conditions(swap.spot, conds)
 end
 
 -- 差の文字列。良くなったら緑、悪くなったら赤。better_is_lower は「少ないほど良い」項目(不足・必要数)
@@ -618,13 +939,27 @@ function Icor_planner_fill_trial_result(right, scan)
             local source_text = jp and "インベントリ" or "inventory"
             if swap.source == "market" then
                 source_text = jp and "マーケット" or "market"
+            elseif swap.source == "custom" then
+                -- 値の見込みが全部の枠で同じならその名前、違えば「枠ごと」(値は下の行に出ている)
+                local same = swap.custom.assumes[1]
+                for _, key in ipairs(swap.custom.assumes) do
+                    if key ~= same then
+                        same = nil
+                    end
+                end
+                local assume_text = jp and "枠ごと" or "per slot"
+                if same ~= nil then
+                    assume_text = (jp and g.icor_planner_assume_labels[same]) or same
+                end
+                source_text = string.format(jp and "%s・一番上の段" or "%s / top tier", assume_text)
             end
+            local custom = swap.source == "custom"
             -- **1 行ずつ別のコントロールに置く。** {nl} で繋いだ 1 本を AdjustFontSizeByWidth で縮めると、
             -- 一番長い行に合わせて全部の行が読めない大きさになる(実機で指摘された。
             -- マーケットのパネルで直したのと同じ件)
             line:SetText(string.format("{ol}{s15}{#00FFFF}%s{#FFFFFF} ← [Lv%d] %s{#AAAAAA} (%s)",
                 labels[slot_info.slot_name] or slot_info.slot_name, swap.lv, swap.name, source_text))
-            line:AdjustFontSizeByWidth(right:GetWidth() - 150)
+            line:AdjustFontSizeByWidth(right:GetWidth() - (custom and 240 or 150))
             local ops_line = right:CreateOrGetControl("richtext", "swo_" .. slot_info.slot_name, 40, y + 26, 0, 0)
             AUTO_CAST(ops_line)
             ops_line:SetText("{ol}{s14}" .. Icor_planner_options_text(swap.options))
@@ -644,12 +979,39 @@ function Icor_planner_fill_trial_result(right, scan)
             local rr = right:CreateOrGetControl("button", "swr_" .. slot_info.slot_name, 80, 26, ui.LEFT, ui.TOP,
                 right:GetWidth() - 104, y + 4, 0, 0)
             AUTO_CAST(rr)
-            rr:SetSkinName(g.icor_planner_trial_edit == slot_info.slot_name and "baseyellow_btn" or "test_pvp_btn")
-            rr:SetText(jp and "{ol}{s14}リロール" or "{ol}{s14}Reroll")
-            rr:SetTextTooltip(jp and "{ol}このイコルの 1 枠をオプションリロールで変えたら、を左で試します" or
-                                  "{ol}Try rerolling one slot of this icor")
-            rr:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_reroll")
-            rr:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+            if custom then
+                -- 組んだイコルはリロールではなく、組み直す(左を組む画面にする)
+                rr:SetSkinName(g.icor_planner_trial_custom == slot_info.slot_name and "baseyellow_btn" or
+                                   "test_pvp_btn")
+                rr:SetText(jp and "{ol}{s14}組み直す" or "{ol}{s14}Edit")
+                rr:SetTextTooltip(jp and "{ol}左で、このイコルのオプションを選び直します" or "{ol}Edit this icor")
+                rr:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_custom")
+                rr:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+                -- マーケットで同じ条件の品を探す(条件検索へ 4 オプションと下限をまとめて入れる)
+                local tips = {}
+                for _, op in ipairs(swap.options) do
+                    tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt),
+                        GET_COMMAED_STRING(op.value))
+                end
+                local search = right:CreateOrGetControl("button", "sws_" .. slot_info.slot_name, 80, 26, ui.LEFT,
+                    ui.TOP, right:GetWidth() - 190, y + 4, 0, 0)
+                AUTO_CAST(search)
+                search:SetSkinName("test_pvp_btn")
+                search:SetText(jp and "{ol}{s14}探す" or "{ol}{s14}Search")
+                search:SetTextTooltip("{ol}" .. (jp and
+                                          "マーケットの条件検索にこのイコルを入れて検索します(今の条件は消えます){nl}マーケットを開いてから押してください{nl}" or
+                                          "Search the market for this icor{nl}") .. table.concat(tips, "{nl}"))
+                search:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_search_custom")
+                search:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+            else
+                rr:SetSkinName(g.icor_planner_trial_edit == slot_info.slot_name and "baseyellow_btn" or
+                                   "test_pvp_btn")
+                rr:SetText(jp and "{ol}{s14}リロール" or "{ol}{s14}Reroll")
+                rr:SetTextTooltip(jp and "{ol}このイコルの 1 枠をオプションリロールで変えたら、を左で試します" or
+                                      "{ol}Try rerolling one slot of this icor")
+                rr:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_reroll")
+                rr:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+            end
             local x = right:CreateOrGetControl("button", "swx_" .. slot_info.slot_name, 26, 24, ui.LEFT, ui.TOP, 8, y + 4,
                 0, 0)
             AUTO_CAST(x)
@@ -721,11 +1083,11 @@ function Icor_planner_fill_trial_result(right, scan)
     end
     -- まとめ: 更新が要るオプションの数 / オススメ構成の更新数
     y = y + 10
-    local rec_before = Icor_planner_recommend(before, before_scan, "avg")
+    local rec_before = Icor_planner_plan(before, before_scan, "avg")
     -- **差し替え後の組み立ては試算の印を立てたまま行う。** 中で今の値(Icor_planner_current)を
     -- 引き直すので、印が無いと差し替える前の値で組んでしまう
     local rec_after = Icor_planner_with_trial(function()
-        return Icor_planner_recommend(after, after_scan, "avg")
+        return Icor_planner_plan(after, after_scan, "avg")
     end) or rec_before
     -- 診断タブの見出しと同じ数(オススメのイコル構成と同じ計算)
     cell("u1", cols[1], jp and "{#FFD700}あとオプション" or "{#FFD700}Options to update")
@@ -809,21 +1171,35 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
     local avg = Icor_planner_recommend(diag, scan, "avg")
     local low = Icor_planner_recommend(diag, scan, "min")
     local jp = g.lang == "Japanese"
+    -- 更新するイコルを選んでいないときは、**先に「今の装備から変えるなら」を出す。**
+    -- 見出しの「あとオプション」はこちらの数。下の理想の形は、組み直すならの参考
+    if not avg.update_mode then
+        y = Icor_planner_draw_keep_plan(list, y, diag, scan)
+    end
     y = y + 10
     local title = list:CreateOrGetControl("richtext", "rec_title", 10, y, 0, 0)
     AUTO_CAST(title)
-    local head = jp and "オススメのイコル構成" or "Suggested icor layout"
     if avg.update_mode then
-        head = jp and "更新するイコルのオススメ" or "Suggested icor for slots to update"
+        local head = jp and "更新するイコルのオススメ" or "Suggested icor for slots to update"
+        title:SetText(jp and
+                          string.format(
+                "{ol}{s16}{#FFD700}%s{#AAAAAA}{s14}  平均値で計算  {#FFFFFF}あとオプション {#FFD700}%d{#FFFFFF} 個{#AAAAAA}  /  最低値なら {#FFFFFF}%d{#AAAAAA} 個",
+                head, avg.updates, low.updates) or
+                          string.format("{ol}{s16}{#FFD700}%s{#AAAAAA}  (avg) %d / (min) %d", head, avg.updates,
+                low.updates))
+    else
+        -- **「あとオプション」とは呼ばない。** 理想の形との差で、目標までの数ではない
+        -- (目標に届いていても、載せ方が違えば数が出る)
+        title:SetText(jp and
+                          string.format(
+                "{ol}{s16}{#FFD700}理想のイコル構成(参考){#AAAAAA}{s14}  平均値で計算  理想の形との差 {#FFFFFF}%d{#AAAAAA} 個  /  最低値なら {#FFFFFF}%d{#AAAAAA} 個",
+                avg.updates, low.updates) or
+                          string.format("{ol}{s16}{#FFD700}Ideal layout (reference){#AAAAAA}  diff (avg) %d / (min) %d",
+                avg.updates, low.updates))
     end
-    title:SetText(jp and
-                      string.format(
-            "{ol}{s16}{#FFD700}%s{#AAAAAA}{s14}  平均値で計算  {#FFFFFF}あとオプション {#FFD700}%d{#FFFFFF} 個{#AAAAAA}  /  最低値なら {#FFFFFF}%d{#AAAAAA} 個",
-            head, avg.updates, low.updates) or
-                      string.format("{ol}{s16}{#FFD700}%s{#AAAAAA}  (avg) %d / (min) %d", head, avg.updates, low.updates))
     title:SetTextTooltip(jp and (avg.update_mode and
                              "{ol}目標タブで「更新するイコル」にした部位に、何を載せれば目標に届くかです{nl}残すイコルは今の値のまま計算しています{nl}×N = 更新するイコル N 個に載せる{nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値" or
-                             "{ol}部位の種類ごとの理想の形です(今のイコルに合わせた形ではありません){nl}目標タブで「更新するイコル」を選ぶと、その部位だけを組みます{nl}×N = その部位のイコル N 個に載せる / (今 M) = 今その値以上で載っている個数{nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値") or
+                             "{ol}全部の部位を一から組み直すなら、の理想の形です(今のイコルに合わせた形ではありません){nl}「理想の形との差」は目標までの数ではありません。目標に届いていても、載せ方が違えば数が出ます{nl}目標タブで「更新するイコル」を選ぶと、その部位だけを組みます{nl}×N = その部位のイコル N 個に載せる / (今 M) = 今その値以上で載っている個数{nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値") or
                              "{ol}Suggested layout")
     y = y + 26
     for _, spot in ipairs({"Weapon", "Armor"}) do
@@ -907,6 +1283,76 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
     return y
 end
 
+-- 「今の装備から変えるなら」。今のイコルを残したまま、どの部位のどの枠を何に変えれば目標に届くか
+-- (Icor_planner_plan_keep)。部位ごとに 1 行で並べる。戻り値は次に描き始める y
+function Icor_planner_draw_keep_plan(list, y, diag, scan)
+    local jp = g.lang == "Japanese"
+    local avg = Icor_planner_plan_keep(diag, scan, "avg")
+    local low = Icor_planner_plan_keep(diag, scan, "min")
+    y = y + 10
+    local title = list:CreateOrGetControl("richtext", "keep_title", 10, y, 0, 0)
+    AUTO_CAST(title)
+    title:SetText(jp and
+                      string.format(
+            "{ol}{s16}{#FFD700}今の装備から変えるなら{#AAAAAA}{s14}  平均値で計算  {#FFFFFF}あとオプション {#FFD700}%d{#FFFFFF} 個{#AAAAAA}  /  最低値なら {#FFFFFF}%d{#AAAAAA} 個",
+            avg.updates, low.updates) or
+                      string.format("{ol}{s16}{#FFD700}From your current icor{#AAAAAA}  (avg) %d / (min) %d", avg.updates,
+            low.updates))
+    title:SetTextTooltip(jp and
+                             "{ol}今のイコルを残したまま、目標に届くまでにどの枠を変えればよいかです{nl}変えるのは 空いている枠 / 目標に無いオプションの枠 / 目標にあるが値の低い枠 だけです{nl}部位は 1 か所ずつ数えます(持ち替え側も別のイコル){nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値" or
+                             "{ol}Which slots to change while keeping your current icor")
+    y = y + 26
+    if #avg.moves == 0 and #avg.unmet == 0 and next(avg.slot_unmet) == nil then
+        local ok = list:CreateOrGetControl("richtext", "keep_ok", 20, y, 0, 0)
+        AUTO_CAST(ok)
+        ok:SetText(jp and "{ol}{s15}{#98FB98}今の装備のままで目標に届いています" or "{ol}{s15}{#98FB98}All targets met")
+        return y + 24
+    end
+    local groups, order = {}, {}
+    for _, m in ipairs(avg.moves) do
+        if groups[m.index] == nil then
+            groups[m.index] = {}
+            order[#order + 1] = m.index
+        end
+        table.insert(groups[m.index], m)
+    end
+    for _, index in ipairs(order) do
+        local entry = scan.slots[index]
+        local label = (jp and g.icor_planner_exclude_labels[entry.slot_name]) or ClMsg(entry.clmsg)
+        local parts = {}
+        for _, m in ipairs(groups[index]) do
+            local color = g.icor_planner_group_color[Icor_planner_group_of(m.opt)] or "{#FFFFFF}"
+            local to = string.format("%s%s {#FFFFFF}%s", color, Icor_planner_option_name(m.opt),
+                GET_COMMAED_STRING(m.value))
+            if m.old ~= nil then
+                -- 同じオプションの値を上げる(リロールし直す / 買い替える)
+                parts[#parts + 1] = string.format("%s%s {#AAAAAA}%s → {#FFFFFF}%s", color,
+                    Icor_planner_option_name(m.opt), GET_COMMAED_STRING(m.old), GET_COMMAED_STRING(m.value))
+            elseif m.from ~= nil then
+                parts[#parts + 1] = string.format("{#888888}%s → %s", Icor_planner_option_name(m.from.opt), to)
+            else
+                parts[#parts + 1] = string.format("{#888888}%s → %s", jp and "空き" or "empty", to)
+            end
+        end
+        y = Icor_planner_flow(list, "keep_" .. index, 20, y, list:GetWidth() - 50, "{#FFFFFF}" .. label .. " :", parts,
+            "{ol}{s15}", 24)
+    end
+    -- 変えられる枠を使い切っても届かない項目
+    local parts = {}
+    for _, u in ipairs(avg.unmet) do
+        parts[#parts + 1] = string.format("{#FF6347}%s あと %s", Icor_planner_option_name(u.opt),
+            GET_COMMAED_STRING(math.ceil(u.short)))
+    end
+    for opt, left in pairs(avg.slot_unmet) do
+        parts[#parts + 1] = string.format("{#FF6347}%s あと %d か所", Icor_planner_option_name(opt), left)
+    end
+    if #parts > 0 then
+        y = Icor_planner_flow(list, "keep_unmet", 20, y, list:GetWidth() - 50, "{#FF6347}" ..
+            (jp and "変えられる枠では届かない:" or "Not reachable:"), parts, "{ol}{s14}", 22)
+    end
+    return y
+end
+
 -- 目標プリセットを選ぶドロップリスト。3 枚のタブすべての先頭に置く
 function Icor_planner_preset_droplist(bg, y)
     local drop = bg:CreateOrGetControl("droplist", "preset_drop", 260, 30, ui.LEFT, ui.TOP, 10, y, 0, 0)
@@ -954,7 +1400,7 @@ function Icor_planner_build_diagnosis(bg)
     -- **「あとオプション何個か」を主役にする。** どのイコルを何個買うかより、
     -- 更新が要るオプションの数の方が作業量に直結する。
     -- **数は下のオススメのイコル構成と同じ計算から出す**(一覧とオススメが食い違わないように)
-    local plan = Icor_planner_recommend(diag, scan, "avg")
+    local plan = Icor_planner_plan(diag, scan, "avg")
     local all_met = true
     for _, row in ipairs(diag.rows) do
         if row.short > 0 then
@@ -978,9 +1424,15 @@ function Icor_planner_build_diagnosis(bg)
     end
     local note = bg:CreateOrGetControl("richtext", "note", 10, 78, 0, 0)
     AUTO_CAST(note)
-    note:SetText(g.lang == "Japanese" and
-                     "{ol}{s14}{#AAAAAA}数え方: 下の{#FFFFFF}オススメのイコル構成{#AAAAAA}と同じ計算です(1 枠は一番上の段の{#FFFFFF}平均値{#AAAAAA}で数えます)" or
-                     "{ol}{s14}{#AAAAAA}Counted the same way as the suggested layout below (average value per slot)")
+    if plan.update_mode then
+        note:SetText(g.lang == "Japanese" and
+                         "{ol}{s14}{#AAAAAA}数え方: 下の{#FFFFFF}更新するイコルのオススメ{#AAAAAA}と同じ計算です(1 枠は一番上の段の{#FFFFFF}平均値{#AAAAAA}で数えます)" or
+                         "{ol}{s14}{#AAAAAA}Counted the same way as the suggestion below (average value per slot)")
+    else
+        note:SetText(g.lang == "Japanese" and
+                         "{ol}{s14}{#AAAAAA}数え方: 今のイコルを残したまま、下の{#FFFFFF}今の装備から変えるなら{#AAAAAA}の枠を変えた数です(1 枠は一番上の段の{#FFFFFF}平均値{#AAAAAA}で数えます)" or
+                         "{ol}{s14}{#AAAAAA}Options to change while keeping the current icor (average value per slot)")
+    end
     -- 列の左端。**見出しと行で同じ表を使う**こと。別々に書くと必ずずれる
     local cols = g.icor_planner_cols
     local labels = g.lang == "Japanese" and {"項目", "現在", "目標", "不足", "必要オプション"} or
