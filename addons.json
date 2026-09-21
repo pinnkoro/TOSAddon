@@ -20,7 +20,7 @@
     "name": "Icor Planner",
     "file": "icor_planner",
     "extension": "ipf",
-    "fileVersion": "v1.0.0",
+    "fileVersion": "v1.1.0",
     "releaseTag": "icor_planner",
     "unicode": "⛄",
     "description": "イコルの更新計画を立てるアドオン 目標のステータスを決めると、あと何個更新すればよいかと、武器 / 防具のイコルに何を載せればよいかを出します<br>マーケットの横に評価パネルを出し、オススメの構成での検索や、買う前の試算もできます<br>Plan your icor updates: set target stats and see how many options are left and what each weapon / armor icor should carry<br>이코르 갱신 계획을 세우는 애드온: 목표 스탯을 정하면 남은 옵션 수와 무기 / 방어구 이코르에 무엇을 넣어야 하는지 알려줍니다<br>https://github.com/pinnkoro/TOSAddon",
