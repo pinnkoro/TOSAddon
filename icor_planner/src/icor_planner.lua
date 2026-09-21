@@ -91,6 +91,12 @@ function Icor_planner_load_settings()
         settings.market_sort = 0
         changed = true
     end
+    -- 試算タブ・マーケットのパネルでオプション名を略語にするか。**既定は 1**。
+    -- 略語が分からなくなったときに正式名へ戻せるよう、試算タブの上にボタンを置いている
+    if settings.short_names == nil then
+        settings.short_names = 1
+        changed = true
+    end
     g.icor_planner_settings = settings
     if changed then
         Icor_planner_save_settings()
@@ -803,6 +809,103 @@ function Icor_planner_trial_set_reroll(slot_name, index, opt, assume)
         tostring(opt), value, tostring(assume))
 end
 
+-- ===== 試算: 理想のイコルを自分で組む =====
+--
+-- 手持ちにもマーケットにも無いイコルを「こういうのを買ったら」で試す。
+-- 値は**一番上の段の範囲**(Icor_planner_top_range)から assume で決める。買うのは最新の段なので、
+-- 手持ちの古い段に合わせない。組んだイコルはマーケットの条件検索にもそのまま渡す
+-- (Icor_planner_market_search_conditions)。
+
+-- その部位のイコルに載せられるオプション。一番上の段で値が引けるものだけ(並びは候補一覧と同じ)
+function Icor_planner_custom_option_list(spot)
+    local list = {}
+    for _, cand in ipairs(Icor_planner_candidate_options()) do
+        if Icor_planner_spot_can(cand.opt, spot) then
+            local _, max_value = Icor_planner_top_range(cand.opt, spot)
+            if max_value > 0 then
+                list[#list + 1] = cand.opt
+            end
+        end
+    end
+    return list
+end
+
+-- 一番上の段の範囲から assume で値を決める。
+--   min / max … 範囲の端、avg … (最小 + 最大) / 2
+--   limit     … 限凸で付く値(Icor_planner_limit_value)
+function Icor_planner_custom_value(opt, spot, assume)
+    local min_value, max_value = Icor_planner_top_range(opt, spot)
+    if max_value <= 0 then
+        return 0, max_value
+    end
+    if assume == "limit" then
+        return Icor_planner_limit_value(max_value), max_value
+    elseif assume == "max" then
+        return max_value, max_value
+    elseif assume == "min" then
+        return min_value, max_value
+    end
+    return math.floor((min_value + max_value) / 2), max_value
+end
+
+-- 組んだイコルで slot_name を差し替える。opts はオプション名の並び("None" は空き枠)、
+-- assumes は枠ごとの値の見込み(opts と同じ添字。無ければ平均)。
+-- 同じオプションは 1 つのイコルに 1 つまで(素の is_valid_reroll_option)なので、重なりは後ろを捨てる。
+-- 戻り値は載せたオプションの数(0 なら差し替えない)
+function Icor_planner_trial_set_custom(slot_name, spot, opts, assumes)
+    local options, seen = {}, {}
+    local custom_opts, custom_assumes = {}, {}
+    local lv = nil
+    -- 空き枠を挟んでも後ろの枠を読むよう、ipairs ではなく添字で回す
+    local count = 0
+    for i in pairs(opts or {}) do
+        count = math.max(count, i)
+    end
+    for i = 1, count do
+        local opt = opts[i]
+        local assume = (assumes or {})[i] or "avg"
+        if opt ~= nil and opt ~= "None" and not seen[opt] then
+            seen[opt] = true
+            local value, max_value = Icor_planner_custom_value(opt, spot, assume)
+            if value > 0 then
+                local _, _, top_lv = Icor_planner_top_range(opt, spot)
+                lv = lv or top_lv
+                options[#options + 1] = {
+                    opt = opt,
+                    value = value,
+                    group = Icor_planner_group_of(opt),
+                    max = max_value,
+                    state = Icor_planner_value_state(value, max_value)
+                }
+                custom_opts[#custom_opts + 1] = opt
+                custom_assumes[#custom_assumes + 1] = assume
+            end
+        end
+    end
+    if #options == 0 then
+        return 0
+    end
+    Icor_planner_trial_swaps()[slot_name] = {
+        source = "custom",
+        name = g.lang == "Japanese" and "自分で組んだイコル" or "Custom icor",
+        lv = lv or 0,
+        spot = spot,
+        options = options,
+        base_options = options,
+        custom = {
+            opts = custom_opts,
+            assumes = custom_assumes
+        }
+    }
+    local parts = {}
+    for i, op in ipairs(options) do
+        parts[#parts + 1] = string.format("%s=%d(%s)", op.opt, op.value, custom_assumes[i])
+    end
+    g.vlog("icor_planner: 試算 %s <- 自分で組んだイコル %s (Lv%s)", tostring(slot_name), table.concat(parts, ","),
+        tostring(lv))
+    return #options
+end
+
 -- 差し替えた姿で診断する。**試算の印は必ず戻す**(失敗しても、以降の診断が差し替え後のままになる)
 function Icor_planner_diagnose_trial()
     g.icor_planner_trial_on = true
@@ -865,6 +968,57 @@ function Icor_planner_option_name(opt)
     return opt
 end
 
+-- 幅の狭いところ(試算タブの候補と差し替えの行、マーケットのパネルのセット)で使う略語。
+-- 正式名では 4 つ並べると 1 行に収まらず、縮めると読めない大きさになった(実機で指摘された)。
+-- **表示名ではなく内部名から引く**(表示名は訳や表記の揺れで変わる)。
+-- 素材は 1 文字(布・皮・鎧・霊)にし、攻撃と相殺を「皮攻撃 / 皮相殺」の形でそろえる。
+-- 表に無いもの(主ステなど元から短いもの・新しく増えたもの)は正式名のまま
+g.icor_planner_short_names = {
+    AllMaterialType_Atk = "全防具",
+    AllRace_Atk = "全種族",
+    Add_Damage_Atk = "追ダメ",
+    perfection = "パフェ",
+    revenge = "復讐",
+    ADD_CLOTH = "布攻撃",
+    ADD_LEATHER = "皮攻撃",
+    ADD_IRON = "鎧攻撃",
+    ADD_GHOST = "霊攻撃",
+    ADD_SMALLSIZE = "小型攻撃",
+    ADD_MIDDLESIZE = "中型攻撃",
+    ADD_LARGESIZE = "大型攻撃",
+    ADD_FORESTER = "植物攻撃",
+    ADD_WIDLING = "野獣攻撃",
+    ADD_VELIAS = "悪魔攻撃",
+    ADD_PARAMUNE = "変異攻撃",
+    ADD_KLAIDA = "昆虫攻撃",
+    Cloth_Def = "布相殺",
+    Leather_Def = "皮相殺",
+    Iron_Def = "鎧相殺",
+    MiddleSize_Def = "中型相殺",
+    ResAdd_Damage = "追ダメ抵",
+    stun_res = "スタン抵",
+    high_fire_res = "火抵",
+    high_freezing_res = "氷抵",
+    high_lighting_res = "雷抵",
+    high_poison_res = "毒抵",
+    high_laceration_res = "裂傷抵",
+    portion_expansion = "ポーション",
+    CRTHR = "クリ発",
+    CRTDR = "クリ抵",
+    BLK = "ブロ",
+    BLK_BREAK = "ブロ貫",
+    RHP = "HP回復"
+}
+
+function Icor_planner_option_short(opt)
+    local settings = g.icor_planner_settings
+    local on = settings == nil or settings.short_names ~= 0
+    if on and g.lang == "Japanese" and g.icor_planner_short_names[opt] then
+        return g.icor_planner_short_names[opt]
+    end
+    return Icor_planner_option_name(opt)
+end
+
 -- 突破(最大値を超えた値)の閾値。素の DRAW_EQUIP_GODDESS_ICOR と同じ式で、
 -- market_favorite_rebuild の紫表示もこれを使っている。**== で見ないこと**
 -- (段によって突破の値がちょうど閾値にならない)。
@@ -873,6 +1027,17 @@ function Icor_planner_break_limit(max_value)
         return 0
     end
     return math.floor(max_value * 1.5) - 1
+end
+
+-- 限凸で実際に付く値 = floor(最大値 × 1.5)。**突破の閾値(上の - 1)とは別物。**
+-- 閾値は素が紫にする「これ以上なら限凸」の線で、付く値そのものではない
+-- (Lv560 武器のパーフェクト: 最大 14,040 → 付く値 21,060。閾値の 21,059 を入れていた。実機で指摘された。
+--  防具の全種族 3,296 → 4,944 / クリ発 1,933 → 2,899 と、切り捨てであることも実物で確かめた)
+function Icor_planner_limit_value(max_value)
+    if not max_value or max_value <= 0 then
+        return 0
+    end
+    return math.floor(max_value * 1.5)
 end
 
 -- 値がどの段階にあるか。market_favorite_rebuild の色分けと基準を揃える
@@ -974,6 +1139,10 @@ function Icor_planner_read_slot(slot_info)
         entry.real_options = entry.options
         entry.options = swap.options
         entry.swapped = swap
+        -- **元が「更新するイコル」だったことは残す。** 差し替えた部位は計算に入れるが、
+        -- 数え方(更新するイコルを組む / 今の装備に足す)まで入れ替わると、差し替えの前後で
+        -- 別の物差しの数を比べることになる(手袋を差し替えたら あと 1 → 7 と出た。実機で指摘された)
+        entry.was_excluded = entry.excluded
         entry.excluded = false
     end
     return entry
@@ -1571,11 +1740,10 @@ function Icor_planner_recommend(diag, scan, assumption)
         Weapon = {},
         Armor = {}
     }
-    local update_mode = false
+    local update_mode = Icor_planner_update_mode(scan)
     for _, entry in ipairs(scan.slots) do
         if entry.equipped and entry.excluded and update_pairs[entry.spot] then
             update_pairs[entry.spot][string.gsub(entry.slot_name, "_SUB$", "")] = true
-            update_mode = true
         end
     end
     local types = {}
@@ -1767,6 +1935,290 @@ function Icor_planner_recommend(diag, scan, assumption)
         slot_unmet = slot_unmet,
         by_opt = by_opt,
         update_mode = update_mode,
+        slot_min = slot_min,
+        total_opts = total_opts,
+        assumption = assumption
+    }
+end
+
+-- 「更新するイコル」を組む数え方か。目標タブで選んだ部位があれば true。
+-- **試算で差し替えた部位も、元が更新するイコルなら数える**(entry.was_excluded)。
+-- 差し替えた部位は更新する枠には入らないので、全部差し替えれば更新する枠 0 個の組み方になり、
+-- 目標に届いていれば 0 個、届かなければ「届かない」と出る
+function Icor_planner_update_mode(scan)
+    for _, entry in ipairs(scan.slots) do
+        if entry.equipped and (entry.excluded or entry.was_excluded) then
+            return true
+        end
+    end
+    return false
+end
+
+-- 「あとオプション N 個」の数え方を選ぶ。診断の見出し・目標の一覧・試算の比較はすべてここを通す。
+--   更新するイコルあり … その部位に何を載せるか(Icor_planner_recommend)
+--   無し               … 今の装備を残したまま、どこを変えれば届くか(Icor_planner_plan_keep)
+function Icor_planner_plan(diag, scan, assumption)
+    -- **どちらの数え方になったかと、その決め手を残す。** 試算の差し替えで数え方が入れ替わる
+    -- 不具合(1 → 7)を直したので、実機で期待した分岐を通っているかを verbose_log.txt で確かめられるように
+    -- する(更新する = excluded / 差し替えた元が更新する = was_excluded)
+    local marks = {}
+    for _, entry in ipairs(scan.slots) do
+        if entry.equipped and (entry.excluded or entry.was_excluded) then
+            marks[#marks + 1] = string.format("%s(%s)", entry.slot_name, entry.excluded and "excluded" or "was_excluded")
+        end
+    end
+    g.vlog("icor_planner: 数え方 %s (%s) 決め手: %s", Icor_planner_update_mode(scan) and "更新するイコル" or
+        "今の装備に足す", tostring(assumption), #marks > 0 and table.concat(marks, " / ") or "無し")
+    if Icor_planner_update_mode(scan) then
+        return Icor_planner_recommend(diag, scan, assumption)
+    end
+    return Icor_planner_plan_keep(diag, scan, assumption)
+end
+
+-- ===== 今の装備に足す形で数える =====
+--
+-- 「更新するイコル」を選んでいないときの「あとオプション」。**今のイコルを残したまま**、
+-- 足りない分を埋めるには何枠を変えればよいかを数える。
+-- 以前は理想の形(Icor_planner_recommend)との差を数えていたので、目標にほぼ届いていても
+-- 載せ方が理想と違うだけで数が膨らんだ(レザー相殺だけ 1,104 足りないのに 7 個と出た。実機で指摘された)。
+--
+-- 変えてよい枠は次の 2 つだけ。
+--   * 空いている枠
+--   * 目標に無いオプションの枠(外しても目標は減らない)
+-- 目標にあるオプションは外さない。値が見込みより低ければ、その枠の値を上げる(これも 1 個と数える)。
+-- **部位は 1 か所ずつ数える。** 持ち替え側(セット 2)も別のイコルなので、変えるなら別の 1 個になる。
+-- 戻り値は Icor_planner_recommend と同じ形(updates / by_opt / unmet / slot_unmet)に、
+-- どこを何に変えるか(moves)を足したもの
+function Icor_planner_plan_keep(diag, scan, assumption)
+    local per_icor = diag.max_option_count or 4
+    -- 目標にあるオプション(外さない)
+    local wanted = {}
+    for _, row in ipairs(diag.rows or {}) do
+        if (row.target or 0) > 0 then
+            wanted[row.opt] = true
+        end
+    end
+    for _, row in ipairs(diag.slot_rows or {}) do
+        wanted[row.opt] = true
+    end
+    -- **「全ての〜」でつながるオプションも外さない。** 今の値は「全ての〜」を足される先の項目
+    -- (Icor_planner_current / g.icor_planner_all_members)から読むので、目標に無いオプションでも
+    -- 目標の今の値を支えていることがある(目標が 全ての防具の材質 で、枠が クロース対象攻撃力、またはその逆)。
+    -- 外すと目標が下がるのに、置いた側の増分だけを数えて少なく見積もってしまう
+    local wanted_attr = {}
+    for opt in pairs(wanted) do
+        wanted_attr[Icor_planner_status_attr_of(opt)] = true
+    end
+    local function supports(opt)
+        if wanted[opt] then
+            return true
+        end
+        local attr = Icor_planner_status_attr_of(opt)
+        if wanted_attr[attr] then
+            return true
+        end
+        for all_attr, members in pairs(g.icor_planner_all_members) do
+            local has_attr, has_wanted = attr == all_attr, wanted_attr[all_attr] == true
+            for _, member in ipairs(members) do
+                if member == attr then
+                    has_attr = true
+                end
+                if wanted_attr[member] then
+                    has_wanted = true
+                end
+            end
+            -- 同じ「全ての〜」の輪の中で、片方が目標・片方がこの枠
+            if has_attr and has_wanted and (attr == all_attr or wanted_attr[all_attr]) then
+                return true
+            end
+        end
+        return false
+    end
+    local units, by_index = {}, {}
+    for i, entry in ipairs(scan.slots) do
+        if entry.equipped and (entry.spot == "Weapon" or entry.spot == "Armor") then
+            local unit = {
+                index = i,
+                slot_name = entry.slot_name,
+                spot = entry.spot,
+                values = {},
+                -- 外してよい枠(目標に無いオプション)。値の小さいものから使う
+                spare = {},
+                empty = per_icor
+            }
+            for _, op in ipairs(entry.excluded and {} or entry.options) do
+                unit.values[op.opt] = (unit.values[op.opt] or 0) + op.value
+                unit.empty = unit.empty - 1
+                if not supports(op.opt) then
+                    unit.spare[#unit.spare + 1] = op
+                end
+            end
+            unit.empty = math.max(0, unit.empty)
+            table.sort(unit.spare, function(a, b)
+                if a.value ~= b.value then
+                    return a.value < b.value
+                end
+                return a.opt < b.opt
+            end)
+            units[#units + 1] = unit
+            by_index[i] = unit
+        end
+    end
+    local moves, by_opt, placed = {}, {}, {}
+    local function can_add(unit, opt)
+        return unit.values[opt] == nil and (unit.empty > 0 or #unit.spare > 0) and Icor_planner_spot_can(opt, unit.spot)
+    end
+    -- unit の opt を value にする。戻り値はキャラの合計がいくつ増えるか
+    local function change(unit, opt, value)
+        local old = unit.values[opt]
+        local from = nil
+        if old == nil then
+            if unit.empty > 0 then
+                unit.empty = unit.empty - 1
+            else
+                from = table.remove(unit.spare, 1)
+            end
+        end
+        unit.values[opt] = value
+        moves[#moves + 1] = {
+            index = unit.index,
+            slot_name = unit.slot_name,
+            spot = unit.spot,
+            opt = opt,
+            value = value,
+            old = old,
+            from = from
+        }
+        local o = by_opt[opt] or {
+            count = 0,
+            updates = 0
+        }
+        o.count = o.count + 1
+        o.updates = o.updates + 1
+        by_opt[opt] = o
+        local delta = value - (old or 0)
+        placed[opt] = (placed[opt] or 0) + delta
+        return delta
+    end
+    -- (1) 各部位の目標。載っていない(値が足りない)部位へ置く。
+    -- 同じオプションが既に載っている部位(値を上げるだけで済む)を先に使う
+    local slot_unmet, slot_min = {}, {}
+    for _, row in ipairs(diag.slot_rows or {}) do
+        if (row.min_value or 0) > (slot_min[row.opt] or 0) then
+            slot_min[row.opt] = row.min_value
+        end
+        local need = math.max(0, (row.want or 0) - (row.have or 0))
+        local done = {}
+        while need > 0 do
+            local best, best_rank = nil, nil
+            for i, info in pairs(row.slots or {}) do
+                local unit = by_index[i]
+                if unit ~= nil and not info.ok and not done[i] then
+                    local rank = nil
+                    if unit.values[row.opt] ~= nil then
+                        rank = 1
+                    elseif can_add(unit, row.opt) then
+                        rank = 2
+                    end
+                    if rank ~= nil and (best == nil or rank < best_rank or (rank == best_rank and i < best.index)) then
+                        best, best_rank = unit, rank
+                    end
+                end
+            end
+            if best == nil then
+                break
+            end
+            local value = math.max(Icor_planner_assumed_value(row.opt, best.spot, assumption), row.min_value or 0)
+            change(best, row.opt, value)
+            done[best.index] = true
+            need = need - 1
+        end
+        if need > 0 then
+            slot_unmet[row.opt] = (slot_unmet[row.opt] or 0) + need
+        end
+    end
+    -- (2) 合計の目標。不足を、1 枠で一番多く埋まるところから埋める。
+    -- 同じだけ埋まるなら、枠を使わない方(値を上げるだけ)を採る
+    local needs, allowed, order = {}, {}, {}
+    for _, row in ipairs(diag.rows or {}) do
+        if (row.target or 0) > 0 then
+            if needs[row.opt] == nil then
+                order[#order + 1] = row.opt
+                needs[row.opt] = 0
+                allowed[row.opt] = {}
+            end
+            needs[row.opt] = math.max(needs[row.opt], row.short or 0)
+            if row.spot == "Weapon" or row.spot == "Armor" then
+                allowed[row.opt][row.spot] = true
+            else
+                allowed[row.opt].Weapon = true
+                allowed[row.opt].Armor = true
+            end
+        end
+    end
+    for _, opt in ipairs(order) do
+        needs[opt] = needs[opt] - (placed[opt] or 0)
+    end
+    while true do
+        local best_opt, best_unit, best_value, best_gain, best_cost = nil, nil, 0, 0, 0
+        for _, opt in ipairs(order) do
+            if needs[opt] > 0 then
+                for _, unit in ipairs(units) do
+                    if allowed[opt][unit.spot] and Icor_planner_spot_can(opt, unit.spot) then
+                        local value = Icor_planner_assumed_value(opt, unit.spot, assumption)
+                        local gain, cost = 0, nil
+                        if unit.values[opt] ~= nil then
+                            gain, cost = value - unit.values[opt], 0
+                        elseif can_add(unit, opt) then
+                            gain, cost = value, 1
+                        end
+                        gain = math.min(needs[opt], gain)
+                        if cost ~= nil and gain > 0 and
+                            (gain > best_gain or (gain == best_gain and cost < best_cost)) then
+                            best_opt, best_unit, best_value, best_gain, best_cost = opt, unit, value, gain, cost
+                        end
+                    end
+                end
+            end
+        end
+        if best_opt == nil then
+            break
+        end
+        needs[best_opt] = needs[best_opt] - change(best_unit, best_opt, best_value)
+    end
+    local unmet, unmet_by_opt, total_opts = {}, {}, {}
+    for _, opt in ipairs(order) do
+        total_opts[opt] = true
+        if needs[opt] > 0 then
+            unmet[#unmet + 1] = {
+                opt = opt,
+                short = needs[opt]
+            }
+            unmet_by_opt[opt] = needs[opt]
+        end
+    end
+    -- 部位の並び(メイン武器1 → … → サブ武器2)で出す
+    table.sort(moves, function(a, b)
+        if a.index ~= b.index then
+            return a.index < b.index
+        end
+        return Icor_planner_order_of(a.opt) < Icor_planner_order_of(b.opt)
+    end)
+    local slot_unmet_count = 0
+    for _ in pairs(slot_unmet) do
+        slot_unmet_count = slot_unmet_count + 1
+    end
+    g.vlog("icor_planner: 今の装備に足す形(%s) 変える枠 %d / 届かない %d 件 / 置ききれない部位目標 %d 件",
+        tostring(assumption), #moves, #unmet, slot_unmet_count)
+    return {
+        keep = true,
+        update_mode = false,
+        updates = #moves,
+        moves = moves,
+        by_opt = by_opt,
+        unmet = unmet,
+        unmet_by_opt = unmet_by_opt,
+        slot_unmet = slot_unmet,
         slot_min = slot_min,
         total_opts = total_opts,
         assumption = assumption

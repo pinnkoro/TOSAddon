@@ -141,6 +141,15 @@ function Icor_planner_market_open()
     open_btn:SetSkinName("test_pvp_btn")
     open_btn:SetText(g.lang == "Japanese" and "{ol}{s15}診断を開く" or "{ol}{s15}Open planner")
     open_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_open")
+    -- 略語の ON / OFF(試算タブの上と同じ設定)。「診断を開く」の下
+    if g.lang == "Japanese" then
+        local short_btn = big_bg:CreateOrGetControl("button", "short_btn", 130, 26, ui.LEFT, ui.TOP, 270, 72, 0, 0)
+        AUTO_CAST(short_btn)
+        short_btn:SetTextTooltip(
+            "{ol}セットの行のオプション名を略語(クリ発 / パフェ / 皮相殺 など)で出すか{nl}OFF にすると正式名で出します{nl}試算タブの上のボタンと同じ設定です")
+        short_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_toggle_short_names")
+        Icor_planner_market_short_btn_look(short_btn)
+    end
     local sort_drop = big_bg:CreateOrGetControl("droplist", "sort_drop", 250, 26, ui.LEFT, ui.TOP, 10, 72, 0, 0)
     AUTO_CAST(sort_drop)
     sort_drop:SetSkinName("droplist_normal")
@@ -162,6 +171,13 @@ function Icor_planner_market_open()
     -- ここで ESC を横取りすると本来閉じるべき market が開いたまま残る(CLAUDE.md)
     g.icor_planner_market_sig = nil
     Icor_planner_market_fill()
+end
+
+-- 略語ボタンの見た目を今の設定に合わせる(ON = 黄色)
+function Icor_planner_market_short_btn_look(btn)
+    local on = g.icor_planner_settings.short_names ~= 0
+    btn:SetSkinName(on and "baseyellow_btn" or "test_pvp_btn")
+    btn:SetText(on and "{ol}{s15}略語 ON" or "{ol}{s15}略語 OFF")
 end
 
 -- ===== 素の一覧の行を目立たせる =====
@@ -369,7 +385,8 @@ function Icor_planner_market_fill()
                           "{ol}{s15}{#FFA500}No target set")
         return
     end
-    local y_sets = Icor_planner_fill_set_buttons(list, diag, diag_scan)
+    local y_custom = Icor_planner_fill_custom_buttons(list, 6)
+    local y_sets = Icor_planner_fill_set_buttons(list, diag, diag_scan, y_custom)
     local y0 = Icor_planner_fill_search_buttons(list, diag, y_sets)
     local rows, unappraised = Icor_planner_market_rows(diag)
     local mark2, spent2 = Icor_planner_market_elapsed(mark)
@@ -586,14 +603,15 @@ end
 -- 診断タブの「オススメのイコル構成」のイコル 1 個ぶんのセットを、マーケットの条件検索へ
 -- **まとめて**入れる(カテゴリ「特殊装備強化素材」と、武器 / 防具のサブカテゴリも選ぶ)。
 -- 下限は 最低 / 平均 の 2 通りから選べる(Icor_planner_set_min)。
-function Icor_planner_fill_set_buttons(list, diag, scan)
+function Icor_planner_fill_set_buttons(list, diag, scan, base_y)
     local jp = g.lang == "Japanese"
+    base_y = base_y or 6
     g.icor_planner_market_sets = {}
     if scan == nil then
-        return 6
+        return base_y
     end
     local avg = Icor_planner_recommend(diag, scan, "avg")
-    local y = 6
+    local y = base_y
     local any = false
     for _, spot in ipairs({"Weapon", "Armor"}) do
         for k, set in ipairs(avg.types[spot].sets or {}) do
@@ -626,7 +644,7 @@ function Icor_planner_fill_set_buttons(list, diag, scan)
             local names = {}
             for _, opt in ipairs(set.opts) do
                 names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(opt)] or "{#FFFFFF}") ..
-                                        Icor_planner_option_name(opt)
+                                        Icor_planner_option_short(opt)
             end
             local row_y = y
             local next_y = Icor_planner_flow(list, "set_text_" .. idx, 14, y + 4, list:GetWidth() - 160,
@@ -651,21 +669,39 @@ function Icor_planner_fill_set_buttons(list, diag, scan)
             y = math.max(next_y, row_y + 28) + 4
         end
     end
-    return any and (y + 8) or 6
+    return any and (y + 8) or base_y
 end
 
 function Icor_planner_market_search_set(parent, ctrl, key, idx)
     local set = g.icor_planner_market_sets and g.icor_planner_market_sets[idx]
-    local market = ui.GetFrame("market")
-    if set == nil or market == nil then
+    if set == nil then
         return
     end
-    -- **カテゴリから開き直して条件欄を空にする。** セットは 1 個のイコルの中身なので、
-    -- 前に入れた条件が残っていると別の組み合わせで探してしまう
+    local conds = {}
+    for _, opt in ipairs(set.opts) do
+        conds[#conds + 1] = {
+            opt = opt,
+            min_value = set.mins[key][opt] or 0
+        }
+    end
+    g.vlog("icor_planner: セットで探す %s (%s)", tostring(set.spot), tostring(key))
+    Icor_planner_market_search_conditions(set.spot, conds)
+end
+
+-- イコル 1 個ぶんの条件(conds = {{opt, min_value}, ...})で検索する。
+-- セットで探す(マーケットのパネル)と、試算で組んだイコルで探す(診断ウィンドウ)が共用する。
+-- **カテゴリから開き直して条件欄を空にする。** 1 個のイコルの中身なので、
+-- 前に入れた条件が残っていると別の組み合わせで探してしまう
+function Icor_planner_market_search_conditions(spot, conds)
+    local market = ui.GetFrame("market")
+    if market == nil or market:IsVisible() ~= 1 then
+        ui.SysMsg(g.lang == "Japanese" and "{ol}マーケットを開いてから押してください" or "{ol}Open the market first")
+        return
+    end
     local ok_open = pcall(function()
         local category_set = GET_CHILD_RECURSIVELY(market, "CATEGORY_OPTMisc")
         MARKET_CATEGORY_CLICK(category_set, GET_CHILD(category_set, "bgBox"), false, true)
-        local sub = GET_CHILD_RECURSIVELY(market, "SUB_CATE_" .. (set.spot == "Weapon" and "GoddessIcorWeapon" or
+        local sub = GET_CHILD_RECURSIVELY(market, "SUB_CATE_" .. (spot == "Weapon" and "GoddessIcorWeapon" or
             "GoddessIcorArmor"))
         if sub ~= nil then
             MARKET_SUB_CATEOGRY_CLICK(sub:GetParent(), sub, false)
@@ -677,15 +713,60 @@ function Icor_planner_market_search_set(parent, ctrl, key, idx)
         return
     end
     local count = 0
-    for _, opt in ipairs(set.opts) do
-        if Icor_planner_market_add_condition(option_group_set, opt, set.mins[key][opt] or 0) then
+    for _, cond in ipairs(conds) do
+        if Icor_planner_market_add_condition(option_group_set, cond.opt, cond.min_value or 0) then
             count = count + 1
         end
     end
-    g.vlog("icor_planner: セットの条件を入れた %s %d/%d 件 (%s)", tostring(set.spot), count, #set.opts, tostring(key))
+    g.vlog("icor_planner: イコル 1 個ぶんの条件を入れた %s %d/%d 件", tostring(spot), count, #conds)
     if count > 0 then
         Icor_planner_market_search_now(market)
     end
+end
+
+-- 試算で組んだイコル(自分で組む)を、パネルの一番上に「探す」ボタン付きで並べる。
+-- 診断ウィンドウを開き直さなくても、マーケットを見ながら同じ条件で探せるようにする。
+-- 戻り値は次に描き始める y
+function Icor_planner_fill_custom_buttons(list, base_y)
+    local jp = g.lang == "Japanese"
+    local swaps = Icor_planner_trial_swaps()
+    local y = base_y
+    local any = false
+    for _, slot_info in ipairs(g.icor_planner_slots) do
+        local swap = swaps[slot_info.slot_name]
+        if swap ~= nil and swap.source == "custom" then
+            if not any then
+                local title = list:CreateOrGetControl("richtext", "custom_title", 10, y, 0, 0)
+                AUTO_CAST(title)
+                title:SetText(jp and "{ol}{s15}{#FFD700}試算で組んだイコルで探す{#AAAAAA}(押すとまとめて検索します)" or
+                                  "{ol}{s15}{#FFD700}Search by your custom icor")
+                y = y + 22
+                any = true
+            end
+            local names, tips = {}, {}
+            for _, op in ipairs(swap.options) do
+                names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}") ..
+                                        Icor_planner_option_short(op.opt)
+                tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt),
+                    GET_COMMAED_STRING(op.value))
+            end
+            local label = (jp and g.icor_planner_exclude_labels[slot_info.slot_name]) or ClMsg(slot_info.clmsg)
+            local row_y = y
+            local next_y = Icor_planner_flow(list, "custom_text_" .. slot_info.slot_name, 14, y + 4,
+                list:GetWidth() - 100, string.format("{#00FFFF}%s :", label), names, "{ol}{s14}", 22)
+            local btn = list:CreateOrGetControl("button", "custom_btn_" .. slot_info.slot_name, 56, 24, ui.LEFT,
+                ui.TOP, list:GetWidth() - 90, row_y, 0, 0)
+            AUTO_CAST(btn)
+            btn:SetSkinName("test_pvp_btn")
+            btn:SetText(jp and "{ol}{s13}探す" or "{ol}{s13}Search")
+            btn:SetTextTooltip("{ol}" .. (jp and "この条件でまとめて検索します(今の条件は消えます){nl}" or "") ..
+                                   table.concat(tips, "{nl}"))
+            btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_search_custom")
+            btn:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+            y = math.max(next_y, row_y + 28) + 4
+        end
+    end
+    return any and (y + 8) or base_y
 end
 
 -- 今マーケットに出ている一覧からイコルだけを拾って評価する。

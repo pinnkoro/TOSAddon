@@ -161,6 +161,11 @@ jobs:
       - name: vakarine_equip の設定テスト
         run: luajit docs/tests/test_vakarine_equip.lua
 
+      # Icor Planner の「あとオプション N 個」。数が出るだけなので、間違っていても画面からは
+      # 気付きにくい（理想の形との差を数えて 1 個のはずが 7 個と出た / 試算で数え方が入れ替わった）。
+      - name: icor_planner の数え方テスト
+        run: luajit docs/tests/test_icor_planner_plan.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。
