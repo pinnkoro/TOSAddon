@@ -198,6 +198,12 @@ function g.update_paths()
         active_id)
     g.buffs_backup_json_path = string.format("../addons/%s/%s/mini_addons_buffs_backup.json", core_addon_name_lower,
         active_id)
+    -- ボスレランキングの取得結果(weekly_boss/ranking.lua)。以前は個別版と同じく
+    -- ../addons/mini_addons_p/log.dat に置いていたが、そのフォルダを作る処理は同梱時に
+    -- 消していたので、**開発者の PC 以外では保存が黙って失敗していた**(io.open は
+    -- フォルダを作らない)。まとめ版が必ず作る AID フォルダへ移した。
+    -- 旧パスと個別版からの引き継ぎは Mini_addons_migrate_boss_rank_log。
+    g.boss_rank_log_path = string.format("../addons/%s/%s/mini_addons_log.dat", core_addon_name_lower, active_id)
     -- AID を取り違えると設定が別フォルダに作られて「設定が消えた」ように見えるので、
     -- 確定した保存先を残す。ON_INIT はマップ移動のたびに走るので、変わったときだけ出す。
     -- 印は出力できたときだけ立てる(core の g.vlog のコメント参照)。先に立てると

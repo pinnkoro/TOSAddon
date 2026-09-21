@@ -586,6 +586,10 @@ g._nexus_addons_p = {{
     -- ここで自分自身を誤検出することはない。
     key = "mini_addons",
     category = "misc",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    updated = g.VER_NEXT,
+    updated_note_jp = "週間ボスレイドのランキング取得で、「保存しました」と出るのに表示すると「未取得です」と言われ、データが保存されていなかったのを直しました。保存先を設定と同じフォルダへ移し、個別版 Mini Addons で取得したデータも引き継ぎます。data ボタンのメニューを見やすくし、4週より古いデータを自動で削除する切り替え(既定は OFF)を足しました",
+    updated_note_en = "Fixed weekly boss raid ranking data not actually being saved (it said \"saved\", but showing the ranking said it had not been acquired). The data now lives next to the settings, and data acquired with the standalone Mini Addons is carried over. The data button menu is easier to read and has a toggle to auto-delete data older than 4 weeks (off by default)",
     data = {
         use = 0,
         name = "Mini Addons",
