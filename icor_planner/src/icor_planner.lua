@@ -663,10 +663,19 @@ function Icor_planner_trial_save()
     local cid = tostring(g.cid)
     settings.trial_swaps = settings.trial_swaps or {}
     local swaps = Icor_planner_trial_swaps()
+    -- **どちらの分岐を通ったかと中身を残す。** 「再起動したら差し替えが消えた / 残っている」と
+    -- 言われたとき、保存したのか消したのか、どの部位を控えたのかを verbose_log.txt から追える
+    local parts = {}
+    for slot_name, swap in pairs(swaps) do
+        parts[#parts + 1] = string.format("%s(%s)", tostring(slot_name), tostring(swap.source))
+    end
+    table.sort(parts)
     if next(swaps) == nil then
         settings.trial_swaps[cid] = nil
+        g.vlog("icor_planner: 試算の差し替えの保存を消した (cid %s)", cid)
     else
         settings.trial_swaps[cid] = swaps
+        g.vlog("icor_planner: 試算の差し替えを保存した (cid %s) %s", cid, table.concat(parts, " / "))
     end
     Icor_planner_save_settings()
 end
