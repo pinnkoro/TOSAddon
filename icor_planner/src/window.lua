@@ -438,6 +438,9 @@ function Icor_planner_trial_apply(parent, ctrl, arg_str, index)
     Icor_planner_trial_save()
     g.vlog("icor_planner: 試算 %s <- [Lv%d] %s (%s)", tostring(slot), row.lv, tostring(row.name), row.source)
     Icor_planner_build_tab()
+    -- マーケットから試したイコルは評価パネルの「試算のイコルで探す」にも並ぶ。
+    -- パネルは出品一覧が入れ替わったときしか組み直さないので、ここで組み直す
+    Icor_planner_refresh_market_customs()
 end
 
 function Icor_planner_trial_remove(parent, ctrl, slot_name)
@@ -617,6 +620,8 @@ function Icor_planner_trial_pending_apply()
     g.icor_planner_trial_pending = nil
     g.icor_planner_trial_edit = nil
     Icor_planner_build_tab()
+    -- リロールでオプションが変わるので、評価パネルの「試算のイコルで探す」の行も組み直す
+    Icor_planner_refresh_market_customs()
 end
 
 function Icor_planner_trial_pending_cancel()
