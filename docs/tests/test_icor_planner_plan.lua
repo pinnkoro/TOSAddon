@@ -362,6 +362,14 @@ do
     check("同じ輪の兄弟(レザー)はクロースを支えないので外してよい", removed.ADD_LEATHER, true)
 end
 
+-- 試算の差し替えは設定(icor_planner.json)へ保存する。ファイルには書かず、書いた回数だけ数える
+g.cid = 1001
+g.icor_planner_settings = {}
+local saved_count = 0
+function Icor_planner_save_settings()
+    saved_count = saved_count + 1
+end
+
 print("[7] 自分で組むイコルは枠ごとに値を決める(一部だけ限凸)")
 do
     -- 一番上の段の範囲(Lv560 の武器イコル相当)
@@ -400,6 +408,51 @@ do
     check("防具のクリ発(最大 1,933)の限凸は切り捨て", Icor_planner_limit_value(1933), 2899)
     check("見込みを指定しなければ平均", Icor_planner_trial_set_custom("LH", "Weapon", {"STR"}, nil) and
         Icor_planner_trial_swaps().LH.options[1].value, 686)
+end
+
+print("[8] 試算の差し替えは保存して、次に開いたときに読み込む")
+do
+    -- [7] で RH / LH に組んだイコルが入っている
+    local before = saved_count
+    Icor_planner_trial_set_custom("SHIRT", "Armor", {"STR"}, {"max"})
+    check("差し替えたら保存する", saved_count > before, true)
+    local stored = g.icor_planner_settings.trial_swaps[tostring(g.cid)]
+    check("キャラごとに控える", stored ~= nil and stored.SHIRT ~= nil, true)
+    -- 再起動 = 溜め込みが無い状態から読み直す(JSON を通ったのと同じく、別の表として読ませる)
+    local copy = {}
+    for slot_name, swap in pairs(stored) do
+        local c = {}
+        for k, v in pairs(swap) do
+            c[k] = v
+        end
+        c.options = {}
+        for i, op in ipairs(swap.options) do
+            c.options[i] = op
+        end
+        c.base_options = {}
+        for i, op in ipairs(swap.options) do
+            c.base_options[i] = op
+        end
+        copy[slot_name] = c
+    end
+    g.icor_planner_settings.trial_swaps[tostring(g.cid)] = copy
+    g.icor_planner_trial = nil
+    local swaps = Icor_planner_trial_swaps()
+    check("読み込んだ", swaps.SHIRT and swaps.SHIRT.source, "custom")
+    check("値も戻る", swaps.SHIRT and swaps.SHIRT.options[1].value, 722)
+    check("リロールしていなければ options と base_options は同じ表に戻す",
+        swaps.SHIRT and swaps.SHIRT.base_options == swaps.SHIRT.options, true)
+    -- 別のキャラでは読み込まない
+    g.cid = 2002
+    check("別のキャラには出ない", next(Icor_planner_trial_swaps()), nil)
+    g.cid = 1001
+    check("元のキャラに戻れば出る", Icor_planner_trial_swaps().SHIRT ~= nil, true)
+    -- 全部戻したら、そのキャラの控えも消す
+    for k in pairs(Icor_planner_trial_swaps()) do
+        Icor_planner_trial_swaps()[k] = nil
+    end
+    Icor_planner_trial_save()
+    check("空なら控えを消す", g.icor_planner_settings.trial_swaps[tostring(g.cid)], nil)
 end
 
 if failed > 0 then

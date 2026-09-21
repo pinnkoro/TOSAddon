@@ -223,7 +223,8 @@ g.icor_planner_scroll_boxes = {"cand", "targets", "list", "trial_cand", "trial_r
 -- ===== 試算タブ =====
 --
 -- 「この部位のイコルを、インベントリ / マーケットのこのイコルに替えたら」を見る。
--- 差し替えは重ねられる(上半身と手袋を両方替えたら、まで見られる)。保存はしない。
+-- 差し替えは重ねられる(上半身と手袋を両方替えたら、まで見られる)。
+-- 差し替えはキャラごとに保存し、次に開いたときに読み込む(Icor_planner_trial_swaps)。
 g.icor_planner_trial_slot = g.icor_planner_trial_slot or nil
 
 function Icor_planner_build_trial(bg)
@@ -434,12 +435,14 @@ function Icor_planner_trial_apply(parent, ctrl, arg_str, index)
     swap.base_options = row.options
     swap.reroll = nil
     Icor_planner_trial_swaps()[slot] = swap
+    Icor_planner_trial_save()
     g.vlog("icor_planner: 試算 %s <- [Lv%d] %s (%s)", tostring(slot), row.lv, tostring(row.name), row.source)
     Icor_planner_build_tab()
 end
 
 function Icor_planner_trial_remove(parent, ctrl, slot_name)
     Icor_planner_trial_swaps()[slot_name] = nil
+    Icor_planner_trial_save()
     if g.icor_planner_trial_edit == slot_name then
         g.icor_planner_trial_edit = nil
     end
@@ -624,8 +627,10 @@ end
 
 function Icor_planner_trial_reset()
     g.icor_planner_trial = {
+        cid = tostring(g.cid),
         swaps = {}
     }
+    Icor_planner_trial_save()
     g.icor_planner_trial_edit = nil
     g.icor_planner_trial_pending = nil
     g.icor_planner_trial_custom = nil
@@ -940,9 +945,11 @@ function Icor_planner_custom_pending_cancel()
 end
 
 -- 組んだイコルをマーケットで探す。下限は試算に使った値(値の見込み)
+-- 差し替えたイコルをマーケットで探す。下限は差し替えに使った値
+-- (自分で組んだイコルは値の見込み、マーケットから試したイコルは付いている値 = それ以上の品を探す)
 function Icor_planner_trial_search_custom(parent, ctrl, slot_name)
     local swap = Icor_planner_trial_swaps()[slot_name]
-    if swap == nil or swap.source ~= "custom" then
+    if not Icor_planner_trial_searchable(swap) then
         return
     end
     local conds = {}
@@ -952,7 +959,40 @@ function Icor_planner_trial_search_custom(parent, ctrl, slot_name)
             min_value = op.value
         }
     end
-    Icor_planner_market_search_conditions(swap.spot, conds)
+    g.vlog("icor_planner: 試算の差し替えで探す %s (%s)", tostring(slot_name), tostring(swap.source))
+    Icor_planner_market_search_conditions(Icor_planner_trial_spot(slot_name, swap), conds)
+end
+
+-- マーケットで探せる差し替えか。自分で組んだものと、マーケットから試したもの
+function Icor_planner_trial_searchable(swap)
+    return swap ~= nil and (swap.source == "custom" or swap.source == "market")
+end
+
+-- 差し替えの部位の種類(武器 / 防具)。控えに無ければ(以前の版で試したもの)部位名から決める
+g.icor_planner_weapon_slots = {
+    RH = true,
+    LH = true,
+    RH_SUB = true,
+    LH_SUB = true
+}
+
+function Icor_planner_trial_spot(slot_name, swap)
+    if swap ~= nil and (swap.spot == "Weapon" or swap.spot == "Armor") then
+        return swap.spot
+    end
+    return g.icor_planner_weapon_slots[slot_name] and "Weapon" or "Armor"
+end
+
+-- 「探す」のツールチップ。入れる条件(正式名 >= 下限)を並べる
+function Icor_planner_trial_search_tooltip(swap)
+    local jp = g.lang == "Japanese"
+    local tips = {}
+    for _, op in ipairs(swap.options) do
+        tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt), GET_COMMAED_STRING(op.value))
+    end
+    return "{ol}" .. (jp and
+               "マーケットの条件検索にこのイコルを入れて検索します(今の条件は消えます){nl}マーケットを開いてから押してください{nl}" or
+               "Search the market for this icor{nl}") .. table.concat(tips, "{nl}")
 end
 
 -- 差の文字列。良くなったら緑、悪くなったら赤。better_is_lower は「少ないほど良い」項目(不足・必要数)
@@ -1001,12 +1041,14 @@ function Icor_planner_fill_trial_result(right, scan)
                 source_text = string.format(jp and "%s・一番上の段" or "%s / top tier", assume_text)
             end
             local custom = swap.source == "custom"
+            -- マーケットで探せる差し替え(自分で組んだ / マーケットから試した)。インベントリは手元にあるので出さない
+            local searchable = Icor_planner_trial_searchable(swap)
             -- **1 行ずつ別のコントロールに置く。** {nl} で繋いだ 1 本を AdjustFontSizeByWidth で縮めると、
             -- 一番長い行に合わせて全部の行が読めない大きさになる(実機で指摘された。
             -- マーケットのパネルで直したのと同じ件)
             line:SetText(string.format("{ol}{s15}{#00FFFF}%s{#FFFFFF} ← [Lv%d] %s{#AAAAAA} (%s)",
                 labels[slot_info.slot_name] or slot_info.slot_name, swap.lv, swap.name, source_text))
-            line:AdjustFontSizeByWidth(right:GetWidth() - (custom and 240 or 150))
+            line:AdjustFontSizeByWidth(right:GetWidth() - (searchable and 240 or 150))
             -- オプションは縮めずに折り返す(左の候補と同じ)
             local ops_end = Icor_planner_flow(right, "swo_" .. slot_info.slot_name, 40, y + 26, right:GetWidth() - 70,
                 nil, Icor_planner_options_parts(swap.options), "{ol}{s14}", 22)
@@ -1033,22 +1075,6 @@ function Icor_planner_fill_trial_result(right, scan)
                 rr:SetTextTooltip(jp and "{ol}左で、このイコルのオプションを選び直します" or "{ol}Edit this icor")
                 rr:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_custom")
                 rr:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
-                -- マーケットで同じ条件の品を探す(条件検索へ 4 オプションと下限をまとめて入れる)
-                local tips = {}
-                for _, op in ipairs(swap.options) do
-                    tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt),
-                        GET_COMMAED_STRING(op.value))
-                end
-                local search = right:CreateOrGetControl("button", "sws_" .. slot_info.slot_name, 80, 26, ui.LEFT,
-                    ui.TOP, right:GetWidth() - 190, y + 4, 0, 0)
-                AUTO_CAST(search)
-                search:SetSkinName("test_pvp_btn")
-                search:SetText(jp and "{ol}{s14}探す" or "{ol}{s14}Search")
-                search:SetTextTooltip("{ol}" .. (jp and
-                                          "マーケットの条件検索にこのイコルを入れて検索します(今の条件は消えます){nl}マーケットを開いてから押してください{nl}" or
-                                          "Search the market for this icor{nl}") .. table.concat(tips, "{nl}"))
-                search:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_search_custom")
-                search:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
             else
                 rr:SetSkinName(g.icor_planner_trial_edit == slot_info.slot_name and "baseyellow_btn" or
                                    "test_pvp_btn")
@@ -1057,6 +1083,17 @@ function Icor_planner_fill_trial_result(right, scan)
                                       "{ol}Try rerolling one slot of this icor")
                 rr:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_reroll")
                 rr:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
+            end
+            if searchable then
+                -- マーケットで同じ条件の品を探す(条件検索へ 4 オプションと下限をまとめて入れる)
+                local search = right:CreateOrGetControl("button", "sws_" .. slot_info.slot_name, 80, 26, ui.LEFT,
+                    ui.TOP, right:GetWidth() - 190, y + 4, 0, 0)
+                AUTO_CAST(search)
+                search:SetSkinName("test_pvp_btn")
+                search:SetText(jp and "{ol}{s14}探す" or "{ol}{s14}Search")
+                search:SetTextTooltip(Icor_planner_trial_search_tooltip(swap))
+                search:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_search_custom")
+                search:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
             end
             local x = right:CreateOrGetControl("button", "swx_" .. slot_info.slot_name, 26, 24, ui.LEFT, ui.TOP, 8, y + 4,
                 0, 0)
@@ -1073,7 +1110,7 @@ function Icor_planner_fill_trial_result(right, scan)
         local msg = right:CreateOrGetControl("richtext", "msg", 10, y, 0, 0)
         AUTO_CAST(msg)
         msg:SetText(jp and
-                        "{ol}{s15}{#AAAAAA}左で部位とイコルを選んで「試す」を押すと、差し替えた結果がここに出ます{nl}差し替えは重ねられます(保存はしません)" or
+                        "{ol}{s15}{#AAAAAA}左で部位とイコルを選んで「試す」を押すと、差し替えた結果がここに出ます{nl}差し替えは重ねられます(キャラごとに保存し、次に開いたときも残ります)" or
                         "{ol}{s15}{#AAAAAA}Pick a slot and an icor, then press Try")
         return
     end

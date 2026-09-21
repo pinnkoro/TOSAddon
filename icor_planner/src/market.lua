@@ -724,8 +724,9 @@ function Icor_planner_market_search_conditions(spot, conds)
     end
 end
 
--- 試算で組んだイコル(自分で組む)を、パネルの一番上に「探す」ボタン付きで並べる。
--- 診断ウィンドウを開き直さなくても、マーケットを見ながら同じ条件で探せるようにする。
+-- 試算の差し替え(自分で組んだイコル / マーケットから試したイコル)を、パネルの一番上に
+-- 「探す」ボタン付きで並べる。診断ウィンドウを開き直さなくても、マーケットを見ながら同じ条件で探せる。
+-- 差し替えは保存されるので(Icor_planner_trial_save)、毎日マーケットを開いてここを押せばよい
 -- 戻り値は次に描き始める y
 function Icor_planner_fill_custom_buttons(list, base_y)
     local jp = g.lang == "Japanese"
@@ -734,23 +735,25 @@ function Icor_planner_fill_custom_buttons(list, base_y)
     local any = false
     for _, slot_info in ipairs(g.icor_planner_slots) do
         local swap = swaps[slot_info.slot_name]
-        if swap ~= nil and swap.source == "custom" then
+        if Icor_planner_trial_searchable(swap) then
             if not any then
                 local title = list:CreateOrGetControl("richtext", "custom_title", 10, y, 0, 0)
                 AUTO_CAST(title)
-                title:SetText(jp and "{ol}{s15}{#FFD700}試算で組んだイコルで探す{#AAAAAA}(押すとまとめて検索します)" or
-                                  "{ol}{s15}{#FFD700}Search by your custom icor")
+                title:SetText(jp and "{ol}{s15}{#FFD700}試算のイコルで探す{#AAAAAA}(押すとまとめて検索します)" or
+                                  "{ol}{s15}{#FFD700}Search by your trial icor")
                 y = y + 22
                 any = true
             end
-            local names, tips = {}, {}
+            local names = {}
             for _, op in ipairs(swap.options) do
                 names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}") ..
                                         Icor_planner_option_short(op.opt)
-                tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt),
-                    GET_COMMAED_STRING(op.value))
             end
             local label = (jp and g.icor_planner_exclude_labels[slot_info.slot_name]) or ClMsg(slot_info.clmsg)
+            -- どこから来たイコルか(自分で組んだ = 組 / マーケットから試した = 市)
+            if jp then
+                label = label .. (swap.source == "custom" and "{#AAAAAA}(組)" or "{#AAAAAA}(市)")
+            end
             local row_y = y
             local next_y = Icor_planner_flow(list, "custom_text_" .. slot_info.slot_name, 14, y + 4,
                 list:GetWidth() - 100, string.format("{#00FFFF}%s :", label), names, "{ol}{s14}", 22)
@@ -759,8 +762,7 @@ function Icor_planner_fill_custom_buttons(list, base_y)
             AUTO_CAST(btn)
             btn:SetSkinName("test_pvp_btn")
             btn:SetText(jp and "{ol}{s13}探す" or "{ol}{s13}Search")
-            btn:SetTextTooltip("{ol}" .. (jp and "この条件でまとめて検索します(今の条件は消えます){nl}" or "") ..
-                                   table.concat(tips, "{nl}"))
+            btn:SetTextTooltip(Icor_planner_trial_search_tooltip(swap))
             btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_search_custom")
             btn:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
             y = math.max(next_y, row_y + 28) + 4
