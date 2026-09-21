@@ -234,17 +234,7 @@ function Icor_planner_build_trial(bg)
     reset:SetSkinName("test_pvp_btn")
     reset:SetText(jp and "{ol}{s15}差し替えを全部戻す" or "{ol}{s15}Reset all")
     reset:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_reset")
-    -- 略語の ON / OFF。略語が分からなくなったときに正式名へ戻す(マーケットのパネルにも効く)
-    if jp then
-        local short_on = g.icor_planner_settings.short_names ~= 0
-        local short_btn = bg:CreateOrGetControl("button", "trial_short", 120, 30, ui.LEFT, ui.TOP, 430, 10, 0, 0)
-        AUTO_CAST(short_btn)
-        short_btn:SetSkinName(short_on and "baseyellow_btn" or "test_pvp_btn")
-        short_btn:SetText(short_on and "{ol}{s15}略語 ON" or "{ol}{s15}略語 OFF")
-        short_btn:SetTextTooltip(
-            "{ol}候補と差し替えの行のオプション名を略語(クリ発 / パフェ / 皮相殺 など)で出すか{nl}OFF にすると正式名で出します(1 行に収まらないときは折り返します){nl}マーケットの評価パネルのセットの行にも効きます")
-        short_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_toggle_short_names")
-    end
+    Icor_planner_short_names_button(bg, 430, 10)
     local scan = Icor_planner_scan()
     local swaps = Icor_planner_trial_swaps()
     -- 2 段目: 差し替える部位
@@ -903,6 +893,22 @@ function Icor_planner_custom_pending_apply()
     Icor_planner_refresh_market_customs()
 end
 
+-- 略語の ON / OFF ボタン(診断タブ・試算タブの上)。略語が分からなくなったときに正式名へ戻す。
+-- 設定は 1 つで、マーケットのパネルのボタンとも共通。略語は日本語表示でしか使わないので、それ以外では出さない
+function Icor_planner_short_names_button(bg, x, y)
+    if g.lang ~= "Japanese" then
+        return
+    end
+    local short_on = g.icor_planner_settings.short_names ~= 0
+    local short_btn = bg:CreateOrGetControl("button", "short_names", 120, 30, ui.LEFT, ui.TOP, x, y, 0, 0)
+    AUTO_CAST(short_btn)
+    short_btn:SetSkinName(short_on and "baseyellow_btn" or "test_pvp_btn")
+    short_btn:SetText(short_on and "{ol}{s15}略語 ON" or "{ol}{s15}略語 OFF")
+    short_btn:SetTextTooltip(
+        "{ol}オプション名を略語(クリ発 / パフェ / 皮相殺 など)で出すか{nl}OFF にすると正式名で出します(1 行に収まらないときは折り返します){nl}効くのは 試算タブの候補と差し替えの行 / 診断タブの組み方 / マーケットの評価パネルのセットの行 です")
+    short_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_toggle_short_names")
+end
+
 function Icor_planner_toggle_short_names()
     g.icor_planner_settings.short_names = (g.icor_planner_settings.short_names ~= 0) and 0 or 1
     Icor_planner_save_settings()
@@ -1250,11 +1256,11 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
             for _, opt in ipairs(tp.order) do
                 local c, have = tp.counts[opt], tp.have[opt] or 0
                 if avg.update_mode then
-                    parts[#parts + 1] = string.format("{#FFA500}%s ×%d", Icor_planner_option_name(opt), c)
+                    parts[#parts + 1] = string.format("{#FFA500}%s ×%d", Icor_planner_option_short(opt), c)
                 else
                     local color = (have >= c) and "{#98FB98}" or "{#FFA500}"
                     parts[#parts + 1] = string.format("%s%s ×%d{#AAAAAA}{s13}(今 %d){/}{s15}", color,
-                        Icor_planner_option_name(opt), c, have)
+                        Icor_planner_option_short(opt), c, have)
                 end
             end
             if tp.free > 0 then
@@ -1273,7 +1279,7 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
                 local names = {}
                 for _, opt in ipairs(set.opts) do
                     names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(opt)] or "{#FFFFFF}") ..
-                                            Icor_planner_option_name(opt)
+                                            Icor_planner_option_short(opt)
                 end
                 y = Icor_planner_flow(list, "recset_" .. spot .. "_" .. k, 40, y, list:GetWidth() - 70,
                     string.format("{#AAAAAA}%s ×%d :", jp and "1 個の中身" or "Set", set.count), names, "{ol}{s14}", 22)
@@ -1284,13 +1290,13 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
             for _, opt in ipairs(tp_low.order) do
                 seen[opt] = true
                 if (tp_low.counts[opt] or 0) ~= (tp.counts[opt] or 0) then
-                    diffs[#diffs + 1] = string.format("%s ×%d→×%d", Icor_planner_option_name(opt),
+                    diffs[#diffs + 1] = string.format("%s ×%d→×%d", Icor_planner_option_short(opt),
                         tp.counts[opt] or 0, tp_low.counts[opt] or 0)
                 end
             end
             for _, opt in ipairs(tp.order) do
                 if not seen[opt] then
-                    diffs[#diffs + 1] = string.format("%s ×%d→×0", Icor_planner_option_name(opt), tp.counts[opt])
+                    diffs[#diffs + 1] = string.format("%s ×%d→×0", Icor_planner_option_short(opt), tp.counts[opt])
                 end
             end
             if #diffs > 0 then
@@ -1303,7 +1309,7 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
     local function unmet_text(plan)
         local parts = {}
         for _, u in ipairs(plan.unmet) do
-            parts[#parts + 1] = string.format("%s あと %s", Icor_planner_option_name(u.opt),
+            parts[#parts + 1] = string.format("%s あと %s", Icor_planner_option_short(u.opt),
                 GET_COMMAED_STRING(math.ceil(u.short)))
         end
         return parts
@@ -1362,14 +1368,14 @@ function Icor_planner_draw_keep_plan(list, y, diag, scan)
         local parts = {}
         for _, m in ipairs(groups[index]) do
             local color = g.icor_planner_group_color[Icor_planner_group_of(m.opt)] or "{#FFFFFF}"
-            local to = string.format("%s%s {#FFFFFF}%s", color, Icor_planner_option_name(m.opt),
+            local to = string.format("%s%s {#FFFFFF}%s", color, Icor_planner_option_short(m.opt),
                 GET_COMMAED_STRING(m.value))
             if m.old ~= nil then
                 -- 同じオプションの値を上げる(リロールし直す / 買い替える)
                 parts[#parts + 1] = string.format("%s%s {#AAAAAA}%s → {#FFFFFF}%s", color,
-                    Icor_planner_option_name(m.opt), GET_COMMAED_STRING(m.old), GET_COMMAED_STRING(m.value))
+                    Icor_planner_option_short(m.opt), GET_COMMAED_STRING(m.old), GET_COMMAED_STRING(m.value))
             elseif m.from ~= nil then
-                parts[#parts + 1] = string.format("{#888888}%s → %s", Icor_planner_option_name(m.from.opt), to)
+                parts[#parts + 1] = string.format("{#888888}%s → %s", Icor_planner_option_short(m.from.opt), to)
             else
                 parts[#parts + 1] = string.format("{#888888}%s → %s", jp and "空き" or "empty", to)
             end
@@ -1380,11 +1386,11 @@ function Icor_planner_draw_keep_plan(list, y, diag, scan)
     -- 変えられる枠を使い切っても届かない項目
     local parts = {}
     for _, u in ipairs(avg.unmet) do
-        parts[#parts + 1] = string.format("{#FF6347}%s あと %s", Icor_planner_option_name(u.opt),
+        parts[#parts + 1] = string.format("{#FF6347}%s あと %s", Icor_planner_option_short(u.opt),
             GET_COMMAED_STRING(math.ceil(u.short)))
     end
     for opt, left in pairs(avg.slot_unmet) do
-        parts[#parts + 1] = string.format("{#FF6347}%s あと %d か所", Icor_planner_option_name(opt), left)
+        parts[#parts + 1] = string.format("{#FF6347}%s あと %d か所", Icor_planner_option_short(opt), left)
     end
     if #parts > 0 then
         y = Icor_planner_flow(list, "keep_unmet", 20, y, list:GetWidth() - 50, "{#FF6347}" ..
@@ -1428,6 +1434,7 @@ function Icor_planner_build_diagnosis(bg)
     reload:SetSkinName("test_pvp_btn")
     reload:SetText(g.lang == "Japanese" and "{ol}{s16}再計算" or "{ol}{s16}Refresh")
     reload:SetEventScript(ui.LBUTTONUP, "Icor_planner_build_tab")
+    Icor_planner_short_names_button(bg, 410, 10)
     local diag, scan = Icor_planner_diagnose()
     local head = bg:CreateOrGetControl("richtext", "head", 10, 50, 0, 0)
     AUTO_CAST(head)
