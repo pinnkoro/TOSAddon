@@ -11,7 +11,7 @@
 local addon_name = "_ICOR_PLANNER"
 local addon_name_lower = string.lower(addon_name)
 local author = "pinnkoro"
-local ver = "1.1.0"
+local ver = "1.2.0"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
