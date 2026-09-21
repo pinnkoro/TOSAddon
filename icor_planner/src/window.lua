@@ -280,6 +280,13 @@ function Icor_planner_build_trial(bg)
     Icor_planner_fill_trial_result(right, scan)
 end
 
+-- イコルの名前から先頭の「[Lv.560]」を外す。素の名前はレベルを含むので、こちらが前に付ける
+-- 「[Lv560]」と二重に出ていた(実機で指摘された)。保存した差し替えの名前にも効くよう、出すときに外す
+function Icor_planner_icor_name(name)
+    local text = tostring(name or "")
+    return (string.gsub(text, "^%s*%[Lv%.?%s*%d+%]%s*", ""))
+end
+
 -- オプションを 1 つずつの塊にする(値の段階で色を付ける)。Icor_planner_flow で折り返して並べる用。
 -- 名前は略語(Icor_planner_option_short)。1 行に収まらないときだけ折り返す
 function Icor_planner_options_parts(options)
@@ -380,7 +387,7 @@ function Icor_planner_fill_trial_candidates(left, scan)
                 if row.price then
                     price = "{#AAAAAA}  " .. GET_COMMAED_STRING(row.price) .. "s"
                 end
-                name:SetText(string.format("{ol}{s14}{#FFFFFF}[Lv%d] %s%s", row.lv, row.name, price))
+                name:SetText(string.format("{ol}{s14}{#FFFFFF}[Lv%d] %s%s", row.lv, Icor_planner_icor_name(row.name), price))
                 name:AdjustFontSizeByWidth(left:GetWidth() - 110)
                 -- オプションは縮めずに折り返す(「今のイコル」と同じ。縮めると読めない大きさになった)
                 local next_y = Icor_planner_flow(left, "co_" .. i, 24, y + 22, left:GetWidth() - 130, nil,
@@ -490,7 +497,7 @@ function Icor_planner_draw_trial_reroll(left, slot_name)
     local label = (jp and g.icor_planner_exclude_labels[slot_name]) or slot_name
     title:SetText(string.format(jp and "{ol}{s16}{#FFD700}リロール{#FFFFFF}  %s ← [Lv%d] %s" or
                                     "{ol}{s16}{#FFD700}Reroll{#FFFFFF}  %s <- [Lv%d] %s", label, base.lv or 0,
-        tostring(base.name)))
+        Icor_planner_icor_name(base.name)))
     title:AdjustFontSizeByWidth(left:GetWidth() - 30)
     y = y + 28
     local note = left:CreateOrGetControl("richtext", "rr_note", 10, y, 0, 0)
@@ -1053,7 +1060,8 @@ function Icor_planner_fill_trial_result(right, scan)
             -- 一番長い行に合わせて全部の行が読めない大きさになる(実機で指摘された。
             -- マーケットのパネルで直したのと同じ件)
             line:SetText(string.format("{ol}{s15}{#00FFFF}%s{#FFFFFF} ← [Lv%d] %s{#AAAAAA} (%s)",
-                labels[slot_info.slot_name] or slot_info.slot_name, swap.lv, swap.name, source_text))
+                labels[slot_info.slot_name] or slot_info.slot_name, swap.lv, Icor_planner_icor_name(swap.name),
+                source_text))
             line:AdjustFontSizeByWidth(right:GetWidth() - (searchable and 240 or 150))
             -- オプションは縮めずに折り返す(左の候補と同じ)
             local ops_end = Icor_planner_flow(right, "swo_" .. slot_info.slot_name, 40, y + 26, right:GetWidth() - 70,
