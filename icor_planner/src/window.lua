@@ -278,18 +278,18 @@ function Icor_planner_build_trial(bg)
     Icor_planner_fill_trial_result(right, scan)
 end
 
--- オプションの並びを 1 行の文字列にする(値の段階で色を付ける)
-function Icor_planner_options_text(options)
+-- オプションを 1 つずつの塊にする(値の段階で色を付ける)。Icor_planner_flow で折り返して並べる用
+function Icor_planner_options_parts(options)
     local parts = {}
     for _, op in ipairs(options or {}) do
         local color = g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}"
-        parts[#parts + 1] = string.format("%s%s %s%s{/}", color, Icor_planner_option_name(op.opt),
+        parts[#parts + 1] = string.format("%s%s %s%s", color, Icor_planner_option_name(op.opt),
             Icor_planner_state_color(op.state), GET_COMMAED_STRING(op.value))
     end
     if #parts == 0 then
-        return g.lang == "Japanese" and "{#888888}イコル無し" or "{#888888}no icor"
+        parts[1] = g.lang == "Japanese" and "{#888888}イコル無し" or "{#888888}no icor"
     end
-    return table.concat(parts, "{#AAAAAA} / ")
+    return parts
 end
 
 function Icor_planner_fill_trial_candidates(left, scan)
@@ -341,16 +341,8 @@ function Icor_planner_fill_trial_candidates(left, scan)
     custom_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_custom")
     custom_btn:SetEventScriptArgString(ui.LBUTTONUP, entry.slot_name)
     y = y + 32
-    local parts = {}
-    for _, op in ipairs(entry.options) do
-        local color = g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}"
-        parts[#parts + 1] = string.format("%s%s %s%s", color, Icor_planner_option_name(op.opt),
-            Icor_planner_state_color(op.state), GET_COMMAED_STRING(op.value))
-    end
-    if #parts == 0 then
-        parts[1] = jp and "{#888888}イコル無し" or "{#888888}no icor"
-    end
-    y = Icor_planner_flow(left, "cur_ops", 24, y, left:GetWidth() - 50, nil, parts, "{ol}{s14}", 22) + 6
+    y = Icor_planner_flow(left, "cur_ops", 24, y, left:GetWidth() - 50, nil, Icor_planner_options_parts(entry.options),
+        "{ol}{s14}", 22) + 6
     local rows = Icor_planner_trial_candidates(entry.spot)
     -- ボタンの引数は添字なので、押したときに同じ並びを引けるよう控える
     g.icor_planner_trial_list = rows
@@ -378,10 +370,9 @@ function Icor_planner_fill_trial_candidates(left, scan)
                 end
                 name:SetText(string.format("{ol}{s14}{#FFFFFF}[Lv%d] %s%s", row.lv, row.name, price))
                 name:AdjustFontSizeByWidth(left:GetWidth() - 110)
-                local ops = left:CreateOrGetControl("richtext", "co_" .. i, 24, y + 20, 0, 0)
-                AUTO_CAST(ops)
-                ops:SetText("{ol}{s13}" .. Icor_planner_options_text(row.options))
-                ops:AdjustFontSizeByWidth(left:GetWidth() - 110)
+                -- オプションは縮めずに折り返す(「今のイコル」と同じ。縮めると読めない大きさになった)
+                local next_y = Icor_planner_flow(left, "co_" .. i, 24, y + 22, left:GetWidth() - 130, nil,
+                    Icor_planner_options_parts(row.options), "{ol}{s14}", 22)
                 local btn = left:CreateOrGetControl("button", "cb_" .. i, 64, 30, ui.LEFT, ui.TOP,
                     left:GetWidth() - 88, y + 4, 0, 0)
                 AUTO_CAST(btn)
@@ -389,7 +380,7 @@ function Icor_planner_fill_trial_candidates(left, scan)
                 btn:SetText(jp and "{ol}{s14}試す" or "{ol}{s14}Try")
                 btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_apply")
                 btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
-                y = y + 46
+                y = math.max(next_y, y + 46) + 4
             end
         end
         if shown == 0 then
@@ -973,13 +964,12 @@ function Icor_planner_fill_trial_result(right, scan)
             line:SetText(string.format("{ol}{s15}{#00FFFF}%s{#FFFFFF} ← [Lv%d] %s{#AAAAAA} (%s)",
                 labels[slot_info.slot_name] or slot_info.slot_name, swap.lv, swap.name, source_text))
             line:AdjustFontSizeByWidth(right:GetWidth() - (custom and 240 or 150))
-            local ops_line = right:CreateOrGetControl("richtext", "swo_" .. slot_info.slot_name, 40, y + 26, 0, 0)
-            AUTO_CAST(ops_line)
-            ops_line:SetText("{ol}{s14}" .. Icor_planner_options_text(swap.options))
-            ops_line:AdjustFontSizeByWidth(right:GetWidth() - 60)
+            -- オプションは縮めずに折り返す(左の候補と同じ)
+            local ops_end = Icor_planner_flow(right, "swo_" .. slot_info.slot_name, 40, y + 26, right:GetWidth() - 70,
+                nil, Icor_planner_options_parts(swap.options), "{ol}{s14}", 22)
             local extra = 0
             if swap.reroll then
-                local rr_line = right:CreateOrGetControl("richtext", "swrr_" .. slot_info.slot_name, 40, y + 48, 0, 0)
+                local rr_line = right:CreateOrGetControl("richtext", "swrr_" .. slot_info.slot_name, 40, ops_end, 0, 0)
                 AUTO_CAST(rr_line)
                 rr_line:SetText(string.format(jp and "{ol}{s14}{#FFD700}リロール: 枠%d %s → %s %s{#AAAAAA} (%s)" or
                                                   "{ol}{s14}{#FFD700}Reroll: slot %d %s -> %s %s{#AAAAAA} (%s)",
@@ -1033,7 +1023,7 @@ function Icor_planner_fill_trial_result(right, scan)
             x:SetTextTooltip(jp and "{ol}この部位の差し替えを戻す" or "{ol}Undo this swap")
             x:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_remove")
             x:SetEventScriptArgString(ui.LBUTTONUP, slot_info.slot_name)
-            y = y + 52 + extra
+            y = ops_end + 4 + extra
         end
     end
     if not any then
