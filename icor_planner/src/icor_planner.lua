@@ -1944,6 +1944,39 @@ function Icor_planner_plan_keep(diag, scan, assumption)
     for _, row in ipairs(diag.slot_rows or {}) do
         wanted[row.opt] = true
     end
+    -- **「全ての〜」でつながるオプションも外さない。** 今の値は「全ての〜」を足される先の項目
+    -- (Icor_planner_current / g.icor_planner_all_members)から読むので、目標に無いオプションでも
+    -- 目標の今の値を支えていることがある(目標が 全ての防具の材質 で、枠が クロース対象攻撃力、またはその逆)。
+    -- 外すと目標が下がるのに、置いた側の増分だけを数えて少なく見積もってしまう
+    local wanted_attr = {}
+    for opt in pairs(wanted) do
+        wanted_attr[Icor_planner_status_attr_of(opt)] = true
+    end
+    local function supports(opt)
+        if wanted[opt] then
+            return true
+        end
+        local attr = Icor_planner_status_attr_of(opt)
+        if wanted_attr[attr] then
+            return true
+        end
+        for all_attr, members in pairs(g.icor_planner_all_members) do
+            local has_attr, has_wanted = attr == all_attr, wanted_attr[all_attr] == true
+            for _, member in ipairs(members) do
+                if member == attr then
+                    has_attr = true
+                end
+                if wanted_attr[member] then
+                    has_wanted = true
+                end
+            end
+            -- 同じ「全ての〜」の輪の中で、片方が目標・片方がこの枠
+            if has_attr and has_wanted and (attr == all_attr or wanted_attr[all_attr]) then
+                return true
+            end
+        end
+        return false
+    end
     local units, by_index = {}, {}
     for i, entry in ipairs(scan.slots) do
         if entry.equipped and (entry.spot == "Weapon" or entry.spot == "Armor") then
@@ -1959,7 +1992,7 @@ function Icor_planner_plan_keep(diag, scan, assumption)
             for _, op in ipairs(entry.excluded and {} or entry.options) do
                 unit.values[op.opt] = (unit.values[op.opt] or 0) + op.value
                 unit.empty = unit.empty - 1
-                if not wanted[op.opt] then
+                if not supports(op.opt) then
                     unit.spare[#unit.spare + 1] = op
                 end
             end

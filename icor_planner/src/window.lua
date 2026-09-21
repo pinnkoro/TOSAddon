@@ -537,6 +537,9 @@ end
 function Icor_planner_trial_open_reroll(parent, ctrl, slot_name)
     g.icor_planner_trial_edit = slot_name
     g.icor_planner_trial_pending = nil
+    -- **組む画面の印も消す。** 左は組む画面を先に見るので、残っているとリロールの画面へ切り替わらない
+    g.icor_planner_trial_custom = nil
+    g.icor_planner_custom_pending = nil
     Icor_planner_build_tab()
 end
 

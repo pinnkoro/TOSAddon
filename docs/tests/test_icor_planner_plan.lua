@@ -319,6 +319,49 @@ do
     check("足りない分は届かないと出る", plan2.unmet[1] and plan2.unmet[1].opt, "ADD_LEATHER")
 end
 
+print("[6b] 「全ての〜」でつながるオプションは外さない")
+do
+    -- 目標は 全ての防具の材質(今の値はクロース / レザー… の一番低い値)。
+    -- 手袋のクロース対象攻撃力は目標に無いが、クロースの値を支えているので外してはいけない
+    local function scan_with(gloves)
+        return {
+            slots = {slot("GLOVES", "Armor", gloves)}
+        }
+    end
+    local need = diag_of({{
+        opt = "AllMaterialType_Atk",
+        spot = "Armor",
+        target = 5000,
+        cur = 4000,
+        short = 1000
+    }})
+    local plan = Icor_planner_plan(need, scan_with({op("ADD_CLOTH", 300), op("ADD_HR", 900), op("CON", 500),
+                                                    op("BLK", 1200)}), "avg")
+    check("あとオプション", plan.updates, 1)
+    check("値の小さいクロース(300)ではなく、目標に関係ない枠を外す", plan.moves[1] and plan.moves[1].from and plan.moves[1].from.opt,
+        "CON")
+    -- 逆向き: 目標がクロース、枠が 全ての防具の材質
+    local need2 = diag_of({{
+        opt = "ADD_CLOTH",
+        spot = "Armor",
+        target = 99999,
+        cur = 0,
+        short = 99999
+    }})
+    AVG.Armor.ADD_CLOTH = 2000
+    local plan2 = Icor_planner_plan(need2, scan_with({op("AllMaterialType_Atk", 2800), op("ADD_LEATHER", 100),
+                                                      op("STR", 500), op("CON", 500)}), "avg")
+    local removed = {}
+    for _, m in ipairs(plan2.moves) do
+        if m.from then
+            removed[m.from.opt] = true
+        end
+    end
+    AVG.Armor.ADD_CLOTH = nil
+    check("全ての防具の材質は外さない", removed.AllMaterialType_Atk, nil)
+    check("同じ輪の兄弟(レザー)はクロースを支えないので外してよい", removed.ADD_LEATHER, true)
+end
+
 print("[7] 自分で組むイコルは枠ごとに値を決める(一部だけ限凸)")
 do
     -- 一番上の段の範囲(Lv560 の武器イコル相当)
