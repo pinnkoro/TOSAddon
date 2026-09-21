@@ -13,6 +13,9 @@ function Easy_buff_load_settings()
         food_presets_name = {},
         food_presets_check = {},
         food_check = 1,
+        -- 店を開いたときに自動実行するプリセットのキャラごとの選択({[cid] = 0〜4})。
+        -- 無いキャラは food_check(アカウント共通の既定)に従う。プリセットの中身は共通のまま
+        char_food_check = {},
         confirm_check = 0,
         repair_check = 0
     }
@@ -44,6 +47,16 @@ function Easy_buff_load_settings()
     if changed then
         Easy_buff_save_settings()
     end
+end
+
+-- このキャラで自動実行するプリセット(0 = 自動実行しない)。
+-- 設定はアカウントで 1 回しか読まないが、g.cid はキャラチェンジのたびに入れ替わるので毎回引く
+function Easy_buff_auto_preset()
+    local value = g.easy_buff_settings.char_food_check[g.cid]
+    if value == nil then
+        value = g.easy_buff_settings.food_check
+    end
+    return value
 end
 
 function easy_buff_on_init()
@@ -80,6 +93,14 @@ function Easy_buff_config_frame()
     local title_text = easy_buff:CreateOrGetControl('richtext', 'title_text', 20, 15, 50, 30)
     AUTO_CAST(title_text)
     title_text:SetText("{ol}Easy Buff Config")
+    -- 左のチェック(自動実行するプリセット)だけがキャラごと。誰の設定を触っているかを見せる
+    local char_text = easy_buff:CreateOrGetControl('richtext', 'char_text', 180, 18, 280, 20)
+    AUTO_CAST(char_text)
+    char_text:SetText((g.lang == "Japanese" and "{ol}{s14}自動実行はキャラごと: " or "{ol}{s14}Auto-run per character: ") ..
+                          tostring(g.login_name))
+    char_text:SetTextTooltip(g.lang == "Japanese" and
+                                 "{ol}左端のチェック(店を開いたら自動実行するプリセット)は{nl}キャラごとに覚えます。プリセットの名前と料理は全キャラ共通です" or
+                                 "{ol}The leftmost check (preset auto-run on opening the shop){nl}is saved per character. Preset names and foods are shared")
     local close = easy_buff:CreateOrGetControl("button", "close", 0, 0, 20, 20)
     AUTO_CAST(close)
     close:SetImage("testclose_button")
@@ -93,6 +114,7 @@ function Easy_buff_config_frame()
                    "icon_item_champagne"}
     local x_offsets = {5, 75, 145, 215, 285, 355}
     local y = 0
+    local auto_preset = Easy_buff_auto_preset()
     for i = 1, 4 do
         local str_i = tostring(i)
         local title_edit = gbox:CreateOrGetControl('edit', "preset_title_" .. i, 10, y + 5, 80, 20)
@@ -116,7 +138,7 @@ function Easy_buff_config_frame()
                                       "{ol}Checked: Automate food buff")
         food_check:SetEventScript(ui.LBUTTONUP, "Easy_buff_config_check_toggle")
         food_check:SetEventScriptArgNumber(ui.LBUTTONUP, i)
-        food_check:SetCheck(i == g.easy_buff_settings.food_check and 1 or 0)
+        food_check:SetCheck(i == auto_preset and 1 or 0)
         local preset_gbox = gbox:CreateOrGetControl("groupbox", "preset_gbox_" .. i, 40, y + 30, gbox:GetWidth() - 50,
             40)
         AUTO_CAST(preset_gbox)
@@ -170,11 +192,11 @@ function Easy_buff_config_check_toggle(parent, ctrl, str, num)
     local ctrl_name = ctrl:GetName()
     local is_check = ctrl:IsChecked()
     if string.find(ctrl_name, "food_check") then
-        if is_check == 1 then
-            g.easy_buff_settings.food_check = num
-        else
-            g.easy_buff_settings.food_check = 0
-        end
+        -- このキャラの分だけ書く。food_check(共通の既定)は、まだ選んでいないキャラのために残す
+        local preset = is_check == 1 and num or 0
+        g.easy_buff_settings.char_food_check[g.cid] = preset
+        g.vlog("easy_buff: 自動実行のプリセットを %d にした(cid=%s %s)", preset, tostring(g.cid),
+            tostring(g.login_name))
     elseif ctrl_name == "confirm_check" then
         g.easy_buff_settings.confirm_check = is_check
     elseif ctrl_name == "repair_check" then
@@ -207,14 +229,16 @@ function Easy_buff_OPEN_FOOD_TABLE_UI(my_frame, my_msg)
     local x = 300
     local y = 60
     local btn
+    local auto_preset = Easy_buff_auto_preset()
     for i = 1, 4 do
         local str_i = tostring(i)
         btn = foodtable_ui:CreateOrGetControl("button", "btn" .. i, x, y, 85, 30)
         AUTO_CAST(btn)
-        btn:SetSkinName(i == g.easy_buff_settings.food_check and "test_red_button" or "test_gray_button")
+        btn:SetSkinName(i == auto_preset and "test_red_button" or "test_gray_button")
         local text = g.easy_buff_settings.food_presets_name[str_i] or "{ol}preset " .. i
         btn:SetText("{ol}" .. text)
         btn:SetEventScript(ui.LBUTTONUP, "Easy_buff_clear_food_buff_timer")
+        btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
         if btn:GetWidth() >= 85 then
             btn:Resize(85, 30)
         end
@@ -227,13 +251,18 @@ function Easy_buff_OPEN_FOOD_TABLE_UI(my_frame, my_msg)
             x = x + 80
         end
     end
-    if g.easy_buff_settings.food_check ~= 0 and g.easy_buff_first then
-        Easy_buff_clear_food_buff_timer(nil, btn)
+    g.vlog("easy_buff: メシ屋を開いた 自動実行=%d first=%s (cid=%s)", auto_preset, tostring(g.easy_buff_first),
+        tostring(g.cid))
+    if auto_preset ~= 0 and g.easy_buff_first then
+        Easy_buff_clear_food_buff_timer(nil, btn, "", auto_preset)
         g.easy_buff_first = false
     end
 end
 
-function Easy_buff_clear_food_buff_timer(frame, btn)
+-- preset はどのプリセットを食べるか。ボタンからは押したボタンの番号が来る
+-- (以前は自動実行のプリセットを選んでいると、どのボタンを押してもそちらを食べていた)
+function Easy_buff_clear_food_buff_timer(frame, btn, str, preset)
+    g.easy_buff_run_preset = preset
     btn:RunUpdateScript("Easy_buff_clear_food_buff", 0.1)
 end
 
@@ -253,14 +282,11 @@ function Easy_buff_clear_food_buff(btn)
 end
 
 function Easy_buff_set_food_buff(btn)
-    local preset_index_str
-    if g.easy_buff_settings.food_check ~= 0 then
-        preset_index_str = tostring(g.easy_buff_settings.food_check)
-    elseif btn then
-        preset_index_str = string.sub(btn:GetName(), -1)
-    else
+    local preset_index_str = tostring(g.easy_buff_run_preset)
+    if not btn or not g.easy_buff_settings.food_presets_check[preset_index_str] then
         return
     end
+    g.vlog("easy_buff: プリセット %s を食べる", preset_index_str)
     g.easy_buff_temp_food = {}
     for key, value in pairs(g.easy_buff_settings.food_presets_check[preset_index_str]) do
         if value == 1 then
