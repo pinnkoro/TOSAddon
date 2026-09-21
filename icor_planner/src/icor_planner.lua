@@ -91,6 +91,12 @@ function Icor_planner_load_settings()
         settings.market_sort = 0
         changed = true
     end
+    -- 試算タブ・マーケットのパネルでオプション名を略語にするか。**既定は 1**。
+    -- 略語が分からなくなったときに正式名へ戻せるよう、試算タブの上にボタンを置いている
+    if settings.short_names == nil then
+        settings.short_names = 1
+        changed = true
+    end
     g.icor_planner_settings = settings
     if changed then
         Icor_planner_save_settings()
@@ -1005,7 +1011,9 @@ g.icor_planner_short_names = {
 }
 
 function Icor_planner_option_short(opt)
-    if g.lang == "Japanese" and g.icor_planner_short_names[opt] then
+    local settings = g.icor_planner_settings
+    local on = settings == nil or settings.short_names ~= 0
+    if on and g.lang == "Japanese" and g.icor_planner_short_names[opt] then
         return g.icor_planner_short_names[opt]
     end
     return Icor_planner_option_name(opt)

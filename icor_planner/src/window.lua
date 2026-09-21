@@ -234,6 +234,17 @@ function Icor_planner_build_trial(bg)
     reset:SetSkinName("test_pvp_btn")
     reset:SetText(jp and "{ol}{s15}差し替えを全部戻す" or "{ol}{s15}Reset all")
     reset:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_reset")
+    -- 略語の ON / OFF。略語が分からなくなったときに正式名へ戻す(マーケットのパネルにも効く)
+    if jp then
+        local short_on = g.icor_planner_settings.short_names ~= 0
+        local short_btn = bg:CreateOrGetControl("button", "trial_short", 120, 30, ui.LEFT, ui.TOP, 430, 10, 0, 0)
+        AUTO_CAST(short_btn)
+        short_btn:SetSkinName(short_on and "baseyellow_btn" or "test_pvp_btn")
+        short_btn:SetText(short_on and "{ol}{s15}略語 ON" or "{ol}{s15}略語 OFF")
+        short_btn:SetTextTooltip(
+            "{ol}候補と差し替えの行のオプション名を略語(クリ発 / パフェ / 皮相殺 など)で出すか{nl}OFF にすると正式名で出します(1 行に収まらないときは折り返します){nl}マーケットの評価パネルのセットの行にも効きます")
+        short_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_toggle_short_names")
+    end
     local scan = Icor_planner_scan()
     local swaps = Icor_planner_trial_swaps()
     -- 2 段目: 差し替える部位
@@ -888,6 +899,14 @@ function Icor_planner_custom_pending_apply()
     end
     g.icor_planner_custom_pending = nil
     g.icor_planner_trial_custom = nil
+    Icor_planner_build_tab()
+    Icor_planner_refresh_market_customs()
+end
+
+function Icor_planner_toggle_short_names()
+    g.icor_planner_settings.short_names = (g.icor_planner_settings.short_names ~= 0) and 0 or 1
+    Icor_planner_save_settings()
+    g.vlog("icor_planner: 略語 %s", g.icor_planner_settings.short_names == 1 and "ON" or "OFF")
     Icor_planner_build_tab()
     Icor_planner_refresh_market_customs()
 end
