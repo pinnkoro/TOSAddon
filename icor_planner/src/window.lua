@@ -1038,8 +1038,8 @@ function Icor_planner_fill_trial_result(right, scan)
                 if same ~= nil then
                     assume_text = (jp and g.icor_planner_assume_labels[same]) or same
                 end
-                -- 値を取った段は Lv で出す(「一番上の段」では何の段か分からなかった。実機で指摘された)
-                source_text = string.format(jp and "%s・Lv%d の範囲" or "%s / Lv%d range", assume_text, swap.lv or 0)
+                -- 値を取った段は出さない(同じ行の左に [Lv560] と出ている。実機で指摘された)
+                source_text = string.format(jp and "値: %s" or "value: %s", assume_text)
             end
             local custom = swap.source == "custom"
             -- マーケットで探せる差し替え(自分で組んだ / マーケットから試した)。インベントリは手元にあるので出さない
