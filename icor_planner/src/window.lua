@@ -325,11 +325,11 @@ function Icor_planner_fill_trial_candidates(left, scan)
         return
     end
     local y = 8
-    local cur = left:CreateOrGetControl("richtext", "cur", 10, y, 0, 0)
+    -- **見出しと中身を分け、中身は縮めずに折り返す。** 1 行に収めようと AdjustFontSizeByWidth で縮めると、
+    -- 右に「自分で組む」を置いた分だけ幅が減り、読めない大きさになった(実機で指摘された)
+    local cur = left:CreateOrGetControl("richtext", "cur", 10, y + 4, 0, 0)
     AUTO_CAST(cur)
-    cur:SetText(string.format(jp and "{ol}{s14}{#FFD700}今のイコル{#FFFFFF}  %s" or "{ol}{s14}{#FFD700}Equipped{#FFFFFF}  %s",
-        Icor_planner_options_text(entry.options)))
-    cur:AdjustFontSizeByWidth(left:GetWidth() - 140)
+    cur:SetText(jp and "{ol}{s15}{#FFD700}今のイコル" or "{ol}{s15}{#FFD700}Equipped")
     local custom_btn = left:CreateOrGetControl("button", "custom_open", 100, 28, ui.LEFT, ui.TOP,
         left:GetWidth() - 124, y - 2, 0, 0)
     AUTO_CAST(custom_btn)
@@ -341,6 +341,16 @@ function Icor_planner_fill_trial_candidates(left, scan)
     custom_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_open_custom")
     custom_btn:SetEventScriptArgString(ui.LBUTTONUP, entry.slot_name)
     y = y + 32
+    local parts = {}
+    for _, op in ipairs(entry.options) do
+        local color = g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}"
+        parts[#parts + 1] = string.format("%s%s %s%s", color, Icor_planner_option_name(op.opt),
+            Icor_planner_state_color(op.state), GET_COMMAED_STRING(op.value))
+    end
+    if #parts == 0 then
+        parts[1] = jp and "{#888888}イコル無し" or "{#888888}no icor"
+    end
+    y = Icor_planner_flow(left, "cur_ops", 24, y, left:GetWidth() - 50, nil, parts, "{ol}{s14}", 22) + 6
     local rows = Icor_planner_trial_candidates(entry.spot)
     -- ボタンの引数は添字なので、押したときに同じ並びを引けるよう控える
     g.icor_planner_trial_list = rows
