@@ -962,6 +962,55 @@ function Icor_planner_option_name(opt)
     return opt
 end
 
+-- 幅の狭いところ(試算タブの候補と差し替えの行、マーケットのパネルのセット)で使う略語。
+-- 正式名では 4 つ並べると 1 行に収まらず、縮めると読めない大きさになった(実機で指摘された)。
+-- **表示名ではなく内部名から引く**(表示名は訳や表記の揺れで変わる)。
+-- 素材は 1 文字(布・皮・鎧・霊)にし、攻撃と相殺を「皮攻撃 / 皮相殺」の形でそろえる。
+-- 表に無いもの(主ステなど元から短いもの・新しく増えたもの)は正式名のまま
+g.icor_planner_short_names = {
+    AllMaterialType_Atk = "全防具",
+    AllRace_Atk = "全種族",
+    Add_Damage_Atk = "追ダメ",
+    perfection = "パフェ",
+    revenge = "復讐",
+    ADD_CLOTH = "布攻撃",
+    ADD_LEATHER = "皮攻撃",
+    ADD_IRON = "鎧攻撃",
+    ADD_GHOST = "霊攻撃",
+    ADD_SMALLSIZE = "小型攻撃",
+    ADD_MIDDLESIZE = "中型攻撃",
+    ADD_LARGESIZE = "大型攻撃",
+    ADD_FORESTER = "植物攻撃",
+    ADD_WIDLING = "野獣攻撃",
+    ADD_VELIAS = "悪魔攻撃",
+    ADD_PARAMUNE = "変異攻撃",
+    ADD_KLAIDA = "昆虫攻撃",
+    Cloth_Def = "布相殺",
+    Leather_Def = "皮相殺",
+    Iron_Def = "鎧相殺",
+    MiddleSize_Def = "中型相殺",
+    ResAdd_Damage = "追ダメ抵",
+    stun_res = "スタン抵",
+    high_fire_res = "火抵",
+    high_freezing_res = "氷抵",
+    high_lighting_res = "雷抵",
+    high_poison_res = "毒抵",
+    high_laceration_res = "裂傷抵",
+    portion_expansion = "ポーション",
+    CRTHR = "クリ発",
+    CRTDR = "クリ抵",
+    BLK = "ブロ",
+    BLK_BREAK = "ブロ貫",
+    RHP = "HP回復"
+}
+
+function Icor_planner_option_short(opt)
+    if g.lang == "Japanese" and g.icor_planner_short_names[opt] then
+        return g.icor_planner_short_names[opt]
+    end
+    return Icor_planner_option_name(opt)
+end
+
 -- 突破(最大値を超えた値)の閾値。素の DRAW_EQUIP_GODDESS_ICOR と同じ式で、
 -- market_favorite_rebuild の紫表示もこれを使っている。**== で見ないこと**
 -- (段によって突破の値がちょうど閾値にならない)。

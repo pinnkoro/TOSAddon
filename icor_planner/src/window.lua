@@ -278,18 +278,28 @@ function Icor_planner_build_trial(bg)
     Icor_planner_fill_trial_result(right, scan)
 end
 
--- オプションを 1 つずつの塊にする(値の段階で色を付ける)。Icor_planner_flow で折り返して並べる用
+-- オプションを 1 つずつの塊にする(値の段階で色を付ける)。Icor_planner_flow で折り返して並べる用。
+-- 名前は略語(Icor_planner_option_short)。1 行に収まらないときだけ折り返す
 function Icor_planner_options_parts(options)
     local parts = {}
     for _, op in ipairs(options or {}) do
         local color = g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}"
-        parts[#parts + 1] = string.format("%s%s %s%s", color, Icor_planner_option_name(op.opt),
+        parts[#parts + 1] = string.format("%s%s %s%s", color, Icor_planner_option_short(op.opt),
             Icor_planner_state_color(op.state), GET_COMMAED_STRING(op.value))
     end
     if #parts == 0 then
         parts[1] = g.lang == "Japanese" and "{#888888}イコル無し" or "{#888888}no icor"
     end
     return parts
+end
+
+-- 略語で並べたオプションの正式名。ボタンのツールチップに出す(略語だけでは分からないとき用)
+function Icor_planner_options_tooltip(options)
+    local lines = {}
+    for _, op in ipairs(options or {}) do
+        lines[#lines + 1] = string.format("%s %s", Icor_planner_option_name(op.opt), GET_COMMAED_STRING(op.value))
+    end
+    return "{ol}" .. table.concat(lines, "{nl}")
 end
 
 function Icor_planner_fill_trial_candidates(left, scan)
@@ -378,6 +388,7 @@ function Icor_planner_fill_trial_candidates(left, scan)
                 AUTO_CAST(btn)
                 btn:SetSkinName("test_pvp_btn")
                 btn:SetText(jp and "{ol}{s14}試す" or "{ol}{s14}Try")
+                btn:SetTextTooltip(Icor_planner_options_tooltip(row.options))
                 btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_trial_apply")
                 btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
                 y = math.max(next_y, y + 46) + 4

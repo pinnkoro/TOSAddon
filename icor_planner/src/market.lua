@@ -628,7 +628,7 @@ function Icor_planner_fill_set_buttons(list, diag, scan, base_y)
             local names = {}
             for _, opt in ipairs(set.opts) do
                 names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(opt)] or "{#FFFFFF}") ..
-                                        Icor_planner_option_name(opt)
+                                        Icor_planner_option_short(opt)
             end
             local row_y = y
             local next_y = Icor_planner_flow(list, "set_text_" .. idx, 14, y + 4, list:GetWidth() - 160,
@@ -730,7 +730,7 @@ function Icor_planner_fill_custom_buttons(list, base_y)
             local names, tips = {}, {}
             for _, op in ipairs(swap.options) do
                 names[#names + 1] = (g.icor_planner_group_color[Icor_planner_group_of(op.opt)] or "{#FFFFFF}") ..
-                                        Icor_planner_option_name(op.opt)
+                                        Icor_planner_option_short(op.opt)
                 tips[#tips + 1] = string.format("%s >= %s", Icor_planner_option_name(op.opt),
                     GET_COMMAED_STRING(op.value))
             end
