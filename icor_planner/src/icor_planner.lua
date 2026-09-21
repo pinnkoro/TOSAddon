@@ -1901,6 +1901,17 @@ end
 --   更新するイコルあり … その部位に何を載せるか(Icor_planner_recommend)
 --   無し               … 今の装備を残したまま、どこを変えれば届くか(Icor_planner_plan_keep)
 function Icor_planner_plan(diag, scan, assumption)
+    -- **どちらの数え方になったかと、その決め手を残す。** 試算の差し替えで数え方が入れ替わる
+    -- 不具合(1 → 7)を直したので、実機で期待した分岐を通っているかを verbose_log.txt で確かめられるように
+    -- する(更新する = excluded / 差し替えた元が更新する = was_excluded)
+    local marks = {}
+    for _, entry in ipairs(scan.slots) do
+        if entry.equipped and (entry.excluded or entry.was_excluded) then
+            marks[#marks + 1] = string.format("%s(%s)", entry.slot_name, entry.excluded and "excluded" or "was_excluded")
+        end
+    end
+    g.vlog("icor_planner: 数え方 %s (%s) 決め手: %s", Icor_planner_update_mode(scan) and "更新するイコル" or
+        "今の装備に足す", tostring(assumption), #marks > 0 and table.concat(marks, " / ") or "無し")
     if Icor_planner_update_mode(scan) then
         return Icor_planner_recommend(diag, scan, assumption)
     end
