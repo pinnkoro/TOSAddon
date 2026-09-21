@@ -615,14 +615,69 @@ end
 
 -- ===== 試算(このイコルに替えたら) =====
 --
--- 差し替えは**保存しない**(その場で試すためのもの)。部位名 -> 差し替えるイコルの控え。
--- 控えにはオプションを写しておく。マーケットの出品はページを移ると中身が入れ替わるので、
--- 品物そのものを握っていると別の品を読んでしまう
+-- 部位名 -> 差し替えるイコルの控え。控えにはオプションを写しておく。マーケットの出品は
+-- ページを移ると中身が入れ替わるので、品物そのものを握っていると別の品を読んでしまう。
+--
+-- **差し替えは保存して、次に開いたときに読み込む。** 「上半身はこれ、下半身はこれ」と
+-- 組んだ差し替えを、毎日マーケットで探し直すため(実機で要望された)。
+-- 置き場所は icor_planner.json の trial_swaps[キャラ]。部位はキャラの装備で決まるので**キャラごと**。
+-- 変えたら Icor_planner_trial_save を呼ぶこと(呼び忘れると、再起動で前の姿に戻る)
 function Icor_planner_trial_swaps()
-    g.icor_planner_trial = g.icor_planner_trial or {
-        swaps = {}
-    }
+    local cid = tostring(g.cid)
+    -- 設定を読む前に呼ばれたら、読み込まずに空で返す(溜めると、読んだ後も空のまま残る)
+    if g.icor_planner_settings == nil then
+        return {}
+    end
+    if g.icor_planner_trial == nil or g.icor_planner_trial.cid ~= cid then
+        local saved = g.icor_planner_settings and g.icor_planner_settings.trial_swaps and
+                          g.icor_planner_settings.trial_swaps[cid]
+        local swaps = {}
+        for slot_name, swap in pairs(type(saved) == "table" and saved or {}) do
+            if type(swap) == "table" and type(swap.options) == "table" then
+                swaps[slot_name] = swap
+                -- 読み込むと options と base_options は別の表になる。リロールしていなければ同じ表に戻す
+                if swap.reroll == nil or swap.base_options == nil then
+                    swap.base_options = swap.options
+                end
+            end
+        end
+        g.icor_planner_trial = {
+            cid = cid,
+            swaps = swaps
+        }
+        local count = 0
+        for _ in pairs(swaps) do
+            count = count + 1
+        end
+        g.vlog("icor_planner: 保存した試算の差し替えを読み込んだ %d 部位 (cid %s)", count, cid)
+    end
     return g.icor_planner_trial.swaps
+end
+
+-- 今の差し替えを保存する(差し替え / 戻す / リロール / 組み直しのたびに呼ぶ)
+function Icor_planner_trial_save()
+    local settings = g.icor_planner_settings
+    if settings == nil then
+        return
+    end
+    local cid = tostring(g.cid)
+    settings.trial_swaps = settings.trial_swaps or {}
+    local swaps = Icor_planner_trial_swaps()
+    -- **どちらの分岐を通ったかと中身を残す。** 「再起動したら差し替えが消えた / 残っている」と
+    -- 言われたとき、保存したのか消したのか、どの部位を控えたのかを verbose_log.txt から追える
+    local parts = {}
+    for slot_name, swap in pairs(swaps) do
+        parts[#parts + 1] = string.format("%s(%s)", tostring(slot_name), tostring(swap.source))
+    end
+    table.sort(parts)
+    if next(swaps) == nil then
+        settings.trial_swaps[cid] = nil
+        g.vlog("icor_planner: 試算の差し替えの保存を消した (cid %s)", cid)
+    else
+        settings.trial_swaps[cid] = swaps
+        g.vlog("icor_planner: 試算の差し替えを保存した (cid %s) %s", cid, table.concat(parts, " / "))
+    end
+    Icor_planner_save_settings()
 end
 
 -- イコル(アイテム)に載っているオプション
@@ -659,6 +714,8 @@ function Icor_planner_trial_candidates(spot)
         rows[#rows + 1] = {
             source = source,
             price = price,
+            -- マーケットで探すときの部位(武器 / 防具)。差し替えを保存しても引けるよう控える
+            spot = spot,
             name = dictionary.ReplaceDicIDInCompStr(TryGetProp(item_obj, "Name", "")),
             lv = tonumber(TryGetProp(item_obj, "UseLv", 0)) or 0,
             -- リロールの試算で、候補のオプションと値の範囲を素に引くのに使う(品物は握らない)
@@ -775,6 +832,7 @@ function Icor_planner_trial_set_reroll(slot_name, index, opt, assume)
     if from == nil or opt == nil or opt == from.opt then
         base.swap.options = base.options
         base.swap.reroll = nil
+        Icor_planner_trial_save()
         g.vlog("icor_planner: 試算のリロールを取り消した %s", tostring(slot_name))
         return
     end
@@ -805,6 +863,7 @@ function Icor_planner_trial_set_reroll(slot_name, index, opt, assume)
         value = value,
         assume = assume
     }
+    Icor_planner_trial_save()
     g.vlog("icor_planner: 試算のリロール %s 枠%d %s -> %s (%d / %s)", tostring(slot_name), index, tostring(from.opt),
         tostring(opt), value, tostring(assume))
 end
@@ -897,6 +956,7 @@ function Icor_planner_trial_set_custom(slot_name, spot, opts, assumes)
             assumes = custom_assumes
         }
     }
+    Icor_planner_trial_save()
     local parts = {}
     for i, op in ipairs(options) do
         parts[#parts + 1] = string.format("%s=%d(%s)", op.opt, op.value, custom_assumes[i])
