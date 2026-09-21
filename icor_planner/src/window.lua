@@ -755,7 +755,7 @@ function Icor_planner_draw_trial_custom(left, entry)
     end
 end
 
--- 「6,168 (3,702〜4,113)」。使う値を段階の色で出し、範囲を添える。空き枠は何も出さない
+-- 「6,169 (3,702〜4,113)」。使う値を段階の色で出し、範囲を添える。空き枠は何も出さない
 function Icor_planner_custom_range_text(opt, spot, assume)
     if opt == nil or opt == "None" then
         return ""
