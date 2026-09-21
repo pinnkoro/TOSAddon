@@ -213,9 +213,10 @@ end
 g.migrate_probe_logged = g.migrate_probe_logged or {}
 
 -- **"<名前>_p" のフォルダを引き継ぎ元にしてはいけない。**
--- 例えば ../addons/mini_addons_p/ は個別版のものではなく、**まとめ版自身が作る**
--- フォルダ(同梱 mini_addons の addon_name_lower が "MINI_ADDONS_P" で、
--- create_folder と log.dat がここを使う)。個別版は "mini_addons" のまま。
+-- 例えば ../addons/mini_addons_p/ は個別版のものではなく、**まとめ版自身が昔使っていた**
+-- フォルダ(同梱 mini_addons の addon_name_lower が "MINI_ADDONS_P" で、ボスレ
+-- ランキングの log.dat を置いていた。今は AID フォルダへ移し、旧パスからの引き継ぎは
+-- Mini_addons_migrate_boss_rank_log が個別に行う)。個別版は "mini_addons" のまま。
 -- ここを引き継ぎ元に含めると、自分が置いた古いファイルを個別版の設定と誤認して
 -- 取り込むことになる。探すのは個別版のフォルダ名だけにすること。
 function g.migrate_individual_addon_settings(individual_lower, files, display_name)

@@ -10,6 +10,8 @@ function Mini_addons_ON_INIT(addon, frame)
     local t0 = now_ms()
     g.cid = info.GetCID(session.GetMyHandle())
     g.lang = option.GetCurrentCountry()
+    -- ボスレランキングの保存データを旧パス / 個別版から写す(案内文に g.lang を使うのでこの後)
+    Mini_addons_migrate_boss_rank_log()
     g.load_time = os.clock()
     g.last_inventory_open_time = 0
     local t_session = now_ms()
