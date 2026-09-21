@@ -496,10 +496,12 @@ function Mini_addons_migrate_boss_rank_log()
     if not dst_path or g.boss_rank_log_checked == dst_path then
         return
     end
-    g.boss_rank_log_checked = dst_path
+    -- 「済んだ」印は、引き継ぐ必要が無いと確定したとき(写し先が既にある / 写し元が無い /
+    -- 写せた)にだけ立てる。写すのに失敗したときは立てず、次の ON_INIT(マップ移動)で再試行する。
     local dst = io.open(dst_path, "r")
     if dst then
         dst:close()
+        g.boss_rank_log_checked = dst_path
         return
     end
     local sources = {"../addons/mini_addons_p/log.dat", "../addons/mini_addons/log.dat"}
@@ -510,13 +512,22 @@ function Mini_addons_migrate_boss_rank_log()
             local ok = core_g.copy_file(src_path, dst_path)
             core_g.vlog("boss_rank: log 引き継ぎ %s -> %s (%s)", src_path, dst_path, tostring(ok))
             if ok then
+                g.boss_rank_log_checked = dst_path
                 core_g.queue_message(g.lang == "Japanese" and
                     "{ol}{#00BFFF}[Nexus Addons P] Mini Addons: ボスレランキングの保存データを引き継ぎました" or
                     "{ol}{#00BFFF}[Nexus Addons P] Mini Addons: Carried over the saved boss raid ranking data")
+            elseif g.boss_rank_log_fail_notified ~= dst_path then
+                -- 失敗は黙って捨てない(Mini_addons_save_log と同じ方針)。ただし再試行は
+                -- マップ移動のたびに走るので、案内はセッション中 1 回だけにする。
+                g.boss_rank_log_fail_notified = dst_path
+                core_g.queue_message(g.lang == "Japanese" and
+                    "{ol}{#FF6347}[Nexus Addons P] Mini Addons: ボスレランキングの保存データを引き継げませんでした（マップ移動のたびに再試行します）" or
+                    "{ol}{#FF6347}[Nexus Addons P] Mini Addons: Could not carry over the saved boss raid ranking data (retrying on each map change)")
             end
             return
         end
     end
+    g.boss_rank_log_checked = dst_path
     core_g.vlog("boss_rank: 引き継ぐ log.dat が無い")
 end
 
