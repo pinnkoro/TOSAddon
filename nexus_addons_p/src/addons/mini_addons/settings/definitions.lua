@@ -100,6 +100,10 @@ local DEFAULT_SETTINGS = {
     pt_info = 0,
     enchant_tooltip = 0,
     boss_rank = 0,
+    -- ボスレランキングの保存データ(mini_addons_log.dat)から、4 週より古い週を保存のたびに消すか。
+    -- **既定は 0(消さない)**。古い週を自分で見比べている人がいるかもしれないので、消すのは
+    -- 利用者が選んだときだけ。切り替えは data ボタンのメニュー(Mini_addons_toggle_boss_rank_prune)
+    boss_rank_prune = 0,
     auto_craft = 0,
     keep_first = 0,
     multiple_item = 0,

@@ -55,7 +55,7 @@ end
 
 function Mini_addons_create_ranking_data()
     local induninfo = ui.GetFrame("induninfo")
-    local file_path = string.format("../addons/%s/log.dat", addon_name_lower)
+    local file_path = g.boss_rank_log_path
     local log_data = g.load_dat(file_path)
     if not log_data then
         local msg = g.lang == "Japanese" and
@@ -145,6 +145,31 @@ function Mini_addons_create_ranking_data()
             damage = data.max_damage,
             all_jobs = data.all_jobs
         })
+    end
+    -- ファイルはあるのに、週タブで選んでいる週のデータだけが無いとき。
+    -- 「未取得です」だけだと保存の失敗と見分けが付かない(週が替わった直後に「今週」の
+    -- タブのまま開くと必ずこうなり、保存先を移した直後の実機確認で取り違えかけた)。
+    -- どの週を探して、どの週なら持っているのかを出す。
+    if #ranking_list == 0 then
+        local weeks_set, weeks = {}, {}
+        for _, record in ipairs(log_data) do
+            local w = tonumber(record[1])
+            if w and not weeks_set[w] then
+                weeks_set[w] = true
+                table.insert(weeks, w)
+            end
+        end
+        table.sort(weeks)
+        local weeks_str = #weeks > 0 and table.concat(weeks, ", ") or "-"
+        core_g.vlog("boss_rank: [%s] 週のデータが無い (保存済みの週: %s / %s)", tostring(season), weeks_str,
+            tostring(g.boss_rank_log_path))
+        local msg = g.lang == "Japanese" and
+                        string.format("[%s] 週のランキングデータがありません{nl}保存済みの週: %s{nl}週のタブを切り替えるか、データを取得してください",
+                tostring(season), weeks_str) or
+                        string.format("No ranking data for week [%s]{nl}Saved weeks: %s{nl}Switch the week tab or acquire the data",
+                tostring(season), weeks_str)
+        ui.SysMsg(msg)
+        return
     end
     table.sort(ranking_list, function(a, b)
         return a.damage > b.damage
@@ -315,28 +340,53 @@ function Mini_addons_create_ranking_data_frame(ranking_data, is_save)
 end
 
 function Mini_addons_get_weekly_boss_data_context(frame, ctrl, str, num)
-    local context = ui.CreateContextMenu("weekly_boss_data", "{ol}WEEKLY BOSS DATA", 0, 0, 0, 0)
-    ui.AddContextMenuItem(context, "four weeks", "None")
-    for i = 1, #base_jobids do
-        local scp = string.format("Mini_addons_get_weekly_boss_data_reserve(%d, 1)", base_jobids[i])
-        local job_cls = GetClassByType("Job", base_jobids[i])
-        ui.AddContextMenuItem(context, job_cls.Name .. " (Data takes about 120 sec)", scp)
+    -- 見出し行を置かないこと。コンテキストメニューには押せない行を作る手段が無く
+    -- (素の ui.AddContextMenuItem は全行が選択肢になる)、以前の "four weeks" / "This week" の
+    -- 見出しは押せてしまっていた。代わりに各行の頭へ「今週 / 4週分」を付けて、
+    -- 期間ごとに色を分ける。よく使う「今週」を上に、各期間の先頭に「全職業」を置く。
+    local is_jp = g.lang == "Japanese"
+    local title = is_jp and "{ol}ランキングデータの取得" or "{ol}Acquire Ranking Data"
+    local context = ui.CreateContextMenu("weekly_boss_data", title, 0, 0, 0, 0)
+    -- mode_base: 全職業のときに Mini_addons_get_weekly_boss_data_reserve へ渡す値(今週 0 / 4週分 1)
+    local periods = {{
+        label = is_jp and "今週" or "This week",
+        color = "{#FFFFFF}",
+        is_four_weeks = 0,
+        mode_base = 0,
+        sec_all = 150,
+        sec_one = 30
+    }, {
+        label = is_jp and "4週分" or "4 weeks",
+        color = "{#9FD8FF}",
+        is_four_weeks = 1,
+        mode_base = 1,
+        sec_all = 600,
+        sec_one = 120
+    }}
+    for _, p in ipairs(periods) do
+        local head = "{ol}" .. p.color .. p.label .. " / "
+        local all_text = is_jp and string.format("%s全職業 (約%d秒)", head, p.sec_all) or
+                             string.format("%sAll classes (about %d sec)", head, p.sec_all)
+        ui.AddContextMenuItem(context, all_text,
+            string.format("Mini_addons_get_weekly_boss_data_reserve(%d, %d)", p.mode_base, p.is_four_weeks))
+        for i = 1, #base_jobids do
+            local job_cls = GetClassByType("Job", base_jobids[i])
+            local text = is_jp and string.format("%s%s (約%d秒)", head, job_cls.Name, p.sec_one) or
+                             string.format("%s%s (about %d sec)", head, job_cls.Name, p.sec_one)
+            ui.AddContextMenuItem(context, text,
+                string.format("Mini_addons_get_weekly_boss_data_reserve(%d, %d)", base_jobids[i], p.is_four_weeks))
+        end
     end
-    local scp_all_four = string.format("Mini_addons_get_weekly_boss_data_reserve(1, 1)")
-    ui.AddContextMenuItem(context, "data for all classes (Data takes about 600 sec)", scp_all_four)
-    ui.AddContextMenuItem(context, "This week", "None")
-    for i = 1, #base_jobids do
-        local scp = string.format("Mini_addons_get_weekly_boss_data_reserve(%d, 0)", base_jobids[i])
-        local job_cls = GetClassByType("Job", base_jobids[i])
-        ui.AddContextMenuItem(context, job_cls.Name .. " (Data takes about 30 sec)", scp)
-    end
-    local scp_all_this = string.format("Mini_addons_get_weekly_boss_data_reserve(0, 0)")
-    ui.AddContextMenuItem(context, "data for all classes (Data takes about 150 sec)", scp_all_this)
+    local prune_on = g.settings.boss_rank_prune == 1
+    local mark = (prune_on and "{#00FF00}[ON]" or "{#AAAAAA}[OFF]") .. "{#FFFFFF}"
+    local prune_text = is_jp and "{ol}" .. mark .. " 4週より古いデータを自動で削除" or "{ol}" .. mark ..
+                           " Auto-delete data older than 4 weeks"
+    ui.AddContextMenuItem(context, prune_text, "Mini_addons_toggle_boss_rank_prune()")
     ui.OpenContextMenu(context)
 end
 
 function Mini_addons_save_log()
-    local file_path = string.format("../addons/%s/log.dat", addon_name_lower)
+    local file_path = g.boss_rank_log_path
     local existing_records = g.load_dat(file_path) or {}
     local new_records_check = {}
     for _, new_record in ipairs(result_tbl) do
@@ -359,16 +409,126 @@ function Mini_addons_save_log()
     for _, new_record in ipairs(result_tbl) do
         table.insert(final_records_to_save, new_record)
     end
+    final_records_to_save = Mini_addons_prune_boss_rank_records(final_records_to_save)
     local lines_to_write = {}
     for _, record in ipairs(final_records_to_save) do
         table.insert(lines_to_write, table.concat(record, ":::"))
     end
     local content_to_write = table.concat(lines_to_write, "\n")
-    local file = io.open(file_path, "w")
-    if file then
-        file:write(content_to_write)
-        file:close()
+    -- 失敗を黙って捨てないこと。以前は保存先のフォルダが無くて毎回失敗していたのに、
+    -- 「保存しました」「処理が完了しました」だけが出て、表示しようとして初めて
+    -- 「未取得です」と言われる形でしか表に出なかった(利用者からの報告で発覚)。
+    local file, err = io.open(file_path, "w")
+    if not file then
+        core_g.vlog("{#FF6347}boss_rank: log 保存 FAILED{/} %s (%s)", file_path, tostring(err))
+        return false
     end
+    file:write(content_to_write)
+    file:close()
+    core_g.vlog("boss_rank: log 保存 %s (%d 行)", file_path, #lines_to_write)
+    return true
+end
+
+-- 設定 boss_rank_prune が ON のとき、今週を含めて 4 週(= 今週と前の 3 週。「4週分」の取得と
+-- 同じ範囲)より古い週の行を落とす。OFF のときは受け取ったものをそのまま返す。
+-- 今の週番号が取れないとき(0 / nil)は、何週目まで残すか決められないので消さない。
+function Mini_addons_prune_boss_rank_records(records)
+    if not g.settings or g.settings.boss_rank_prune ~= 1 then
+        return records
+    end
+    local now_week = tonumber(session.weeklyboss.GetNowWeekNum())
+    if not now_week or now_week <= 0 then
+        core_g.vlog("boss_rank: 週番号が取れないので古い週を消さない (%s)", tostring(now_week))
+        return records
+    end
+    local oldest_kept = now_week - 3
+    local kept, dropped_weeks = {}, {}
+    for _, record in ipairs(records) do
+        local w = tonumber(record[1])
+        if w and w < oldest_kept then
+            dropped_weeks[w] = (dropped_weeks[w] or 0) + 1
+        else
+            table.insert(kept, record)
+        end
+    end
+    local dropped = #records - #kept
+    if dropped > 0 then
+        local weeks = {}
+        for w in pairs(dropped_weeks) do
+            table.insert(weeks, w)
+        end
+        table.sort(weeks)
+        core_g.vlog("boss_rank: %d 週より古い週を削除 週=%s (%d 行)", oldest_kept, table.concat(weeks, ","), dropped)
+    end
+    return kept
+end
+
+-- data ボタンのメニューから呼ぶ。コンテキストメニューには本物のチェックボックスを置けないので、
+-- 行の頭に [ON] / [OFF] を出して、押すたびに切り替える。
+-- **切り替えた時点では消さない。** メニューの押し間違いでデータが消えないよう、実際に消すのは
+-- 次に保存するとき(Mini_addons_save_log)だけにしている。
+function Mini_addons_toggle_boss_rank_prune()
+    g.settings.boss_rank_prune = g.settings.boss_rank_prune == 1 and 0 or 1
+    Mini_addons_save_settings()
+    core_g.vlog("boss_rank: boss_rank_prune=%d", g.settings.boss_rank_prune)
+    local msg
+    if g.settings.boss_rank_prune == 1 then
+        msg = g.lang == "Japanese" and
+                  "4週より古いデータの自動削除: ON{nl}次にデータを保存するときから、4週より古い週を削除します" or
+                  "Auto-delete data older than 4 weeks: ON{nl}Weeks older than 4 weeks will be deleted from the next save"
+    else
+        msg = g.lang == "Japanese" and "4週より古いデータの自動削除: OFF{nl}データは削除しません" or
+                  "Auto-delete data older than 4 weeks: OFF{nl}No data will be deleted"
+    end
+    ui.SysMsg(msg)
+end
+
+-- ランキングの保存先を AID フォルダへ移したので(g.update_paths のコメント)、旧パスから 1 回だけ写す。
+-- 探す順:
+--   1. ../addons/mini_addons_p/log.dat … 同梱版自身の旧保存先。**設定の引き継ぎ
+--      (core の migrate_individual_addon_settings)では "_p" のフォルダを引き継ぎ元にしない
+--      決まりだが、log.dat は正真正銘ここにしか無かったので例外。**
+--   2. ../addons/mini_addons/log.dat … 本家の個別版。行の形式(week:::job:::順位:::名前:::
+--      ダメージ:::職業名:::確定)は同じなので、そのまま写せる。
+-- 写した後も元のファイルは消さない(個別版に戻したときにそのまま使えるように)。
+function Mini_addons_migrate_boss_rank_log()
+    local dst_path = g.boss_rank_log_path
+    if not dst_path or g.boss_rank_log_checked == dst_path then
+        return
+    end
+    -- 「済んだ」印は、引き継ぐ必要が無いと確定したとき(写し先が既にある / 写し元が無い /
+    -- 写せた)にだけ立てる。写すのに失敗したときは立てず、次の ON_INIT(マップ移動)で再試行する。
+    local dst = io.open(dst_path, "r")
+    if dst then
+        dst:close()
+        g.boss_rank_log_checked = dst_path
+        return
+    end
+    local sources = {"../addons/mini_addons_p/log.dat", "../addons/mini_addons/log.dat"}
+    for _, src_path in ipairs(sources) do
+        local src = io.open(src_path, "r")
+        if src then
+            src:close()
+            local ok = core_g.copy_file(src_path, dst_path)
+            core_g.vlog("boss_rank: log 引き継ぎ %s -> %s (%s)", src_path, dst_path, tostring(ok))
+            if ok then
+                g.boss_rank_log_checked = dst_path
+                core_g.queue_message(g.lang == "Japanese" and
+                    "{ol}{#00BFFF}[Nexus Addons P] Mini Addons: ボスレランキングの保存データを引き継ぎました" or
+                    "{ol}{#00BFFF}[Nexus Addons P] Mini Addons: Carried over the saved boss raid ranking data")
+            elseif g.boss_rank_log_fail_notified ~= dst_path then
+                -- 失敗は黙って捨てない(Mini_addons_save_log と同じ方針)。ただし再試行は
+                -- マップ移動のたびに走るので、案内はセッション中 1 回だけにする。
+                g.boss_rank_log_fail_notified = dst_path
+                core_g.queue_message(g.lang == "Japanese" and
+                    "{ol}{#FF6347}[Nexus Addons P] Mini Addons: ボスレランキングの保存データを引き継げませんでした（マップ移動のたびに再試行します）" or
+                    "{ol}{#FF6347}[Nexus Addons P] Mini Addons: Could not carry over the saved boss raid ranking data (retrying on each map change)")
+            end
+            return
+        end
+    end
+    g.boss_rank_log_checked = dst_path
+    core_g.vlog("boss_rank: 引き継ぐ log.dat が無い")
 end
 
 function Mini_addons_get_weekly_boss_data_reserve(base_job_id, is_four_weeks)
@@ -386,7 +546,7 @@ function Mini_addons_get_weekly_boss_data_reserve(base_job_id, is_four_weeks)
     local classtype_tab = GET_CHILD_RECURSIVELY(induninfo, "classtype_tab")
     classtype_tab:SelectTab(0)
     start_time = os.clock()
-    local file_path = string.format("../addons/%s/log.dat", addon_name_lower)
+    local file_path = g.boss_rank_log_path
     local loaded_data = g.load_dat(file_path)
     if loaded_data then
         for _, record in ipairs(loaded_data) do
@@ -576,18 +736,24 @@ function Mini_addons_get_weekly_boss_damage(rankListBox)
         local base_id = tonumber(job_id) - (tonumber(job_id) % 1000) + 1
         local job_cls = GetClassByType("Job", tonumber(base_id))
         local job_name = dic.getTranslatedStr(job_cls.Name)
-        local msg = g.lang == "Japanese" and "[" .. week_num .. "] 週の " .. job_name ..
-                        " クラスのデータを保存しました" or "Saved data for the [" .. week_num ..
-                        "] week's " .. job_name .. " class"
+        local msg
+        if Mini_addons_save_log() then
+            msg = g.lang == "Japanese" and "[" .. week_num .. "] 週の " .. job_name ..
+                      " クラスのデータを保存しました" or "Saved data for the [" .. week_num ..
+                      "] week's " .. job_name .. " class"
+        else
+            msg = g.lang == "Japanese" and "{#FF6347}[" .. week_num .. "] 週の " .. job_name ..
+                      " クラスのデータを保存できませんでした" or "{#FF6347}Could not save data for the [" ..
+                      week_num .. "] week's " .. job_name .. " class"
+        end
         ui.SysMsg(msg)
-        Mini_addons_save_log()
         rankListBox:SetUserValue("SHOULD_SAVE", 0)
     end
     return 0
 end
 
 function Mini_addons_rebuild_log_file(induninfo)
-    local file_path = string.format("../addons/%s/log.dat", addon_name_lower)
+    local file_path = g.boss_rank_log_path
     local log_data = g.load_dat(file_path)
     if not log_data then
         return 0

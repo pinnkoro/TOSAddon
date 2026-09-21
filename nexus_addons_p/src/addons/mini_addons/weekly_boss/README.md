@@ -24,4 +24,10 @@
 * 収集の途中経過は `processed_job_ids` / `result_tbl` / `existing_data_check` /
   `start_time` に持ちます。これらは [ranking.lua](ranking.lua) 冒頭で宣言している
   **トップレベルの local** なので、利用側をこの宣言より前へ動かさないこと。
+* 取得結果は `../addons/_nexus_addons_p/<AID>/mini_addons_log.dat`（`g.boss_rank_log_path`）に
+  保存します。以前の `../addons/mini_addons_p/log.dat` は、フォルダを作る処理が無いため開発者の PC 以外では
+  保存に失敗していました。旧パスと個別版（`../addons/mini_addons/log.dat`）からは
+  `Mini_addons_migrate_boss_rank_log` が初回だけ写します。
+* 保存データに上限はありません。設定 `boss_rank_prune`（既定 0。data ボタンのメニュー最下段で切り替え）が
+  1 のときだけ、保存のたびに今週を含めて 4 週より古い週を落とします（`Mini_addons_prune_boss_rank_records`）。
 * 自前の一覧ウィンドウは ESC で閉じられます（入口は `Mini_addons_ranking_ESCAPE_PRESSED`）。
