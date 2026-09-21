@@ -908,6 +908,13 @@ function Icor_planner_toggle_short_names()
     Icor_planner_save_settings()
     g.vlog("icor_planner: 略語 %s", g.icor_planner_settings.short_names == 1 and "ON" or "OFF")
     Icor_planner_build_tab()
+    -- マーケットのパネル側のボタンも揃える(パネルは中身だけを作り直すので、ボタンはここで替える)
+    local panel = ui.GetFrame(addon_name_lower .. g.icor_planner_market_frame)
+    local short_btn = panel and GET_CHILD_RECURSIVELY(panel, "short_btn")
+    if short_btn ~= nil then
+        AUTO_CAST(short_btn)
+        Icor_planner_market_short_btn_look(short_btn)
+    end
     Icor_planner_refresh_market_customs()
 end
 

@@ -141,6 +141,15 @@ function Icor_planner_market_open()
     open_btn:SetSkinName("test_pvp_btn")
     open_btn:SetText(g.lang == "Japanese" and "{ol}{s15}診断を開く" or "{ol}{s15}Open planner")
     open_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_open")
+    -- 略語の ON / OFF(試算タブの上と同じ設定)。「診断を開く」の下
+    if g.lang == "Japanese" then
+        local short_btn = big_bg:CreateOrGetControl("button", "short_btn", 130, 26, ui.LEFT, ui.TOP, 270, 72, 0, 0)
+        AUTO_CAST(short_btn)
+        short_btn:SetTextTooltip(
+            "{ol}セットの行のオプション名を略語(クリ発 / パフェ / 皮相殺 など)で出すか{nl}OFF にすると正式名で出します{nl}試算タブの上のボタンと同じ設定です")
+        short_btn:SetEventScript(ui.LBUTTONUP, "Icor_planner_toggle_short_names")
+        Icor_planner_market_short_btn_look(short_btn)
+    end
     local sort_drop = big_bg:CreateOrGetControl("droplist", "sort_drop", 250, 26, ui.LEFT, ui.TOP, 10, 72, 0, 0)
     AUTO_CAST(sort_drop)
     sort_drop:SetSkinName("droplist_normal")
@@ -162,6 +171,13 @@ function Icor_planner_market_open()
     -- ここで ESC を横取りすると本来閉じるべき market が開いたまま残る(CLAUDE.md)
     g.icor_planner_market_sig = nil
     Icor_planner_market_fill()
+end
+
+-- 略語ボタンの見た目を今の設定に合わせる(ON = 黄色)
+function Icor_planner_market_short_btn_look(btn)
+    local on = g.icor_planner_settings.short_names ~= 0
+    btn:SetSkinName(on and "baseyellow_btn" or "test_pvp_btn")
+    btn:SetText(on and "{ol}{s15}略語 ON" or "{ol}{s15}略語 OFF")
 end
 
 -- ===== 素の一覧の行を目立たせる =====
