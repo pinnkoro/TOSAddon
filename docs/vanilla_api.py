@@ -848,12 +848,24 @@ def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=N
                 elif in_exe:
                     # 素の Lua は使っていないが、ネイティブの登録表に名前が在る。
                     entry["kind"] = "native_exe"
+                elif exe_names is None and prev.get("kind") == "native_exe":
+                    # **exe を読めないときは前回の結論を持ち越すこと。** 毎回 kind を
+                    # 計算し直すと、exe が無い環境の --update で native_exe が
+                    # unknown に化け、後から exe のある環境で流したときに
+                    # 「素に定義も使用も見当たらない」で落ちるようになる。
+                    entry["kind"] = "native_exe"
                 else:
                     entry["kind"] = "unknown"
                 entry["vanilla_calls"] = calls
                 entry["vanilla_mentions"] = mentions
                 entry["vanilla_arities"] = cn.get("arities", [])
-                if exe_names is not None:
+                # **external には in_exe を記録しないこと。** 拾えるのは名前だけなので、
+                # 短い名前（utf8.codes の codes など）は無関係な文字列に当たりうる。
+                # 記録すると、その偶然の一致が外れただけで「exe から消えた」と
+                # 落ちるようになり、理由を書いてある記号まで止めてしまう。
+                if entry["kind"] == "external":
+                    pass
+                elif exe_names is not None:
                     entry["in_exe"] = in_exe
                 elif "in_exe" in prev:
                     entry["in_exe"] = prev["in_exe"]
