@@ -58,6 +58,7 @@ GitHub Actions のランナーにゲームは入らないので、**素との突
 * できる
   * 素の Lua で定義された関数が**まだ在るか**、**仮引数が変わっていないか**
   * ネイティブ API 名が**素の Lua から今も使われているか**（消えた API の検出）
+  * ネイティブ API 名が**素の exe の登録表に今も在るか**（下の「exe の登録表との照合」）
   * 素での呼び出し引数の数の集合
   * こちらが**一覧に無い素の API を使い始めていないか**（CI）
 * できない
@@ -90,6 +91,33 @@ GitHub Actions のランナーにゲームは入らないので、**素との突
 * 素が変わったときにやることは 2 つのどちらか。**写しを素へ合わせる**か、
   **素を呼ぶ形へ書き換える**（本筋はこちら。[CODING_RULES.md](CODING_RULES.md)「素の関数を書き写さない」）。
 
+## exe の登録表との照合
+
+ネイティブ API は C 側で定義され、tolua の登録表を通して Lua へ見せている。登録表は
+**関数名を NUL 終端の文字列として exe に持っている**ので、`release/Client_tos_x64.exe` から
+識別子の形をした文字列を拾えば「その名前がネイティブに登録されているか」が分かる。
+
+素の Lua が 1 度も使っていないネイティブ API は、Lua 側の手掛かりだけでは在るとも
+無いとも言えない（以前の `info.GetMonsterClassName` は、これで `KNOWN_ISSUES` に置くしか
+なかった）。exe に名前が在れば `kind: native_exe` として一覧へ入り、`--verify-client` で
+**exe から名前が消えたら NG** になる。
+
+* `--update` は、素の Lua にも無い記号について exe に在るかを `in_exe` に記録する
+  （素の Lua が使っている `native` にも記録する）。
+* `--verify-client` は、`in_exe: true` だった記号が今の exe に無ければ NG にする。
+  kind を問わず見るので、`native` が素の Lua から消えるより先に exe の側で気付くこともある。
+* 見る exe は **x64 版の 1 本だけ**。導入先には 32bit 版の `Client_tos.exe` も残っているが、
+  2025-08 から更新されておらず、後から足された API（`guild.RequestGuildAgitMove` など）を
+  持っていない。両方に在る名前だけを採ると、今在る API を「消えた」と誤判定する。
+* exe が読めないときは照合を飛ばし、「注意」にその旨を出す。
+
+限界:
+
+* 拾えるのは**名前だけ**で、名前空間（`info` / `ui` …）は分からない。`info.X` は `X` で見る。
+* 短くありふれた名前は無関係な文字列に当たりうるので、「在る」の判定は甘め。
+  **前回在った名前が消えたことの検出**に使う。
+* 引数の数・戻り値は分からない。ここは引き続き実機で確かめる。
+
 ## 出力の 3 段階
 
 `--verify-client` の報告は落とす/落とさないで分かれている。
@@ -107,6 +135,8 @@ GitHub Actions のランナーにゲームは入らないので、**素との突
 （ネイティブにだけ在る関数、他所のアドオンが定義するもの）ので、確かめたうえで
 **理由付きで**どちらかへ足すこと。`check_frame_hittest.py` の `ALLOW` と同じ考え方。
 
+exe の登録表に名前が在るものは `native_exe` になるので、どちらの表にも足さなくてよい。
+
 * `EXPECTED_NOT_IN_CLIENT` … 素に見当たらないが、それでよいと分かっているもの
   （`imcAddOn.BroadMsg` などのネイティブ API、本家 Nexus Addons が定義するもの）
 * `KNOWN_ISSUES` … こちら側で対応が要るもの（書き間違い、実機で確かめないと決められない
@@ -117,7 +147,8 @@ GitHub Actions のランナーにゲームは入らないので、**素との突
 
 | キー | 意味 |
 | --- | --- |
-| `kind` | `client_lua`（素の Lua が定義）/ `native`（C 側。素も使っている）/ `external`（上の表で理由を付けたもの）/ `unknown` |
+| `kind` | `client_lua`（素の Lua が定義）/ `native`（C 側。素も使っている）/ `native_exe`（C 側。素の Lua は使っていないが exe の登録表に在る）/ `external`（上の表で理由を付けたもの）/ `unknown` |
+| `in_exe` | 名前が素の exe の登録表に在ったか（`client_lua` 以外に記録） |
 | `params` / `defined_in` | 素での仮引数と定義ファイル（`client_lua` のみ） |
 | `vanilla_calls` / `vanilla_mentions` | 素の Lua での呼び出し数と、文字列も含めた出現数。素は `ReserveScript("AnsGiveUpPrevPlayingIndun(1)")` のように**文字列の中から呼ぶ**ことがあるので、両方を持つ |
 | `vanilla_arities` | 素での呼び出し引数の数 |

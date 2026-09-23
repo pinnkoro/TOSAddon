@@ -42,7 +42,8 @@ GitHub Actions のランナーにゲームは入らないので、素との突�
 
     できる   … 素の Lua で定義された関数の有無・仮引数、渡す引数が多すぎないか、
                ネイティブ API 名が素の Lua から今も呼ばれているか（消えた API の検出）、
-               素での呼び出し引数の数の集合
+               ネイティブ API 名が素の exe の登録表に今も在るか（素の Lua が使っていない
+               API も含めて、消えた API の検出）、素での呼び出し引数の数の集合
     できない … ネイティブ API の本当の signature（C 側なので Lua からは読めない）と、
                戻り値・副作用の変化。ここは素での使われ方から推測するしかない
 
@@ -124,11 +125,9 @@ EXPECTED_NOT_IN_CLIENT = {
 # 決められないもの）。--verify-client では「既知」として報告するが落とさない
 # ＝新しく出たものと区別するための控え。片付いたらここから消すこと。
 # 「素に無くてよい」と結論が出たものは EXPECTED_NOT_IN_CLIENT へ移す。
+# （info.GetMonsterClassName を置いていたが、exe の info 登録表に名前が在ると分かったので
+#   外した。今は kind: native_exe として exe の照合で見張っている）
 KNOWN_ISSUES = {
-    "info.GetMonsterClassName":
-        "boss_direction.lua:167。素の Lua は geMonsterTable.GetMonsterClassNameByType しか"
-        "持たず、この名前は素のどこにも現れない。実在するネイティブかどうかは実機でしか"
-        "確かめられないので、確認するまでここに置く（矢印のボス名が出るかを見る）",
 }
 
 # 素を呼ばずに**中身を書き写している**置換方式フック。Issue #94。
@@ -396,6 +395,57 @@ def client_lua(root):
     if root not in _CLIENT_CACHE:
         _CLIENT_CACHE[root] = read_client_lua(root)
     return _CLIENT_CACHE[root]
+
+
+# ===== 素の実行ファイル（ネイティブ API の登録表）を読む =====
+#
+# ネイティブ API は C 側で定義され、tolua の登録表を通して Lua へ見せている。
+# 登録表は**関数名を NUL 終端の文字列として exe に持っている**ので、exe から識別子の
+# 形をした文字列を拾えば「その名前がネイティブに登録されているか」が分かる。
+# 素の Lua が 1 度も使っていないネイティブ API（info.GetMonsterClassName など）は、
+# Lua 側の手掛かりだけでは在るとも無いとも言えないため、ここで補う。
+#
+# 限界:
+#   * 拾えるのは**名前だけ**で、どの名前空間（info / ui / session …）に属するかは
+#     分からない。`info.X` は `X` が exe に在るかで見る。
+#   * 短くありふれた名前（`Open` など）は無関係な文字列に当たりうる。「在る」の判定は
+#     甘めになるので、**消えたことの検出**（前回在った名前が無くなった）に使う。
+#   * 引数の数・戻り値は分からない。
+CLIENT_EXES = ("release/Client_tos_x64.exe", "release/Client_tos.exe")
+EXE_NAME_RE = re.compile(rb"[A-Za-z_][A-Za-z0-9_]{2,}(?=\x00)")
+
+_EXE_CACHE = {}
+
+
+def client_exe_paths(root):
+    """見る exe は**先に見つかった 1 本だけ**。
+
+    導入先には 32bit 版の Client_tos.exe も残っているが、2025-08 から更新されておらず
+    （パッチで差し替わるのは x64 版だけ）、後から足されたネイティブ API
+    （guild.RequestGuildAgitMove など）を持っていない。両方に在る名前だけを採ると、
+    今のクライアントに在る API を「消えた」と誤判定する。
+    """
+    for rel in CLIENT_EXES:
+        path = Path(root) / rel
+        if path.is_file():
+            return [path]
+    return []
+
+
+def client_exe_names(root):
+    """素の exe に NUL 終端で入っている識別子の集合。exe が無ければ None。"""
+    root = str(root)
+    if root not in _EXE_CACHE:
+        names = None
+        for path in client_exe_paths(root):
+            names = {m.decode("ascii") for m in EXE_NAME_RE.findall(path.read_bytes())}
+        _EXE_CACHE[root] = names
+    return _EXE_CACHE[root]
+
+
+def exe_has(exe_names, key):
+    """`info.GetMonsterClassName` → `GetMonsterClassName` が exe に在るか。"""
+    return key.rsplit(".", 1)[-1] in exe_names
 
 
 DEF_FUNC = re.compile(r"^[ \t]*function[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)", re.M)
@@ -767,7 +817,7 @@ def compare_copies(lock, client_copies, require_record=True):
 
 
 def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=None,
-               client_copies=None):
+               client_copies=None, exe_names=None):
     prev_symbols = (previous or {}).get("symbols", {})
     symbols = {}
     for key in sorted(uses):
@@ -788,19 +838,29 @@ def build_lock(uses, hooks, client_globals=None, client_natives=None, previous=N
                 cn = (client_natives or {}).get(key) or {}
                 calls = cn.get("calls", 0)
                 mentions = cn.get("mentions", 0)
+                in_exe = exe_names is not None and exe_has(exe_names, key)
                 if calls or mentions:
                     entry["kind"] = "native"
                 elif key in EXPECTED_NOT_IN_CLIENT or key in KNOWN_ISSUES:
+                    # 理由を書いたものはそちらを優先する（exe に同名の文字列が
+                    # たまたま在っても、理由の方が確かな根拠なので上書きしない）。
                     entry["kind"] = "external"
+                elif in_exe:
+                    # 素の Lua は使っていないが、ネイティブの登録表に名前が在る。
+                    entry["kind"] = "native_exe"
                 else:
                     entry["kind"] = "unknown"
                 entry["vanilla_calls"] = calls
                 entry["vanilla_mentions"] = mentions
                 entry["vanilla_arities"] = cn.get("arities", [])
+                if exe_names is not None:
+                    entry["in_exe"] = in_exe
+                elif "in_exe" in prev:
+                    entry["in_exe"] = prev["in_exe"]
         else:
             # 素のクライアントを見ていないときは、前回の事実をそのまま持ち越す。
             for k in ("kind", "params", "defined_in", "vanilla_calls", "vanilla_mentions",
-                      "vanilla_arities"):
+                      "vanilla_arities", "in_exe"):
                 if k in prev:
                     entry[k] = prev[k]
         symbols[key] = entry
@@ -977,20 +1037,34 @@ def cmd_check(args):
     return 0
 
 
-def compare_with_client(lock, cg, cn):
+def compare_with_client(lock, cg, cn, exe_names=None):
     """一覧に記録した素の事実と、今のクライアントを突き合わせる。
 
     戻り値は (problems, notices, known)。**--update からも呼ぶこと。**
     --update は記録を今のクライアントで上書きするので、先に突き合わせておかないと
     素の変化を黙って飲み込んでしまう（それでは検査にならない）。
+    `exe_names` は client_exe_names() の結果。None なら exe の照合は飛ばす。
     """
     problems = []   # 実機で壊れる（落とす）
     notices = []    # 素の変化の手掛かり（落とさない）
     known = []      # KNOWN_ISSUES に控えてある既知の不具合（落とさない）
+    if exe_names is None and any(e.get("in_exe") for e in lock["symbols"].values()):
+        notices.append("素の exe（release/Client_tos*.exe）が読めないので、"
+                       "ネイティブの登録表との照合を飛ばした")
     for key, entry in sorted(lock["symbols"].items()):
         kind = entry.get("kind")
         if key in KNOWN_ISSUES:
             known.append(f"{key}: {KNOWN_ISSUES[key]}")
+            continue
+        # ネイティブの登録表から名前が消えた。素の Lua が使っていない API は
+        # ここでしか消えたことに気付けない（kind を問わず、前回在ったものは全部見る）。
+        if entry.get("in_exe") and exe_names is not None and not exe_has(exe_names, key):
+            problems.append(
+                f"{key}: 素の exe から名前が消えた（ネイティブの登録表に無い）"
+                f" / 使用箇所 {', '.join(entry['used_by'])}")
+            continue
+        if kind == "native_exe":
+            # 素の Lua は使っていないので、Lua 側の照合は無い。exe の照合は上で済んでいる。
             continue
         if kind == "client_lua":
             now = cg.get(key)
@@ -1031,7 +1105,13 @@ def compare_with_client(lock, cg, cn):
                     f" / こちらは {entry.get('our_arities')} で呼んでいる")
         elif kind == "external":
             reason = EXPECTED_NOT_IN_CLIENT.get(key)
-            if reason is None:
+            if reason is None and exe_names is not None and exe_has(exe_names, key):
+                # KNOWN_ISSUES から外した直後の形。exe に在るので --update で
+                # native_exe として取り込み直せばよい（止めると --update できなくなる）。
+                notices.append(
+                    f"{key}: 理由の控えは無いが素の exe に名前が在る"
+                    f"（--update で native_exe として取り込み直す）")
+            elif reason is None:
                 problems.append(
                     f"{key}: 素に見当たらないのに理由が書かれていない"
                     f"（EXPECTED_NOT_IN_CLIENT か KNOWN_ISSUES へ理由付きで足すこと）")
@@ -1078,7 +1158,7 @@ def verify_fingerprint(root):
 
     結果を左右するのは次の 3 つだけで、src は見ていない（src と一覧の食い違いは
     --check の担当）。
-      * 素のクライアントの .ipf … Steam の更新で差し替わると、名前・サイズ・更新日時の
+      * 素のクライアントの .ipf と exe … Steam の更新で差し替わると、名前・サイズ・更新日時の
         どれかが変わる。中身のハッシュは取らない（data/ は数 GB あり、それでは遅いまま）。
         `_` で始まるアドオンの .ipf は read_client_lua と同じく除く。テスト用の
         `-dev.ipf` を置き換えるたびに照合し直しになるのを避けるため。
@@ -1091,6 +1171,10 @@ def verify_fingerprint(root):
                   + glob.glob(str(root / "patch" / "*.ipf")))
     h = hashlib.sha256()
     for p in sorted(c for c in candidates if not os.path.basename(c).startswith("_")):
+        st = os.stat(p)
+        h.update(f"{os.path.relpath(p, root)}|{st.st_size}|{st.st_mtime_ns}\n".encode("utf-8"))
+    # exe（ネイティブの登録表）も .ipf と同じく名前・サイズ・更新日時で見る。
+    for p in client_exe_paths(root):
         st = os.stat(p)
         h.update(f"{os.path.relpath(p, root)}|{st.st_size}|{st.st_mtime_ns}\n".encode("utf-8"))
     for p in (LOCK, Path(__file__).resolve(), Path(ipf_crypt.__file__).resolve()):
@@ -1128,7 +1212,8 @@ def cmd_verify_client(args):
         print("    --client-root か環境変数 TOS_CLIENT_ROOT で導入先を指定できる。")
         return 2
 
-    problems, notices, known = compare_with_client(lock, cg, cn)
+    exe_names = client_exe_names(args.client_root)
+    problems, notices, known = compare_with_client(lock, cg, cn, exe_names)
     # 写し元(COPIES)の本文が変わっていないか。**呼んでいる API の検査では守れない**ので
     # 別立てで見る(詳しくは COPIES のコメント)。
     problems = problems + compare_copies(lock, scan_client_copies(args.client_root, cg))
@@ -1139,14 +1224,15 @@ def cmd_verify_client(args):
     if fingerprint is not None:
         STAMP.write_text(json.dumps(fingerprint, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"OK: 素のクライアント（{args.client_root}）と一致。"
-          f"{len(lock['symbols'])} 件 + 写し元 {len(COPIES)} 件を照合")
+          f"{len(lock['symbols'])} 件 + 写し元 {len(COPIES)} 件を照合"
+          f"（うち exe の登録表 {sum(1 for e in lock['symbols'].values() if e.get('in_exe'))} 件）")
     return 0
 
 
 def cmd_update(args):
     uses, hooks = scan_src()
     previous = load_lock()
-    cg = cn = None
+    cg = cn = exe_names = None
     try:
         cg, cn = scan_client(args.client_root, wanted=set(uses) | set(
             (previous or {}).get("symbols", {})))
@@ -1162,6 +1248,8 @@ def cmd_update(args):
             print(f"    ({e})")
             return 2
         print(f"! 素のクライアントを読めないので、src 側の事実だけ更新する（{e}）")
+    if cg is not None:
+        exe_names = client_exe_names(args.client_root)
 
     # **書き換える前に突き合わせること。** --update は記録を今のクライアントで
     # 上書きするので、黙って上書きすると「素が変わった」という一番知りたい事実が
@@ -1175,7 +1263,7 @@ def cmd_update(args):
         still_used = {"symbols": {k: v for k, v in previous["symbols"].items() if k in uses}}
         # 既知（KNOWN_ISSUES）はここでは出さない。--update のたびに毎回並ぶと、
         # 今回の更新で新しく出た食い違いが埋もれる。
-        problems, notices, _known = compare_with_client(still_used, cg, cn)
+        problems, notices, _known = compare_with_client(still_used, cg, cn, exe_names)
         if problems or notices:
             print("書き換える前に、今のクライアントと突き合わせた結果:")
             print()
@@ -1197,7 +1285,7 @@ def cmd_update(args):
             return 1
 
     client_copies = scan_client_copies(args.client_root, cg) if cg is not None else None
-    lock = build_lock(uses, hooks, cg, cn, previous, client_copies)
+    lock = build_lock(uses, hooks, cg, cn, previous, client_copies, exe_names)
 
     # **作った一覧そのものも突き合わせること。** 上の突き合わせは previous（= commit 済みの
     # 一覧）しか見ないので、**今回はじめて出てきた記号は 1 度も判定を通らない**。
@@ -1205,7 +1293,7 @@ def cmd_update(args):
     # 保存されて OK が返る、という一番まずい抜け方をしていた（KNOWN_ISSUES に控えてある
     # 既存の打ち間違いは、まさにこの種類）。
     if cg is not None:
-        problems, _notices, _known = compare_with_client(lock, cg, cn)
+        problems, _notices, _known = compare_with_client(lock, cg, cn, exe_names)
         added = [p for p in problems if p.split(":")[0] not in (previous or {}).get("symbols", {})]
         if added and not args.accept_client_changes:
             print("新しく使い始めた素の API に食い違いがある:")
@@ -1220,7 +1308,9 @@ def cmd_update(args):
     save_lock(lock)
     n_lua = sum(1 for v in lock["symbols"].values() if v.get("kind") == "client_lua")
     n_nat = sum(1 for v in lock["symbols"].values() if v.get("kind") == "native")
-    print(f"OK: {LOCK.name} を更新（素の Lua 関数 {n_lua} 件 / ネイティブ {n_nat} 件）")
+    n_exe = sum(1 for v in lock["symbols"].values() if v.get("kind") == "native_exe")
+    print(f"OK: {LOCK.name} を更新（素の Lua 関数 {n_lua} 件 / ネイティブ {n_nat} 件"
+          f" / exe にだけ在るネイティブ {n_exe} 件）")
     return 0
 
 
