@@ -20,6 +20,9 @@ function Mini_addons_INV_ICON_USE(mini_addons)
         for _, coin_id in ipairs(COIN_ITEM) do
             if item_obj.ClassID == coin_id then
                 item.UseByGUID(guid)
+                -- ログイン直後の「サーバーから応答を受けられませんでした(38)」の切り分け用
+                core_g.vlog("mini_addons: コインを自動で使った %s (ClassID=%d)", tostring(item_obj.ClassName),
+                            item_obj.ClassID)
                 return
             end
         end
