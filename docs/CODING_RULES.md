@@ -15,6 +15,27 @@ Lua の `local function f` は**宣言行より後ろからしか見えない**�
 * グローバル（`function _G.foo`）は実行時に引くので前後関係を気にしなくてよい。
   ただし読み込み時ガードの外から呼ぶものは `type(_G["foo"]) == "function"` で見てから呼ぶこと。
 
+## `string.gsub` の戻り値をそのまま関数へ渡さない
+
+`string.gsub` は **(置換後の文字列, 置換回数) の 2 つ**を返す。呼び出しの
+**最後の引数**に置くと 2 つとも渡るので、`tonumber(string.gsub(text, "{ol}", ""))` は
+`tonumber(文字列, 置換回数)` になり、置換回数が**基数**として解釈されて
+`base out of range` でその場で落ちる（基数は 2〜36 しか通らないので、**0 回でも 1 回でも落ちる**）。
+
+* 構文チェックは通る。**その入力欄で Enter を押した瞬間だけ**落ちるので、
+  症状は「何を入れても無反応」に見える。UI のイベントから出るエラーは
+  `debug_log.txt` にも残らず、`verbose_log.txt` がその行で途切れる形でしか見えない。
+* **一度変数へ受けて 1 つに切る**こと。
+
+  ```lua
+  local text = string.gsub(ctrl:GetText() or "", "{ol}", "")
+  local num = tonumber(text)
+  ```
+
+* 2 回踏んでいる（another_warehouse の個数変更 / muteki のエフェクトの大きさ）。
+  `a = string.gsub(...)` のように**代入で受ける形は問題ない**（1 つ目だけが入る）。
+  危ないのは**関数呼び出しの最後の引数に直接置いたとき**だけ。
+
 ## 素の API を使ったら一覧を更新する
 
 素のクライアント API（`GET_CHILD_RECURSIVELY` などの Lua 関数と `ui.GetFrame` などの

@@ -60,6 +60,8 @@ ALLOW = {
         "常時表示の HUD。利用者の「固定」設定で通す/通さないを切り替える",
     "addons/muteki/muteki.lua:muteki":
         "常時表示の HUD。lock 設定で通す/通さないを切り替える",
+    "addons/muteki/muteki.lua:ui_effect":
+        "UI エフェクトを描くだけの入れ物。画面に重ねるマーカーで、押す物は何も乗せない",
     "addons/boss_direction/boss_direction.lua:frame":
         "ボスの方向を指す矢印。画面に重ねるだけのマーカー",
     "addons/party_marker/party_marker.lua:party_marker":

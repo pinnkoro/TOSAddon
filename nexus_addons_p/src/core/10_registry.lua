@@ -372,9 +372,9 @@ g._nexus_addons_p = {{
 }, {
     key = "muteki",
     category = "battle",
-    updated = "2.7.0",
-    updated_note_jp = "パーティーチャットに知らせるバフが切れたときにゲームが落ちていたのを修正しました",
-    updated_note_en = "Fixed the client crashing when a buff with the party-chat announcement ended",
+    updated = g.VER_NEXT,
+    updated_note_jp = "バフごとにエフェクトと大きさ・出し方を選べるようにしました（エフェクト透明度を下げていても出せます）",
+    updated_note_en = "You can now choose the effect, its size and how it is played per buff (it can show even with low effect transparency)",
     data = {
         use = 0,
         name = "Muteki",
