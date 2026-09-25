@@ -2320,8 +2320,13 @@ function Muteki_effect_scale_edit(frame, ctrl, str, num)
     -- another_warehouse の個数変更でも同じ踏み方をしている。一度変数へ受けて 1 つに切る。
     local scale_text = string.gsub(ctrl:GetText() or "", "{ol}", "")
     local scale = tonumber(scale_text)
-    if not scale or scale <= 0 or scale > 30 then
-        scale = (kind == "over") and g.MUTEKI_DEFAULT_OVER_SCALE or g.MUTEKI_DEFAULT_SCALE
+    -- 戻す先も上限も**種類で変わる**。UI エフェクトは大きさの単位が別で、既定が 12、
+    -- 素も 12〜12.5 で使っている。通常エフェクトの既定(6.0 / 1.5)へ戻したり
+    -- 30 で頭打ちにしたりすると、UI 側だけ意図しない値になる。
+    local is_ui = Muteki_effect_mode(buff_data, kind) == "ui"
+    local scale_max = is_ui and 100 or 30
+    if not scale or scale <= 0 or scale > scale_max then
+        scale = Muteki_effect_default_scale(kind, is_ui)
         ui.SysMsg(muteki_trans('effect_scale_notice'))
     end
     Muteki_effect_scale_set(buff_data, kind, scale)
