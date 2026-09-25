@@ -15,6 +15,23 @@ g.muteki_trans_tbl = {
         function_notice = "{#FFFFFF}{ol}Register by leftclick on the buff slot{nl}in the upper left corner of the screen{/}",
         icon_rotate = "{#000000}Rotate icon{/}",
         with_effect = "{#000000}With effect{/}",
+        effect_setting = "{ol}Effect",
+        effect_setting_notice = "{#FFFFFF}{ol}Choose the effect to play{/}",
+        effect_title = "Effect Settings",
+        effect_start = "{#000000}When the buff starts{/}",
+        effect_over = "{#000000}When stacks reach the max{/}",
+        effect_choose = "{ol}Pick from the list",
+        effect_name = "{#000000}Effect name{/}",
+        effect_name_notice = "{#FFFFFF}{ol}Type an effect name and press Enter{nl}Nothing is played if the client has no such effect{nl}Leave it empty to play nothing{/}",
+        effect_scale_notice = "{#FFFFFF}{ol}Size of the effect (1.0 = its own size){nl}Enter a number and press Enter. The previous default is 6.0{/}",
+        effect_use_notice = "{#FFFFFF}{ol}Turn this effect on or off{nl}\"When the buff starts\" is the same setting as \"With effect\" on the settings screen{nl}Test still plays it even when it is off{/}",
+        effect_type_actor = "{ol}Normal effect",
+        effect_type_ui = "{ol}UI effect",
+        effect_force = "{#000000}Raise the transparency while it plays{/}",
+        effect_force_notice = "{#FFFFFF}{ol}Restores the \"My effect transparency\" system option to full{nl}while the effect plays, then puts it back{nl}Your other effects also show at full during that time (about 1.5 seconds){/}",
+        effect_test = "{ol}Test",
+        effect_test_notice = "{#FFFFFF}{ol}Play the current effect right here{/}",
+        effect_set = "MUTEKI Effect set to %s",
         nico_chat = "{#000000}Nico Chat Display{/}",
         delete_notice = "{#FFFFFF}{ol}Right-click the icon to unregister{/}",
         color_notice = "{#FFFFFF}{ol}The first two characters are for shade/density (AA = Light - FF = Dark)" ..
@@ -53,6 +70,23 @@ g.muteki_trans_tbl = {
         function_notice = "{#FFFFFF}{ol}画面左上バフスロットを{nl}左クリックでも登録出来ます{/}",
         icon_rotate = "{#000000}アイコン回転{/}",
         with_effect = "{#000000}エフェクト付与{/}",
+        effect_setting = "{ol}エフェクト",
+        effect_setting_notice = "{#FFFFFF}{ol}出すエフェクトを選びます{/}",
+        effect_title = "エフェクト設定",
+        effect_start = "{#000000}バフ開始時{/}",
+        effect_over = "{#000000}重複が最大になったとき{/}",
+        effect_choose = "{ol}一覧から選ぶ",
+        effect_name = "{#000000}エフェクト名{/}",
+        effect_name_notice = "{#FFFFFF}{ol}エフェクト名を入れて Enter{nl}クライアントに無い名前を入れても何も出ません{nl}空にすると何も出しません{/}",
+        effect_scale_notice = "{#FFFFFF}{ol}エフェクトの大きさ（1.0 で素の大きさ）{nl}数字を入れて Enter。従来の既定は 6.0{/}",
+        effect_use_notice = "{#FFFFFF}{ol}このエフェクトを出すかどうか{nl}「バフ開始時」は設定画面の「エフェクト付与」と同じ設定です{nl}OFF でも試し再生は出ます{/}",
+        effect_type_actor = "{ol}通常エフェクト",
+        effect_type_ui = "{ol}UIエフェクト",
+        effect_force = "{#000000}エフェクト中は透明度を自動で上げる{/}",
+        effect_force_notice = "{#FFFFFF}{ol}出している間だけ、システム設定の「自分のエフェクト透明度」を{nl}最大に戻して、そのあと元の値へ戻します{nl}その間（約1.5秒）は自分の他のエフェクトも濃く見えます{/}",
+        effect_test = "{ol}試し再生",
+        effect_test_notice = "{#FFFFFF}{ol}今の設定のエフェクトをその場で再生します{/}",
+        effect_set = "MUTEKI エフェクトを %s にしました",
         nico_chat = "{#000000}ニコチャット表示{/}",
         delete_notice = "{#FFFFFF}{ol}アイコン右クリックで登録解除します{/}",
         color_notice = "{#FFFFFF}{ol}先頭2文字は濃淡 (AA=薄い～FF=濃い)" ..
@@ -91,6 +125,23 @@ g.muteki_trans_tbl = {
         function_notice = "{#FFFFFF}{ol}화면 왼쪽 상단의 버프 슬롯을{nl}왼쪽 클릭으로도 등록할 수 있습니다{/}",
         icon_rotate = "{#000000}아이콘 회전{/}",
         with_effect = "{#000000}효과 적용{/}",
+        effect_setting = "{ol}효과",
+        effect_setting_notice = "{#FFFFFF}{ol}재생할 효과를 선택합니다{/}",
+        effect_title = "효과 설정",
+        effect_start = "{#000000}버프 시작 시{/}",
+        effect_over = "{#000000}중첩이 최대가 되었을 때{/}",
+        effect_choose = "{ol}목록에서 선택",
+        effect_name = "{#000000}효과 이름{/}",
+        effect_name_notice = "{#FFFFFF}{ol}효과 이름을 입력하고 Enter{nl}클라이언트에 없는 이름은 아무것도 재생되지 않습니다{nl}비워 두면 아무것도 재생하지 않습니다{/}",
+        effect_scale_notice = "{#FFFFFF}{ol}효과의 크기 (1.0 = 원래 크기){nl}숫자를 입력하고 Enter. 기존 기본값은 6.0{/}",
+        effect_use_notice = "{#FFFFFF}{ol}이 효과를 표시할지 여부{nl}\"버프 시작 시\"는 설정 화면의 \"효과 적용\"과 같은 설정입니다{nl}꺼져 있어도 시험 재생은 표시됩니다{/}",
+        effect_type_actor = "{ol}일반 효과",
+        effect_type_ui = "{ol}UI 효과",
+        effect_force = "{#000000}효과 중에는 투명도를 자동으로 올린다{/}",
+        effect_force_notice = "{#FFFFFF}{ol}효과가 나오는 동안만 시스템 설정의 \"내 효과 투명도\"를{nl}최대로 되돌리고, 그 후 원래 값으로 되돌립니다{nl}그동안(약 1.5초)은 자신의 다른 효과도 진하게 보입니다{/}",
+        effect_test = "{ol}시험 재생",
+        effect_test_notice = "{#FFFFFF}{ol}현재 설정된 효과를 바로 재생합니다{/}",
+        effect_set = "MUTEKI 효과를 %s 로 설정했습니다",
         nico_chat = "{#000000}니코 채팅 표시{/}",
         delete_notice = "{#FFFFFF}{ol}아이콘을 마우스 오른쪽 버튼으로 클릭하여 등록 해제{/}",
         color_notice = "{#FFFFFF}{ol}앞의 두 문자는 농도를 나타냅니다 (AA = 옅음 - FF = 진함)" ..
@@ -115,6 +166,343 @@ g.muteki_trans_tbl = {
         add_new_skill = '{#FFFFFF}{ol}스킬 추가'
     }
 }
+
+-- 出せるエフェクトの候補。Lua からエフェクト名を列挙する手立ては無いので、よく使いそうな
+-- ものだけをここに並べ、一覧に無い名前は設定画面の入力欄から直接指定する。
+-- 名前はクライアント（effect.ipf の forkparticle）に実在するものだけを載せている。
+-- 表示名は「そのエフェクトが素のどこで使われているか」で、見た目は試し再生で確かめる。
+-- ui = true のものは UI に描くエフェクト（PlayUIEffect）で、ワールドのエフェクトとは名前の
+-- プールも大きさの単位も別。scale はそのエフェクトの目安の大きさ（選ぶと入る）。
+g.MUTEKI_EFFECT_PRESETS = {{name = "None", ja = "エフェクトなし", etc = "No effect"},
+                           {name = "F_sys_TPBOX_great_300", ja = "従来のエフェクト", etc = "Previous default",
+                            scale = 6.0},
+                           {name = "F_pc_level_up", ja = "レベルアップ", etc = "Level up", scale = 1.5},
+                           {name = "F_pc_joblevel_up", ja = "クラスレベルアップ", etc = "Class level up",
+                            scale = 1.5},
+                           {name = "F_pc_StatPoint_up", ja = "ステータス上昇", etc = "Stat point up", scale = 1.5},
+                           {name = "F_pc_class_change", ja = "クラスチェンジ", etc = "Class change", scale = 1.5},
+                           {name = "F_sys_expcard_great", ja = "経験値カード(大)", etc = "EXP card (great)",
+                            scale = 1.5},
+                           {name = "F_sys_expcard_good", ja = "経験値カード(中)", etc = "EXP card (good)",
+                            scale = 1.5},
+                           {name = "F_pattern025_loop", ja = "紋章", etc = "Pattern", scale = 1.5},
+                           {name = "F_buff_Cleric_Bless_Buff", ja = "ブレス", etc = "Bless", scale = 1.5},
+                           {name = "F_buff_Cleric_Heal_Buff", ja = "ヒール", etc = "Heal", scale = 1.5},
+                           {name = "F_buff_Cleric_Haste_Buff", ja = "ヘイスト", etc = "Haste", scale = 1.5},
+                           {name = "F_pc_warp_light", ja = "ワープの光", etc = "Warp light", scale = 1.5},
+                           {name = "F_sys_heart", ja = "ハート", etc = "Heart", scale = 1.5},
+                           {name = "F_sys_like", ja = "いいね", etc = "Like", scale = 1.5},
+                           {name = "F_circle016_rainbow", ja = "虹色の円", etc = "Rainbow circle", scale = 1.5},
+                           {name = "UI_success002", ja = "成功", etc = "Success", ui = true, scale = 12},
+                           {name = "UI_success_charge", ja = "チャージ完了", etc = "Charge complete", ui = true,
+                            scale = 12},
+                           {name = "I_sys_fullcharge", ja = "フルチャージ", etc = "Full charge", ui = true,
+                            scale = 12},
+                           {name = "SYS_quest_mark", ja = "クエストの印", etc = "Quest mark", ui = true, scale = 12},
+                           {name = "SYS_quest_mark_blue", ja = "クエストの印(青)", etc = "Quest mark (blue)",
+                            ui = true, scale = 12}}
+
+-- 名前から候補表の行を引く。直接入力された名前は表に無いので nil が返る。
+function Muteki_effect_preset(effect_name)
+    for _, preset in ipairs(g.MUTEKI_EFFECT_PRESETS) do
+        if preset.name == effect_name then
+            return preset
+        end
+    end
+    return nil
+end
+
+-- 既定のエフェクト名と大きさ。**何も設定していないときの見え方は従来のまま**にする
+-- （開始時は F_sys_TPBOX_great_300 を scale 6.0、重複が最大のときは F_pattern025_loop を
+-- scale 1.5 で出していた）。なお F_sys_TPBOX_great_300 は muteki2ex 由来の名前で、
+-- 手元のクライアント（effect.ipf のエントリ名 / effectlist.xml）には見当たらない。
+-- PlayActorEffect は解決できない名前を渡されても黙って何も出さないので、
+-- 何も出ないときは一覧から別のエフェクトへ変えられるようにしてある。
+g.MUTEKI_DEFAULT_EFFECT = "F_sys_TPBOX_great_300"
+g.MUTEKI_DEFAULT_OVER_EFFECT = "F_pattern025_loop"
+g.MUTEKI_DEFAULT_SCALE = 6.0
+g.MUTEKI_DEFAULT_OVER_SCALE = 1.5
+-- UI エフェクトは名前のプールも大きさの単位も別なので、既定も別に持つ
+g.MUTEKI_DEFAULT_UI_EFFECT = "UI_success002"
+g.MUTEKI_DEFAULT_UI_SCALE = 12
+g.MUTEKI_EFFECT_LIFETIME = 1.0
+-- UI エフェクトを出しておく秒数。**素の PlayUIEffect には「何秒で終わる」という指定が無く、
+-- ループ指定のエフェクト（名前に _loop が付くものなど）は止めるまで出っぱなしになる。**
+-- 素も同じで、アドオンごとに決め打ちの秒数で StopUIEffect を呼んでいる
+-- （例: aether_gem_reinforce の SUCCESS_EFFECT_DURATION）。ここも同じやり方で止める。
+-- 2.0 秒なのは、候補に載せた UI エフェクトの 1 周がどれも 2.0 秒以内だから
+-- （effectlist.xml の duration + startdelay。成功 2.0 / チャージ完了 2.0 /
+--  フルチャージ 1.2 / クエストの印 0.1）。短くすると途中で切れる。
+g.MUTEKI_UI_EFFECT_TIME = 2.0
+
+-- エフェクトの種類。2 つある。
+--   "actor" … 通常エフェクト。キャラに出す（システム設定の「自分のエフェクト透明度」に従う）
+--   "ui"    … UI エフェクト。Muteki の枠の上に描く（透明度の設定とは無関係）
+-- **名前のプールが別**なので、設定も種類ごとに分けて憶える（Muteki_effect_keys）。
+-- 以前の版には "force"（キャラに出して透明度を上げる）という 3 つ目があった。
+-- その値は「通常エフェクト + 透明度を自動で上げる」として読み替える。
+function Muteki_effect_mode(buff_data, kind)
+    local mode
+    if kind == "over" then
+        mode = buff_data and buff_data.over_effect_mode
+    else
+        mode = buff_data and buff_data.effect_mode
+    end
+    if mode == "ui" then
+        return "ui"
+    end
+    return "actor"
+end
+
+-- 設定のキー名（名前 / 大きさ）。**種類ごとに別々に持つ。**
+-- 種類を切り替えても、それぞれで選んだ名前と大きさがそのまま残るようにするため。
+function Muteki_effect_keys(kind, mode)
+    local prefix = (kind == "over") and "over_effect" or "effect"
+    if mode == "ui" then
+        return prefix .. "_ui_name", prefix .. "_ui_scale"
+    end
+    return prefix .. "_name", prefix .. "_scale"
+end
+
+function Muteki_effect_default_name(kind, is_ui)
+    if is_ui then
+        return g.MUTEKI_DEFAULT_UI_EFFECT
+    elseif kind == "over" then
+        return g.MUTEKI_DEFAULT_OVER_EFFECT
+    end
+    return g.MUTEKI_DEFAULT_EFFECT
+end
+
+function Muteki_effect_default_scale(kind, is_ui)
+    if is_ui then
+        return g.MUTEKI_DEFAULT_UI_SCALE
+    elseif kind == "over" then
+        return g.MUTEKI_DEFAULT_OVER_SCALE
+    end
+    return g.MUTEKI_DEFAULT_SCALE
+end
+
+-- 今の種類でのエフェクト名。昔の設定 JSON には無いキーなので、未設定なら既定を返す。
+function Muteki_effect_name(buff_data, kind)
+    local mode = Muteki_effect_mode(buff_data, kind)
+    local name_key = Muteki_effect_keys(kind, mode)
+    local effect_name = buff_data and buff_data[name_key]
+    if effect_name and effect_name ~= "" then
+        return effect_name
+    end
+    return Muteki_effect_default_name(kind, mode == "ui")
+end
+
+-- 今の種類での大きさ。1.0 が素の大きさ（UI エフェクトは 12 前後が目安）。
+function Muteki_effect_scale(buff_data, kind)
+    local mode = Muteki_effect_mode(buff_data, kind)
+    local _, scale_key = Muteki_effect_keys(kind, mode)
+    local scale = buff_data and tonumber(buff_data[scale_key])
+    if scale then
+        return scale
+    end
+    return Muteki_effect_default_scale(kind, mode == "ui")
+end
+
+function Muteki_effect_name_set(buff_data, kind, effect_name)
+    local name_key = Muteki_effect_keys(kind, Muteki_effect_mode(buff_data, kind))
+    buff_data[name_key] = effect_name
+end
+
+function Muteki_effect_scale_set(buff_data, kind, scale)
+    local _, scale_key = Muteki_effect_keys(kind, Muteki_effect_mode(buff_data, kind))
+    buff_data[scale_key] = scale
+end
+
+-- エフェクトを出している間だけ「自分のエフェクト透明度」を上げるか。
+-- 通常エフェクトのときだけ意味がある（UI エフェクトは透明度の設定を受けない）。
+function Muteki_effect_force(buff_data, kind)
+    local raw, mode
+    if kind == "over" then
+        raw = buff_data and buff_data.over_effect_force
+        mode = buff_data and buff_data.over_effect_mode
+    else
+        raw = buff_data and buff_data.effect_force
+        mode = buff_data and buff_data.effect_mode
+    end
+    if raw ~= nil then
+        return raw ~= 0
+    end
+    return mode == "force" -- 以前の版の値を読み替える
+end
+
+function Muteki_effect_force_set(buff_data, kind, checked)
+    if kind == "over" then
+        buff_data.over_effect_force = checked
+    else
+        buff_data.effect_force = checked
+    end
+end
+
+-- そのエフェクトを出すかどうか。
+--   開始時 … 設定画面の「エフェクト付与」と同じ値（effect_check）。既定は OFF
+--   重複が最大 … over_effect_check。**未設定は ON**（従来は必ず出ていたので、そこに合わせる）
+function Muteki_effect_enabled(buff_data, kind)
+    if kind == "over" then
+        return ((buff_data and buff_data.over_effect_check) or 1) ~= 0
+    end
+    return (buff_data and buff_data.effect_check) == 1
+end
+
+function Muteki_effect_enabled_set(buff_data, kind, checked)
+    if kind == "over" then
+        buff_data.over_effect_check = checked
+    else
+        buff_data.effect_check = checked
+    end
+end
+
+function Muteki_effect_mode_set(buff_data, kind, mode)
+    if kind == "over" then
+        buff_data.over_effect_mode = mode
+    else
+        buff_data.effect_mode = mode
+    end
+end
+
+-- そのバフの設定どおりにエフェクトを出す。
+function Muteki_effect_fire(buff_data, kind)
+    local effect_name = Muteki_effect_name(buff_data, kind)
+    local scale = Muteki_effect_scale(buff_data, kind)
+    if Muteki_effect_mode(buff_data, kind) == "ui" then
+        Muteki_effect_play_ui(effect_name, scale)
+    else
+        Muteki_effect_play(effect_name, scale, Muteki_effect_force(buff_data, kind))
+    end
+end
+
+-- 自キャラにエフェクトを出す。"None" と空文字は「出さない」。
+function Muteki_effect_play(effect_name, scale, force)
+    if not effect_name or effect_name == "" or effect_name == "None" then
+        g.vlog("muteki: エフェクトは出さない指定 name=%s", tostring(effect_name))
+        return
+    end
+    local actor = world.GetActor(session.GetMyHandle())
+    if not actor then
+        g.vlog("muteki: actor が取れないのでエフェクトを出せない name=%s", tostring(effect_name))
+        return
+    end
+    scale = tonumber(scale) or g.MUTEKI_DEFAULT_SCALE
+    if force then
+        Muteki_effect_transparency_up()
+    end
+    g.vlog("muteki: エフェクトを出す name=%s scale=%s force=%s", tostring(effect_name), tostring(scale),
+        tostring(force))
+    effect.PlayActorEffect(actor, effect_name, "None", g.MUTEKI_EFFECT_LIFETIME, scale)
+end
+
+-- UI エフェクトを描く入れ物。**専用のフレームを持つ。**
+-- Muteki の枠（バフのゲージが並ぶ枠）は、出すバフが無い間は大きさ 0 で中身も無いので、
+-- そこへ描いても何も見えない。設定画面から試し再生したときがまさにその状態になる。
+-- 常時表示のマーカー扱いなので当たり判定は塞がない（docs/check_frame_hittest.py の ALLOW）。
+function Muteki_effect_ui_holder()
+    local ui_effect = g.create_persistent_frame(addon_name_lower .. "muteki_ui_effect")
+    AUTO_CAST(ui_effect)
+    ui_effect:SetSkinName("None")
+    ui_effect:Resize(200, 200)
+    ui_effect:SetLayerLevel(tonumber(g.muteki_settings.etc.layer_lv) or 80)
+    -- バフのゲージが出ている枠の上に重ねる。枠がまだ無いときは画面の中央へ。
+    local muteki = ui.GetFrame(addon_name_lower .. "muteki")
+    if muteki then
+        ui_effect:SetGravity(ui.LEFT, ui.TOP)
+        ui_effect:SetOffset(muteki:GetX(), muteki:GetY())
+    else
+        ui_effect:SetGravity(ui.CENTER_HORZ, ui.CENTER_VERT)
+    end
+    ui_effect:ShowWindow(1)
+    local holder = ui_effect:CreateOrGetControl("groupbox", "holder", 0, 0, 200, 200)
+    AUTO_CAST(holder)
+    holder:SetSkinName("None")
+    holder:EnableHitTest(0)
+    holder:ShowWindow(1)
+    return ui_effect, holder
+end
+
+-- UI に描くエフェクト。システム設定の「自分のエフェクト透明度」の対象外。
+-- 素の PlayUIEffect はコントロールの持ち物（フレームには無い）なので、上の入れ物へ出す。
+-- **pcall で包む。** 名前が UI エフェクトとして登録されていないとここで落ちる可能性があり、
+-- 落ちるとバフの処理ごと止まる。出なかったのか落ちたのかはログで区別する。
+function Muteki_effect_play_ui(effect_name, scale)
+    if not effect_name or effect_name == "" or effect_name == "None" then
+        g.vlog("muteki: UI エフェクトは出さない指定 name=%s", tostring(effect_name))
+        return
+    end
+    local ui_effect, holder = Muteki_effect_ui_holder()
+    scale = tonumber(scale) or 12
+    g.vlog("muteki: UI エフェクトを出す name=%s scale=%s 枠=(%s,%s) 見えている=%s", tostring(effect_name),
+        tostring(scale), tostring(ui_effect:GetX()), tostring(ui_effect:GetY()),
+        tostring(ui_effect:IsVisible()))
+    local ok, err = pcall(function()
+        holder:StopUIEffect("MUTEKI_UI_EFFECT", true, 0)
+        holder:PlayUIEffect(effect_name, scale, "MUTEKI_UI_EFFECT")
+    end)
+    if not ok then
+        g.vlog("muteki: UI エフェクトの再生で落ちた name=%s err=%s", tostring(effect_name), tostring(err))
+        return
+    end
+    -- 出しっぱなしにしない。次を出すときは前のタイマーを捨ててから積み直す。
+    ui_effect:StopUpdateScript("Muteki_effect_ui_stop")
+    ui_effect:RunUpdateScript("Muteki_effect_ui_stop", g.MUTEKI_UI_EFFECT_TIME)
+end
+
+-- UI エフェクトを止める。RunUpdateScript は 0 を返すまで繰り返すので、1 回で止める。
+function Muteki_effect_ui_stop(frame)
+    local holder = GET_CHILD(frame, "holder")
+    if holder then
+        AUTO_CAST(holder)
+        local ok, err = pcall(function()
+            holder:StopUIEffect("MUTEKI_UI_EFFECT", true, 0.3)
+        end)
+        g.vlog("muteki: UI エフェクトを止めた ok=%s err=%s", tostring(ok), tostring(err))
+    end
+    return 0
+end
+
+-- 「自分のエフェクト透明度」を出している間だけ上げる。
+-- **戻す値は設定 JSON にも控える。** g はマップ移動で作り直されるので、
+-- 控えが g だけだと、上げた直後に移動したりクライアントが落ちたりしたときに
+-- 利用者の設定を 255 のまま置き去りにしてしまう（初期化時に控えを見て戻す）。
+function Muteki_effect_transparency_up()
+    if g.muteki_transparency_saved then
+        return -- すでに上げている。重ねて上書きしない（255 を控えてしまう）
+    end
+    local cur = config.GetMyEffectTransparency()
+    if not cur or cur >= 255 then
+        g.vlog("muteki: 透明度は元から濃い(%s)ので触らない", tostring(cur))
+        return
+    end
+    g.muteki_transparency_saved = cur
+    g.muteki_settings.etc.transparency_backup = cur
+    Muteki_save_settings()
+    config.SetMyEffectTransparency(255)
+    g.vlog("muteki: 自分のエフェクト透明度を一時的に上げた %s -> 255", tostring(cur))
+    local muteki = ui.GetFrame(addon_name_lower .. "muteki")
+    if muteki then
+        muteki:RunUpdateScript("Muteki_effect_transparency_back", g.MUTEKI_EFFECT_LIFETIME + 0.5)
+    else
+        Muteki_effect_transparency_back()
+    end
+end
+
+function Muteki_effect_transparency_back(frame)
+    local saved = g.muteki_transparency_saved or g.muteki_settings.etc.transparency_backup
+    if saved then
+        config.SetMyEffectTransparency(saved)
+        g.vlog("muteki: 自分のエフェクト透明度を戻した -> %s", tostring(saved))
+    end
+    g.muteki_transparency_saved = nil
+    if g.muteki_settings.etc.transparency_backup then
+        g.muteki_settings.etc.transparency_backup = nil
+        Muteki_save_settings()
+    end
+    return 0
+end
+
 local function muteki_trans(text)
     local trans_text = g.muteki_trans_tbl["etc"][text]
     if g.lang == "Japanese" or g.lang == "kr" then
@@ -425,10 +813,8 @@ function Muteki_BUFF_ON_MSG(frame, msg, is_dummy, buff_id)
                 if buff_data.nico_chat == 1 then
                     Muteki_defer_chat("nico", string.format("{@st55_a}%s start", buff_name))
                 end
-                if buff_data.effect_check == 1 then
-                    local my_handle = session.GetMyHandle()
-                    local actor = world.GetActor(my_handle)
-                    effect.PlayActorEffect(actor, "F_sys_TPBOX_great_300", "None", 1.0, 6.0)
+                if Muteki_effect_enabled(buff_data, "start") then
+                    Muteki_effect_fire(buff_data, "start")
                 end
                 g.muteki_buffs[buff_id_str].notify = 1
             end
@@ -584,6 +970,10 @@ function Muteki_buffslot_script(_nexus_addons_p)
 end
 
 function Muteki_buff_frame_init()
+    -- 前回、透明度を上げたまま終わっていたら（マップ移動 / 強制終了）ここで戻す。
+    if g.muteki_settings and g.muteki_settings.etc and g.muteki_settings.etc.transparency_backup then
+        Muteki_effect_transparency_back()
+    end
     -- ESC で消えない土台で作る(理由は g.create_persistent_frame のコメント)。
     local muteki = g.create_persistent_frame(addon_name_lower .. "muteki")
     AUTO_CAST(muteki)
@@ -752,9 +1142,11 @@ function Muteki_buff_frame(notice_frame, msg, buff_id, buff_cls, buff_data, is_c
                 buff_over_ctrl:SetColorTone("FFFFFF00")
                 if buff_cls.OverBuff <= info_buff.over then
                     if not g.muteki_buffs[buff_id_str].effect then
-                        local my_handle = session.GetMyHandle()
-                        local actor = world.GetActor(my_handle)
-                        effect.PlayActorEffect(actor, 'F_pattern025_loop', 'None', 1.0, 1.5)
+                        -- 音は「重複が最大になった」こと自体の知らせなので、
+                        -- エフェクトを OFF にしても鳴らす
+                        if Muteki_effect_enabled(buff_data, "over") then
+                            Muteki_effect_fire(buff_data, "over")
+                        end
                         imcSound.PlaySoundEvent("sys_cube_open_jackpot")
                         g.muteki_buffs[buff_id_str].effect = true
                     end
@@ -1077,6 +1469,7 @@ function Muteki_setting_frame_init()
         ui.DestroyFrame(settings_name)
         ui.DestroyFrame(addon_name_lower .. "muteki_buff_list")
         ui.DestroyFrame(addon_name_lower .. "muteki_skill_list")
+        ui.DestroyFrame(addon_name_lower .. "muteki_effect_list")
     end)
 end
 
@@ -1161,6 +1554,13 @@ function Muteki_setting_gbox_init(settings, gb)
         effect:SetText(muteki_trans('with_effect'))
         effect:SetEventScript(ui.LBUTTONUP, 'Muteki_setting_change')
         effect:SetEventScriptArgString(ui.LBUTTONUP, buff_id)
+        local effect_set = list:CreateOrGetControl('button', 'effect_set', 470, 68, 75, 28)
+        AUTO_CAST(effect_set)
+        effect_set:SetSkinName("test_cardtext_btn")
+        effect_set:SetText("{s13}" .. muteki_trans('effect_setting'))
+        effect_set:SetTextTooltip(muteki_trans('effect_setting_notice'))
+        effect_set:SetEventScript(ui.LBUTTONUP, "Muteki_effect_list_open")
+        effect_set:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
         local color_pic = list:CreateOrGetControl('picture', 'color_pic', 510, 10, 30, 25)
         AUTO_CAST(color_pic)
         color_pic:SetEnableStretch(1)
@@ -1771,6 +2171,319 @@ function Muteki_add_skill(frame, ctrl, buff_id_str, skill_id)
     Muteki_setting_change_edit(skill_edit)
 end
 
+-- エフェクト設定の窓の 1 段ぶん（開始時 / 重複が最大になったとき）を組み立てる。
+-- 一覧は「選ぶための道具」で、いま何が設定されているかは下の入力欄が正本。
+function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
+    local mode = Muteki_effect_mode(buff_data, kind)
+    -- 見出しそのものを ON/OFF のチェックにする（開始時は設定画面の「エフェクト付与」と同じ値）
+    -- 「重複が最大になったとき」は長いので、チェックの幅は日本語が収まる 230 を取る
+    local use_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_use', 15, y, 230, 25)
+    AUTO_CAST(use_check)
+    use_check:SetText(muteki_trans(kind == "over" and 'effect_over' or 'effect_start'))
+    use_check:SetCheck(Muteki_effect_enabled(buff_data, kind) and 1 or 0)
+    use_check:SetTextTooltip(muteki_trans('effect_use_notice'))
+    use_check:SetEventScript(ui.LBUTTONUP, "Muteki_effect_use_toggle")
+    use_check:SetEventScriptArgString(ui.LBUTTONUP, kind)
+    use_check:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
+    -- 種類。通常エフェクトと UI エフェクトでは**選べる名前がまるで別**なので、
+    -- ここで選んだ側の候補だけを下の一覧に出す。設定も種類ごとに別々に残る。
+    local type_list = effect_frame:CreateOrGetControl('droplist', kind .. '_type', 250, y + 2, 190, 24)
+    AUTO_CAST(type_list)
+    type_list:SetSkinName('droplist_normal')
+    type_list:EnableHitTest(1)
+    type_list:SetTextAlign("center", "center")
+    type_list:ClearItems()
+    local type_order = {"actor", "ui"}
+    for i, type_mode in ipairs(type_order) do
+        type_list:AddItem(i - 1, muteki_trans('effect_type_' .. type_mode), 0,
+            string.format("Muteki_effect_type_select(%d, '%s', '%s')", buff_id, kind, type_mode))
+        if type_mode == mode then
+            type_list:SelectItem(i - 1)
+        end
+    end
+    local drop_list = effect_frame:CreateOrGetControl('droplist', kind .. '_droplist', 15, y + 30, 320, 25)
+    AUTO_CAST(drop_list)
+    drop_list:SetSkinName('droplist_normal')
+    drop_list:EnableHitTest(1)
+    drop_list:SetTextAlign("center", "center")
+    Muteki_effect_fill_presets(effect_frame, kind, buff_id, mode == "ui")
+    local test_btn = effect_frame:CreateOrGetControl('button', kind .. '_test', 350, y + 28, 90, 30)
+    AUTO_CAST(test_btn)
+    test_btn:SetSkinName("test_cardtext_btn")
+    test_btn:SetText("{s13}" .. muteki_trans('effect_test'))
+    test_btn:SetTextTooltip(muteki_trans('effect_test_notice'))
+    test_btn:SetEventScript(ui.LBUTTONUP, "Muteki_effect_test")
+    test_btn:SetEventScriptArgString(ui.LBUTTONUP, kind)
+    test_btn:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
+    local name_text = effect_frame:CreateOrGetControl('richtext', kind .. '_name', 15, y + 62, 10, 25)
+    AUTO_CAST(name_text)
+    name_text:SetText(muteki_trans('effect_name'))
+    local name_edit = effect_frame:CreateOrGetControl('edit', kind .. '_edit', 120, y + 60, 255, 25)
+    AUTO_CAST(name_edit)
+    name_edit:SetFontName("white_16_ol")
+    name_edit:SetTextAlign("left", "center")
+    name_edit:SetText("{ol}" .. Muteki_effect_name(buff_data, kind))
+    name_edit:SetTextTooltip(muteki_trans('effect_name_notice'))
+    name_edit:SetUserValue("KIND", kind)
+    name_edit:SetEventScript(ui.ENTERKEY, "Muteki_effect_edit")
+    name_edit:SetEventScriptArgNumber(ui.ENTERKEY, buff_id)
+    local scale_edit = effect_frame:CreateOrGetControl('edit', kind .. '_scale', 385, y + 60, 55, 25)
+    AUTO_CAST(scale_edit)
+    scale_edit:SetFontName("white_16_ol")
+    scale_edit:SetTextAlign("center", "center")
+    scale_edit:SetText("{ol}" .. tostring(Muteki_effect_scale(buff_data, kind)))
+    scale_edit:SetTextTooltip(muteki_trans('effect_scale_notice'))
+    scale_edit:SetUserValue("KIND", kind)
+    scale_edit:SetEventScript(ui.ENTERKEY, "Muteki_effect_scale_edit")
+    scale_edit:SetEventScriptArgNumber(ui.ENTERKEY, buff_id)
+    -- 透明度を上げるのは通常エフェクトのときだけ意味がある（UI は元から影響を受けない）
+    local force_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_force', 15, y + 88, 425, 25)
+    AUTO_CAST(force_check)
+    force_check:SetText(muteki_trans('effect_force'))
+    force_check:SetCheck(Muteki_effect_force(buff_data, kind) and 1 or 0)
+    force_check:SetTextTooltip(muteki_trans('effect_force_notice'))
+    force_check:SetEventScript(ui.LBUTTONUP, "Muteki_effect_force_toggle")
+    force_check:SetEventScriptArgString(ui.LBUTTONUP, kind)
+    force_check:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
+    force_check:ShowWindow(mode == "ui" and 0 or 1)
+end
+
+-- 候補の一覧を、今の種類のものだけで詰め直す。
+-- 「エフェクトなし」はどちらの種類でも意味が同じなので両方に出す。
+function Muteki_effect_fill_presets(effect_frame, kind, buff_id, is_ui)
+    local drop_list = GET_CHILD(effect_frame, kind .. "_droplist")
+    if not drop_list then
+        return
+    end
+    AUTO_CAST(drop_list)
+    drop_list:ClearItems()
+    drop_list:AddItem(0, muteki_trans('effect_choose'), 0, "Muteki_effect_noop()")
+    local index = 0
+    for _, preset in ipairs(g.MUTEKI_EFFECT_PRESETS) do
+        local preset_is_ui = preset.ui and true or false
+        if preset.name == "None" or preset_is_ui == is_ui then
+            index = index + 1
+            local preset_text = (g.lang == "Japanese") and preset.ja or preset.etc
+            drop_list:AddItem(index, "{ol}" .. preset_text .. " : " .. preset.name, 0,
+                string.format("Muteki_effect_select(%d, '%s', '%s')", buff_id, kind, preset.name))
+        end
+    end
+    drop_list:SelectItem(0)
+end
+
+-- 種類を選んだとき。名前と大きさは種類ごとに別々に憶えてあるので、ここでは触らない。
+function Muteki_effect_type_select(buff_id, kind, mode)
+    local buff_data = g.muteki_settings.buff_list[tostring(buff_id)]
+    if not buff_data then
+        return
+    end
+    Muteki_effect_mode_set(buff_data, kind, mode)
+    g.vlog("muteki: エフェクトの種類を変えた buff=%s kind=%s mode=%s name=%s", tostring(buff_id), tostring(kind),
+        tostring(mode), tostring(Muteki_effect_name(buff_data, kind)))
+    Muteki_save_settings()
+    local effect_frame = ui.GetFrame(addon_name_lower .. "muteki_effect_list")
+    if effect_frame then
+        Muteki_effect_fill_presets(effect_frame, kind, buff_id, mode == "ui")
+        local force_check = GET_CHILD(effect_frame, kind .. "_force")
+        if force_check then
+            force_check:ShowWindow(mode == "ui" and 0 or 1)
+        end
+    end
+    Muteki_effect_row_refresh(kind, buff_data)
+    Muteki_effect_fire(buff_data, kind)
+end
+
+-- 「エフェクト中は透明度を自動で上げる」のチェック。
+function Muteki_effect_force_toggle(frame, ctrl, kind, buff_id)
+    local buff_data = g.muteki_settings.buff_list[tostring(buff_id)]
+    if not buff_data then
+        return
+    end
+    local checked = ctrl:IsChecked()
+    Muteki_effect_force_set(buff_data, kind, checked)
+    g.vlog("muteki: 透明度の自動調整を変えた buff=%s kind=%s check=%s", tostring(buff_id), tostring(kind),
+        tostring(checked))
+    Muteki_save_settings()
+    Muteki_effect_fire(buff_data, kind)
+end
+
+-- 大きさの入力欄で Enter を押したとき。数字以外や極端な値は既定へ戻す。
+function Muteki_effect_scale_edit(frame, ctrl, str, num)
+    local kind = ctrl:GetUserValue("KIND")
+    local buff_data = g.muteki_settings.buff_list[tostring(num)]
+    if not buff_data then
+        return 0
+    end
+    -- **gsub の戻り値をそのまま tonumber へ渡さないこと。** gsub は (文字列, 置換回数) の
+    -- 2 つを返すので、置換回数が tonumber の**基数**として渡って base out of range で落ちる
+    -- (1 も 0 も不正。2〜36 しか通らない)。大きさを入れて Enter が無反応だったのはこれ。
+    -- another_warehouse の個数変更でも同じ踏み方をしている。一度変数へ受けて 1 つに切る。
+    local scale_text = string.gsub(ctrl:GetText() or "", "{ol}", "")
+    local scale = tonumber(scale_text)
+    -- 戻す先も上限も**種類で変わる**。UI エフェクトは大きさの単位が別で、既定が 12、
+    -- 素も 12〜12.5 で使っている。通常エフェクトの既定(6.0 / 1.5)へ戻したり
+    -- 30 で頭打ちにしたりすると、UI 側だけ意図しない値になる。
+    local is_ui = Muteki_effect_mode(buff_data, kind) == "ui"
+    local scale_max = is_ui and 100 or 30
+    if not scale or scale <= 0 or scale > scale_max then
+        scale = Muteki_effect_default_scale(kind, is_ui)
+        ui.SysMsg(muteki_trans('effect_scale_notice'))
+    end
+    Muteki_effect_scale_set(buff_data, kind, scale)
+    g.vlog("muteki: エフェクトの大きさを変えた buff=%s kind=%s scale=%s", tostring(num), tostring(kind),
+        tostring(scale))
+    Muteki_save_settings()
+    ctrl:SetText("{ol}" .. tostring(scale))
+    Muteki_effect_fire(buff_data, kind)
+    return 0
+end
+
+-- 一覧の先頭（「一覧から選ぶ」）を押したときの行き先。何もしない。
+function Muteki_effect_noop()
+end
+
+function Muteki_effect_list_open(frame, ctrl, ctrl_text, buff_id)
+    local buff_id_num = tonumber(buff_id)
+    local buff_data = buff_id_num and g.muteki_settings.buff_list[tostring(buff_id_num)]
+    if not buff_data then
+        return
+    end
+    local buff_cls = GetClassByType("Buff", buff_id_num)
+    local frame_name = addon_name_lower .. "muteki_effect_list"
+    local effect_frame = ui.GetFrame(frame_name)
+    if not effect_frame then
+        effect_frame = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 10, 10)
+        AUTO_CAST(effect_frame)
+        g.block_click_through(effect_frame)
+        effect_frame:SetSkinName("test_frame_low")
+        effect_frame:SetPos(610, 30)
+        effect_frame:SetLayerLevel(999)
+    end
+    AUTO_CAST(effect_frame)
+    -- 別のバフを開いたときに前のバフの段が残らないよう、中身は毎回作り直す。
+    -- **フレームごと DestroyFrame してはいけない。** 同じ tick で作り直すと窓が出ないまま
+    -- 消えた状態になり、「開いている最中に別のバフのエフェクトボタンを押すと窓が閉じる」
+    -- という出方をする(実機で確認)。入れ物は使い回して子だけ捨てる。
+    effect_frame:RemoveAllChild()
+    local title_text = effect_frame:CreateOrGetControl('richtext', 'title_text', 15, 15, 10, 30)
+    AUTO_CAST(title_text)
+    local buff_name = buff_cls and dictionary.ReplaceDicIDInCompStr(buff_cls.Name) or tostring(buff_id_num)
+    title_text:SetText("{#000000}{s20}" .. muteki_trans('effect_title') .. " : " .. buff_name)
+    local close_button = effect_frame:CreateOrGetControl('button', 'close_button', 0, 0, 20, 20)
+    AUTO_CAST(close_button)
+    close_button:SetImage("testclose_button")
+    close_button:SetGravity(ui.RIGHT, ui.TOP)
+    close_button:SetEventScript(ui.LBUTTONUP, "Muteki_effect_list_close")
+    Muteki_effect_row(effect_frame, "start", 55, buff_id_num, buff_data)
+    -- 重複が最大になったときのエフェクトは、重複するバフにしか出番が無い
+    if buff_cls and buff_cls.OverBuff and buff_cls.OverBuff > 1 then
+        Muteki_effect_row(effect_frame, "over", 180, buff_id_num, buff_data)
+        effect_frame:Resize(470, 310)
+    else
+        effect_frame:Resize(470, 185)
+    end
+    effect_frame:ShowWindow(1)
+    g.esc_register_destroy(frame_name)
+end
+
+function Muteki_effect_list_close(frame, ctrl, str, num)
+    ui.DestroyFrame(frame:GetName())
+end
+
+-- 一覧から選んだとき。設定を書いて入力欄へ写し、その場で再生して見た目を確かめられるようにする。
+function Muteki_effect_select(buff_id, kind, effect_name)
+    local buff_id_str = tostring(buff_id)
+    local buff_data = g.muteki_settings.buff_list[buff_id_str]
+    if not buff_data then
+        return
+    end
+    Muteki_effect_name_set(buff_data, kind, effect_name)
+    -- 候補から選んだときは、大きさもそのエフェクトの目安に合わせる
+    -- （エフェクトごとに素の大きさが違い、6.0 のままだと大きすぎる / 小さすぎるため）
+    local preset = Muteki_effect_preset(effect_name)
+    if preset and preset.scale then
+        Muteki_effect_scale_set(buff_data, kind, preset.scale)
+    end
+    g.vlog("muteki: エフェクトを変えた buff=%s kind=%s name=%s mode=%s", buff_id_str, tostring(kind),
+        tostring(effect_name), tostring(Muteki_effect_mode(buff_data, kind)))
+    Muteki_save_settings()
+    ui.SysMsg(string.format(muteki_trans('effect_set'), effect_name))
+    Muteki_effect_row_refresh(kind, buff_data)
+    Muteki_effect_fire(buff_data, kind)
+end
+
+-- 設定窓が開いていれば、その段の表示を今の設定に合わせ直す。
+function Muteki_effect_row_refresh(kind, buff_data)
+    local effect_frame = ui.GetFrame(addon_name_lower .. "muteki_effect_list")
+    if not effect_frame then
+        return
+    end
+    local name_edit = GET_CHILD(effect_frame, kind .. "_edit")
+    if name_edit then
+        name_edit:SetText("{ol}" .. Muteki_effect_name(buff_data, kind))
+    end
+    local scale_edit = GET_CHILD(effect_frame, kind .. "_scale")
+    if scale_edit then
+        scale_edit:SetText("{ol}" .. tostring(Muteki_effect_scale(buff_data, kind)))
+    end
+    local force_check = GET_CHILD(effect_frame, kind .. "_force")
+    if force_check then
+        AUTO_CAST(force_check)
+        force_check:SetCheck(Muteki_effect_force(buff_data, kind) and 1 or 0)
+    end
+    local use_check = GET_CHILD(effect_frame, kind .. "_use")
+    if use_check then
+        AUTO_CAST(use_check)
+        use_check:SetCheck(Muteki_effect_enabled(buff_data, kind) and 1 or 0)
+    end
+end
+
+-- ON/OFF のチェック。開始時のぶんは設定画面の「エフェクト付与」と同じ値を書くので、
+-- 設定画面が開いていれば、そちらのチェックも合わせ直す。
+function Muteki_effect_use_toggle(frame, ctrl, kind, buff_id)
+    local buff_data = g.muteki_settings.buff_list[tostring(buff_id)]
+    if not buff_data then
+        return
+    end
+    local checked = ctrl:IsChecked()
+    Muteki_effect_enabled_set(buff_data, kind, checked)
+    g.vlog("muteki: エフェクトの ON/OFF を変えた buff=%s kind=%s check=%s", tostring(buff_id), tostring(kind),
+        tostring(checked))
+    Muteki_save_settings()
+    if kind ~= "over" and ui.GetFrame(addon_name_lower .. "muteki_settings") then
+        Muteki_setting_frame_init()
+    end
+    if checked == 1 then
+        Muteki_effect_fire(buff_data, kind)
+    end
+end
+
+-- 入力欄で Enter を押したとき。一覧の選択は戻して、入力欄の中身だけが正本になるようにする。
+function Muteki_effect_edit(frame, ctrl, str, num)
+    local kind = ctrl:GetUserValue("KIND")
+    local effect_name = ctrl:GetText() or ""
+    effect_name = string.gsub(effect_name, "{ol}", "")
+    effect_name = string.gsub(effect_name, "%s", "")
+    if effect_name == "" then
+        effect_name = "None"
+    end
+    Muteki_effect_select(num, kind, effect_name)
+    local effect_frame = ui.GetFrame(addon_name_lower .. "muteki_effect_list")
+    if effect_frame then
+        local drop_list = GET_CHILD(effect_frame, kind .. "_droplist")
+        if drop_list then
+            AUTO_CAST(drop_list)
+            drop_list:SelectItem(0)
+        end
+    end
+    return 0
+end
+
+function Muteki_effect_test(frame, ctrl, kind, buff_id)
+    local buff_data = g.muteki_settings.buff_list[tostring(buff_id)]
+    Muteki_effect_fire(buff_data, kind)
+end
+
 function Muteki_setting_frame_close(parent, ctrl)
     local settings = parent:GetTopParentFrame()
     ui.DestroyFrame(settings:GetName())
@@ -1783,6 +2496,10 @@ function Muteki_setting_frame_close(parent, ctrl)
     local skill_list_frame = ui.GetFrame(skill_list_frame_name)
     if skill_list_frame then
         Muteki_skill_list_close(skill_list_frame, "", "", "")
+    end
+    local effect_list_frame = ui.GetFrame(addon_name_lower .. "muteki_effect_list")
+    if effect_list_frame then
+        Muteki_effect_list_close(effect_list_frame, "", "", "")
     end
 end
 -- muteki ここまで
