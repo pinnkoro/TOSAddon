@@ -2176,7 +2176,8 @@ end
 function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
     local mode = Muteki_effect_mode(buff_data, kind)
     -- 見出しそのものを ON/OFF のチェックにする（開始時は設定画面の「エフェクト付与」と同じ値）
-    local use_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_use', 15, y, 185, 25)
+    -- 「重複が最大になったとき」は長いので、チェックの幅は日本語が収まる 230 を取る
+    local use_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_use', 15, y, 230, 25)
     AUTO_CAST(use_check)
     use_check:SetText(muteki_trans(kind == "over" and 'effect_over' or 'effect_start'))
     use_check:SetCheck(Muteki_effect_enabled(buff_data, kind) and 1 or 0)
@@ -2186,7 +2187,7 @@ function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
     use_check:SetEventScriptArgNumber(ui.LBUTTONUP, buff_id)
     -- 種類。通常エフェクトと UI エフェクトでは**選べる名前がまるで別**なので、
     -- ここで選んだ側の候補だけを下の一覧に出す。設定も種類ごとに別々に残る。
-    local type_list = effect_frame:CreateOrGetControl('droplist', kind .. '_type', 210, y + 2, 190, 24)
+    local type_list = effect_frame:CreateOrGetControl('droplist', kind .. '_type', 250, y + 2, 190, 24)
     AUTO_CAST(type_list)
     type_list:SetSkinName('droplist_normal')
     type_list:EnableHitTest(1)
@@ -2200,13 +2201,13 @@ function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
             type_list:SelectItem(i - 1)
         end
     end
-    local drop_list = effect_frame:CreateOrGetControl('droplist', kind .. '_droplist', 15, y + 30, 280, 25)
+    local drop_list = effect_frame:CreateOrGetControl('droplist', kind .. '_droplist', 15, y + 30, 320, 25)
     AUTO_CAST(drop_list)
     drop_list:SetSkinName('droplist_normal')
     drop_list:EnableHitTest(1)
     drop_list:SetTextAlign("center", "center")
     Muteki_effect_fill_presets(effect_frame, kind, buff_id, mode == "ui")
-    local test_btn = effect_frame:CreateOrGetControl('button', kind .. '_test', 310, y + 28, 90, 30)
+    local test_btn = effect_frame:CreateOrGetControl('button', kind .. '_test', 350, y + 28, 90, 30)
     AUTO_CAST(test_btn)
     test_btn:SetSkinName("test_cardtext_btn")
     test_btn:SetText("{s13}" .. muteki_trans('effect_test'))
@@ -2217,7 +2218,7 @@ function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
     local name_text = effect_frame:CreateOrGetControl('richtext', kind .. '_name', 15, y + 62, 10, 25)
     AUTO_CAST(name_text)
     name_text:SetText(muteki_trans('effect_name'))
-    local name_edit = effect_frame:CreateOrGetControl('edit', kind .. '_edit', 120, y + 60, 215, 25)
+    local name_edit = effect_frame:CreateOrGetControl('edit', kind .. '_edit', 120, y + 60, 255, 25)
     AUTO_CAST(name_edit)
     name_edit:SetFontName("white_16_ol")
     name_edit:SetTextAlign("left", "center")
@@ -2226,7 +2227,7 @@ function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
     name_edit:SetUserValue("KIND", kind)
     name_edit:SetEventScript(ui.ENTERKEY, "Muteki_effect_edit")
     name_edit:SetEventScriptArgNumber(ui.ENTERKEY, buff_id)
-    local scale_edit = effect_frame:CreateOrGetControl('edit', kind .. '_scale', 345, y + 60, 55, 25)
+    local scale_edit = effect_frame:CreateOrGetControl('edit', kind .. '_scale', 385, y + 60, 55, 25)
     AUTO_CAST(scale_edit)
     scale_edit:SetFontName("white_16_ol")
     scale_edit:SetTextAlign("center", "center")
@@ -2236,7 +2237,7 @@ function Muteki_effect_row(effect_frame, kind, y, buff_id, buff_data)
     scale_edit:SetEventScript(ui.ENTERKEY, "Muteki_effect_scale_edit")
     scale_edit:SetEventScriptArgNumber(ui.ENTERKEY, buff_id)
     -- 透明度を上げるのは通常エフェクトのときだけ意味がある（UI は元から影響を受けない）
-    local force_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_force', 15, y + 88, 385, 25)
+    local force_check = effect_frame:CreateOrGetControl('checkbox', kind .. '_force', 15, y + 88, 425, 25)
     AUTO_CAST(force_check)
     force_check:SetText(muteki_trans('effect_force'))
     force_check:SetCheck(Muteki_effect_force(buff_data, kind) and 1 or 0)
@@ -2344,14 +2345,21 @@ function Muteki_effect_list_open(frame, ctrl, ctrl_text, buff_id)
     end
     local buff_cls = GetClassByType("Buff", buff_id_num)
     local frame_name = addon_name_lower .. "muteki_effect_list"
-    -- 別のバフを開いたときに前のバフの設定が残らないよう、開くたびに作り直す
-    ui.DestroyFrame(frame_name)
-    local effect_frame = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 10, 10)
+    local effect_frame = ui.GetFrame(frame_name)
+    if not effect_frame then
+        effect_frame = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 10, 10)
+        AUTO_CAST(effect_frame)
+        g.block_click_through(effect_frame)
+        effect_frame:SetSkinName("test_frame_low")
+        effect_frame:SetPos(610, 30)
+        effect_frame:SetLayerLevel(999)
+    end
     AUTO_CAST(effect_frame)
-    g.block_click_through(effect_frame)
-    effect_frame:SetSkinName("test_frame_low")
-    effect_frame:SetPos(610, 30)
-    effect_frame:SetLayerLevel(999)
+    -- 別のバフを開いたときに前のバフの段が残らないよう、中身は毎回作り直す。
+    -- **フレームごと DestroyFrame してはいけない。** 同じ tick で作り直すと窓が出ないまま
+    -- 消えた状態になり、「開いている最中に別のバフのエフェクトボタンを押すと窓が閉じる」
+    -- という出方をする(実機で確認)。入れ物は使い回して子だけ捨てる。
+    effect_frame:RemoveAllChild()
     local title_text = effect_frame:CreateOrGetControl('richtext', 'title_text', 15, 15, 10, 30)
     AUTO_CAST(title_text)
     local buff_name = buff_cls and dictionary.ReplaceDicIDInCompStr(buff_cls.Name) or tostring(buff_id_num)
@@ -2365,9 +2373,9 @@ function Muteki_effect_list_open(frame, ctrl, ctrl_text, buff_id)
     -- 重複が最大になったときのエフェクトは、重複するバフにしか出番が無い
     if buff_cls and buff_cls.OverBuff and buff_cls.OverBuff > 1 then
         Muteki_effect_row(effect_frame, "over", 180, buff_id_num, buff_data)
-        effect_frame:Resize(430, 310)
+        effect_frame:Resize(470, 310)
     else
-        effect_frame:Resize(430, 185)
+        effect_frame:Resize(470, 185)
     end
     effect_frame:ShowWindow(1)
     g.esc_register_destroy(frame_name)
