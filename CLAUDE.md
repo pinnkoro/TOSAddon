@@ -106,6 +106,14 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
   通常の開発: `https://github.com/pinnkoro/TOSAddon/compare/main...<branch>?template=feature.md&expand=1`
 * **PR レビューの指摘は、差分外に当たるとインラインではなくコメント欄に出る。**
   `issues/<n>/comments` も毎回見る。
+* **PR を出したら CI と Claude Code Review の結果まで見届ける。** 出した時点で報告を終えない。
+  `gh run watch <id>` で待ち、落ちたら直して push し直す。指摘には返信する。
+* **`gh pr checks` の "no checks reported" は「結果がまだ無い」という意味でしかない。**
+  原因の 1 つが**コンフリクト**で、GitHub は `pull_request` のワークフローを起動しない
+  （[公式](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)
+  "Workflows will not run on `pull_request` activity if the pull request has a merge conflict."）。
+  まず `gh pr view <n> --json mergeable` を見て、`CONFLICTING` なら main を取り込む。
+  違えば起動待ち・トリガ条件・Actions の停止や承認待ちを疑う（決めつけない）。
 
 ### 画面の見た目を変えたら、動作確認のついでにスクリーンショットを撮り直す
 
