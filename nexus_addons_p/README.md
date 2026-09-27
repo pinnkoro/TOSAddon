@@ -50,7 +50,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 「キャラクター・移動」「その他」の**カテゴリごと**に並びます。各行に、アドオン名と
 次の 4 つが並びます。
 
-![アドオン一覧ウィンドウ。カテゴリごとにアドオン名・ON/OFF トグル・⚙・☆ が並び、新しく追加されたアドオンの名前の右に NEW、直したアドオンの右に Update の印が付いている。カテゴリの見出しには新着の件数が出ている。Another Warehouse の☆だけ点灯している。下段に一括操作のボタンがある](images/03-addon-list.png)
+![アドオン一覧ウィンドウ。上部に検索窓があり、カテゴリごとにアドオン名・ON/OFF トグル・⚙・☆ が並ぶ。Another Warehouse の☆だけ点灯している。下段に 全て OFF / バックアップ / 復元 のボタンがある](images/03-addon-list.png)
 
 | 表示 | 内容 |
 | --- | --- |
@@ -65,6 +65,8 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 直されたアドオンには `Update` の印**が名前の右に付きます。カーソルを乗せると、
 **何が変わったのか**が出ます。カテゴリを畳んでいても分かるよう、見出しにも新着の件数が
 出ます。Mini Addons の設定画面にも同じ印と件数が付きます。
+
+![アドオン一覧の「戦闘支援」カテゴリ。見出しに「10 / 12」の件数と赤字の「1件が新着」が並び、Muteki の名前の右に黄色の Update の印が付いている](images/11-update-marks.png)
 
 **Mini Addons は設定項目が増えても一覧の行の見た目は変わらない**ので、
 中身に新着があるときは **`Mini Addons` の行にまとめて印が出ます**。
