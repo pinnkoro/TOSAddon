@@ -192,9 +192,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "チャット入力フレームにボタン追加",
     text_kr = "채팅 입력 창에 버튼을 추가했습니다",
     text_en = "Added a button to the chat input frame",
-    updated = "2.8.0",
-    updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
-    updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "ON にすると、チャット入力欄の下の何も無い場所がクリックを吸い、キャラクターを動かせなかったのを修正しました（入力欄はボタンの分だけ短くなります）",
+    updated_note_en = "Fixed the empty area below the chat input box swallowing clicks while this was ON (the input box is now shorter by the width of the buttons)"
 }, {
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
