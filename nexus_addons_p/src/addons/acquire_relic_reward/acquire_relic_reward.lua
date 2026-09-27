@@ -8,6 +8,9 @@ function acquire_relic_reward_on_init()
         if _nexus_addons_p then
             _nexus_addons_p:SetVisible(1)
             _nexus_addons_p:RunUpdateScript("Acquire_relic_reward_process", 1.0)
+            -- ログイン直後の「サーバーから応答を受けられませんでした(38)」の切り分け用。
+            -- 要求の送信時刻をエラーの時刻と突き合わせる
+            g.vlog("acquire_relic_reward: 受け取りの監視を始めた map=%s", tostring(g.map_name))
         end
     end
 end
@@ -22,11 +25,13 @@ function Acquire_relic_reward_process(_nexus_addons_p)
             local result = SCR_RELIC_QUEST_CHECK(pc_obj, relic_cls.ClassName)
             if result == "Reward" then
                 pc.ReqExecuteTx("SCR_TX_RELIC_QUEST_REWARD", relic_cls.ClassName)
+                g.vlog("acquire_relic_reward: 報酬の受け取りを送った %s", relic_cls.ClassName)
                 return 1
             end
         end
     end
     _nexus_addons_p:StopUpdateScript("Acquire_relic_reward_process")
+    g.vlog("acquire_relic_reward: 受け取れる報酬が無いので監視を止めた")
     return 0
 end
 -- Acquire relic reward ここまで
