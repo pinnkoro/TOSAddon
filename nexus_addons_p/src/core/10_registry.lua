@@ -372,7 +372,7 @@ g._nexus_addons_p = {{
 }, {
     key = "muteki",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.12.0",
     updated_note_jp = "バフごとにエフェクトと大きさ・出し方を選べるようにしました（エフェクト透明度を下げていても出せます）",
     updated_note_en = "You can now choose the effect, its size and how it is played per buff (it can show even with low effect transparency)",
     data = {
