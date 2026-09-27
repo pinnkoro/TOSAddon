@@ -151,6 +151,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     if type(_G["ZCHATEXTENDS_ON_INIT"]) ~= "function" then
         Mini_addons_update_chat_frame()
         g.setup_hook_and_event(g.addon, "INVENTORY_OP_POP", "Mini_addons_INVENTORY_OP_POP", true)
+        -- 素が宛先を選び直すたびに入力欄を 415 基準へ戻すので、ボタンの手前で止め直す
+        g.setup_hook_and_event(g.addon, "CHAT_SET_TO_TITLENAME", "Mini_addons_chat_fit_input_after_title", true)
     elseif g.settings.chat_new_btn == 1 then
         g.settings.chat_new_btn = 0
         Mini_addons_save_settings()

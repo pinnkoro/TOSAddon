@@ -95,6 +95,68 @@ function Mini_addons_chat_resize_width(chat, width)
         chat:GetHeight() ~= before_h and " ★高さが勝手に変わった(minheight の丸め)" or "")
 end
 
+-- ボタンを置いたとき、入力欄(mainchat)の右端をボタンの手前で止める。
+--
+-- 以前は chat フレームを 585 へ広げてボタンの置き場を作っていたが、**chat を Resize すると
+-- 高さが素の minheight="150" へ丸め上げられ**、SetPos で左上を固定しているので増えた
+-- 114px が入力バーの**下へ**出ていた。chat.xml は hittestframe="true" なので、見た目には
+-- 何も無いその帯がクリックを吸い、3D 画面へ抜けなくなる(#172)。
+-- 高さの丸めは Resize を呼ぶ限り避けられないので、**幅は素の 500 のまま**にして、
+-- ボタンは button_emo の左へ詰めて置く。代わりに入力欄の右端がボタンに重なるので、ここで縮める。
+--
+-- 素の CHAT_SET_TO_TITLENAME(宛先を選び直すたびに走る)と、グループチャットの
+-- Mini_addons_group_chat_setting は **mainchat:GetOriginalWidth()(= 415)基準で幅を組み直す**ので、
+-- その都度ここを通すこと。
+function Mini_addons_chat_fit_input(tag)
+    if g.settings.chat_new_btn ~= 1 then
+        return
+    end
+    local chat = ui.GetFrame("chat")
+    if not chat then
+        return
+    end
+    local mainchat = GET_CHILD(chat, "mainchat")
+    local item_btn = GET_CHILD(chat, "item_btn")
+    if not mainchat or not item_btn then
+        return
+    end
+    -- ボタン列の左端(item_btn)の 4px 手前まで
+    local limit = item_btn:GetX() - 4 - mainchat:GetX()
+    local before_w = mainchat:GetWidth()
+    if before_w <= limit then
+        core_g.vlog("mini_addons: chat_fit_input[%s] mainchat x=%s w=%s は item_btn x=%s に届かないので触らない",
+            tostring(tag), tostring(mainchat:GetX()), tostring(before_w), tostring(item_btn:GetX()))
+        return
+    end
+    mainchat:Resize(limit, mainchat:GetHeight())
+    -- OFF にしたとき素の幅へ返すための控え(Mini_addons_chat_unfit_input)
+    chat:SetUserValue("NEXUS_CHAT_FIT_FROM_W", before_w)
+    chat:SetUserValue("NEXUS_CHAT_FIT_TO_W", mainchat:GetWidth())
+    core_g.vlog("mini_addons: chat_fit_input[%s] mainchat x=%s w=%s -> %s (item_btn x=%s)", tostring(tag),
+        tostring(mainchat:GetX()), tostring(before_w), tostring(mainchat:GetWidth()), tostring(item_btn:GetX()))
+end
+
+-- OFF にしたとき、Mini_addons_chat_fit_input が縮めた入力欄を縮める前の幅へ返す。
+-- **縮めた後に素が組み直していたら(幅が控えと違う)触らない。** 素の幅を上書きしてしまうため
+function Mini_addons_chat_unfit_input(chat, mainchat)
+    local from_w = chat:GetUserIValue("NEXUS_CHAT_FIT_FROM_W")
+    local to_w = chat:GetUserIValue("NEXUS_CHAT_FIT_TO_W")
+    chat:SetUserValue("NEXUS_CHAT_FIT_FROM_W", 0)
+    chat:SetUserValue("NEXUS_CHAT_FIT_TO_W", 0)
+    if from_w <= 0 or mainchat:GetWidth() ~= to_w then
+        core_g.vlog("mini_addons: chat_unfit_input 控え from=%s to=%s 今=%s なので触らない", tostring(from_w),
+            tostring(to_w), tostring(mainchat:GetWidth()))
+        return
+    end
+    mainchat:Resize(from_w, mainchat:GetHeight())
+    core_g.vlog("mini_addons: chat_unfit_input mainchat w=%s -> %s", tostring(to_w), tostring(mainchat:GetWidth()))
+end
+
+-- 素の CHAT_SET_TO_TITLENAME の後に来る(イベント方式)。素が入力欄を 415 基準へ戻すので縮め直す
+function Mini_addons_chat_fit_input_after_title(my_frame, my_msg)
+    Mini_addons_chat_fit_input("set_to_titlename")
+end
+
 function Mini_addons_update_chat_frame()
     Mini_addons_chat_frame_vlog("before")
     local chat = ui.GetFrame("chat")
@@ -108,9 +170,14 @@ function Mini_addons_update_chat_frame()
     chat:RemoveChild("party_btn")
     chat:RemoveChild("item_btn")
     chat:SetEventScript(ui.LBUTTONUP, "Mini_addons_chat_frame_drop")
+    -- **ON でも OFF でも chat の幅は素の 500 のまま。** 旧版は ON で 585 へ広げていたので、
+    -- それを戻すためだけに呼ぶ(既に 500 なら Resize は呼ばれず、高さの丸めも起きない)。
+    -- 旧版で一度 150 に丸まった高さはクライアントを再起動するまで戻らない。
+    Mini_addons_chat_resize_width(chat, chat:GetOriginalWidth())
+    edit_bg:Resize(edit_bg:GetOriginalWidth(), edit_bg:GetOriginalHeight())
+    mainchat:SetGravity(ui.LEFT, ui.TOP)
     if g.settings.chat_new_btn == 0 then
-        Mini_addons_chat_resize_width(chat, chat:GetOriginalWidth())
-        mainchat:SetGravity(ui.LEFT, ui.TOP)
+        Mini_addons_chat_unfit_input(chat, mainchat)
         chat:SetPos(g.settings.chat_xy.x or chat:GetX(), g.settings.chat_xy.y or chat:GetY())
         Mini_addons_chat_frame_vlog("off")
         -- 素の CHAT_SET_TO_TITLENAME は宛先が決まってから走るので、こちらが組み終えた
@@ -118,10 +185,6 @@ function Mini_addons_update_chat_frame()
         ReserveScript("Mini_addons_chat_frame_vlog('off_delay')", 3.0)
         return
     end
-    Mini_addons_chat_resize_width(chat, 585)
-    edit_bg:Resize(567, 36)
-    mainchat:Resize(585, mainchat:GetOriginalHeight())
-    mainchat:SetGravity(ui.LEFT, ui.TOP)
     edit_to_bg:SetGravity(ui.LEFT, ui.TOP)
     local button_emo = GET_CHILD(chat, "button_emo")
     local base_x = button_emo:GetX() - 35
@@ -146,6 +209,7 @@ function Mini_addons_update_chat_frame()
     create_btn("pos_btn", 0, "button_pos_img", "Mini_addons_my_pos", 39, 39)
     create_btn("party_btn", -32, "btn_partyshare", "LINK_PARTY_INVITE", 36, 36)
     create_btn("item_btn", -70, "{img sysmenu_inv 42 42}", "Mini_addons_toggle_inventory", 40, 37)
+    Mini_addons_chat_fit_input("update")
     chat:SetPos(g.settings.chat_xy.x or chat:GetX(), g.settings.chat_xy.y or chat:GetY())
     chat:Invalidate()
     Mini_addons_chat_frame_vlog("on")
