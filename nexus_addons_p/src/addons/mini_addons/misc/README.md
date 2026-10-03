@@ -31,6 +31,7 @@
 | [pet_and_relic.lua](pet_and_relic.lua) | `pet_ring` / `relic_gauge` | ペットリングフレームの非表示。キャラクターゲージへレリックを追加 |
 | [reputation_shop.lua](reputation_shop.lua) | — | EP13 ショップを街で開けるようにする |
 | [ragana.lua](ragana.lua) | `goodbye_ragana` | 街のラガナを消す |
+| [guild_storage_reload.lua](guild_storage_reload.lua) | `guild_storage_reload` | ギルド保管箱の更新ボタンを、その日（6:00 区切り）の最初のログインで 1 回だけ代わりに押す |
 | [rp_check.lua](rp_check.lua) | `rp_charge` | レリックの自動補充を補完する |
 | [market_button.lua](market_button.lua) | `market_display` | 街では右上の商店一覧ボタンを常に出す |
 | [skill_enchant_auto.lua](skill_enchant_auto.lua) | `skill_enchant` | スキル錬成の材料を自動でセットする |

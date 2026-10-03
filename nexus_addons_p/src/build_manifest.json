@@ -125,6 +125,7 @@
       "addons/mini_addons/misc/reputation_shop.lua",
       "addons/mini_addons/weekly_boss/reward_auto.lua",
       "addons/mini_addons/misc/ragana.lua",
+      "addons/mini_addons/misc/guild_storage_reload.lua",
       "addons/mini_addons/misc/rp_check.lua",
       "addons/mini_addons/misc/market_button.lua",
       "addons/mini_addons/inventory/coin_auto_use.lua",
@@ -157,7 +158,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "32749fc95866efb2c4c9038dd69653805e9c16d6a1200656e3a0faed44bbb60e",
+    "_nexus_addons_p.lua": "543981eca6871fadc4a2251b6cdcdce8b53265bc95fbf45c997d988b1c84248d",
     "_icor_planner.lua": "102829dbd2e5e0e2efa77c8a1f96a5f256c4df1226f40dbf9822331eefa3cd7e"
   },
   "outputs": {
