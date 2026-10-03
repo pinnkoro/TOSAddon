@@ -214,6 +214,54 @@ check("絞り込み中は見えている隣と入れ替わる", names(g.guild_st
     "D,A,B,C,GONE")
 check("見えていないものは動かない", g.guild_storage_list_move(full, {"A", "D"}, "B", 1), nil)
 
+print("[5b] 配布記録の行(送ったものは送ったときの数で載せる。PR #220 のレビュー指摘)")
+local function rows_text(rows, shorts)
+    local out = {}
+    for _, r in ipairs(rows) do
+        out[#out + 1] = r.name .. "=" .. r.per
+    end
+    return table.concat(out, ",") .. " / 不足:" .. table.concat(shorts, ",")
+end
+local use_all = function()
+    return {
+        use = 1
+    }
+end
+-- 今の在庫での計算(送った後は在庫が減っている想定)
+local after_send = {
+    A = {0, false},
+    B = {0, true},
+    C = {3, false},
+    D = {1, false}
+}
+local plan = function(item)
+    return after_send[item.class_name][1], after_send[item.class_name][2]
+end
+check("送る前(sent なし)は今の在庫で計算", rows_text(g.guild_storage_list_record_rows(items, use_all, plan, {}, {})),
+    "c=3,d=1 / 不足:a")
+local sent = {
+    A = {
+        name = "b",
+        per = 10
+    },
+    B = {
+        name = "a",
+        per = 5
+    },
+    GONE = {
+        name = "送り切って消えた",
+        per = 2
+    }
+}
+check("送ったものは送ったときの数。0 個や在庫不足で抜けない",
+    rows_text(g.guild_storage_list_record_rows(items, use_all, plan, sent, {"A", "GONE", "B"})),
+    "b=10,a=5,c=3,d=1,送り切って消えた=2 / 不足:")
+check("配らないものは載せない", rows_text(g.guild_storage_list_record_rows(items, function()
+    return {
+        use = 0
+    }
+end, plan, {}, {})), " / 不足:")
+
 print("[6] 順に配る順番")
 local rules = {
     A = {

@@ -47,13 +47,17 @@ g.guild_storage_list = g.guild_storage_list or {
     button_added = false,
     -- 順に配る(Guild_storage_list_dist_*)の状態
     --   active … 配っている途中か / queue … 配る ClassName の並び / index … 今の位置
-    --   opened … 事前入力した送付窓のアイテム / sent … この回で送ったアイテム(二重配布の防止)
+    --   opened … 事前入力した送付窓のアイテム / opened_per … そのとき入れた 1 口あたりの個数
+    --   sent … この回で送ったアイテム ClassName → {name, per}(二重配布の防止と配布記録に使う)
+    --   sent_order … 送った順の ClassName
     dist = {
         active = false,
         queue = {},
         index = 1,
         opened = nil,
-        sent = {}
+        opened_per = 0,
+        sent = {},
+        sent_order = {}
     }
 }
 g.guild_storage_list_const = {
@@ -227,6 +231,49 @@ function g.guild_storage_list_match(people, member_names)
         end
     end
     return matched, unmatched
+end
+
+-- 配布記録に載せる行を決める。
+--   items  … 一覧の並びのアイテム / rule_of(class_name) … ルール / plan(item) … 今の在庫での 1 口あたり, 在庫不足か
+--   sent   … この回で送ったアイテム ClassName → {name, per} / sent_order … 送った順
+-- **送ったアイテムは、送ったときの 1 口あたりで載せる。** 今の在庫で計算し直すと、送った後は
+-- 在庫が減っているので 0 個や在庫不足になり、実際に配ったものが記録から抜ける(PR #220 のレビュー指摘)。
+-- 送り切って保管庫から消えたアイテムも、送った順に後ろへ足す。まだ送っていないものは今の在庫で計算する。
+-- 戻り値: {name, per} の配列, 在庫不足で外したアイテム名の配列
+function g.guild_storage_list_record_rows(items, rule_of, plan, sent, sent_order)
+    local rows, shorts, seen = {}, {}, {}
+    sent = sent or {}
+    for _, item in ipairs(items) do
+        local done = sent[item.class_name]
+        if done then
+            seen[item.class_name] = true
+            rows[#rows + 1] = {
+                name = done.name,
+                per = done.per
+            }
+        elseif rule_of(item.class_name).use == 1 then
+            local per, short = plan(item)
+            if short then
+                shorts[#shorts + 1] = item.name
+            elseif per > 0 then
+                rows[#rows + 1] = {
+                    name = item.name,
+                    per = per
+                }
+            end
+        end
+    end
+    for _, class_name in ipairs(sent_order or {}) do
+        local done = sent[class_name]
+        if done and not seen[class_name] then
+            seen[class_name] = true
+            rows[#rows + 1] = {
+                name = done.name,
+                per = done.per
+            }
+        end
+    end
+    return rows, shorts
 end
 
 -- 配布記録を組み立てる。rows は {name = アイテム名, per = 1 口あたり} の配列、excluded は送らなかった人。
@@ -1202,20 +1249,16 @@ function Guild_storage_list_export()
     end
     local dir = Guild_storage_list_io_dir()
     local units = Guild_storage_list_unit_count()
-    local rows, stock_lines, short_names = {}, {"在庫\tアイテム"}, {}
-    for _, item in ipairs(Guild_storage_list_sorted_items()) do
+    local items = Guild_storage_list_sorted_items()
+    local stock_lines = {"在庫\tアイテム"}
+    for _, item in ipairs(items) do
         stock_lines[#stock_lines + 1] = string.format("%d\t%s", item.count, item.name)
-        local rule = Guild_storage_list_rule(item.class_name)
-        local per, _, _, short = g.guild_storage_list_calc(item.count, units, rule)
-        if rule.use == 1 and short then
-            short_names[#short_names + 1] = item.name
-        elseif rule.use == 1 and per > 0 then
-            rows[#rows + 1] = {
-                name = item.name,
-                per = per
-            }
-        end
     end
+    local d = g.guild_storage_list.dist
+    local rows, short_names = g.guild_storage_list_record_rows(items, Guild_storage_list_rule, function(item)
+        local per, _, _, short = g.guild_storage_list_calc(item.count, units, Guild_storage_list_rule(item.class_name))
+        return per, short
+    end, d.sent, d.sent_order)
     -- 在庫不足で外したものは、記録に載らないことを知らせる(黙って消えると気付けない)
     if #short_names > 0 then
         ui.SysMsg(Guild_storage_list_t("{#FF6347}在庫が足りないので配布記録から外しました: ",
@@ -1319,6 +1362,9 @@ function Guild_storage_list_prefill(item_class_name, item_count)
     GUILDINVEN_SEND_UPDATE_COUNT_BOX(frame)
     -- 送るボタンの後で「事前入力したアイテムを送った」と判断するための印
     g.guild_storage_list.dist.opened = item_class_name
+    g.guild_storage_list.dist.opened_per = per
+    -- 名前もここで控える(送り切ると保管庫の一覧から消え、後から名前を引けなくなる)
+    g.guild_storage_list.dist.opened_name = Guild_storage_list_item_name(item_class_name)
     g.vlog("guild_storage_list: 事前入力 %s 1口 %d 個 / 入力 %d 人 計 %d / 照合 %d 人 %d 口 / 在庫 %d (この枠 %d)",
         item_class_name, per, filled, filled_total, #g.guild_storage_list.matched, count, stock, item_count)
     local msg = string.format(Guild_storage_list_t("Guild Storage List: %d 人に入力しました(1 口 %d 個 × 口数、計 %d)",
@@ -1441,6 +1487,7 @@ function Guild_storage_list_dist_click()
         d.index = 1
         d.opened = nil
         d.sent = {}
+        d.sent_order = {}
         g.vlog("guild_storage_list: 配布を始める %d 品 / %d 人 (%s)", #queue, count, table.concat(queue, ","))
     end
     Guild_storage_list_dist_open_current()
@@ -1509,7 +1556,11 @@ function Guild_storage_list_dist_after_send()
     if not sent_class then
         return
     end
-    d.sent[sent_class] = true
+    d.sent[sent_class] = {
+        name = d.opened_name or Guild_storage_list_item_name(sent_class),
+        per = d.opened_per or 0
+    }
+    d.sent_order[#d.sent_order + 1] = sent_class
     g.vlog("guild_storage_list: 送った %s (配布中=%s %d/%d)", sent_class, tostring(d.active), d.index, #d.queue)
     if not d.active or d.queue[d.index] ~= sent_class then
         return
