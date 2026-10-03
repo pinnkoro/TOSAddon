@@ -44,10 +44,11 @@ local DEFAULT_SETTINGS = {
         def_y = 0
     },
     goodbye_ragana = 0,
-    -- ギルド保管箱を 1 日 1 回自動で更新する(misc/guild_storage_reload.lua)。
-    -- guild_storage_reload_day は最後に更新した日(日替わり 6:00 で区切った YYYY-MM-DD)
+    -- 封鎖戦の報酬を受け取り、ギルド保管箱を更新する。週 1 回、日曜 19:00 以降(misc/guild_storage_reload.lua)。
+    -- guild_storage_reload_week は最後に回した週の区切り(日曜 19:00)の日付 YYYY-MM-DD。
+    -- v2.13.0 の guild_storage_reload_day(1 日 1 回だったころの控え)はもう読まない
     guild_storage_reload = 0,
-    guild_storage_reload_day = "",
+    guild_storage_reload_week = "",
     -- 決闘の申し込みを自動で受ける。既定は 0(OFF)。**既定を 1 にしないこと。**
     -- 断る自由を黙って奪うことになるので、明示的に ON にした人だけに効かせる。
     auto_accept_duel = 0,
@@ -495,11 +496,14 @@ local SUB_FRAME_SETTINGS = {
         text_en = "Relic auto-replenishment now includes a recovery function"
     }, {
         name = "guild_storage_reload",
-        text_jp = "ギルド保管箱を1日1回自動で更新",
-        text_kr = "길드 보관함을 하루 한 번 자동으로 갱신",
-        text_en = "Refresh the guild storage automatically once a day",
+        text_jp = "封鎖戦の報酬を受け取りギルド保管箱を更新(週1回・日曜19時以降)",
+        text_kr = "봉쇄전 보상을 받고 길드 보관함을 갱신(주 1회・일요일 19시 이후)",
+        text_en = "Claim siege rewards and refresh the guild storage (weekly, after Sun 7 PM)",
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-        since = "2.13.0"
+        since = "2.13.0",
+        updated = "2.13.1",
+        updated_note_jp = "1 日 1 回から週 1 回(日曜 19:00 以降)に変え、ギルド長なら封鎖戦ランキングの報酬(3 体ぶん)も受け取ってから保管箱を更新するようにしました",
+        updated_note_en = "Now runs weekly (after Sunday 7 PM) instead of daily, and the guild master also claims the siege ranking rewards (all three bosses) before refreshing the storage"
     }}
 }
 
