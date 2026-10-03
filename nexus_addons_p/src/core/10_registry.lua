@@ -249,7 +249,7 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.13.0",
     updated_note_jp = "他人の装備メンテナンスで自動選択する部位を、キャラごとに選べるようにしました(既定はこれまでどおりすべて選択)",
     updated_note_en = "The slots auto-selected at another player's equipment maintenance can now be chosen per character (all selected by default, as before)",
     data = {
@@ -285,7 +285,7 @@ g._nexus_addons_p = {{
 }, {
     key = "guild_storage_list",
     category = "storage",
-    since = g.VER_NEXT,
+    since = "2.13.0",
     data = {
         use = 0,
         name = "Guild Storage List",

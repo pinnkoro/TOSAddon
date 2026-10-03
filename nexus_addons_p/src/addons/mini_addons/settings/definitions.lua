@@ -196,7 +196,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "チャット入力フレームにボタン追加",
     text_kr = "채팅 입력 창에 버튼을 추가했습니다",
     text_en = "Added a button to the chat input frame",
-    updated = core_g.VER_NEXT,
+    updated = "2.13.0",
     updated_note_jp = "ON にすると、チャット入力欄の下の何も無い場所がクリックを吸い、キャラクターを動かせなかったのを修正しました（入力欄はボタンの分だけ短くなります）",
     updated_note_en = "Fixed the empty area below the chat input box swallowing clicks while this was ON (the input box is now shorter by the width of the buttons)"
 }, {
@@ -499,7 +499,7 @@ local SUB_FRAME_SETTINGS = {
         text_kr = "길드 보관함을 하루 한 번 자동으로 갱신",
         text_en = "Refresh the guild storage automatically once a day",
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-        since = core_g.VER_NEXT
+        since = "2.13.0"
     }}
 }
 
