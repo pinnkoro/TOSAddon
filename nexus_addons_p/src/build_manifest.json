@@ -54,6 +54,7 @@
       "addons/aethergem_manager/aethergem_manager.lua",
       "addons/job_change_helper/job_change_helper.lua",
       "addons/guild_event_warp/guild_event_warp.lua",
+      "addons/guild_storage_list/guild_storage_list.lua",
       "addons/dungeon_rp_charger/dungeon_rp_charger.lua",
       "addons/boss_direction/boss_direction.lua",
       "addons/auto_repair/auto_repair.lua",
@@ -156,7 +157,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "baacdd3752f35ac2d92d808ee8064dc01668d2c96b69e7325f10a2c070a686ee",
+    "_nexus_addons_p.lua": "32749fc95866efb2c4c9038dd69653805e9c16d6a1200656e3a0faed44bbb60e",
     "_icor_planner.lua": "102829dbd2e5e0e2efa77c8a1f96a5f256c4df1226f40dbf9822331eefa3cd7e"
   },
   "outputs": {

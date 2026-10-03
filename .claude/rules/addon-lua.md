@@ -16,6 +16,8 @@ paths:
   Addons Menu から開いたときに中身が空の窓が出る。
 * **検索欄は `g.setup_incremental_search` か `g.setup_enter_search`** のどちらかを使う。
   → 判断基準と過去の実例は **[docs/UI_RULES.md](../../docs/UI_RULES.md)**（窓を作る／直す前に読む）
+* **入力欄の `ui.ENTERKEY` の中で、その入力欄ごと一覧を作り直さない**（Enter でチャット入力欄が開く）。
+  行だけ書き換え、行は `ctrl:GetParent()` から取る → **[docs/UI_RULES.md](../../docs/UI_RULES.md)**
 * **`local function` は呼び出しより前で定義する。** 後ろだと nil のグローバル呼び出しになる。
 * **素の関数を書き写さない。** `g.setup_hook` は必ず素を呼び、その結果へ足す。
   素にある項目を、機能が OFF のときに消してはいけない。

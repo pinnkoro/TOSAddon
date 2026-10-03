@@ -178,6 +178,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
 | [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
 | [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
+| [Guild Storage List](src/addons/guild_storage_list/README.md) | ギルド保管庫の中身を文字で一覧にし、出席した週の数に応じた配布数を計算。送付窓に対象者と個数を入れておく |
 | [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
 | [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
 | [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
@@ -284,6 +285,14 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * **Guild Storage List を追加しました**。ギルド情報の「保管箱」タブに「文字で一覧」ボタンが増え、
+    保管庫の中身をアイテム名と個数の一覧で見られます。アイテムごとに「配る」「取り置き」「指定（1 口あたりの数。空欄なら均等割り）」を決めると、
+    出席した週の数（口数）で割った **1 口あたりの個数と残り**を出します。
+    出席は封鎖戦の出席管理の Bot（vc_attendance）がスプレッドシートに書く 1 行を、一覧の窓に貼って読み込みます。
+    「配布を始める」を押すと、配るアイテムの「アイテム送る」窓を順に開き、**対象者のチェックと 1 人ずつの個数が入った状態**にします
+    （送るボタンは自分で押します。送るたびに次のアイテムへ進みます）。
+    配り終わったら「配布記録」の 1 行を Discord の `/配布記録` に貼ると、Bot が配布履歴に残して告知文を返します。
+    一覧は見出しを押して並べ替えられ、▲▼ で並びを変えて保存できます。
   * Mini Addons: 「チャット入力フレームにボタン追加」を ON にすると、**チャット入力欄の下の何も無い場所
     （高さ約 110px）がクリックを吸い、そこを押してもキャラクターが動かなかった**のを修正しました。
     ボタンを置くためにチャット入力フレームを横へ広げるのをやめ、ボタンは入力欄の右端へ詰めて置きます。
