@@ -44,6 +44,10 @@ local DEFAULT_SETTINGS = {
         def_y = 0
     },
     goodbye_ragana = 0,
+    -- ギルド保管箱を 1 日 1 回自動で更新する(misc/guild_storage_reload.lua)。
+    -- guild_storage_reload_day は最後に更新した日(日替わり 6:00 で区切った YYYY-MM-DD)
+    guild_storage_reload = 0,
+    guild_storage_reload_day = "",
     -- 決闘の申し込みを自動で受ける。既定は 0(OFF)。**既定を 1 にしないこと。**
     -- 断る自由を黙って奪うことになるので、明示的に ON にした人だけに効かせる。
     auto_accept_duel = 0,
@@ -138,7 +142,7 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
                        "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
                        "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
-                       "auto_accept_duel", "ability_sort", "fragmentation"}
+                       "auto_accept_duel", "ability_sort", "fragmentation", "guild_storage_reload"}
 
 local COIN_ITEM = {869001, 11200350, 11200303, 11200302, 11200301, 11200300, 11200299, 11200298, 11200297, 11200161,
                    11200160, 11200159, 11200158, 11200157, 11200156, 11200155, 11030215, 11030214, 11030213, 11030212,
@@ -192,9 +196,9 @@ local MAIN_FRAME_SETTINGS = {{
     text_jp = "チャット入力フレームにボタン追加",
     text_kr = "채팅 입력 창에 버튼을 추가했습니다",
     text_en = "Added a button to the chat input frame",
-    updated = "2.8.0",
-    updated_note_jp = "グループチャットやささやきを選んだとき、宛先の名前がチャット入力欄から下へ落ちて表示されることがあったのを修正しました",
-    updated_note_en = "Fixed the recipient name dropping below the chat input box when a group chat or whisper was selected"
+    updated = "2.13.0",
+    updated_note_jp = "ON にすると、チャット入力欄の下の何も無い場所がクリックを吸い、キャラクターを動かせなかったのを修正しました（入力欄はボタンの分だけ短くなります）",
+    updated_note_en = "Fixed the empty area below the chat input box swallowing clicks while this was ON (the input box is now shorter by the width of the buttons)"
 }, {
     name = "hair_enchant",
     text_jp = "ヘアアクセサリーのエンチャント自動付与を使いやすく",
@@ -489,6 +493,13 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "レリック自動補充を補完",
         text_kr = "레릭 자동 보충 기능에 보완(복구) 기능이 추가되었습니다",
         text_en = "Relic auto-replenishment now includes a recovery function"
+    }, {
+        name = "guild_storage_reload",
+        text_jp = "ギルド保管箱を1日1回自動で更新",
+        text_kr = "길드 보관함을 하루 한 번 자동으로 갱신",
+        text_en = "Refresh the guild storage automatically once a day",
+        -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+        since = "2.13.0"
     }}
 }
 
@@ -528,7 +539,8 @@ local SETTING_SECTIONS = {{
 }, {
     name = "autos",
     names = {"coin_use", "skill_enchant", "weekly_boss_reward", "solodun_reward", "status_upgrade", "dialog_ctrl",
-             "under_staff", "auto_accept_duel", "goodbye_ragana", "rp_charge", "auto_craft", "hair_enchant",
+             "under_staff", "auto_accept_duel", "goodbye_ragana", "guild_storage_reload", "rp_charge", "auto_craft",
+             "hair_enchant",
              "skill_reroll", "auto_zoom", "velnice"},
     text_jp = "自動処理関連",
     text_kr = "자동 처리 관련",

@@ -151,6 +151,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     if type(_G["ZCHATEXTENDS_ON_INIT"]) ~= "function" then
         Mini_addons_update_chat_frame()
         g.setup_hook_and_event(g.addon, "INVENTORY_OP_POP", "Mini_addons_INVENTORY_OP_POP", true)
+        -- 素が宛先を選び直すたびに入力欄を 415 基準へ戻すので、ボタンの手前で止め直す
+        g.setup_hook_and_event(g.addon, "CHAT_SET_TO_TITLENAME", "Mini_addons_chat_fit_input_after_title", true)
     elseif g.settings.chat_new_btn == 1 then
         g.settings.chat_new_btn = 0
         Mini_addons_save_settings()
@@ -286,6 +288,8 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
         -- オプションリロールの表を横に表示
         core_g.register_msg("OPEN_DLG_REROLL_ITEM", "Mini_addons_OPEN_DLG_REROLL_ITEM")
     end
+    -- ギルド保管箱を 1 日 1 回自動で更新(街に限らず、その日の最初のマップで押す)
+    Mini_addons_guild_storage_reload()
     -- 細かい修正
     Mini_addons_minor_fixes()
     core_g.vlog("mini_addons: GAME_START_3SEC 完了")

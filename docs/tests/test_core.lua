@@ -1466,6 +1466,7 @@ local MINI_EXPECTED = {
     "misc/reputation_shop.lua",
     "weekly_boss/reward_auto.lua",
     "misc/ragana.lua",
+    "misc/guild_storage_reload.lua",
     "misc/rp_check.lua",
     "misc/market_button.lua",
     "inventory/coin_auto_use.lua",

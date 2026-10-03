@@ -249,9 +249,9 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = "2.11.0",
-    updated_note_jp = "メシ屋を開いたときに自動で食べるプリセットを、キャラごとに選べるようにしました(プリセットの名前と料理は全キャラ共通です)。自動実行を選んでいると、店のどのボタンを押してもそのプリセットを食べていたのを直しました",
-    updated_note_en = "The preset auto-eaten on opening a food shop can now be chosen per character (preset names and foods stay shared). Fixed every shop button eating the auto-run preset instead of its own",
+    updated = "2.13.0",
+    updated_note_jp = "他人の装備メンテナンスで自動選択する部位を、キャラごとに選べるようにしました(既定はこれまでどおりすべて選択)",
+    updated_note_en = "The slots auto-selected at another player's equipment maintenance can now be chosen per character (all selected by default, as before)",
     data = {
         use = 0,
         name = "Easy Buff",
@@ -281,6 +281,17 @@ g._nexus_addons_p = {{
         frame_use = false,
         config_func = "",
         old_init_func = "GUILDEVENTWARP_ON_INIT"
+    }
+}, {
+    key = "guild_storage_list",
+    category = "storage",
+    since = "2.13.0",
+    data = {
+        use = 0,
+        name = "Guild Storage List",
+        frame_use = true,
+        config_func = "Guild_storage_list_open",
+        old_init_func = ""
     }
 }, {
     key = "indun_list_viewer",
@@ -678,6 +689,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}画面右上の小さいボタンから封鎖戦マップの1チャンネルと{nl}ギルドアジトにワープ",
         etc = "{ol}Warp to Channel 1 of the Blockade Battle Map or to the guild agit{nl}from the button in the upper right corner of the screen",
         kr = "{ol}화면 오른쪽 상단의 작은 버튼으로 봉쇄전 맵의 1채널과{nl}길드 아지트로 워프"
+    },
+    ["guild_storage_list"] = {
+        ja = "{ol}ギルド保管庫の中身を文字で一覧にし、出席した週の数(口数)に{nl}応じた配布数を出します。送付窓に対象者と個数を入れておきます",
+        etc = "{ol}List the guild storage as text and split it by attended weeks{nl}Pre-fills the recipients and counts in the send window",
+        kr = "{ol}길드 보관함의 내용을 글자로 목록화하고 출석한 주 수에{nl}따른 배포 수를 표시. 보내기 창에 대상자와 개수를 미리 입력"
     },
     ["instant_cc"] = {
         ja = "{ol}ebisukeさん作成{nl}キャラクターチェンジを簡易にします",
