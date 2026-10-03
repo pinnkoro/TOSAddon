@@ -249,9 +249,9 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = "2.11.0",
-    updated_note_jp = "メシ屋を開いたときに自動で食べるプリセットを、キャラごとに選べるようにしました(プリセットの名前と料理は全キャラ共通です)。自動実行を選んでいると、店のどのボタンを押してもそのプリセットを食べていたのを直しました",
-    updated_note_en = "The preset auto-eaten on opening a food shop can now be chosen per character (preset names and foods stay shared). Fixed every shop button eating the auto-run preset instead of its own",
+    updated = g.VER_NEXT,
+    updated_note_jp = "他人の装備メンテナンスで自動選択する部位を、キャラごとに選べるようにしました(既定はこれまでどおりすべて選択)",
+    updated_note_en = "The slots auto-selected at another player's equipment maintenance can now be chosen per character (all selected by default, as before)",
     data = {
         use = 0,
         name = "Easy Buff",

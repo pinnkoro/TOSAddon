@@ -16,6 +16,9 @@ function Easy_buff_load_settings()
         -- 店を開いたときに自動実行するプリセットのキャラごとの選択({[cid] = 0〜4})。
         -- 無いキャラは food_check(アカウント共通の既定)に従う。プリセットの中身は共通のまま
         char_food_check = {},
+        -- 他人の装備メンテナンスで自動選択する部位のキャラごとの選択({[cid] = {[部位] = 0/1}})。
+        -- 無いキャラ・無い部位は 1(選択する) = 以前の「すべて選択」と同じ動き
+        char_maint_check = {},
         confirm_check = 0,
         repair_check = 0
     }
@@ -59,6 +62,29 @@ function Easy_buff_auto_preset()
     return value
 end
 
+-- 装備メンテナンスの部位。素の itembuffopen.lua の enable_slot_list と同じ並び
+-- (向こうは local なので読めない。素の窓の子は 'ITEMBUFF_CTRL_' .. 部位 で引ける)
+g.easy_buff_maint_slots = {"RH", "LH", "RH_SUB", "LH_SUB", "SHIRT", "PANTS", "GLOVES", "BOOTS"}
+g.easy_buff_maint_labels = {
+    RH = {"右手", "RH"},
+    LH = {"左手", "LH"},
+    RH_SUB = {"右手(サブ)", "RH sub"},
+    LH_SUB = {"左手(サブ)", "LH sub"},
+    SHIRT = {"上着", "Top"},
+    PANTS = {"下衣", "Bottom"},
+    GLOVES = {"手袋", "Gloves"},
+    BOOTS = {"靴", "Boots"}
+}
+
+-- このキャラが装備メンテナンスで選ぶ部位か(1 / 0)。g.cid はキャラチェンジで入れ替わるので毎回引く
+function Easy_buff_maint_selected(slot_name)
+    local char_check = g.easy_buff_settings.char_maint_check[g.cid]
+    if not char_check or char_check[slot_name] == nil then
+        return 1
+    end
+    return char_check[slot_name]
+end
+
 function easy_buff_on_init()
     if not g.easy_buff_settings then
         Easy_buff_load_settings()
@@ -80,11 +106,11 @@ function Easy_buff_config_frame()
     easy_buff:RemoveAllChild()
     easy_buff:SetSkinName("test_frame_low")
     easy_buff:SetLayerLevel(999)
-    easy_buff:Resize(490, 410)
+    easy_buff:Resize(490, 540)
     -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
     -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
     -- 開くと一覧は開いておらず nil で落ちる = 空の窓が出る(g.settings_frame_pos のコメント)。
-    easy_buff:SetPos(g.settings_frame_pos(490, 410))
+    easy_buff:SetPos(g.settings_frame_pos(490, 540))
     easy_buff:SetTitleBarSkin("None")
     easy_buff:EnableHittestFrame(1)
     easy_buff:EnableHitTest(1)
@@ -171,6 +197,25 @@ function Easy_buff_config_frame()
                              "{ol}Check to Auto-close Repair Shop Frame")
     repair_check:SetEventScript(ui.LBUTTONUP, "Easy_buff_config_check_toggle")
     repair_check:SetCheck(g.easy_buff_settings.repair_check)
+    -- 他人の装備メンテナンスで選ぶ部位(キャラごと)
+    local maint_text = gbox:CreateOrGetControl('richtext', "maint_text", 10, y + 85, 450, 20)
+    AUTO_CAST(maint_text)
+    maint_text:SetText(g.lang == "Japanese" and "{ol}装備メンテナンスで選ぶ部位(キャラごと)" or
+                           "{ol}Equipment maintenance: slots to select (per character)")
+    maint_text:SetTextTooltip(g.lang == "Japanese" and
+                                  "{ol}他人の装備メンテナンスを開いたとき、チェックした部位だけを選んで実行します{nl}全部外すと自動実行しません" or
+                                  "{ol}On another player's maintenance shop, only checked slots are selected and run{nl}Uncheck all to disable auto-run")
+    for index, slot_name in ipairs(g.easy_buff_maint_slots) do
+        local col = (index - 1) % 4
+        local row = math.floor((index - 1) / 4)
+        local maint_check = gbox:CreateOrGetControl('checkbox', "maint_check_" .. slot_name, 10 + col * 115,
+            y + 110 + row * 30, 30, 30)
+        AUTO_CAST(maint_check)
+        local label = g.easy_buff_maint_labels[slot_name]
+        maint_check:SetText("{ol}" .. (g.lang == "Japanese" and label[1] or label[2]))
+        maint_check:SetEventScript(ui.LBUTTONUP, "Easy_buff_config_check_toggle")
+        maint_check:SetCheck(Easy_buff_maint_selected(slot_name))
+    end
 end
 
 function Easy_buff_config_frame_close(frame)
@@ -201,6 +246,16 @@ function Easy_buff_config_check_toggle(parent, ctrl, str, num)
         g.easy_buff_settings.confirm_check = is_check
     elseif ctrl_name == "repair_check" then
         g.easy_buff_settings.repair_check = is_check
+    elseif string.find(ctrl_name, "^maint_check_") then
+        local slot_name = string.sub(ctrl_name, #"maint_check_" + 1)
+        local char_check = g.easy_buff_settings.char_maint_check[g.cid]
+        if not char_check then
+            char_check = {}
+            g.easy_buff_settings.char_maint_check[g.cid] = char_check
+        end
+        char_check[slot_name] = is_check
+        g.vlog("easy_buff: 装備メンテナンスの %s を %d にした(cid=%s %s)", slot_name, is_check, tostring(g.cid),
+            tostring(g.login_name))
     else
         local preset_str, check_str = string.match(ctrl_name, "^check_(%d)_(%d)$")
         g.easy_buff_settings.food_presets_check[preset_str][check_str] = is_check
@@ -508,17 +563,52 @@ function Easy_buff_squire_buff_equip_ctrl_update(itembuffopen)
     local close = GET_CHILD_RECURSIVELY(itembuffopen, 'close')
     AUTO_CAST(close)
     close:SetEventScript(ui.LBUTTONUP, "Easy_buff_squire_timestop_frame_close")
+    -- 「すべて選択」ではなく、このキャラで選んだ部位だけにチェックを入れる。
+    -- 1 つずつの選択は素の SQUIRE_BUFF_EQUIP_SELECT_ALL と同じ呼び方(by_checkall = true で費用の再計算は最後に 1 回)
+    local listed, selected = 0, 0
+    for _, slot_name in ipairs(g.easy_buff_maint_slots) do
+        local ctrlset = GET_CHILD_RECURSIVELY(itembuffopen, 'ITEMBUFF_CTRL_' .. slot_name)
+        if ctrlset then
+            listed = listed + 1
+            local checkbox = GET_CHILD(ctrlset, 'checkbox')
+            AUTO_CAST(checkbox)
+            local check = Easy_buff_maint_selected(slot_name)
+            checkbox:SetCheck(check)
+            SQUIRE_BUFF_EQUIP_SELECT(ctrlset, checkbox, '', 0, true)
+            -- 素の SQUIRE_BUFF_EQUIP_SELECT は装備が外れていればチェックを戻すので、結果の方を数える
+            if checkbox:IsChecked() == 1 then
+                selected = selected + 1
+            end
+        end
+    end
+    SQUIRE_BUFF_COST_UPDATE(itembuffopen)
     local checkall = GET_CHILD_RECURSIVELY(itembuffopen, 'checkall')
     AUTO_CAST(checkall)
-    checkall:SetCheck(1)
-    SQUIRE_BUFF_EQUIP_SELECT_ALL(itembuffopen, checkall)
+    checkall:SetCheck((listed > 0 and selected == listed) and 1 or 0)
+    g.vlog("easy_buff: 装備メンテナンス 対象 %d 部位のうち %d 部位を選択(cid=%s)", listed, selected, tostring(g.cid))
+    itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
+    if selected == 0 then
+        local any_on = false
+        for _, slot_name in ipairs(g.easy_buff_maint_slots) do
+            if Easy_buff_maint_selected(slot_name) == 1 then
+                any_on = true
+            end
+        end
+        if not any_on then
+            -- 設定で全部外している = 自動実行しない(メシ屋のプリセットを全部外したときと同じ)
+            return 0
+        end
+        -- 実行すると素が「アイテムを選択してください」の MsgBox を出すので、押さずに知らせるだけにする
+        ui.SysMsg(g.lang == "Japanese" and "{ol}Easy Buff: 装備メンテナンスで選ぶ部位がこの店にありません" or
+                      "{ol}Easy Buff: none of the selected slots can be maintained here")
+        return 0
+    end
     local btn_excute = GET_CHILD_RECURSIVELY(itembuffopen, "btn_excute")
     SQUIRE_BUFF_EXCUTE(itembuffopen, btn_excute)
     local str = g.lang == "Japanese" and
                     "{ol}装備メンテナンス自動付与中{nl}フレームを閉じればキャンセルします" or
                     "{ol}Equipment maintenance automatic grant is in progress{nl}Canceled when frame is closed"
     ui.SysMsg(str)
-    itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
     itembuffopen:RunUpdateScript("Easy_buff_squire_frame_close", 5.5)
 end
 
