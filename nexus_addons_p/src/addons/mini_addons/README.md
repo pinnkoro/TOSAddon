@@ -39,7 +39,7 @@
 | [event_notice/](event_notice/README.md) | イベントシャウト・バウバス登場・追加報酬券のお知らせ |
 | [context_menu/](context_menu/README.md) | 右クリックメニューへメンバーインフォなどを足す仕掛け |
 | [sound/](sound/README.md) | BGM プレイヤー・ミュート切り替え・スキル連打音 |
-| [misc/](misc/README.md) | 1 ファイルに収まる細かい機能（25 ファイル） |
+| [misc/](misc/README.md) | 1 ファイルに収まる細かい機能（29 ファイル） |
 
 ## ファイルの構成
 
