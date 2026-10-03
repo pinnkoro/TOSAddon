@@ -80,6 +80,29 @@
   1 箇所に集約してある。**アドオン側で `ESCAPE_PRESSED` を個別に購読しないこと**
   （各自が自分のフレームを閉じると、1 回の ESC で開いている自作ウィンドウが全部消える）。
 
+## 入力欄の Enter で一覧を作り直さない
+
+数値や文字の入力欄に `ui.ENTERKEY` を付けて、その中で**押した入力欄ごと一覧を作り直す**
+（`RemoveAllChild` してから組み立て直す）と、**Enter でチャット入力欄が開く**。
+押した入力欄が消えて Enter の行き先が無くなり、ゲーム側の「Enter でチャットを出す」まで届くため、と見ている
+（2026-10-03 に Guild Storage List で発生。同じ形はこれまでにも何度か踏んでいる）。
+
+Enter の処理では次のようにする。
+
+* **押した行だけをその場で書き換える。** 表示している値を `SetText` し直すだけにして、
+  入力欄そのものは消さない。
+* **行は `ctrl:GetParent()` から取る。** ハンドラの第 1 引数（`parent`）は、押した入力欄の直接の親とは
+  限らない。第 1 引数を行として扱うと `GetUserValue` が `"None"` を返し、書き換えが黙って空振りする
+  （上の対策を入れた直後に「Enter しても数値が変わらない」として踏んだ）。
+* **どうしても作り直すときは、Enter が済んでから行う。** `ReserveScript("Xxx_build(true)", 0.1)` のように、
+  少し遅らせて呼ぶ（並べ替えの列が変わる値を書き換えたときなど）。
+* **保険として、押す前にチャット入力欄（フレーム `"chat"`）が開いていたかを控えておく。** 少し後に確かめて、
+  この Enter で開いてしまっていたら `ui.CloseFrame("chat")` で閉じる。前から開いていたものは触らないこと。
+* どの経路を通ったかを `g.vlog` で 1 行出す。行が取れたか・書き換えたか・チャットが前後で開いていたか。
+
+実装例は [guild_storage_list.lua](../nexus_addons_p/src/addons/guild_storage_list/guild_storage_list.lua) の
+`Guild_storage_list_edit_enter` / `Guild_storage_list_update_row` / `Guild_storage_list_after_enter`。
+
 ## 検索欄は 2 つの共通部品のどちらかを使う
 
 **検索欄を作ったら、必ず次のどちらかを呼ぶこと**（[core/00_header.lua](../nexus_addons_p/src/core/00_header.lua)）。

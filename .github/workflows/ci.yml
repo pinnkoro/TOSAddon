@@ -179,6 +179,11 @@ jobs:
       - name: my_buffs_control の非表示リストテスト
         run: luajit docs/tests/test_my_buffs_control.lua
 
+      # ギルド保管庫の配布数。送付は取り消せないうえ、数の誤りは送った後でしか気付けない。
+      # スプレッドシートの配布用シートと同じ数になることを押さえる。
+      - name: guild_storage_list の配布数テスト
+        run: luajit docs/tests/test_guild_storage_list.lua
+
       # .ipf の暗号化は Python 実装（docs/ipf_crypt.py）に置き換えてある。実際に配布した
       # .ipf を復号し、raw deflate 展開してテーブル記載の平文 CRC32 と一致するかを見る
       # （テーブルは暗号化されないので、暗号実装を経由しない独立オラクルになる）。
