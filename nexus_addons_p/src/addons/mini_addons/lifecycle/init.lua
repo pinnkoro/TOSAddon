@@ -288,7 +288,7 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
         -- オプションリロールの表を横に表示
         core_g.register_msg("OPEN_DLG_REROLL_ITEM", "Mini_addons_OPEN_DLG_REROLL_ITEM")
     end
-    -- ギルド保管箱を 1 日 1 回自動で更新(街に限らず、その日の最初のマップで押す)
+    -- 封鎖戦の報酬を受け取りギルド保管箱を更新(週 1 回、日曜 19:00 以降の最初のマップで。街に限らない)
     Mini_addons_guild_storage_reload()
     -- 細かい修正
     Mini_addons_minor_fixes()
