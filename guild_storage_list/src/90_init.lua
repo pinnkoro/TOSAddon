@@ -57,6 +57,7 @@ function Guild_storage_list_watch()
     if #g.esc_stack > 0 or g.esc_scp_set then
         g.esc_sync_scp()
     end
+    g.check_hooks()
     return 1
 end
 
