@@ -1945,11 +1945,12 @@ function Guild_storage_list_members_refresh()
     end)
     local y = 0
     for i, r in ipairs(rows) do
-        local bits = string.gsub(string.gsub(r.bits, "1", "●"), "0", "○")
+        -- 出席は緑の ●、欠席は暗い ○。同じ灰色にすると、縁取り({ol})のせいで ● も ○ に見える(実機で確認)
+        local bits = string.gsub(string.gsub(r.bits, "1", "{#7CFC00}●{/}"), "0", "{#777777}○{/}")
         local line = list:CreateOrGetControl("richtext", "row_" .. i, 10, y + 4, 340, 22)
         AUTO_CAST(line)
         if r.found then
-            line:SetText(string.format("{ol}{s15}%s  {#FFD700}%d 口{/}  {#AAAAAA}%s", r.name, r.units, bits))
+            line:SetText(string.format("{ol}{s15}%s  {#FFD700}%d 口{/}  %s", r.name, r.units, bits))
         else
             line:SetText(string.format("{ol}{s15}{#FF6347}%s  %s", r.name,
                 Guild_storage_list_t("(ギルドに見つからない・送られない)", "(not in the guild, not sent)")))
