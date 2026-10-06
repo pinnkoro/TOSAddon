@@ -50,14 +50,21 @@ g.guild_storage_list = g.guild_storage_list or {
     --   opened … 事前入力した送付窓のアイテム / opened_per … そのとき入れた 1 口あたりの個数
     --   sent … この回で送ったアイテム ClassName → {name, per}(二重配布の防止と配布記録に使う)
     --   sent_order … 送った順の ClassName
+    --   mode … "units"(口数で配る。「配布を始める」)か "reserve"(取り置きを 1 人に送る。「取り置きを配布する」)
+    --   opened_mode … 事前入力した送付窓がどちらの入力か / reserve_sent … 取り置きを送ったアイテム
+    --   (取り置きは配布記録に載せないので sent とは分けて持つ。分けないと、配った後の取り置きが
+    --    「配布済み」として入力されない)
     dist = {
         active = false,
+        mode = "units",
         queue = {},
         index = 1,
         opened = nil,
+        opened_mode = nil,
         opened_per = 0,
         sent = {},
-        sent_order = {}
+        sent_order = {},
+        reserve_sent = {}
     }
 }
 g.guild_storage_list_const = {
@@ -399,6 +406,10 @@ function Guild_storage_list_load_settings()
     if settings.only_use ~= 1 then
         settings.only_use = 0
     end
+    -- 取り置きの送り先(ギルドのチーム名)。空なら送付窓でチェックを入れずに開き、利用者が選ぶ
+    if type(settings.reserve_to) ~= "string" then
+        settings.reserve_to = ""
+    end
     -- 並び。order は手動で動かしたときの ClassName の並び(保管庫から消えたものも覚えておく)。
     -- sort_key は見出しで選んだ列(空 = 手動の並び)
     if type(settings.order) ~= "table" then
@@ -448,6 +459,7 @@ function guild_storage_list_on_init()
     end
     if g.settings.guild_storage_list.use == 0 then
         ui.DestroyFrame(addon_name_lower .. g.guild_storage_list_const.frame)
+        ui.DestroyFrame(addon_name_lower .. g.guild_storage_list_const.frame .. "_members")
         Guild_storage_list_remove_button()
         return
     end
@@ -677,7 +689,7 @@ function Guild_storage_list_open()
     -- ギルド情報(92)と同じ高さ。素の送付窓(93)はこれより手前に出る
     frame:SetLayerLevel(92)
     frame:EnableMove(1)
-    local height = c.list_height + 260
+    local height = c.list_height + 302
     frame:Resize(c.width, height)
     frame:SetPos(g.settings_frame_pos(c.width, height))
     frame:RemoveAllChild()
@@ -772,6 +784,33 @@ function Guild_storage_list_open()
     record:SetTextTooltip(Guild_storage_list_t(
         "{ol}マウスでなぞって選び Ctrl+C でコピーし、Discord の /配布記録 に貼る{nl}(Ctrl+A は効きません)",
         "{ol}Select with the mouse, Ctrl+C, then paste into /distribute-record on Discord"))
+
+    -- 対象者の一覧(別窓)と、取り置きを 1 人に送る
+    local tools_y = record_y + 42
+    local members = frame:CreateOrGetControl("button", "members", 110, tools_y, 170, 32)
+    AUTO_CAST(members)
+    members:SetSkinName("test_pvp_btn")
+    members:SetText("{@st66b}" .. Guild_storage_list_t("対象者を見る", "Recipients"))
+    members:SetTextTooltip(Guild_storage_list_t("{ol}貼った出席データの配布対象者と口数を、別の窓に出します",
+        "{ol}Shows the recipients and their units from the pasted data in another window"))
+    members:SetEventScript(ui.LBUTTONUP, "Guild_storage_list_members_open")
+    local reserve = frame:CreateOrGetControl("button", "reserve", 290, tools_y, 190, 32)
+    AUTO_CAST(reserve)
+    reserve:SetSkinName("test_red_button")
+    reserve:SetEventScript(ui.LBUTTONUP, "Guild_storage_list_reserve_click")
+    local reserve_to_label = frame:CreateOrGetControl("richtext", "reserve_to_label", 490, tools_y + 6, 60, 24)
+    AUTO_CAST(reserve_to_label)
+    reserve_to_label:SetText("{ol}" .. Guild_storage_list_t("送り先", "To"))
+    local reserve_to = frame:CreateOrGetControl("edit", "reserve_to", 545, tools_y, c.width - 565, 32)
+    AUTO_CAST(reserve_to)
+    reserve_to:SetSkinName("test_weight_skin")
+    reserve_to:SetFontName("white_16_ol")
+    reserve_to:SetTextAlign("left", "center")
+    reserve_to:SetText(g.guild_storage_list_settings.reserve_to)
+    reserve_to:SetEventScript(ui.ENTERKEY, "Guild_storage_list_reserve_to_enter")
+    reserve_to:SetTextTooltip(Guild_storage_list_t(
+        "{ol}取り置きを送る人(チーム名)。入れておくと、その人にだけチェックを入れて開きます{nl}空なら誰にもチェックを入れません。Enter で保存",
+        "{ol}Who receives the kept items (team name). If set, only that person is ticked{nl}Empty = nobody is ticked. Press Enter to save"))
 
     frame:ShowWindow(1)
     g.esc_register(frame_name, "Guild_storage_list_close")
@@ -904,10 +943,42 @@ function Guild_storage_list_move_click(parent, ctrl, class_name, delta)
     Guild_storage_list_build_rows(true)
 end
 
+-- 取り置きの送り先の Enter。保存するだけで、窓は作り直さない(docs/UI_RULES.md「入力欄の Enter で一覧を作り直さない」)
+function Guild_storage_list_reserve_to_enter(parent, ctrl)
+    local chat = ui.GetFrame("chat")
+    g.guild_storage_list.chat_was_open = chat ~= nil and chat:IsVisible() == 1
+    ReserveScript("Guild_storage_list_after_enter()", 0.05)
+    Guild_storage_list_commit_reserve_to()
+    local to = g.guild_storage_list_settings.reserve_to
+    ui.SysMsg(to == "" and
+                  Guild_storage_list_t("取り置きの送り先を空にしました(送付窓で選びます)",
+            "Cleared the kept-items recipient (choose in the send window)") or
+                  string.format(Guild_storage_list_t("取り置きの送り先を「%s」にしました", "Kept items go to \"%s\""), to))
+end
+
+-- 送り先の入力欄の値を設定へ取り込む(Enter を押さずに閉じたときも拾う)
+function Guild_storage_list_commit_reserve_to()
+    local frame = ui.GetFrame(addon_name_lower .. g.guild_storage_list_const.frame)
+    local edit = frame and GET_CHILD_RECURSIVELY(frame, "reserve_to")
+    if not edit or not g.guild_storage_list_settings then
+        return
+    end
+    local to = g.guild_storage_list_norm(edit:GetText())
+    if to ~= g.guild_storage_list_settings.reserve_to then
+        g.guild_storage_list_settings.reserve_to = to
+        Guild_storage_list_save_settings()
+        g.vlog("guild_storage_list: 取り置きの送り先 = %s", to)
+    end
+end
+
 function Guild_storage_list_close()
+    Guild_storage_list_commit_reserve_to()
     Guild_storage_list_commit_edits()
     Guild_storage_list_save_settings()
     ui.DestroyFrame(addon_name_lower .. g.guild_storage_list_const.frame)
+    -- 対象者の窓も一緒に畳む。一覧の窓を破棄する経路は全部で 2 か所
+    -- (ここと guild_storage_list_on_init の OFF のとき)。どちらでも畳むこと
+    ui.DestroyFrame(addon_name_lower .. g.guild_storage_list_const.frame .. "_members")
 end
 
 function Guild_storage_list_reload()
@@ -916,6 +987,7 @@ function Guild_storage_list_reload()
     Guild_storage_list_load_link()
     Guild_storage_list_read_storage()
     Guild_storage_list_build_rows()
+    Guild_storage_list_members_refresh()
 end
 
 function Guild_storage_list_toggle_only(parent, ctrl)
@@ -1160,6 +1232,7 @@ function Guild_storage_list_paste_enter(parent, ctrl)
         "Loaded the attendance data (%d weeks / %d people / %d units)"), #link.weeks, #g.guild_storage_list.matched,
         Guild_storage_list_unit_count()))
     ReserveScript("Guild_storage_list_build_rows(true)", 0.1)
+    ReserveScript("Guild_storage_list_members_refresh()", 0.1)
 end
 
 function Guild_storage_list_after_enter()
@@ -1286,7 +1359,14 @@ function Guild_storage_list_prefill(item_class_name, item_count)
     if not g.guild_storage_list_settings then
         Guild_storage_list_load_settings()
     end
-    g.guild_storage_list.dist.opened = nil
+    local d = g.guild_storage_list.dist
+    d.opened = nil
+    d.opened_mode = nil
+    -- 「取り置きを配布する」の途中で、そのアイテムの窓なら取り置きの入力をする
+    if d.active and d.mode == "reserve" and d.queue[d.index] == item_class_name then
+        Guild_storage_list_prefill_reserve(item_class_name, item_count)
+        return
+    end
     local rule = Guild_storage_list_rule(item_class_name)
     if rule.use ~= 1 then
         return
@@ -1362,6 +1442,7 @@ function Guild_storage_list_prefill(item_class_name, item_count)
     GUILDINVEN_SEND_UPDATE_COUNT_BOX(frame)
     -- 送るボタンの後で「事前入力したアイテムを送った」と判断するための印
     g.guild_storage_list.dist.opened = item_class_name
+    g.guild_storage_list.dist.opened_mode = "units"
     g.guild_storage_list.dist.opened_per = per
     -- 名前もここで控える(送り切ると保管庫の一覧から消え、後から名前を引けなくなる)
     g.guild_storage_list.dist.opened_name = Guild_storage_list_item_name(item_class_name)
@@ -1431,16 +1512,35 @@ function Guild_storage_list_dist_update(frame)
     end
     local d = g.guild_storage_list.dist
     local can = Guild_storage_list_storage_tab_open()
-    if d.active then
+    local units_active = d.active and d.mode == "units"
+    local reserve_active = d.active and d.mode == "reserve"
+    if units_active then
         btn:SetText("{@st41b}{s16}" ..
                         string.format(Guild_storage_list_t("配布を続ける %d/%d", "Continue %d/%d"), d.index, #d.queue))
         status:SetText(string.format(Guild_storage_list_t("{ol}{#FFD700}配布中 %d/%d: %s",
             "{ol}{#FFD700}Distributing %d/%d: %s"), d.index, #d.queue, Guild_storage_list_item_name(d.queue[d.index])))
+    elseif reserve_active then
+        btn:SetText("{@st41b}{s16}" .. Guild_storage_list_t("配布を始める", "Start"))
+        status:SetText(string.format(Guild_storage_list_t("{ol}{#FFD700}取り置き配布中 %d/%d: %s",
+            "{ol}{#FFD700}Sending kept items %d/%d: %s"), d.index, #d.queue,
+            Guild_storage_list_item_name(d.queue[d.index])))
     else
         btn:SetText("{@st41b}{s16}" .. Guild_storage_list_t("配布を始める", "Start"))
         status:SetText("")
     end
     btn:SetEnable(can and 1 or 0)
+    local reserve = GET_CHILD(frame, "reserve")
+    if reserve then
+        reserve:SetText("{@st41b}{s16}" .. (reserve_active and
+                            string.format(Guild_storage_list_t("取り置きを続ける %d/%d", "Continue kept %d/%d"),
+                d.index, #d.queue) or Guild_storage_list_t("取り置きを配布する", "Send kept items")))
+        reserve:SetEnable(can and 1 or 0)
+        reserve:SetTextTooltip(can and Guild_storage_list_t(
+            "{ol}「取置」を入れたアイテムの送付窓を順に開き、全員の個数に取り置きの数を入れます{nl}送る人に 1 人だけチェックを入れて送ってください",
+            "{ol}Opens the send window for each item with a Keep amount and fills that amount for everyone{nl}Tick only the one person to send to") or
+                                   Guild_storage_list_t("{ol}ギルド情報の「保管箱」タブを開くと押せます",
+                "{ol}Open the Storage tab of the guild info to use this"))
+    end
     btn:SetTextTooltip(can and Guild_storage_list_t(
         "{ol}配るアイテムの送付窓を、一覧の並びで順に開きます{nl}送るボタンを押すと次のアイテムが開きます",
         "{ol}Opens the send window for each item in list order{nl}Press Send to move on to the next item") or
@@ -1552,17 +1652,24 @@ function Guild_storage_list_dist_after_send()
     end
     local d = g.guild_storage_list.dist
     local sent_class = d.opened
+    local sent_mode = d.opened_mode
     d.opened = nil
+    d.opened_mode = nil
     if not sent_class then
         return
     end
-    d.sent[sent_class] = {
-        name = d.opened_name or Guild_storage_list_item_name(sent_class),
-        per = d.opened_per or 0
-    }
-    d.sent_order[#d.sent_order + 1] = sent_class
-    g.vlog("guild_storage_list: 送った %s (配布中=%s %d/%d)", sent_class, tostring(d.active), d.index, #d.queue)
-    if not d.active or d.queue[d.index] ~= sent_class then
+    if sent_mode == "reserve" then
+        d.reserve_sent[sent_class] = true
+    else
+        d.sent[sent_class] = {
+            name = d.opened_name or Guild_storage_list_item_name(sent_class),
+            per = d.opened_per or 0
+        }
+        d.sent_order[#d.sent_order + 1] = sent_class
+    end
+    g.vlog("guild_storage_list: 送った %s (%s / 配布中=%s %s %d/%d)", sent_class, tostring(sent_mode), tostring(d.active),
+        tostring(d.mode), d.index, #d.queue)
+    if not d.active or d.mode ~= (sent_mode or "units") or d.queue[d.index] ~= sent_class then
         return
     end
     d.index = d.index + 1
@@ -1578,12 +1685,261 @@ end
 function Guild_storage_list_dist_finish()
     local d = g.guild_storage_list.dist
     local total = #d.queue
+    local mode = d.mode
     d.active = false
+    d.mode = "units"
     d.queue = {}
     d.index = 1
-    ui.SysMsg(string.format(Guild_storage_list_t(
-        "Guild Storage List: 配布が終わりました(%d 品)。管理表の配布数を更新してください",
-        "Guild Storage List: distribution finished (%d items)"), total))
+    if mode == "reserve" then
+        ui.SysMsg(string.format(Guild_storage_list_t("Guild Storage List: 取り置きの配布が終わりました(%d 品)",
+            "Guild Storage List: finished sending the kept items (%d items)"), total))
+    else
+        ui.SysMsg(string.format(Guild_storage_list_t(
+            "Guild Storage List: 配布が終わりました(%d 品)。「配布記録を作る」から Discord の /配布記録 に貼ってください",
+            "Guild Storage List: distribution finished (%d items). Make the record and paste it into /distribute-record"),
+            total))
+    end
     Guild_storage_list_dist_refresh()
+end
+
+-- ===== 取り置きを配布する =====
+--
+-- 「取置」を入れたアイテムを、一覧の並びで順に素の送付窓で開く。全員の行に取り置きの個数を入れ、
+-- **チェックはすべて外したまま**にする(送る相手は利用者が 1 人選ぶ)。素の GUILDINVEN_SEND_CLICK は
+-- チェックの入った行だけを送るので、1 人だけチェックすればその人に取り置きの数だけ送られる。
+-- 送れたら次のアイテムへ進む流れは「配布を始める」と同じ(Guild_storage_list_dist_after_send)。
+
+-- 取り置きを配る順の ClassName の並び。取置が 1 以上で、在庫がそれ以上あるもの
+function g.guild_storage_list_reserve_queue(items, rule_of)
+    local queue = {}
+    for _, item in ipairs(items) do
+        local reserve = math.floor(tonumber(rule_of(item.class_name).reserve) or 0)
+        if reserve > 0 and (tonumber(item.count) or 0) >= reserve then
+            queue[#queue + 1] = item.class_name
+        end
+    end
+    return queue
+end
+
+function Guild_storage_list_reserve_click()
+    if not Guild_storage_list_storage_tab_open() then
+        ui.SysMsg(Guild_storage_list_t("ギルド情報の「保管箱」タブを開いてから押してください",
+            "Open the Storage tab of the guild info first"))
+        return
+    end
+    local d = g.guild_storage_list.dist
+    if d.active and d.mode == "units" then
+        ui.SysMsg(Guild_storage_list_t("配布の途中です。「配布を続ける」で終わらせてから押してください",
+            "A distribution is in progress. Finish it with Continue first"))
+        return
+    end
+    Guild_storage_list_commit_reserve_to()
+    if not d.active then
+        Guild_storage_list_commit_edits()
+        Guild_storage_list_save_settings()
+        Guild_storage_list_read_storage()
+        local queue = g.guild_storage_list_reserve_queue(Guild_storage_list_sorted_items(), Guild_storage_list_rule)
+        if #queue == 0 then
+            ui.SysMsg(Guild_storage_list_t("取り置きを入れたアイテムがありません(取置が 1 以上で、在庫がそれ以上あるもの)",
+                "No items with a Keep amount (Keep of 1 or more, with enough stock)"))
+            return
+        end
+        d.active = true
+        d.mode = "reserve"
+        d.queue = queue
+        d.index = 1
+        d.opened = nil
+        d.reserve_sent = {}
+        g.vlog("guild_storage_list: 取り置きの配布を始める %d 品 (%s)", #queue, table.concat(queue, ","))
+    end
+    Guild_storage_list_dist_open_current()
+end
+
+-- 送付窓に取り置きの個数を入れる(チェックは入れない)
+function Guild_storage_list_prefill_reserve(item_class_name, item_count)
+    local d = g.guild_storage_list.dist
+    if d.reserve_sent[item_class_name] then
+        ui.SysMsg(Guild_storage_list_t(
+            "Guild Storage List: {#FF6347}このアイテムの取り置きは送り済みなので入力しませんでした",
+            "Guild Storage List: {#FF6347}The kept amount was already sent, nothing was filled in"))
+        return
+    end
+    local reserve = math.floor(tonumber(Guild_storage_list_rule(item_class_name).reserve) or 0)
+    local frame = ui.GetFrame("guildinven_send")
+    local list_box = frame and GET_CHILD_RECURSIVELY(frame, "listBox")
+    if reserve <= 0 or not list_box then
+        return
+    end
+    local all_check = GET_CHILD_RECURSIVELY(frame, "allMemberCheck")
+    if all_check then
+        all_check:SetCheck(0)
+    end
+    -- 送り先が決めてあれば、その人の行だけにチェックと個数を入れる(大文字小文字の違いは吸収)。
+    -- 決めていない / 送付窓に見つからないときは、全員の行に個数だけ入れてチェックは利用者に任せる
+    local to = string.lower(g.guild_storage_list_settings.reserve_to or "")
+    local to_found = false
+    if to ~= "" then
+        for i = 0, list_box:GetChildCount() - 1 do
+            local child = list_box:GetChildByIndex(i)
+            local name_text = child and string.find(child:GetName(), "ITEMSEND_", 1, true) and GET_CHILD(child, "nameText")
+            if name_text and string.lower(g.guild_storage_list_norm(name_text:GetText())) == to then
+                to_found = true
+            end
+        end
+    end
+    local rows = 0
+    for i = 0, list_box:GetChildCount() - 1 do
+        local child = list_box:GetChildByIndex(i)
+        if child and string.find(child:GetName(), "ITEMSEND_", 1, true) then
+            local name_text = GET_CHILD(child, "nameText")
+            local send_check = GET_CHILD(child, "sendCheck")
+            local count_edit = GET_CHILD_RECURSIVELY(child, "countEdit")
+            if send_check and count_edit then
+                local is_to = to_found and name_text and
+                                  string.lower(g.guild_storage_list_norm(name_text:GetText())) == to
+                send_check:SetCheck(is_to and 1 or 0)
+                count_edit:SetText((not to_found or is_to) and tostring(reserve) or "")
+                rows = rows + 1
+            end
+        end
+    end
+    GUILDINVEN_SEND_UPDATE_COUNT_BOX(frame)
+    d.opened = item_class_name
+    d.opened_mode = "reserve"
+    g.vlog("guild_storage_list: 取り置きを入力 %s %d 個 / %d 行 / 送り先 %s 見つかった=%s (この枠 %d)", item_class_name,
+        reserve, rows, to, tostring(to_found), item_count)
+    local msg
+    if to_found then
+        msg = string.format(Guild_storage_list_t("Guild Storage List: 取り置き %d 個を「%s」に入れました。確かめて送ってください",
+            "Guild Storage List: filled in the kept amount (%d) for \"%s\". Check and send"), reserve,
+            g.guild_storage_list_settings.reserve_to)
+    else
+        msg = string.format(Guild_storage_list_t(
+            "Guild Storage List: 取り置き %d 個を入れました。{#FFD700}送る人に 1 人だけチェックを入れて{/}送ってください",
+            "Guild Storage List: filled in the kept amount (%d). {#FFD700}Tick only one person{/} and send"), reserve)
+        if to ~= "" then
+            msg = msg .. string.format(Guild_storage_list_t(" {#FF6347}送り先「%s」が送付窓に見つかりません",
+                " {#FF6347}Recipient \"%s\" not found in the send window"), g.guild_storage_list_settings.reserve_to)
+        end
+    end
+    if reserve > item_count then
+        msg = msg .. Guild_storage_list_t(" {#FF6347}この枠の個数では足りません", " {#FF6347}Not enough in this slot")
+    end
+    ui.SysMsg(msg)
+end
+
+-- ===== 対象者の窓 =====
+--
+-- 貼った出席データの対象者を、口数の多い順に並べて出す。ギルドに見つからない人は赤字で末尾に。
+-- 週ごとの出席は ●(出席)/ ○(欠席)で、左から出席データの週の順。
+
+function Guild_storage_list_members_open()
+    local c = g.guild_storage_list_const
+    local name = addon_name_lower .. c.frame .. "_members"
+    local frame = ui.GetFrame(name)
+    if not frame then
+        frame = ui.CreateNewFrame("notice_on_pc", name, 0, 0, 0, 0)
+    end
+    AUTO_CAST(frame)
+    g.block_click_through(frame)
+    frame:SetSkinName("test_frame_low")
+    frame:SetTitleBarSkin("None")
+    frame:SetLayerLevel(92)
+    frame:EnableMove(1)
+    local width, height = 380, 560
+    frame:Resize(width, height)
+    -- 一覧の窓の右隣(はみ出すなら左隣)。一覧が無ければ画面の中央
+    local main = ui.GetFrame(addon_name_lower .. c.frame)
+    if main then
+        local map_ui = ui.GetFrame("map")
+        local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+        local x = main:GetX() + main:GetWidth()
+        if x + width > screen_w then
+            x = math.max(0, main:GetX() - width)
+        end
+        frame:SetPos(x, main:GetY())
+    else
+        frame:SetPos(g.settings_frame_pos(width, height))
+    end
+    frame:RemoveAllChild()
+    local title = frame:CreateOrGetControl("richtext", "title", 20, 12, 200, 30)
+    AUTO_CAST(title)
+    title:SetText("{@st66b18}" .. Guild_storage_list_t("配布対象者", "Recipients"))
+    local close = frame:CreateOrGetControl("button", "close", 0, 0, 25, 25)
+    AUTO_CAST(close)
+    close:SetImage("testclose_button")
+    close:SetGravity(ui.RIGHT, ui.TOP)
+    close:SetEventScript(ui.LBUTTONUP, "Guild_storage_list_members_close")
+    local info = frame:CreateOrGetControl("richtext", "info", 20, 45, width - 40, 24)
+    AUTO_CAST(info)
+    local list = frame:CreateOrGetControl("groupbox", "list", 10, 75, width - 20, height - 85)
+    AUTO_CAST(list)
+    list:SetSkinName("bg")
+    list:EnableScrollBar(1)
+    frame:ShowWindow(1)
+    g.esc_register_destroy(name)
+    Guild_storage_list_members_refresh()
+end
+
+function Guild_storage_list_members_close()
+    ui.DestroyFrame(addon_name_lower .. g.guild_storage_list_const.frame .. "_members")
+end
+
+-- 開いていれば中身を描き直す(出席データを貼り直したとき・読み直したとき)
+function Guild_storage_list_members_refresh()
+    local frame = ui.GetFrame(addon_name_lower .. g.guild_storage_list_const.frame .. "_members")
+    if not frame or frame:IsVisible() ~= 1 then
+        return
+    end
+    local info = GET_CHILD_RECURSIVELY(frame, "info")
+    local list = GET_CHILD_RECURSIVELY(frame, "list")
+    if not info or not list then
+        return
+    end
+    list:RemoveAllChild()
+    local link = g.guild_storage_list.link
+    if not link then
+        info:SetText(Guild_storage_list_t("{ol}{#FF6347}出席データがありません", "{ol}{#FF6347}No attendance data"))
+        return
+    end
+    info:SetText(string.format(Guild_storage_list_t("{ol}{s14}%d 人 / %d 口(%s)", "{ol}{s14}%d people / %d units (%s)"),
+        #g.guild_storage_list.matched, Guild_storage_list_unit_count(), table.concat(link.weeks, "・")))
+    -- ギルドで見つかった人の表記(大文字小文字の違いはギルド側へ寄せている)
+    local members = Guild_storage_list_guild_member_names()
+    local found = g.guild_storage_list_match(link.people, members)
+    local rows = {}
+    for i, p in ipairs(link.people) do
+        local hit = g.guild_storage_list_match({p}, members)[1]
+        rows[#rows + 1] = {
+            name = hit and hit.name or p.team,
+            units = p.units,
+            bits = p.bits,
+            found = hit ~= nil,
+            index = i
+        }
+    end
+    table.sort(rows, function(a, b)
+        if a.found ~= b.found then
+            return a.found
+        end
+        if a.units ~= b.units then
+            return a.units > b.units
+        end
+        return a.index < b.index
+    end)
+    local y = 0
+    for i, r in ipairs(rows) do
+        local bits = string.gsub(string.gsub(r.bits, "1", "●"), "0", "○")
+        local line = list:CreateOrGetControl("richtext", "row_" .. i, 10, y + 4, 340, 22)
+        AUTO_CAST(line)
+        if r.found then
+            line:SetText(string.format("{ol}{s15}%s  {#FFD700}%d 口{/}  {#AAAAAA}%s", r.name, r.units, bits))
+        else
+            line:SetText(string.format("{ol}{s15}{#FF6347}%s  %s", r.name,
+                Guild_storage_list_t("(ギルドに見つからない・送られない)", "(not in the guild, not sent)")))
+        end
+        y = y + 26
+    end
+    g.vlog("guild_storage_list: 対象者の窓 %d 行 (見つかった %d 人)", #rows, #found)
 end
 -- Guild Storage List ここまで

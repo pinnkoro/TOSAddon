@@ -291,6 +291,40 @@ local queue = g.guild_storage_list_dist_queue(g.guild_storage_list_ordered(items
     end)
 check("配る ON かつ 1 人 1 個以上だけ、一覧の並びで", names(queue), "D,A")
 
+print("[7] 取り置きを配る順番")
+local reserves = {
+    A = {
+        reserve = 20
+    },
+    B = {
+        reserve = 0
+    },
+    C = {
+        reserve = 25
+    },
+    D = {
+        reserve = "5"
+    }
+}
+-- 在庫は A=30 / B=30(取置 0) / C=20(取置 25 に足りない) / D=20(取置は文字列の "5")
+local stock_items = {{
+    class_name = "A",
+    count = 30
+}, {
+    class_name = "B",
+    count = 30
+}, {
+    class_name = "C",
+    count = 20
+}, {
+    class_name = "D",
+    count = 20
+}}
+check("取置が 1 以上で在庫が足りるものだけ、一覧の並びで",
+    names(g.guild_storage_list_reserve_queue(stock_items, function(class_name)
+        return reserves[class_name]
+    end)), "A,D")
+
 if failures > 0 then
     print(string.format("FAILED: %d", failures))
     os.exit(1)
