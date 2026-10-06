@@ -100,7 +100,7 @@ Enter の処理では次のようにする。
   この Enter で開いてしまっていたら `ui.CloseFrame("chat")` で閉じる。前から開いていたものは触らないこと。
 * どの経路を通ったかを `g.vlog` で 1 行出す。行が取れたか・書き換えたか・チャットが前後で開いていたか。
 
-実装例は [guild_storage_list.lua](../nexus_addons_p/src/addons/guild_storage_list/guild_storage_list.lua) の
+実装例は [guild_storage_list.lua](../guild_storage_list/src/guild_storage_list.lua) の
 `Guild_storage_list_edit_enter` / `Guild_storage_list_update_row` / `Guild_storage_list_after_enter`。
 
 ## 検索欄は 2 つの共通部品のどちらかを使う

@@ -11,6 +11,7 @@ GUI(IPFSuite)を使う方法と、スクリプトで自動生成する方法の 
 | --- | --- | --- | --- |
 | `nexus_addons_p` | `nexus_addons_p/src/**` + `shared/src/**` | `nexus_addons_p/_nexus_addons_p/` | `nexus_addons_p/_nexus_addons_p-⛄-vX.Y.Z.ipf` |
 | `icor_planner` | `icor_planner/src/**` + `shared/src/**` | `icor_planner/_icor_planner/` | `icor_planner/_icor_planner-⛄-vX.Y.Z.ipf` |
+| `guild_storage_list`（`addons.json` に無い = 公開しない） | `guild_storage_list/src/**` + `shared/src/**` | `guild_storage_list/_guild_storage_list/` | 手元で作って直接渡す |
 
 連結の順番と出力先は [nexus_addons_p/src/build_manifest.json](../nexus_addons_p/src/build_manifest.json)
 が 1 本で両方ぶん持っている(`targets` / `outputs` / `roots`)。

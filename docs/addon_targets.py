@@ -42,6 +42,7 @@ ADDONS_JSON = os.path.join(REPO, "addons.json")
 HEADER_LUA = {
     "nexus_addons_p": "nexus_addons_p/src/core/00_header.lua",
     "icor_planner": "icor_planner/src/00_header.lua",
+    "guild_storage_list": "guild_storage_list/src/00_header.lua",
 }
 
 
