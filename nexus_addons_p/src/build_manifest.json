@@ -54,7 +54,6 @@
       "addons/aethergem_manager/aethergem_manager.lua",
       "addons/job_change_helper/job_change_helper.lua",
       "addons/guild_event_warp/guild_event_warp.lua",
-      "addons/guild_storage_list/guild_storage_list.lua",
       "addons/dungeon_rp_charger/dungeon_rp_charger.lua",
       "addons/boss_direction/boss_direction.lua",
       "addons/auto_repair/auto_repair.lua",
@@ -155,18 +154,32 @@
       "icor_planner/window.lua",
       "icor_planner/market.lua",
       "icor_planner/90_init.lua"
+    ],
+    "_guild_storage_list.lua": [
+      "guild_storage_list/00_header.lua",
+      "shared/10_json.lua",
+      "shared/20_vlog.lua",
+      "shared/30_frame.lua",
+      "shared/40_esc.lua",
+      "shared/50_frame_pos.lua",
+      "shared/60_files.lua",
+      "guild_storage_list/guild_storage_list.lua",
+      "guild_storage_list/90_init.lua"
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "e3d1f32c5dd33c1b0d30b25a0f4d7372c40abfb4597324f1cdfaadd2db2e7dcd",
-    "_icor_planner.lua": "102829dbd2e5e0e2efa77c8a1f96a5f256c4df1226f40dbf9822331eefa3cd7e"
+    "_nexus_addons_p.lua": "dbaff0ae8dead791aa357037b479ae0448104b75f21434cd2d4582e81359219d",
+    "_icor_planner.lua": "102829dbd2e5e0e2efa77c8a1f96a5f256c4df1226f40dbf9822331eefa3cd7e",
+    "_guild_storage_list.lua": "165c0710116f4da714f44af2fb0b338387bc89ecf43191b40a9d45b85861832f"
   },
   "outputs": {
     "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p",
-    "_icor_planner.lua": "icor_planner/_icor_planner"
+    "_icor_planner.lua": "icor_planner/_icor_planner",
+    "_guild_storage_list.lua": "guild_storage_list/_guild_storage_list"
   },
   "roots": {
     "shared": "shared/src",
-    "icor_planner": "icor_planner/src"
+    "icor_planner": "icor_planner/src",
+    "guild_storage_list": "guild_storage_list/src"
   }
 }

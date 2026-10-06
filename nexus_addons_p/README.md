@@ -178,7 +178,6 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
 | [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
 | [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
-| [Guild Storage List](src/addons/guild_storage_list/README.md) | ギルド保管庫の中身を文字で一覧にし、出席した週の数に応じた配布数を計算。送付窓に対象者と個数を入れておく |
 | [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
 | [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
 | [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
@@ -283,6 +282,10 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
+
+* **v2.14.0**
+  * **Guild Storage List を外しました。** 特定のギルドの出席管理の Discord Bot と組み合わせて使う、
+    配布担当向けの機能のためです。今後は Nexus Addons P には含めず、一般には配布しません。
 
 * **v2.13.1**
   * Mini Addons: 「ギルド保管箱を1日1回自動で更新」を、**封鎖戦の報酬受け取りに合わせて週 1 回（日曜 19:00 以降）**に変えました。
