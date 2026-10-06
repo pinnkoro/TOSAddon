@@ -19,6 +19,7 @@ ALLOW に理由付きで並べる。ここへ足すときは「利用者が窓�
 Indun_panel_setup_frame と Indun_panel_setting_frame_open の両方が indun_panel という
 変数を持つので、前者の塞ぎを消しても後者のおかげで素通りしていた）。
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -26,13 +27,17 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent.parent / "nexus_addons_p" / "src"
 # 共通部品(複数のアドオンの .ipf へ同じソースを入れる)
 SHARED = Path(__file__).resolve().parent.parent / "shared" / "src"
-# 単体アドオン(Icor Planner)の src。build_manifest.json の roots と同じ
-ICOR = Path(__file__).resolve().parent.parent / "icor_planner" / "src"
+# 単体アドオン(Icor Planner / Guild Storage List)の src。build_manifest.json の roots から引く
+# (足すたびにここを書き換えなくて済むように)
+_REPO = Path(__file__).resolve().parent.parent
+EXTRA = [(_REPO / v, k + "/") for k, v in sorted(
+    (json.loads((SRC / "build_manifest.json").read_text(encoding="utf-8")).get("roots") or {}).items())
+         if k != "shared"]
 
 
 def src_rel(path):
     """走査したファイルの表示用の相対パス(build_manifest.json の part 表記と同じ)。"""
-    for root, prefix in ((SRC, ""), (SHARED, "shared/"), (ICOR, "icor_planner/")):
+    for root, prefix in [(SRC, ""), (SHARED, "shared/")] + EXTRA:
         try:
             return prefix + path.relative_to(root).as_posix()
         except ValueError:
@@ -138,7 +143,8 @@ def main() -> int:
     seen_allow = set()
     seen_delegate = set()
 
-    for path in sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")) + list(ICOR.rglob("*.lua")),
+    for path in sorted(list(SRC.rglob("*.lua")) + list(SHARED.rglob("*.lua")) +
+                      [p for root, _ in EXTRA for p in root.rglob("*.lua")],
                        key=lambda p: p.as_posix()):
         rel = src_rel(path)
         lines = strip_comments(path.read_text(encoding="utf-8")).split("\n")

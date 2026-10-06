@@ -64,7 +64,8 @@ Tree of Savior 用アドオンの配布リポジトリ。
 | --- | --- |
 | [nexus_addons_p/](nexus_addons_p/) | Nexus Addons P 本体（ソース・配布 `.ipf`）。説明は [README](nexus_addons_p/README.md) |
 | [icor_planner/](icor_planner/) | Icor Planner 本体（ソース・配布 `.ipf`）。説明は [README](icor_planner/README.md) |
-| [shared/](shared/) | 両方のアドオンで使う共通部品（ビルド時に各 `.ipf` へ連結される） |
+| [guild_storage_list/](guild_storage_list/) | Guild Storage List 本体（ソース・配布 `.ipf`）。説明は [README](guild_storage_list/README.md) |
+| [shared/](shared/) | 複数のアドオンで使う共通部品（ビルド時に各 `.ipf` へ連結される） |
 | [addons.json](addons.json) | アドオンマネージャー向けのメタデータ（配布バージョンはここが正） |
 | [docs/](docs/) | ビルドスクリプトと開発ドキュメント |
 | [.github/workflows/](.github/workflows/) | CI とリリース公開の自動化 |

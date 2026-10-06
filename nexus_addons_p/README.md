@@ -178,7 +178,6 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Auto Repair](src/addons/auto_repair/README.md) | 耐久が減ると緊急修理キットで自動修理。女神の証商店から自動補充 |
 | [Bulk Sales](src/addons/bulk_sales/README.md) | 雑貨屋で同じアイテムをまとめて一括売却 |
 | [Characters Item Serch](src/addons/characters_item_serch/README.md) | 全キャラのインベントリ・装備・倉庫を横断してアイテムを検索 |
-| [Guild Storage List](src/addons/guild_storage_list/README.md) | ギルド保管庫の中身を文字で一覧にし、出席した週の数に応じた配布数を計算。送付窓に対象者と個数を入れておく |
 | [Market Favorite Rebuild](src/addons/market_favorite_rebuild/README.md) | マーケットのお気に入り登録と検索条件の保存を追加し、オプション表示を見やすく |
 | [Market Voucher](src/addons/market_voucher/README.md) | マーケットの売買履歴を記録して「売上伝票」として表示 |
 | [Pick Item Tracker](src/addons/pick_item_tracker/README.md) | そのマップで拾ったアイテムと滞在時間を表示 |
@@ -285,10 +284,10 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
-  * Guild Storage List: **「取り置きを配布する」を足しました**。「取置」に入れた数を、窓の下の「送り先」に決めておいた 1 人へ送ります。
-    「アイテムを送る」窓を順に開き、送り先の人にだけチェックと取り置きの数が入った状態にするので、送るボタンを押すだけです
-    （送り先が空なら、個数だけ入れてチェックは自分で選びます）。
-  * Guild Storage List: **「対象者を見る」を足しました**。貼った出席データの配布対象者を、口数と週ごとの出席つきで別の窓に出します。
+  * **Guild Storage List を Nexus Addons P から外し、単体のアドオンにしました。**
+    封鎖戦の出席管理の Discord Bot と組み合わせて使う、ギルドの配布担当向けの機能のためです。
+    使っていた人は [Guild Storage List](../guild_storage_list/README.md) を別に入れてください。
+    設定と最後に貼った出席データは、単体版の初回起動時に自動で引き継がれます。
 
 * **v2.13.1**
   * Mini Addons: 「ギルド保管箱を1日1回自動で更新」を、**封鎖戦の報酬受け取りに合わせて週 1 回（日曜 19:00 以降）**に変えました。

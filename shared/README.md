@@ -1,12 +1,13 @@
 # shared — 複数のアドオンで使う共通部品
 
 `shared/src/**` は **1 つのソースを、複数のアドオンの `.ipf` へ入れるための置き場**です。
-今は次の 2 つが取り込んでいます。
+今は次の 3 つが取り込んでいます。
 
 | アドオン | 取り込み方 |
 | --- | --- |
 | [Nexus Addons P](../nexus_addons_p/) | `nexus_addons_p/src/build_manifest.json` の `targets` |
 | Icor Planner | 同じ manifest の 2 つ目の `targets` |
+| Guild Storage List | 同じ manifest の 3 つ目の `targets` |
 
 ## なぜビルド時に配るのか
 

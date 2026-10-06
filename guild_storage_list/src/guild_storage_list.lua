@@ -1,4 +1,4 @@
--- Guild Storage List ここから
+-- Guild Storage List 本体
 --
 -- ギルド保管庫(ギルド情報の「保管箱」タブ。素は 66px のアイコンを並べるだけ)の中身を
 -- 文字の一覧にし、配布対象者の口数で割った 1 口あたりの個数を出す。
@@ -26,10 +26,11 @@
 -- 通している。ReqGuildInventorySend を直接呼ぶとこの門番を全部外すことになるので呼ばない。
 --
 -- ファイルの置き場所:
---   ../addons/_nexus_addons_p/<AID>/guild_storage_list.json  … アイテムごとの配布ルール・並び
---   ../addons/_nexus_addons_p/guild_storage_list/link.txt    … 最後に貼った連携文字列
---   ../addons/_nexus_addons_p/guild_storage_list/record.txt  … 最後に作った配布記録
---   ../addons/_nexus_addons_p/guild_storage_list/stock.tsv   … 在庫(シートの K:L 列へ貼れる形)
+--   ../addons/_guild_storage_list/<AID>/guild_storage_list.json  … アイテムごとの配布ルール・並び
+--   ../addons/_guild_storage_list/link.txt    … 最後に貼った連携文字列
+--   ../addons/_guild_storage_list/record.txt  … 最後に作った配布記録
+--   ../addons/_guild_storage_list/stock.tsv   … 在庫(シートの K:L 列へ貼れる形)
+-- (Nexus Addons P v2.13.x に同梱していた頃は ../addons/_nexus_addons_p/ の下。初回に 90_init.lua が引き継ぐ)
 --
 -- **local は増やさない。** このファイルはメインチャンク直下へ連結されるので、ファイル単位の
 -- local が 1 関数 200 個の枠を食う(超えるとバンドル全体が読めなくなる)。定数も g の下に置く。
@@ -87,7 +88,7 @@ function Guild_storage_list_t(ja, en)
 end
 
 function Guild_storage_list_io_dir()
-    return string.format("../addons/%s/guild_storage_list", addon_name_lower)
+    return string.format("../addons/%s", addon_name_lower)
 end
 
 -- ===== 純ロジック(docs/tests/test_guild_storage_list.lua が検査する) =====
@@ -787,6 +788,15 @@ function Guild_storage_list_open()
 
     -- 対象者の一覧(別窓)と、取り置きを 1 人に送る
     local tools_y = record_y + 42
+    -- 詳細ログ。単体版は設定画面を持たないので、ここで切り替える(不具合を追うときに使う)
+    local verbose = frame:CreateOrGetControl("checkbox", "verbose_log", 15, tools_y + 4, 90, 25)
+    AUTO_CAST(verbose)
+    verbose:SetText(Guild_storage_list_t("{ol}詳細ログ", "{ol}Log"))
+    verbose:SetCheck(g.settings.verbose_log)
+    verbose:SetTextTooltip(Guild_storage_list_t(
+        "{ol}動作の記録を ../addons/_guild_storage_list/verbose_log.txt に出します{nl}不具合を報告するときに ON にしてください",
+        "{ol}Writes a log to ../addons/_guild_storage_list/verbose_log.txt"))
+    verbose:SetEventScript(ui.LBUTTONUP, "Guild_storage_list_toggle_verbose")
     local members = frame:CreateOrGetControl("button", "members", 110, tools_y, 170, 32)
     AUTO_CAST(members)
     members:SetSkinName("test_pvp_btn")
@@ -969,6 +979,12 @@ function Guild_storage_list_commit_reserve_to()
         Guild_storage_list_save_settings()
         g.vlog("guild_storage_list: 取り置きの送り先 = %s", to)
     end
+end
+
+function Guild_storage_list_toggle_verbose(parent, ctrl)
+    g.settings.verbose_log = ctrl:IsChecked() == 1 and 1 or 0
+    g.save_core_settings()
+    g.vlog("guild_storage_list: 詳細ログを ON にした v%s", tostring(g.ver))
 end
 
 function Guild_storage_list_close()

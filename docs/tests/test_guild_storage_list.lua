@@ -6,9 +6,9 @@
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_guild_storage_list.lua
 
-local PARTS = {"nexus_addons_p/src/core/00_header.lua", "shared/src/10_json.lua", "shared/src/20_vlog.lua",
+local PARTS = {"guild_storage_list/src/00_header.lua", "shared/src/10_json.lua", "shared/src/20_vlog.lua",
                "shared/src/30_frame.lua", "shared/src/40_esc.lua", "shared/src/50_frame_pos.lua",
-               "shared/src/60_files.lua", "nexus_addons_p/src/addons/guild_storage_list/guild_storage_list.lua"}
+               "shared/src/60_files.lua", "guild_storage_list/src/guild_storage_list.lua"}
 
 package.preload["json"] = function()
     return {
@@ -51,7 +51,7 @@ for _, rel in ipairs(PARTS) do
 end
 assert(load(table.concat(chunks, "\n"), "=core"))()
 
-local g = _G["ADDONS"]["norisan"]["_NEXUS_ADDONS_P"]
+local g = _G["ADDONS"]["pinnkoro"]["_GUILD_STORAGE_LIST"]
 
 local failures = 0
 local function check(label, got, want)

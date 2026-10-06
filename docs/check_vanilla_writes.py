@@ -75,12 +75,16 @@ MANIFEST = SRC / "build_manifest.json"
 SHARED = ROOT / "shared" / "src"
 
 
-ICOR = ROOT / "icor_planner" / "src"
+# 単体アドオン(Icor Planner / Guild Storage List)の src。build_manifest.json の roots から引く
+# (足すたびにここを書き換えなくて済むように)
+def extra_roots():
+    roots = json.loads(MANIFEST.read_text(encoding="utf-8")).get("roots") or {}
+    return [(k + "/", ROOT / v) for k, v in sorted(roots.items()) if k != "shared"]
 
 
 def part_path(rel):
     """manifest の part 表記を実ファイルのパスにする(bundle_from_src.py と同じ規則)。"""
-    for prefix, root in (("shared/", SHARED), ("icor_planner/", ICOR)):
+    for prefix, root in [("shared/", SHARED)] + extra_roots():
         if rel.startswith(prefix):
             return root / rel[len(prefix):]
     return SRC / rel
