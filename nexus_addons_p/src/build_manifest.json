@@ -170,7 +170,7 @@
   "sha256": {
     "_nexus_addons_p.lua": "536f944eabd0b9c616e43337f6799d977d8e0e2e041cb6d4196263ef52a581f5",
     "_icor_planner.lua": "102829dbd2e5e0e2efa77c8a1f96a5f256c4df1226f40dbf9822331eefa3cd7e",
-    "_guild_storage_list.lua": "c4c8fd7e3a91354c1ab139dda742689953ac3ece9ba6ab63ed0d3a7c9f339dec"
+    "_guild_storage_list.lua": "165c0710116f4da714f44af2fb0b338387bc89ecf43191b40a9d45b85861832f"
   },
   "outputs": {
     "_nexus_addons_p.lua": "nexus_addons_p/_nexus_addons_p",

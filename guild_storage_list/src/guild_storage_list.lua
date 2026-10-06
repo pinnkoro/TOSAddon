@@ -1946,7 +1946,12 @@ function Guild_storage_list_members_refresh()
     local y = 0
     for i, r in ipairs(rows) do
         -- 出席は緑の ●、欠席は暗い ○。同じ灰色にすると、縁取り({ol})のせいで ● も ○ に見える(実機で確認)
-        local bits = string.gsub(string.gsub(r.bits, "1", "{#7CFC00}●{/}"), "0", "{#777777}○{/}")
+        -- **1 回の走査で置き換える。** 2 回に分けると、先に入れた色の指定(7CFC00)の中の 0 まで
+        -- 次の置き換えに拾われてタグが壊れる(PR #228 のレビュー指摘)
+        local bits = string.gsub(r.bits, "[01]", {
+            ["1"] = "{#7CFC00}●{/}",
+            ["0"] = "{#777777}○{/}"
+        })
         local line = list:CreateOrGetControl("richtext", "row_" .. i, 10, y + 4, 340, 22)
         AUTO_CAST(line)
         if r.found then
