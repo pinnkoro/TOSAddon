@@ -284,10 +284,8 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
-  * **Guild Storage List を Nexus Addons P から外し、単体のアドオンにしました。**
-    封鎖戦の出席管理の Discord Bot と組み合わせて使う、ギルドの配布担当向けの機能のためです。
-    使っていた人は [Guild Storage List](../guild_storage_list/README.md) を別に入れてください。
-    設定と最後に貼った出席データは、単体版の初回起動時に自動で引き継がれます。
+  * **Guild Storage List を外しました。** 特定のギルドの出席管理の Discord Bot と組み合わせて使う、
+    配布担当向けの機能のためです。今後は Nexus Addons P には含めず、一般には配布しません。
 
 * **v2.13.1**
   * Mini Addons: 「ギルド保管箱を1日1回自動で更新」を、**封鎖戦の報酬受け取りに合わせて週 1 回（日曜 19:00 以降）**に変えました。

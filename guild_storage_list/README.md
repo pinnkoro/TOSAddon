@@ -24,8 +24,14 @@ Bot ──> スプレッドシート「配布履歴」に 1 行足し、告知�
 
 ## 導入方法
 
-1. [Releases](https://github.com/pinnkoro/TOSAddon/releases) から `guild_storage_list-vX.Y.Z.ipf` を取得します
-2. ファイル名を **`_guild_storage_list-⛄-vX.Y.Z.ipf`**（⛄ = U+26C4）にして、ゲームの `data` フォルダへ置きます
+> **このアドオンは一般には配布していません**（Release もアドオンマネージャーの一覧もありません）。
+> vc_attendance の Bot と組み合わせて使う、ギルドの配布担当向けのものです。
+> `addons.json` に登録していないので、リリースの仕組み（`docs/plan_release.py`）の対象にもなりません。
+> **配布するつもりがない限り `addons.json` へ足さないこと。**
+
+1. 開発者から `_guild_storage_list-⛄-vX.Y.Z.ipf` を受け取ります（作り方は [docs/BUILD_IPF.md](../docs/BUILD_IPF.md)。
+   `python docs/build_addon_ipf.py ./guild_storage_list _guild_storage_list "<出力先>" --require _guild_storage_list/_guild_storage_list.lua --encrypt`）
+2. ファイル名は **`_guild_storage_list-⛄-vX.Y.Z.ipf`**（⛄ = U+26C4）のまま、ゲームの `data` フォルダへ置きます
 3. ゲームを起動し、ギルド情報の「保管箱」タブを開くと「文字で一覧」ボタンが出ます
 
 **Nexus Addons P とは別のアドオンです。** 両方入れても問題ありません
