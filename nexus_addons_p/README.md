@@ -283,7 +283,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v2.14.0**
   * **Guild Storage List を外しました。** 特定のギルドの出席管理の Discord Bot と組み合わせて使う、
     配布担当向けの機能のためです。今後は Nexus Addons P には含めず、一般には配布しません。
 
