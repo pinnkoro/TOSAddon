@@ -1381,39 +1381,93 @@ function Icor_planner_draw_recommend(list, y, diag, scan)
 end
 
 -- 「今の装備から変えるなら」。今のイコルを残したまま、どの部位のどの枠を何に変えれば目標に届くか
--- (Icor_planner_plan_keep)。部位ごとに 1 行で並べる。戻り値は次に描き始める y
+-- (Icor_planner_plan_keep)。**武器から変える形と防具から変える形を並べる**(良い方が上)。
+-- 両方に載せる目標が無く 2 つが同じ変え方になるときは 1 つだけ出す。戻り値は次に描き始める y
 function Icor_planner_draw_keep_plan(list, y, diag, scan)
+    local avgs = Icor_planner_plan_keep_both(diag, scan, "avg")
+    local lows = Icor_planner_plan_keep_both(diag, scan, "min")
+    local low_of = {}
+    for _, p in ipairs(lows) do
+        low_of[p.prefer] = p
+    end
+    local same = Icor_planner_same_moves(avgs[1], avgs[2])
+    g.vlog("icor_planner: 今の装備から変えるなら 先 %s(%d 枠) / 後 %s(%d 枠) 同じ変え方 %s", tostring(avgs[1].prefer),
+        avgs[1].updates, tostring(avgs[2].prefer), avgs[2].updates, tostring(same))
+    for k, avg in ipairs(avgs) do
+        if k == 2 and same then
+            break
+        end
+        y = Icor_planner_draw_keep_pattern(list, y, scan, avg, low_of[avg.prefer], not same, "keep" .. k)
+    end
+    return y
+end
+
+function Icor_planner_draw_keep_pattern(list, y, scan, avg, low, show_prefer, key)
     local jp = g.lang == "Japanese"
-    local avg = Icor_planner_plan_keep(diag, scan, "avg")
-    local low = Icor_planner_plan_keep(diag, scan, "min")
     y = y + 10
-    local title = list:CreateOrGetControl("richtext", "keep_title", 10, y, 0, 0)
+    local pattern = ""
+    if show_prefer then
+        pattern = jp and string.format("{#FFFFFF}(%sから変える)", Icor_planner_spot_label(avg.prefer)) or
+                      string.format("{#FFFFFF}(%s first)", Icor_planner_spot_label(avg.prefer))
+    end
+    -- **見出しは折り返す。** 「(防具から変える)」が付いた分だけ 1 行に収まらず、
+    -- 右端の数がスクロールバーの下に潜った(実機で指摘された)
+    local head = jp and ("{s16}{#FFD700}今の装備から変えるなら" .. pattern) or ("{s16}{#FFD700}From your current icor" .. pattern)
+    local parts = jp and {"{#AAAAAA}平均値で計算",
+                          string.format("{#FFFFFF}あとオプション {#FFD700}%d{#FFFFFF} 個", avg.updates),
+                          string.format("{#AAAAAA}最低値なら {#FFFFFF}%d{#AAAAAA} 個", low.updates)} or
+                      {string.format("{#AAAAAA}(avg) %d", avg.updates), string.format("{#AAAAAA}(min) %d", low.updates)}
+    y = Icor_planner_flow(list, key .. "_title", 10, y + 2, list:GetWidth() - 50, head, parts, "{ol}{s14}", 24) - 24
+    local title = GET_CHILD(list, key .. "_title_head")
     AUTO_CAST(title)
-    title:SetText(jp and
-                      string.format(
-            "{ol}{s16}{#FFD700}今の装備から変えるなら{#AAAAAA}{s14}  平均値で計算  {#FFFFFF}あとオプション {#FFD700}%d{#FFFFFF} 個{#AAAAAA}  /  最低値なら {#FFFFFF}%d{#AAAAAA} 個",
-            avg.updates, low.updates) or
-                      string.format("{ol}{s16}{#FFD700}From your current icor{#AAAAAA}  (avg) %d / (min) %d", avg.updates,
-            low.updates))
     title:SetTextTooltip(jp and
-                             "{ol}今のイコルを残したまま、目標に届くまでにどの枠を変えればよいかです{nl}変えるのは 空いている枠 / 目標に無いオプションの枠 / 目標にあるが値の低い枠 だけです{nl}部位は 1 か所ずつ数えます(持ち替え側も別のイコル){nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値" or
+                             "{ol}今のイコルを残したまま、目標に届くまでにどの枠を変えればよいかです{nl}変えるのは 空いている枠 / 目標に無いオプションの枠 / 目標にあるが値の低い枠 /{nl}外しても目標値を下回らない枠(余裕は枠どうしで分け合います) だけです{nl}「全ての〜」と個別の項目(霊攻撃・植物攻撃など)は別のオプションとして扱います{nl}目標のオプションが少ないイコルから先に変えます{nl}武器と防具のどちらにも載せられる目標は、見出しの部位から先に置きます(良い方が上){nl}部位は 1 か所ずつ数えます(持ち替え側も別のイコル){nl}平均 = 一番上の段の (最小 + 最大) / 2、最低値 = 一番上の段の最小値" or
                              "{ol}Which slots to change while keeping your current icor")
     y = y + 26
     if #avg.moves == 0 and #avg.unmet == 0 and next(avg.slot_unmet) == nil then
-        local ok = list:CreateOrGetControl("richtext", "keep_ok", 20, y, 0, 0)
+        local ok = list:CreateOrGetControl("richtext", key .. "_ok", 20, y, 0, 0)
         AUTO_CAST(ok)
         ok:SetText(jp and "{ol}{s15}{#98FB98}今の装備のままで目標に届いています" or "{ol}{s15}{#98FB98}All targets met")
         return y + 24
     end
-    local groups, order = {}, {}
+    -- **見出しの部位を先に並べ、その部位では足りずにもう片方へ回した分は小見出しの下に分けて出す。**
+    -- 部位の並び順のままだと、「防具から変える」の先頭に武器が出て、取り違えに見えた(実機で指摘された)
+    -- (武器だけ / 防具だけに載る目標は、見出しと違う部位でも回した分ではないので上に並べる)
+    local groups, first, spilled = {}, {}, {}
     for _, m in ipairs(avg.moves) do
         if groups[m.index] == nil then
             groups[m.index] = {}
-            order[#order + 1] = m.index
+            first[#first + 1] = m.index
         end
         table.insert(groups[m.index], m)
+        if show_prefer and m.fallback then
+            spilled[m.index] = true
+        end
     end
-    for _, index in ipairs(order) do
+    local order, spill = {}, {}
+    for _, index in ipairs(first) do
+        if spilled[index] then
+            spill[#spill + 1] = index
+        else
+            order[#order + 1] = index
+        end
+    end
+    local spill_at = #order + 1
+    for _, index in ipairs(spill) do
+        order[#order + 1] = index
+    end
+    for n, index in ipairs(order) do
+        if n == spill_at then
+            local other = avg.prefer == "Weapon" and "Armor" or "Weapon"
+            local sub = list:CreateOrGetControl("richtext", key .. "_spill", 20, y, 0, 0)
+            AUTO_CAST(sub)
+            sub:SetText(jp and
+                            string.format("{ol}{s14}{#AAAAAA}%sの変えられる枠では足りない分を、%sで補う:",
+                    Icor_planner_spot_label(avg.prefer), Icor_planner_spot_label(other)) or
+                            string.format("{ol}{s14}{#AAAAAA}Not enough %s slots; the rest goes to %s:",
+                    Icor_planner_spot_label(avg.prefer), Icor_planner_spot_label(other)))
+            y = y + 22
+        end
         local entry = scan.slots[index]
         local label = (jp and g.icor_planner_exclude_labels[entry.slot_name]) or ClMsg(entry.clmsg)
         local parts = {}
@@ -1431,11 +1485,11 @@ function Icor_planner_draw_keep_plan(list, y, diag, scan)
                 parts[#parts + 1] = string.format("{#888888}%s → %s", jp and "空き" or "empty", to)
             end
         end
-        y = Icor_planner_flow(list, "keep_" .. index, 20, y, list:GetWidth() - 50, "{#FFFFFF}" .. label .. " :", parts,
-            "{ol}{s15}", 24)
+        y = Icor_planner_flow(list, key .. "_" .. index, 20, y, list:GetWidth() - 50, "{#FFFFFF}" .. label .. " :",
+            parts, "{ol}{s15}", 24)
     end
     -- 変えられる枠を使い切っても届かない項目
-    local parts = {}
+    parts = {}
     for _, u in ipairs(avg.unmet) do
         parts[#parts + 1] = string.format("{#FF6347}%s あと %s", Icor_planner_option_short(u.opt),
             GET_COMMAED_STRING(math.ceil(u.short)))
@@ -1444,7 +1498,7 @@ function Icor_planner_draw_keep_plan(list, y, diag, scan)
         parts[#parts + 1] = string.format("{#FF6347}%s あと %d か所", Icor_planner_option_short(opt), left)
     end
     if #parts > 0 then
-        y = Icor_planner_flow(list, "keep_unmet", 20, y, list:GetWidth() - 50, "{#FF6347}" ..
+        y = Icor_planner_flow(list, key .. "_unmet", 20, y, list:GetWidth() - 50, "{#FF6347}" ..
             (jp and "変えられる枠では届かない:" or "Not reachable:"), parts, "{ol}{s14}", 22)
     end
     return y
