@@ -478,6 +478,8 @@ end
 function Guild_storage_list_GUILDINVEN_SEND_CLICK(parent, ctrl)
     local origin = g.FUNCS["GUILDINVEN_SEND_CLICK"]
     local results
+    g.vlog("guild_storage_list: 送るボタン (事前入力 %s / %s)", tostring(g.guild_storage_list.dist.opened),
+        tostring(g.guild_storage_list.dist.opened_mode))
     if origin then
         results = {origin(parent, ctrl)}
     else
@@ -1647,6 +1649,8 @@ function Guild_storage_list_dist_open_current()
         end
         local slot, slotset = Guild_storage_list_find_slot(class_name)
         if slot then
+            -- 送付窓のフックが外れていると、入力も「送ったら次へ」も効かない。開く前に確かめる
+            g.check_hooks()
             g.vlog("guild_storage_list: 配布 %d/%d %s の送付窓を開く", d.index, #d.queue, class_name)
             -- 枠を押したときと同じ素の経路(ギルド長でなければ権限を確かめてから開く)
             GUILDINFO_INVEN_ITEM_CLICK(slotset, slot)
@@ -1664,6 +1668,7 @@ function Guild_storage_list_dist_after_send()
     local frame = ui.GetFrame("guildinven_send")
     if frame and frame:IsVisible() == 1 then
         -- 素の確認(残数が足りない・コロニー報酬)で止まった。送っていない
+        g.vlog("guild_storage_list: 送付窓が開いたままなので、送っていないと見なす")
         return
     end
     local d = g.guild_storage_list.dist
@@ -1672,6 +1677,7 @@ function Guild_storage_list_dist_after_send()
     d.opened = nil
     d.opened_mode = nil
     if not sent_class then
+        g.vlog("guild_storage_list: 事前入力していない送付窓だったので、配布の控えには付けない")
         return
     end
     if sent_mode == "reserve" then
@@ -1686,6 +1692,7 @@ function Guild_storage_list_dist_after_send()
     g.vlog("guild_storage_list: 送った %s (%s / 配布中=%s %s %d/%d)", sent_class, tostring(sent_mode), tostring(d.active),
         tostring(d.mode), d.index, #d.queue)
     if not d.active or d.mode ~= (sent_mode or "units") or d.queue[d.index] ~= sent_class then
+        g.vlog("guild_storage_list: 配布中の今のアイテム(%s)ではないので次へ進まない", tostring(d.queue[d.index]))
         return
     end
     d.index = d.index + 1
