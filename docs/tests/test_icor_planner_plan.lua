@@ -1,10 +1,12 @@
 -- Icor Planner の「あとオプション N 個」の数え方を luajit 上で検査する（ゲーム不要）。
 --
--- 見るのは実機で指摘された 2 件。**どちらも画面に数が出るだけで、間違っていても気付きにくい。**
+-- 見るのは実機で指摘された 3 件。**どちらも画面に数が出るだけで、間違っていても気付きにくい。**
 --   * 更新するイコルを選んでいないとき、今の装備を残したまま足りない分だけを数えること
 --     （以前は理想の形との差を数えていて、レザー相殺だけ 1,104 足りないのに 7 個と出た）
 --   * 試算で「更新するイコル」を差し替えても、数え方が入れ替わらないこと
 --     （手袋を差し替えたら 1 → 7 と、別の物差しの数を比べていた）
+--   * 変えるイコルは、目標のオプションが少ないものから選ぶこと。武器から / 防具から の 2 つの形を出すこと
+--     （以前は部位の並び順に埋めていて、目標の揃ったイコルへ先に手を入れることがあった）
 --
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_icor_planner_plan.lua
@@ -183,19 +185,72 @@ do
     check("あとオプション", plan.updates, 0)
 end
 
-print("[3] 同じだけ埋まるなら、枠を使わず値を上げる方を採る")
+print("[3] 目標の揃ったイコルの値を上げるより、目標の少ないイコルを変える")
 do
-    -- レザー相殺が 300 足りない。靴のレザー 2,932 は見込み(2,600)より高いので上げられない。
-    -- 見込みを 3,400 にすると、靴の値上げ(+468)と空き枠(+3,400)はどちらも 300 を埋める
+    -- レザー相殺が 300 足りない。靴のレザー 2,932 は見込み(3,400)へ上げれば埋まり、
+    -- 手袋の外せる枠(命中 / ブロック)に置いても埋まる。**目標の一番少ない手袋**を変える
+    -- (靴は目標を 4 つ持つので、手を入れると作り直しになる)
     AVG.Armor.ADD_LEATHER = 3400
+    -- 上着・ズボン・靴は目標を 4 つ、手袋は 2 つ(力 / 体力)持つ
     local diag = diag_of({{
         opt = "ADD_LEATHER",
         spot = "Armor",
         target = 8400,
         cur = 8100,
         short = 300
+    }, {
+        opt = "MiddleSize_Def",
+        spot = "Armor",
+        target = 8400,
+        cur = 9551,
+        short = 0
+    }, {
+        opt = "CRTHR",
+        spot = "both",
+        target = 24000,
+        cur = 27663,
+        short = 0
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 316,
+        cur = 6372,
+        short = 0
+    }, {
+        opt = "CON",
+        spot = "both",
+        target = 316,
+        cur = 3000,
+        short = 0
     }})
     local plan = Icor_planner_plan(diag, armor_scan(), "avg")
+    check("あとオプション", plan.updates, 1)
+    check("手袋を変える", plan.moves[1] and plan.moves[1].slot_name, "GLOVES")
+    check("外せる枠を使う", plan.moves[1] and plan.moves[1].from ~= nil, true)
+    AVG.Armor.ADD_LEATHER = 2600
+end
+
+print("[3b] 目標の数が同じイコルどうしなら、枠を使わず値を上げる方を採る")
+do
+    AVG.Armor.ADD_LEATHER = 3400
+    local scan = {
+        slots = {slot("SHIRT", "Armor", {op("STR", 500), op("ADD_HR", 1000), op("BLK", 1000), op("DEX", 300)}),
+                 slot("BOOTS", "Armor", {op("ADD_LEATHER", 2932), op("ADD_HR", 1000), op("BLK", 1000), op("DEX", 300)})}
+    }
+    local diag = diag_of({{
+        opt = "ADD_LEATHER",
+        spot = "Armor",
+        target = 8400,
+        cur = 8100,
+        short = 300
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }})
+    local plan = Icor_planner_plan(diag, scan, "avg")
     check("あとオプション", plan.updates, 1)
     check("靴のレザーの値を上げる", plan.moves[1] and plan.moves[1].slot_name, "BOOTS")
     check("元の値を持つ(値上げ)", plan.moves[1] and plan.moves[1].old, 2932)
@@ -319,10 +374,9 @@ do
     check("足りない分は届かないと出る", plan2.unmet[1] and plan2.unmet[1].opt, "ADD_LEATHER")
 end
 
-print("[6b] 「全ての〜」でつながるオプションは外さない")
+print("[6b] 「全ての〜」と個別の項目は別のオプションとして扱う")
 do
-    -- 目標は 全ての防具の材質(今の値はクロース / レザー… の一番低い値)。
-    -- 手袋のクロース対象攻撃力は目標に無いが、クロースの値を支えているので外してはいけない
+    -- 目標は 全ての防具の材質。手袋のクロース対象攻撃力は目標に無いので外してよい(利用者の判断で別物)
     local function scan_with(gloves)
         return {
             slots = {slot("GLOVES", "Armor", gloves)}
@@ -338,28 +392,225 @@ do
     local plan = Icor_planner_plan(need, scan_with({op("ADD_CLOTH", 300), op("ADD_HR", 900), op("CON", 500),
                                                     op("BLK", 1200)}), "avg")
     check("あとオプション", plan.updates, 1)
-    check("値の小さいクロース(300)ではなく、目標に関係ない枠を外す", plan.moves[1] and plan.moves[1].from and plan.moves[1].from.opt,
-        "CON")
-    -- 逆向き: 目標がクロース、枠が 全ての防具の材質
-    local need2 = diag_of({{
-        opt = "ADD_CLOTH",
-        spot = "Armor",
-        target = 99999,
-        cur = 0,
-        short = 99999
+    check("クロース(300)は全ての防具の材質を支えない扱いで外す", plan.moves[1] and plan.moves[1].from and
+        plan.moves[1].from.opt, "ADD_CLOTH")
+end
+
+print("[9] 武器から変える形と防具から変える形を出す。目標の少ないイコルから変える")
+do
+    -- クリ発が 1,000 足りない(両方に載る)。武器も防具も外せる枠を持つ。
+    -- 防具は上着(目標 3 つ)より手袋(目標 0)が後ろに並ぶが、手袋を先に変える
+    local scan = {
+        slots = {slot("RH", "Weapon", {op("STR", 600), op("CON", 600), op("ADD_HR", 900), op("BLK", 900)}),
+                 slot("LH", "Weapon", {op("ADD_HR", 900), op("BLK", 900), op("DEX", 300), op("INT", 300)}),
+                 slot("SHIRT", "Armor", {op("STR", 500), op("CON", 500), op("CRTHR", 1300), op("BLK", 800)}),
+                 slot("GLOVES", "Armor", {op("ADD_HR", 1282), op("BLK", 1269), op("DEX", 300), op("INT", 300)})}
+    }
+    local diag = diag_of({{
+        opt = "CRTHR",
+        spot = "both",
+        target = 24000,
+        cur = 23000,
+        short = 1000
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }, {
+        opt = "CON",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
     }})
-    AVG.Armor.ADD_CLOTH = 2000
-    local plan2 = Icor_planner_plan(need2, scan_with({op("AllMaterialType_Atk", 2800), op("ADD_LEATHER", 100),
-                                                      op("STR", 500), op("CON", 500)}), "avg")
+    local plans = Icor_planner_plan_keep_both(diag, scan, "avg")
+    local by = {}
+    for _, p in ipairs(plans) do
+        by[p.prefer] = p
+    end
+    check("2 つの形を出す", by.Weapon ~= nil and by.Armor ~= nil, true)
+    check("武器から: 目標の無い左手を変える", by.Weapon.moves[1] and by.Weapon.moves[1].slot_name, "LH")
+    check("防具から: 目標の無い手袋を変える", by.Armor.moves[1] and by.Armor.moves[1].slot_name, "GLOVES")
+    check("どちらも 1 個", by.Weapon.updates + by.Armor.updates, 2)
+    check("変え方は別", Icor_planner_same_moves(by.Weapon, by.Armor), false)
+    -- 部位を問わない形でも、目標の少ないイコルから
+    local any = Icor_planner_plan_keep(diag, scan, "avg", nil)
+    local first = any.moves[1] and any.moves[1].slot_name
+    check("部位を問わなければ目標 0 のイコル", first == "LH" or first == "GLOVES", true)
+    -- 防具だけに載る目標は、武器から変える形でも防具に置く
+    local armor_only = diag_of({{
+        opt = "ADD_LEATHER",
+        spot = "Armor",
+        target = 8400,
+        cur = 7000,
+        short = 1400
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }, {
+        opt = "CON",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }})
+    local w = Icor_planner_plan_keep(armor_only, scan, "avg", "Weapon")
+    check("防具だけの目標は防具へ", w.moves[1] and w.moves[1].slot_name, "GLOVES")
+    local a = Icor_planner_plan_keep(armor_only, scan, "avg", "Armor")
+    check("両方の目標が無ければ 2 つは同じ変え方", Icor_planner_same_moves(w, a), true)
+    check("防具だけの目標は回した分ではない", w.moves[1] and w.moves[1].fallback, nil)
+    -- 防具の枠が尽きたら武器へ回す。回した分には印を付ける(画面で分けて出す)
+    local full = {
+        slots = {slot("LH", "Weapon", {op("ADD_HR", 900), op("BLK", 900), op("DEX", 300), op("INT", 300)}),
+                 slot("SHIRT", "Armor", {op("STR", 500), op("CON", 500), op("CRTHR", 1300), op("ADD_LEATHER", 800)})}
+    }
+    local need = diag_of({{
+        opt = "CRTHR",
+        spot = "both",
+        target = 24000,
+        cur = 23000,
+        short = 1000
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }, {
+        opt = "CON",
+        spot = "both",
+        target = 1,
+        cur = 1,
+        short = 0
+    }, {
+        opt = "ADD_LEATHER",
+        spot = "Armor",
+        target = 1,
+        cur = 1,
+        short = 0
+    }})
+    local spill = Icor_planner_plan_keep(need, full, "avg", "Armor")
+    local m = spill.moves[1]
+    check("防具が尽きたら武器へ", m and m.slot_name, "LH")
+    check("回した分の印", m and m.fallback, true)
+end
+
+print("[10] 目標にあるオプションでも、外して目標値を下回らなければ外す")
+do
+    -- クリ発 31,238 / 目標 25,000(余裕 6,238)。全種族が 1,000 足りない。
+    -- 上着も手袋も目標ばかり(クリ発 4,000 / 力 500 / 中型相殺 / レザー)
+    local function armor(name)
+        return slot(name, "Armor", {op("CRTHR", 4000), op("STR", 500), op("MiddleSize_Def", 3000),
+                                    op("ADD_LEATHER", 2900)})
+    end
+    local scan = {
+        slots = {armor("SHIRT"), armor("GLOVES")}
+    }
+    local diag = diag_of({{
+        opt = "AllRace_Atk",
+        spot = "both",
+        target = 16800,
+        cur = 13000,
+        short = 3800
+    }, {
+        opt = "CRTHR",
+        spot = "both",
+        target = 25000,
+        cur = 31238,
+        short = 0
+    }, {
+        opt = "STR",
+        spot = "both",
+        target = 5000,
+        cur = 5865,
+        short = 0
+    }, {
+        opt = "ADD_LEATHER",
+        spot = "Armor",
+        target = 8400,
+        cur = 8400,
+        short = 0
+    }, {
+        opt = "MiddleSize_Def",
+        spot = "Armor",
+        target = 8400,
+        cur = 8400,
+        short = 0
+    }})
+    AVG.Armor.AllRace_Atk = 2500
+    local plan = Icor_planner_plan_keep(diag, scan, "avg", "Armor")
     local removed = {}
-    for _, m in ipairs(plan2.moves) do
+    for _, m in ipairs(plan.moves) do
         if m.from then
-            removed[m.from.opt] = true
+            removed[#removed + 1] = m.from.opt .. "=" .. m.from.value
         end
     end
-    AVG.Armor.ADD_CLOTH = nil
-    check("全ての防具の材質は外さない", removed.AllMaterialType_Atk, nil)
-    check("同じ輪の兄弟(レザー)はクロースを支えないので外してよい", removed.ADD_LEATHER, true)
+    -- 上着は値の小さい力(余裕 865)を外す。手袋の力は余裕が 365 に減ったので外せず、
+    -- クリ発(余裕 6,238)を外す。余裕の無い中型相殺 / レザーは外さない
+    check("外したもの", table.concat(removed, ","), "STR=500,CRTHR=4000")
+    check("あとオプション", plan.updates, 2)
+    check("届く", plan.unmet_by_opt.AllRace_Atk, nil)
+    -- 各部位の目標(体力を 2 部位に)は、目指す数ちょうどなら外さない
+    local slot_diag = diag_of({{
+        opt = "AllRace_Atk",
+        spot = "both",
+        target = 16800,
+        cur = 13000,
+        short = 3800
+    }}, {{
+        opt = "CON",
+        spot = "both",
+        min_value = 0,
+        slots = {{
+            value = 500,
+            ok = true
+        }, {
+            value = 500,
+            ok = true
+        }},
+        have = 2,
+        want = 2
+    }})
+    local con_scan = {
+        slots = {slot("SHIRT", "Armor", {op("CON", 500), op("STR", 500), op("MiddleSize_Def", 3000),
+                                         op("ADD_LEATHER", 2900)}),
+                 slot("GLOVES", "Armor", {op("CON", 500), op("STR", 500), op("MiddleSize_Def", 3000),
+                                          op("ADD_LEATHER", 2900)})}
+    }
+    for _, opt in ipairs({"STR", "MiddleSize_Def", "ADD_LEATHER"}) do
+        table.insert(slot_diag.rows, {
+            opt = opt,
+            spot = "both",
+            target = 100,
+            cur = 100,
+            short = 0
+        })
+    end
+    local p2 = Icor_planner_plan_keep(slot_diag, con_scan, "avg", "Armor")
+    local con = false
+    for _, m in ipairs(p2.moves) do
+        if m.from and m.from.opt == "CON" then
+            con = true
+        end
+    end
+    check("目指す数ちょうどの体力は外さない", con, false)
+    check("外せる枠が無いので届かない", p2.unmet_by_opt.AllRace_Atk, 3800)
+    -- 目指す数が 1 なら 1 部位ぶんは外せる
+    slot_diag.slot_rows[1].want = 1
+    local p3 = Icor_planner_plan_keep(slot_diag, con_scan, "avg", "Armor")
+    local con_n = 0
+    for _, m in ipairs(p3.moves) do
+        if m.from and m.from.opt == "CON" then
+            con_n = con_n + 1
+        end
+    end
+    check("目指す数を超えた 1 部位ぶんだけ外す", con_n, 1)
+    AVG.Armor.AllRace_Atk = nil
 end
 
 -- 試算の差し替えは設定(icor_planner.json)へ保存する。ファイルには書かず、書いた回数だけ数える
