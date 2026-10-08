@@ -109,7 +109,7 @@ g._nexus_addons_p = {{
 }, {
     key = "archeology_helper",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.15.0",
     updated_note_jp = "アーキオロジーの刷新に追従しました。調べた結果を素の全体マップと同じ輪(距離 7 段階で色分け)で記録し、地図は行ったことのない所も含めた全体図にし、対象マップが 1 つの依頼では大きく出します。試行回数は依頼の残り回数(n/70 など)、アイテム欄は遺物探査許可証を表示します。トークンワープを使わずにクラペダへ戻る「クラペダへ」ボタンを足しました(クエストワープ / ワープスクロール。使うクエストは設定で選べます)。地図に敵も出します",
     updated_note_en = "Follows the Archeology renewal. Survey results are recorded as the same rings the world map draws (7 distance colors), the map shows the whole area (not only explored parts) and is larger for single-map missions, the counter shows the mission's tries (e.g. n/70), the item slot shows the excavation permit, and a Klaipeda button returns you to the mission NPC without token warp (quest warp / warp scroll, quest selectable in settings), and monsters are shown on the map",
     data = {
