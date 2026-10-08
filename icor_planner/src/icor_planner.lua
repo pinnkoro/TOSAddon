@@ -2032,7 +2032,34 @@ function Icor_planner_plan(diag, scan, assumption)
     if Icor_planner_update_mode(scan) then
         return Icor_planner_recommend(diag, scan, assumption)
     end
-    return Icor_planner_plan_keep(diag, scan, assumption)
+    local plans = Icor_planner_plan_keep_both(diag, scan, assumption)
+    return plans[1]
+end
+
+-- 武器から変える形と防具から変える形。**良い方(届かない項目が少ない → 変える枠が少ない)を先に**返す。
+-- 「あとオプション N 個」は先頭の形の数(診断タブで先に描く形と同じ)
+function Icor_planner_plan_keep_both(diag, scan, assumption)
+    local weapon = Icor_planner_plan_keep(diag, scan, assumption, "Weapon")
+    local armor = Icor_planner_plan_keep(diag, scan, assumption, "Armor")
+    if armor.unmet_count < weapon.unmet_count or
+        (armor.unmet_count == weapon.unmet_count and armor.updates < weapon.updates) then
+        return {armor, weapon}
+    end
+    return {weapon, armor}
+end
+
+-- 2 つの形が同じ変え方か(両方に載せる目標が無ければ、部位の優先は効かず同じになる)
+function Icor_planner_same_moves(a, b)
+    if #a.moves ~= #b.moves or a.unmet_count ~= b.unmet_count then
+        return false
+    end
+    for i, m in ipairs(a.moves) do
+        local n = b.moves[i]
+        if m.index ~= n.index or m.opt ~= n.opt or m.value ~= n.value then
+            return false
+        end
+    end
+    return true
 end
 
 -- ===== 今の装備に足す形で数える =====
@@ -2042,57 +2069,77 @@ end
 -- 以前は理想の形(Icor_planner_recommend)との差を数えていたので、目標にほぼ届いていても
 -- 載せ方が理想と違うだけで数が膨らんだ(レザー相殺だけ 1,104 足りないのに 7 個と出た。実機で指摘された)。
 --
--- 変えてよい枠は次の 2 つだけ。
+-- 変えてよい枠は次の 3 つだけ。
 --   * 空いている枠
 --   * 目標に無いオプションの枠(外しても目標は減らない)
--- 目標にあるオプションは外さない。値が見込みより低ければ、その枠の値を上げる(これも 1 個と数える)。
+--   * 目標にあるが、**外しても目標値を下回らない**オプションの枠(クリ発 31,238 / 目標 25,000 の 2,247 など)。
+--     余裕は複数の枠で分け合うので、外すたびに差し引く。各部位の目標は、目指す部位数より多く
+--     載っている分だけ外せる
+-- 値が見込みより低ければ、その枠の値を上げる(これも 1 個と数える)。
+-- **「全ての〜」と個別の項目は別のオプションとして扱う。** 霊攻撃は 全ての防具の材質 を、
+-- 植物攻撃は 全種族 を支えない(以前は輪でつないで外さなかった。利用者の判断で別物にした)。
 -- **部位は 1 か所ずつ数える。** 持ち替え側(セット 2)も別のイコルなので、変えるなら別の 1 個になる。
+-- **どのイコルから変えるか。** 今のイコルに載っている「目標の役に立つオプション」の数が
+-- 少ないイコルから変える。目標に無いオプションばかりのイコルを作り直す方が、目標を支えている
+-- イコルに手を入れるより無駄が無い(以前は部位の並び順に埋めていたので、目標がほぼ揃った
+-- イコルの空きへ先に置くことがあった。利用者から指摘された)。
+-- prefer("Weapon" / "Armor")を渡すと、両方に載せられる目標をその部位から先に置く。
+-- 武器から変える形と防具から変える形を並べて見比べられるようにするため。nil なら部位は問わない。
 -- 戻り値は Icor_planner_recommend と同じ形(updates / by_opt / unmet / slot_unmet)に、
 -- どこを何に変えるか(moves)を足したもの
-function Icor_planner_plan_keep(diag, scan, assumption)
+function Icor_planner_plan_keep(diag, scan, assumption, prefer)
     local per_icor = diag.max_option_count or 4
-    -- 目標にあるオプション(外さない)
+    -- 目標にあるオプション
     local wanted = {}
+    -- 合計の目標の余裕(今の値 - 目標値)。届いていない目標は 0 = 外せない
+    local surplus = {}
+    -- 各部位の目標。外せるのは目指す部位数を超えて載っている分だけ
+    local slot_rows_of = {}
     for _, row in ipairs(diag.rows or {}) do
         if (row.target or 0) > 0 then
             wanted[row.opt] = true
+            local room = math.max(0, (row.cur or 0) - row.target)
+            surplus[row.opt] = math.min(surplus[row.opt] or room, room)
         end
     end
     for _, row in ipairs(diag.slot_rows or {}) do
         wanted[row.opt] = true
+        slot_rows_of[row.opt] = slot_rows_of[row.opt] or {}
+        table.insert(slot_rows_of[row.opt], {
+            row = row,
+            room = math.max(0, (row.have or 0) - (row.want or 0))
+        })
     end
-    -- **「全ての〜」でつながるオプションも外さない。** 今の値は「全ての〜」を足される先の項目
-    -- (Icor_planner_current / g.icor_planner_all_members)から読むので、目標に無いオプションでも
-    -- 目標の今の値を支えていることがある(目標が 全ての防具の材質 で、枠が クロース対象攻撃力、またはその逆)。
-    -- 外すと目標が下がるのに、置いた側の増分だけを数えて少なく見積もってしまう
-    local wanted_attr = {}
-    for opt in pairs(wanted) do
-        wanted_attr[Icor_planner_status_attr_of(opt)] = true
-    end
-    local function supports(opt)
-        if wanted[opt] then
+    -- index の部位から op を外しても目標を割らないか
+    local function removable(index, op)
+        if not wanted[op.opt] then
             return true
         end
-        local attr = Icor_planner_status_attr_of(opt)
-        if wanted_attr[attr] then
-            return true
+        if surplus[op.opt] ~= nil and surplus[op.opt] < op.value then
+            return false
         end
-        for all_attr, members in pairs(g.icor_planner_all_members) do
-            local has_attr, has_wanted = attr == all_attr, wanted_attr[all_attr] == true
-            for _, member in ipairs(members) do
-                if member == attr then
-                    has_attr = true
-                end
-                if wanted_attr[member] then
-                    has_wanted = true
-                end
-            end
-            -- 同じ「全ての〜」の輪の中で、片方が目標・片方がこの枠
-            if has_attr and has_wanted and (attr == all_attr or wanted_attr[all_attr]) then
-                return true
+        for _, sr in ipairs(slot_rows_of[op.opt] or {}) do
+            local info = sr.row.slots and sr.row.slots[index]
+            if info ~= nil and info.ok and sr.room <= 0 then
+                return false
             end
         end
-        return false
+        return true
+    end
+    -- 外した分を余裕から差し引く
+    local function consume(index, op)
+        if not wanted[op.opt] then
+            return
+        end
+        if surplus[op.opt] ~= nil then
+            surplus[op.opt] = surplus[op.opt] - op.value
+        end
+        for _, sr in ipairs(slot_rows_of[op.opt] or {}) do
+            local info = sr.row.slots and sr.row.slots[index]
+            if info ~= nil and info.ok then
+                sr.room = sr.room - 1
+            end
+        end
     end
     local units, by_index = {}, {}
     for i, entry in ipairs(scan.slots) do
@@ -2102,19 +2149,28 @@ function Icor_planner_plan_keep(diag, scan, assumption)
                 slot_name = entry.slot_name,
                 spot = entry.spot,
                 values = {},
-                -- 外してよい枠(目標に無いオプション)。値の小さいものから使う
+                -- 外してよい枠の候補。目標に無いものを先に、それぞれ値の小さいものから使う。
+                -- 目標にあるものは、外す時点で余裕が残っているか(removable)を見る
                 spare = {},
-                empty = per_icor
+                empty = per_icor,
+                -- 今載っている「目標の役に立つオプション」の数。少ないイコルから変える。
+                -- **置いても数え直さない。** 一度変え始めたイコルを先に埋め切る方が、変えるイコルの数が少なく済む
+                wanted_count = 0
             }
             for _, op in ipairs(entry.excluded and {} or entry.options) do
                 unit.values[op.opt] = (unit.values[op.opt] or 0) + op.value
                 unit.empty = unit.empty - 1
-                if not supports(op.opt) then
-                    unit.spare[#unit.spare + 1] = op
+                if wanted[op.opt] then
+                    unit.wanted_count = unit.wanted_count + 1
                 end
+                unit.spare[#unit.spare + 1] = op
             end
             unit.empty = math.max(0, unit.empty)
             table.sort(unit.spare, function(a, b)
+                local wa, wb = wanted[a.opt] == true, wanted[b.opt] == true
+                if wa ~= wb then
+                    return wb
+                end
                 if a.value ~= b.value then
                     return a.value < b.value
                 end
@@ -2124,9 +2180,51 @@ function Icor_planner_plan_keep(diag, scan, assumption)
             by_index[i] = unit
         end
     end
+    -- 判断材料(どのイコルが目標をいくつ持っているか)を残す
+    local ranks = {}
+    for _, unit in ipairs(units) do
+        local can = 0
+        for _, op in ipairs(unit.spare) do
+            if removable(unit.index, op) then
+                can = can + 1
+            end
+        end
+        ranks[#ranks + 1] = string.format("%s=%d(空き%d/外せる%d)", unit.slot_name, unit.wanted_count, unit.empty, can)
+    end
+    local rooms = {}
+    for opt, room in pairs(surplus) do
+        rooms[#rooms + 1] = string.format("%s=%d", opt, room)
+    end
+    g.vlog("icor_planner: 目標の余裕 %s", table.concat(rooms, " "))
+    g.vlog("icor_planner: 今の装備に足す形(%s / 優先 %s) 目標の数: %s", tostring(assumption), tostring(prefer),
+        table.concat(ranks, " "))
+    -- 優先する部位なら 0
+    local function spot_rank(unit)
+        return (prefer ~= nil and unit.spot ~= prefer) and 1 or 0
+    end
+    -- a を b より先に変えるか(優先する部位 → 目標の少ないイコル → 部位の並び)
+    local function unit_before(a, b)
+        if spot_rank(a) ~= spot_rank(b) then
+            return spot_rank(a) < spot_rank(b)
+        end
+        if a.wanted_count ~= b.wanted_count then
+            return a.wanted_count < b.wanted_count
+        end
+        return a.index < b.index
+    end
     local moves, by_opt, placed = {}, {}, {}
+    -- 今外せる枠の位置(unit.spare の何番目か)。無ければ nil
+    local function spare_at(unit)
+        for k, op in ipairs(unit.spare) do
+            if removable(unit.index, op) then
+                return k
+            end
+        end
+        return nil
+    end
     local function can_add(unit, opt)
-        return unit.values[opt] == nil and (unit.empty > 0 or #unit.spare > 0) and Icor_planner_spot_can(opt, unit.spot)
+        return unit.values[opt] == nil and (unit.empty > 0 or spare_at(unit) ~= nil) and
+                   Icor_planner_spot_can(opt, unit.spot)
     end
     -- unit の opt を value にする。戻り値はキャラの合計がいくつ増えるか
     local function change(unit, opt, value)
@@ -2136,7 +2234,10 @@ function Icor_planner_plan_keep(diag, scan, assumption)
             if unit.empty > 0 then
                 unit.empty = unit.empty - 1
             else
-                from = table.remove(unit.spare, 1)
+                from = table.remove(unit.spare, spare_at(unit))
+                consume(unit.index, from)
+                -- 外したオプションはもうこのイコルに無い(値上げの候補にしない)
+                unit.values[from.opt] = nil
             end
         end
         unit.values[opt] = value
@@ -2180,7 +2281,8 @@ function Icor_planner_plan_keep(diag, scan, assumption)
                     elseif can_add(unit, row.opt) then
                         rank = 2
                     end
-                    if rank ~= nil and (best == nil or rank < best_rank or (rank == best_rank and i < best.index)) then
+                    if rank ~= nil and
+                        (best == nil or rank < best_rank or (rank == best_rank and unit_before(unit, best))) then
                         best, best_rank = unit, rank
                     end
                 end
@@ -2197,8 +2299,8 @@ function Icor_planner_plan_keep(diag, scan, assumption)
             slot_unmet[row.opt] = (slot_unmet[row.opt] or 0) + need
         end
     end
-    -- (2) 合計の目標。不足を、1 枠で一番多く埋まるところから埋める。
-    -- 同じだけ埋まるなら、枠を使わない方(値を上げるだけ)を採る
+    -- (2) 合計の目標。**優先する部位 → 目標の少ないイコル**の順に変える先を決め、
+    -- その中で 1 枠で一番多く埋まるものから埋める。同じだけ埋まるなら、枠を使わない方(値を上げるだけ)を採る
     local needs, allowed, order = {}, {}, {}
     for _, row in ipairs(diag.rows or {}) do
         if (row.target or 0) > 0 then
@@ -2233,8 +2335,18 @@ function Icor_planner_plan_keep(diag, scan, assumption)
                             gain, cost = value, 1
                         end
                         gain = math.min(needs[opt], gain)
-                        if cost ~= nil and gain > 0 and
-                            (gain > best_gain or (gain == best_gain and cost < best_cost)) then
+                        local better = false
+                        if cost ~= nil and gain > 0 then
+                            if best_unit == nil then
+                                better = true
+                            elseif unit ~= best_unit and
+                                (spot_rank(unit) ~= spot_rank(best_unit) or unit.wanted_count ~= best_unit.wanted_count) then
+                                better = unit_before(unit, best_unit)
+                            else
+                                better = gain > best_gain or (gain == best_gain and cost < best_cost)
+                            end
+                        end
+                        if better then
                             best_opt, best_unit, best_value, best_gain, best_cost = opt, unit, value, gain, cost
                         end
                     end
@@ -2245,6 +2357,11 @@ function Icor_planner_plan_keep(diag, scan, assumption)
             break
         end
         needs[best_opt] = needs[best_opt] - change(best_unit, best_opt, best_value)
+        -- 優先する部位にも置けたのに、そちらの枠が尽きて回した分(画面で分けて出す)
+        if prefer ~= nil and best_unit.spot ~= prefer and allowed[best_opt][prefer] and
+            Icor_planner_spot_can(best_opt, prefer) then
+            moves[#moves].fallback = true
+        end
     end
     local unmet, unmet_by_opt, total_opts = {}, {}, {}
     for _, opt in ipairs(order) do
@@ -2268,10 +2385,12 @@ function Icor_planner_plan_keep(diag, scan, assumption)
     for _ in pairs(slot_unmet) do
         slot_unmet_count = slot_unmet_count + 1
     end
-    g.vlog("icor_planner: 今の装備に足す形(%s) 変える枠 %d / 届かない %d 件 / 置ききれない部位目標 %d 件",
-        tostring(assumption), #moves, #unmet, slot_unmet_count)
+    g.vlog("icor_planner: 今の装備に足す形(%s / 優先 %s) 変える枠 %d / 届かない %d 件 / 置ききれない部位目標 %d 件",
+        tostring(assumption), tostring(prefer), #moves, #unmet, slot_unmet_count)
     return {
         keep = true,
+        prefer = prefer,
+        unmet_count = #unmet + slot_unmet_count,
         update_mode = false,
         updates = #moves,
         moves = moves,

@@ -74,26 +74,44 @@ end
 -- 置き換え方式のフック。素の関数を g.FUNCS へ控えて、_G を自分の関数へ差し替える。
 -- 差し替えた関数は**必ず g.FUNCS[名前] で素を呼ぶ**(CLAUDE.md「素の関数を書き写さない」)。
 --
--- **掛けるのは 1 回だけ。** GAME_START はマップ移動のたびに来るが、2 回目に「今の _G」を控えると、
--- 後から別のアドオンが自分を包んでいた場合に 自分 → 相手 → 自分 … と回り続ける。
+-- **素を控えるのは最初の 1 回だけ。** 2 回目以降に「今の _G」を控えると、後から別のアドオンが
+-- 自分を包んでいた場合に 自分 → 相手 → 自分 … と回り続ける。
+-- **外れていたら掛け直す。** 掛けたのに _G が別物に入れ替わっていたら(素のスクリプトの読み直しや
+-- 他のアドオンの上書き)、控えた素を呼ぶ形のまま自分を入れ直す(Nexus Addons P の g.setup_hook と同じ規則)。
+-- 「1 回掛けたら終わり」にしていた頃、配布中に送るボタンのフックが効かず、送った後に次へ進まなかった
+-- (2026-10-06 実機。外れていたかどうかは g.check_hooks のログで確かめる)。
 -- nil を渡されたとき(関数名の綴り間違いなど)は素を消さずに何もしない。
 g.FUNCS = g.FUNCS or {}
+-- 掛けたフック。素の名前 → 自分の関数(g.check_hooks が見回る)
+g.hooks_installed = g.hooks_installed or {}
 function g.setup_hook(my_func, origin_func_name)
     if type(my_func) ~= "function" then
         g.vlog("{#FF6347}setup_hook: %s へ掛ける関数が無い(nil)ので、素はそのままにする{/}", origin_func_name)
         return
     end
-    if g.FUNCS[origin_func_name] then
-        return
+    if not g.FUNCS[origin_func_name] then
+        local origin = _G[origin_func_name]
+        if type(origin) ~= "function" then
+            g.vlog("{#FF6347}setup_hook: 素の %s が無いので掛けない{/}", origin_func_name)
+            return
+        end
+        g.FUNCS[origin_func_name] = origin
+        g.vlog("setup_hook: %s を掛けた", origin_func_name)
+    elseif _G[origin_func_name] ~= my_func then
+        g.vlog("{#FF6347}setup_hook: %s が外れていたので掛け直す{/}", origin_func_name)
     end
-    local origin = _G[origin_func_name]
-    if type(origin) ~= "function" then
-        g.vlog("{#FF6347}setup_hook: 素の %s が無いので掛けない{/}", origin_func_name)
-        return
-    end
-    g.FUNCS[origin_func_name] = origin
     _G[origin_func_name] = my_func
-    g.vlog("setup_hook: %s を掛けた", origin_func_name)
+    g.hooks_installed[origin_func_name] = my_func
+end
+
+-- 掛けたフックが外れていないかを見回り、外れていたら掛け直す。
+-- 0.5 秒ごとの見回り(90_init.lua)と、配布で送付窓を開く直前に呼ぶ。外れていなければ何も出さない
+function g.check_hooks()
+    for name, my_func in pairs(g.hooks_installed) do
+        if _G[name] ~= my_func then
+            g.setup_hook(my_func, name)
+        end
+    end
 end
 
 -- groupbox のスクロール位置。古いクライアントに GetScrollCurPos が無くても落とさない
