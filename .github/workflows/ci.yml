@@ -161,6 +161,11 @@ jobs:
       - name: vakarine_equip の設定テスト
         run: luajit docs/tests/test_vakarine_equip.lua
 
+      # easy_buff の装備メンテナンスのプリセット。キャラごとの部位からの移行を誤ると、
+      # 他人の店で黙って違う部位をメンテナンスする（取り消せない）。
+      - name: easy_buff のプリセットテスト
+        run: luajit docs/tests/test_easy_buff.lua
+
       # Icor Planner の「あとオプション N 個」。数が出るだけなので、間違っていても画面からは
       # 気付きにくい（理想の形との差を数えて 1 個のはずが 7 個と出た / 試算で数え方が入れ替わった）。
       - name: icor_planner の数え方テスト

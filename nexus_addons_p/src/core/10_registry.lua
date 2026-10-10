@@ -252,9 +252,9 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = "2.13.0",
-    updated_note_jp = "他人の装備メンテナンスで自動選択する部位を、キャラごとに選べるようにしました(既定はこれまでどおりすべて選択)",
-    updated_note_en = "The slots auto-selected at another player's equipment maintenance can now be chosen per character (all selected by default, as before)",
+    updated = g.VER_NEXT,
+    updated_note_jp = "装備メンテナンスの部位を、メシ屋と同じく 5 つのプリセットから選ぶ形にしました(キャラごとの部位の設定はプリセットへ引き継ぎます)",
+    updated_note_en = "Equipment maintenance slots are now chosen from 5 presets, like the food shop (per-character slot settings are carried over)",
     data = {
         use = 0,
         name = "Easy Buff",
