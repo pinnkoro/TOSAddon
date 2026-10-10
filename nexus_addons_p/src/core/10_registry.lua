@@ -252,7 +252,7 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.16.0",
     updated_note_jp = "装備メンテナンスの部位を、メシ屋と同じく 5 つのプリセットから選ぶ形にしました(キャラごとの部位の設定はプリセットへ引き継ぎます)",
     updated_note_en = "Equipment maintenance slots are now chosen from 5 presets, like the food shop (per-character slot settings are carried over)",
     data = {
