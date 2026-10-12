@@ -385,6 +385,7 @@
     "ON_PARTYINFO_BUFFLIST_UPDATE": {"used_by": ["addons/mini_addons/lifecycle/init.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": ["frame"], "defined_in": "partyinfo/partyinfo.lua"},
     "ON_PARTYINFO_UPDATE": {"used_by": ["addons/party_icon_only/party_icon_only.lua"], "our_arities": [1], "hooked": true, "kind": "client_lua", "params": ["frame", "msg", "argStr", "argNum"], "defined_in": "partyinfo/partyinfo.lua"},
     "ON_UPDATE_QUESTINFOSET_2": {"used_by": ["addons/mini_addons/lifecycle/init.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": ["frame", "msg", "check", "updateQuestID"], "defined_in": "questinfoset_2/questinfoset_2.lua"},
+    "OPEN_ARCHEOLOGY_SHOP": {"used_by": ["addons/indun_panel/indun_panel.lua"], "our_arities": [0], "kind": "client_lua", "params": ["shopType"], "defined_in": "archeology_mission/archeology_mission.lua"},
     "OPEN_CUPOLE_ITEM": {"used_by": ["addons/cupole_manager/cupole_manager.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": [], "defined_in": "cupole_item/cupole_item.lua"},
     "OPEN_FOOD_TABLE_UI": {"used_by": ["addons/easy_buff/easy_buff.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": ["groupName", "sellType", "handle", "sellerCID", "arg_num"], "defined_in": "foodtable_ui/foodtable_ui.lua"},
     "OPEN_WORLDMAP2_MINIMAP": {"used_by": ["addons/mini_addons/lifecycle/init.lua"], "our_arities": [], "hooked": true, "kind": "client_lua", "params": ["frame"], "defined_in": "worldmap2_minimap/worldmap2_minimap.lua"},

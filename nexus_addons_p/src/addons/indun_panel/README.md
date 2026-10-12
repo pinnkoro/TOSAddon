@@ -58,6 +58,7 @@ ON にして街に入ると `INDUNPANEL` ボタンが出ます。
 | `tos` | TOS イベントショップ |
 | `gabija` / `vakarine` / `rada` / `jurate` / `austeja` / `saule` | 各女神ショップ（所持コイン数がツールチップに出ます）。サウレだけは**素にショップボタンの画像が無い**ため、コインの画像を使っています（素の `minimized_certificate_shop_button` はアウステヤの絵のままサウレの商店を開きます） |
 | `pvp_mine` | 傭兵団ショップ |
+| `archeology` | 考古学遺物ショップ（考古学者 NPC の所まで行かずに開けます） |
 | `market` | マーケット |
 | `craft` | 装備加工 |
 | `leticia` | レティーシャへ移動 |

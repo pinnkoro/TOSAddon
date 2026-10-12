@@ -302,9 +302,9 @@ g._nexus_addons_p = {{
     key = "indun_panel",
     category = "content",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.10.0",
-    updated_note_jp = "パネルの行にマウスを載せたとき、ツールチップが 1 秒ごとに出たり消えたりして点滅していたのを直しました(チャレンジの行で特に目立っていました)",
-    updated_note_en = "Fixed panel row tooltips flickering once per second while hovering (most visible on the Challenge row)",
+    updated = g.VER_NEXT,
+    updated_note_jp = "ショートカットに考古学遺物ショップを追加しました(街でだけ出ます)",
+    updated_note_en = "Added the Archeology Relic Shop to the shortcut buttons (shown only in towns)",
     data = {
         use = 0,
         name = "Indun Panel",
