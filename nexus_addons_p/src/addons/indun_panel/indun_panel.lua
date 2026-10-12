@@ -275,6 +275,13 @@ local INDUN_PANEL_SHORTCUTS = {{
     jp = "傭兵団ショップ",
     en = "Mercenary Shop"
 }, {
+    key = "archeology",
+    img = "icon_item_event_archeology_coin",
+    size = 29,
+    city = true,
+    jp = "考古学遺物ショップ",
+    en = "Archeology Relic Shop"
+}, {
     key = "market",
     img = "market_shortcut_btn02",
     size = 29,
@@ -909,6 +916,7 @@ function Indun_panel_load_settings()
                 austeja = 1,
                 saule = 1,
                 pvp_mine = 1,
+                archeology = 1,
                 market = 1,
                 craft = 1,
                 leticia = 1
@@ -956,8 +964,8 @@ function Indun_panel_load_settings()
     -- 新しいショートカット追加時のバックフィル。cols に無いキーは既定 ON(1) で補う。
     -- これが無いと、既存ユーザーの保存済み cols に無い新ボタンは nil 判定で描画されず、
     -- 設定のチェックも外れたままになる = 追加したのに誰にも出ない
-    local col_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "market", "craft",
-                      "leticia"}
+    local col_keys = {"tos", "gabija", "vakarine", "rada", "jurate", "austeja", "saule", "pvp_mine", "archeology",
+                      "market", "craft", "leticia"}
     if type(settings.cols) == "table" then
         for _, name in ipairs(col_keys) do
             if settings.cols[name] == nil then
@@ -1703,6 +1711,13 @@ function Indun_panel_create_shortcut_button(indun_panel, key_name, x)
         tooltip_msg = g.lang == "Japanese" and "{ol}レティーシャへ移動" or "{ol}Leticia Move"
         btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_FULLSCREEN_NAVIGATION_MENU_DETAIL_MOVE_NPC")
         btn:SetEventScriptArgNumber(ui.LBUTTONUP, 309)
+    elseif key_name == "archeology" and g.get_map_type() == "City" then
+        btn = indun_panel:CreateOrGetControl("button", "archeology", x, Indun_panel_s(7),
+            Indun_panel_s(29), Indun_panel_s(29))
+        btn:SetText(string.format("{img icon_item_event_archeology_coin %d %d}", Indun_panel_s(29),
+            Indun_panel_s(29)))
+        tooltip_msg = g.lang == "Japanese" and "{ol}考古学遺物ショップ" or "{ol}Archeology Relic Shop"
+        btn:SetEventScript(ui.LBUTTONUP, "Indun_panel_archeology_shop_open")
     end
     if btn then
         AUTO_CAST(btn)
@@ -1718,6 +1733,21 @@ function Indun_panel_event_tos_whole_shop_open()
     local earthtowershop = ui.GetFrame("earthtowershop")
     earthtowershop:SetUserValue("SHOP_TYPE", 'EVENT_TOS_WHOLE_SHOP')
     ui.OpenFrame('earthtowershop')
+end
+
+-- 素の OPEN_ARCHEOLOGY_SHOP(shopType) を**直接イベントに付けない**。ボタンのイベントは
+-- (frame, ctrl, ...) で呼ばれるので、frame が shopType に入って SHOP_TYPE が壊れる。
+-- 引数なしで呼ぶと素が今のシーズンの店(現在は archeology_season2 = 유물 상점)を選ぶので、
+-- シーズンが変わってもこちらは直さずに済む。
+function Indun_panel_archeology_shop_open()
+    if type(OPEN_ARCHEOLOGY_SHOP) ~= "function" then
+        g.vlog("indun_panel: OPEN_ARCHEOLOGY_SHOP が無いので考古学遺物ショップを開けなかった")
+        return
+    end
+    OPEN_ARCHEOLOGY_SHOP()
+    local earthtowershop = ui.GetFrame("earthtowershop")
+    g.vlog("indun_panel: 考古学遺物ショップを開いた SHOP_TYPE=%s",
+        earthtowershop and earthtowershop:GetUserValue("SHOP_TYPE") or "nil")
 end
 
 function Indun_panel_FULLSCREEN_NAVIGATION_MENU_DETAIL_MOVE_NPC(frame, ctrl, str, guid)

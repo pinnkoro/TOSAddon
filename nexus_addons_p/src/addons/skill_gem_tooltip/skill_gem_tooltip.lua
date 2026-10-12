@@ -11,11 +11,19 @@ function Skill_gem_tooltip_UPDATE_ITEM_TOOLTIP(my_frame, my_msg)
     if g.settings.skill_gem_tooltip.use == 0 then
         return
     end
-    local tooltip_frame, str_arg, class_id, item_guid, user_data, arg_6, arg_7 = g.get_event_args(my_msg)
-    local rect = tooltip_frame:GetMargin()
-    local skill_name
+    local tooltip_frame, str_arg, class_id, item_guid, user_data, tooltip_obj = g.get_event_args(my_msg)
+    if not tooltip_frame then
+        return
+    end
     if str_arg == "inven" then
-        local item_obj, is_read_obj = GET_TOOLTIP_ITEM_OBJECT(str_arg, item_guid, class_id)
+        -- 素の UPDATE_ITEM_TOOLTIP と同じく、渡されたアイテム(6 つ目)を優先し、無ければ GUID で引く。
+        -- 引けないとき(展示や出し入れで、ツールチップを出した遺物がもうインベントリに無いなど)は
+        -- 素も何もせずに戻るので、こちらも戻る。以前はそのまま item_obj.ClassID を読んで落ちていた
+        local item_obj = tooltip_obj or GET_TOOLTIP_ITEM_OBJECT(str_arg, item_guid, class_id)
+        if not item_obj then
+            g.vlog("skill_gem_tooltip: ツールチップのアイテムが引けないので出さない guid=%s", tostring(item_guid))
+            return
+        end
         class_id = item_obj.ClassID
     end
     local item_cls = GetClassByType('Item', class_id)
