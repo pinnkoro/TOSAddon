@@ -189,6 +189,8 @@ function archeology_helper_on_init()
     g.setup_hook(Archeology_helper_INSERT_ITEM_TO_TREE, "INSERT_ITEM_TO_TREE")
     -- 遺物のツールチップの効果が長いと 1 行に収まらず切れるので折り返す
     g.setup_hook(Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP, "DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP")
+    -- 探査ポータル(インスタンスダンジョン)の入場画面を、最近の設定で開く
+    g.setup_hook(Archeology_helper_ARCH_DENTER_ON_OPEN, "ARCH_DENTER_ON_OPEN")
     -- 最後の祭壇(展示画面)を開いている間は、インベントリをアーキオロジーだけにする
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN, "ARCHEOLOGY_EXHIBITION_OPEN")
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE, "ARCHEOLOGY_EXHIBITION_CLOSE")
@@ -1049,6 +1051,11 @@ function Archeology_helper_accept_warp_setting(frame, ctrl)
     Archeology_helper_save_settings()
 end
 
+function Archeology_helper_denter_last_setting(frame, ctrl)
+    g.aoh_settings.denter_last = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+end
+
 function Archeology_helper_exhibit_focus_setting(frame, ctrl)
     g.aoh_settings.exhibit_focus = ctrl:IsChecked()
     Archeology_helper_save_settings()
@@ -1220,15 +1227,21 @@ function Archeology_helper_setting_frame(au_map, display)
                               "{ol}最後の祭壇を開いたら、インベントリをアーキオロジーだけにする" or
                               "{ol}Show only Archeology in the inventory while the altar is open")
     exhibit_focus:SetEventScript(ui.LBUTTONUP, "Archeology_helper_exhibit_focus_setting")
-    local mob_display = gbox:CreateOrGetControl('checkbox', "mob_display", 10, 430, 30, 30)
+    local denter_last = gbox:CreateOrGetControl('checkbox', "denter_last", 10, 430, 30, 30)
+    AUTO_CAST(denter_last)
+    denter_last:SetCheck(g.aoh_settings.denter_last or 1)
+    denter_last:SetText(g.lang == "Japanese" and "{ol}探査ポータルの入場画面を「最近の設定」で開く" or
+                            "{ol}Open the portal entry window with the last settings")
+    denter_last:SetEventScript(ui.LBUTTONUP, "Archeology_helper_denter_last_setting")
+    local mob_display = gbox:CreateOrGetControl('checkbox', "mob_display", 10, 465, 30, 30)
     AUTO_CAST(mob_display)
     mob_display:SetCheck(g.aoh_settings.mob_display or 1)
     mob_display:SetText(g.lang == "Japanese" and "{ol}地図に敵を表示する" or "{ol}Show monsters on the map")
     mob_display:SetEventScript(ui.LBUTTONUP, "Archeology_helper_mob_display_setting")
     setting:Resize(math.max(sta_check:GetWidth(), home_item:GetWidth(), home_npc:GetWidth(), relic_slot:GetWidth(),
-        relic_sort:GetWidth(), relic_new:GetWidth(), relic_section:GetWidth(), exhibit_focus:GetWidth(), 330) + 50,
-        525)
-    gbox:Resize(setting:GetWidth() - 20, 475)
+        relic_sort:GetWidth(), relic_new:GetWidth(), relic_section:GetWidth(), exhibit_focus:GetWidth(),
+        denter_last:GetWidth(), 330) + 50, 560)
+    gbox:Resize(setting:GetWidth() - 20, 510)
     setting:ShowWindow(1)
     g.esc_register_destroy(addon_name_lower .. "archeology_helper_setting")
 end
@@ -2205,6 +2218,31 @@ function Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP(tooltipframe, invitem
         return end_y
     end
     return result
+end
+
+-- ===== 探査ポータルの入場画面を「最近の設定」で開く =====
+-- 素の入場画面(archeology_dungeon_enter)は、入場するたびに難易度と入れたアイテムを config の
+-- ARCHEOLOGY_DUNGEON_ENTER_LAST_SETTING に控え、「最近の設定」ボタン(素の ARCH_DENTER_APPLY_LAST)で戻せる。
+-- 開いた直後にそのボタンと同じ処理を呼ぶ。控えが無いと素が「最近の設定がありません」と出すので、
+-- 控えがあるときだけ呼ぶ(アイテムが足りないときの「一部だけ入れた」の通知は素のまま出る)
+function Archeology_helper_ARCH_DENTER_ON_OPEN(frame, msg, arg_str, arg_num)
+    local results = {g.FUNCS["ARCH_DENTER_ON_OPEN"](frame, msg, arg_str, arg_num)}
+    if not Archeology_helper_active() or (g.aoh_settings.denter_last or 1) ~= 1 then
+        return table.unpack(results)
+    end
+    local ok, err = pcall(function()
+        local saved = config.GetConfig("ARCHEOLOGY_DUNGEON_ENTER_LAST_SETTING", "")
+        g.vlog("archeology_helper: 探査ポータルの入場画面を開いた 最近の設定=%s", tostring(saved))
+        if saved == nil or saved == "" or saved == "None" then
+            return
+        end
+        -- 素はボタンの親から GetTopParentFrame で入場画面を引くので、入場画面そのものを渡せばよい
+        ARCH_DENTER_APPLY_LAST(frame, nil)
+    end)
+    if not ok then
+        g.vlog("{#FF6347}archeology_helper: 最近の設定を入れられなかった %s{/}", tostring(err))
+    end
+    return table.unpack(results)
 end
 
 -- ===== 最後の祭壇を開いている間は、インベントリをアーキオロジーだけにする =====
