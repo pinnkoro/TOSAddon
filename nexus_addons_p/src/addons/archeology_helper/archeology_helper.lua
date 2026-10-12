@@ -98,8 +98,8 @@ g.aoh = {
         en = "Split relics in the inventory into sections by exhibition slot (1 / 2 / 3)"
     }, {
         key = "exhibit_focus",
-        jp = "最後の祭壇を開いたら、インベントリをアーキオロジーだけにする",
-        en = "Show only Archeology in the inventory while the altar is open"
+        jp = "最後の祭壇・探査ポータルの入場画面を開いたら、インベントリをアーキオロジーだけにする",
+        en = "Show only Archeology in the inventory while the altar or portal entry window is open"
     }, {
         key = "denter_last",
         jp = "探査ポータルの入場画面を「最近の設定」で開く",
@@ -261,6 +261,8 @@ function archeology_helper_on_init()
     g.setup_hook(Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP, "DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP")
     -- 探査ポータル(インスタンスダンジョン)の入場画面を、最近の設定で開く
     g.setup_hook(Archeology_helper_ARCH_DENTER_ON_OPEN, "ARCH_DENTER_ON_OPEN")
+    -- 探査ポータルの入場画面を閉じたら、インベントリを元に戻す(閉じ方はどれもここを通る)
+    g.setup_hook(Archeology_helper_ARCH_DENTER_CLOSE_UI, "ARCH_DENTER_CLOSE_UI")
     -- 遺物分解の「所持 / 獲得予定 / 分解後」が「%s %s個」のまま出るのを直す
     g.setup_hook(Archeology_helper_ARCH_DECOMP_REWARD_SUMMARY, "ARCH_DECOMP_REWARD_SUMMARY")
     -- 最後の祭壇(展示画面)を開いている間は、インベントリをアーキオロジーだけにする
@@ -2497,6 +2499,10 @@ end
 -- 控えがあるときだけ呼ぶ(アイテムが足りないときの「一部だけ入れた」の通知は素のまま出る)
 function Archeology_helper_ARCH_DENTER_ON_OPEN(frame, msg, arg_str, arg_num)
     local results = {g.FUNCS["ARCH_DENTER_ON_OPEN"](frame, msg, arg_str, arg_num)}
+    -- 素はこの中でインベントリを開くので、祭壇と同じくアーキオロジーだけにする
+    if Archeology_helper_active() and (g.aoh_settings.exhibit_focus or 1) == 1 then
+        ReserveScript("Archeology_helper_exhibit_focus()", 0.3)
+    end
     if not Archeology_helper_active() or (g.aoh_settings.denter_last or 1) ~= 1 then
         return table.unpack(results)
     end
@@ -2543,7 +2549,28 @@ function Archeology_helper_ARCH_DECOMP_REWARD_SUMMARY(frame, rewards, mode)
     return g.FUNCS["ARCH_DECOMP_REWARD_SUMMARY"](frame, rewards, mode)
 end
 
--- ===== 最後の祭壇を開いている間は、インベントリをアーキオロジーだけにする =====
+-- 探査ポータルの入場画面を閉じたとき(素の ARCH_DENTER_CLOSE_UI。× / ESC / 入場 / ポータルが消えたとき)
+function Archeology_helper_ARCH_DENTER_CLOSE_UI(keep_confirm)
+    local results = {g.FUNCS["ARCH_DENTER_CLOSE_UI"](keep_confirm)}
+    local ok, err = pcall(Archeology_helper_exhibit_unfocus)
+    if not ok then
+        g.vlog("{#FF6347}archeology_helper: インベントリを元に戻せなかった %s{/}", tostring(err))
+    end
+    return table.unpack(results)
+end
+
+-- アーキオロジーだけにする窓(最後の祭壇か、探査ポータルの入場画面)が開いているか
+function Archeology_helper_focus_window_open()
+    for _, name in ipairs({"archeology_exhibition", "archeology_dungeon_enter"}) do
+        local frame = ui.GetFrame(name)
+        if frame and frame:IsVisible() == 1 then
+            return true
+        end
+    end
+    return false
+end
+
+-- ===== 最後の祭壇・探査ポータルの入場画面を開いている間は、インベントリをアーキオロジーだけにする =====
 -- インベントリに「アーキオロジー」のタブは無く、アーキオロジーの区分は「その他」タブの中にある
 -- (inven_baseid の InvenTabName = Etc)。そこで祭壇を開いたら「その他」タブへ切り替え、
 -- アーキオロジー以外のカテゴリを畳む。閉じたら、切り替える前のタブと、こちらが畳んだカテゴリを戻す。
@@ -2582,9 +2609,8 @@ function Archeology_helper_exhibit_tree(inventory)
 end
 
 function Archeology_helper_exhibit_focus()
-    local exhibition = ui.GetFrame("archeology_exhibition")
     local inventory = ui.GetFrame("inventory")
-    if not exhibition or exhibition:IsVisible() == 0 or not inventory or inventory:IsVisible() == 0 then
+    if not Archeology_helper_focus_window_open() or not inventory or inventory:IsVisible() == 0 then
         return
     end
     local tab = GET_CHILD_RECURSIVELY(inventory, "inventype_Tab")
@@ -2629,7 +2655,7 @@ function Archeology_helper_exhibit_focus()
             end
         end
     end
-    g.vlog("archeology_helper: 祭壇を開いたのでインベントリをアーキオロジーだけにした(タブ %d → %d、畳んだカテゴリ %d)",
+    g.vlog("archeology_helper: 祭壇か入場画面を開いたのでインベントリをアーキオロジーだけにした(タブ %d → %d、畳んだカテゴリ %d)",
         g.aoh_exhibit_saved.tab, etc_index, closed)
 end
 
@@ -2659,7 +2685,7 @@ function Archeology_helper_exhibit_unfocus()
         AUTO_CAST(tab)
         tab:SelectTab(saved.tab)
     end
-    g.vlog("archeology_helper: 祭壇を閉じたのでインベントリを戻した(タブ %d)", saved.tab)
+    g.vlog("archeology_helper: 祭壇か入場画面を閉じたのでインベントリを戻した(タブ %d)", saved.tab)
 end
 -- archeology_helper ここまで
 
