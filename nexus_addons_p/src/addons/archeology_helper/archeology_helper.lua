@@ -184,6 +184,12 @@ function Archeology_helper_load_settings()
     settings.map_info = settings.map_info or {}
     -- 旧版(end_ver 無し)は「地点に触れた回数」で依頼の終わりを決めていて、途中で聞いてしまうことがあった。
     -- そのとき立てた「聞いた」印(end_asked)が残ると今の依頼の本当の終わりで聞かなくなるので、一度だけ下ろす
+    -- 以前はセクションの畳んだ状態をキャラごとに保存していた。今はセッションの間だけなので消す
+    for _, char in pairs(settings) do
+        if type(char) == "table" then
+            char.section_folded = nil
+        end
+    end
     if settings.end_ver ~= 2 then
         settings.end_pending = nil
         settings.end_asked = nil
@@ -2257,17 +2263,14 @@ function Archeology_helper_section_toggle(parent, ctrl, key)
         ctrl:SetText((string.gsub(text, "btn_plus", "btn_minus")))
         folded[tostring(key)] = nil
     end
-    Archeology_helper_save_settings()
 end
 
--- 足したセクションの畳んだ状態(キャラごと)。key = 区切りの名前から sset_ を除いたもの
+-- 足したセクションの畳んだ状態。key = 区切りの名前から sset_ を除いたもの。
+-- 素の区切り(1 スロット)と揃えて、覚えるのはこのセッションの間だけ(ログインし直すと開く)。
+-- 保存すると、ログインし直した後に 1 だけ開いて 2 / 3 が畳まれたままになり、揃わなかった
 function Archeology_helper_section_folded()
-    local char = g.aoh_settings[g.cid]
-    if not char then
-        return {}
-    end
-    char.section_folded = char.section_folded or {}
-    return char.section_folded
+    g.aoh_section_folded = g.aoh_section_folded or {}
+    return g.aoh_section_folded
 end
 
 -- セクション k(2 / 3 / 0)の見出しと slotset を作り、treegroup の末尾へ足す
