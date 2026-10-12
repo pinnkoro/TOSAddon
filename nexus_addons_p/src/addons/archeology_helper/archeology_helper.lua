@@ -191,6 +191,8 @@ function archeology_helper_on_init()
     g.setup_hook(Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP, "DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP")
     -- 探査ポータル(インスタンスダンジョン)の入場画面を、最近の設定で開く
     g.setup_hook(Archeology_helper_ARCH_DENTER_ON_OPEN, "ARCH_DENTER_ON_OPEN")
+    -- 遺物分解の「所持 / 獲得予定 / 分解後」が「%s %s個」のまま出るのを直す
+    g.setup_hook(Archeology_helper_ARCH_DECOMP_REWARD_SUMMARY, "ARCH_DECOMP_REWARD_SUMMARY")
     -- 最後の祭壇(展示画面)を開いている間は、インベントリをアーキオロジーだけにする
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN, "ARCHEOLOGY_EXHIBITION_OPEN")
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE, "ARCHEOLOGY_EXHIBITION_CLOSE")
@@ -2243,6 +2245,34 @@ function Archeology_helper_ARCH_DENTER_ON_OPEN(frame, msg, arg_str, arg_num)
         g.vlog("{#FF6347}archeology_helper: 最近の設定を入れられなかった %s{/}", tostring(err))
     end
     return table.unpack(results)
+end
+
+-- ===== 遺物分解の「所持 / 獲得予定 / 分解後」を正しく出す =====
+-- 素の ARCH_DECOMP_REWARD_SUMMARY は窓の userconfig(REWARD_LINE_FORMAT = "%s %s개")を string.format に渡すが、
+-- 日本語版ではこの値が**翻訳辞書の ID のまま**返るので %s が埋まらず、表示のときに訳されて
+-- 「%s %s個」がそのまま出る(2026-10-12 の実機)。素を呼ぶ前に、窓の userconfig を
+-- dictionary.ReplaceDicIDInCompStr で訳した文に置き換えておく(素の処理はそのまま)。
+-- 確認の窓の CONFIRM_REWARDS も同じ作りなので一緒に直す
+function Archeology_helper_ARCH_DECOMP_REWARD_SUMMARY(frame, rewards, mode)
+    if Archeology_helper_active() and frame and frame:GetUserValue("AOH_CONFIG_FIXED") ~= "YES" then
+        local ok, err = pcall(function()
+            for _, key in ipairs({"REWARD_LINE_FORMAT", "REWARD_LINE_SEPARATOR", "CONFIRM_REWARDS"}) do
+                local raw = frame:GetUserConfig(key)
+                local text = dictionary.ReplaceDicIDInCompStr(raw)
+                if type(text) == "string" and text ~= "" and text ~= raw then
+                    frame:SetUserConfig(key, text)
+                    g.vlog("archeology_helper: 遺物分解の %s を訳した文へ置き換えた %s → %s", key, tostring(raw), text)
+                else
+                    g.vlog("archeology_helper: 遺物分解の %s は置き換えなし(%s)", key, tostring(raw))
+                end
+            end
+            frame:SetUserValue("AOH_CONFIG_FIXED", "YES")
+        end)
+        if not ok then
+            g.vlog("{#FF6347}archeology_helper: 遺物分解の書式を直せなかった %s{/}", tostring(err))
+        end
+    end
+    return g.FUNCS["ARCH_DECOMP_REWARD_SUMMARY"](frame, rewards, mode)
 end
 
 -- ===== 最後の祭壇を開いている間は、インベントリをアーキオロジーだけにする =====
