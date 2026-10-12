@@ -14,6 +14,15 @@ g.aoh = {
     -- 取っておきたいので、クラペダへ戻るときはクエストワープかワープスクロールを使う。
     home_map = "c_Klaipe",
     home_item = 640073, -- Scroll_Warp_Klaipe(クラペダ ワープスクロール)
+    -- クラペダに着いたら依頼の NPC の前へ移動する。素の Indun Panel の「レティーシャへ移動」と同じ
+    -- FullScreenMenuMoveNpc を使う。ダイアログ名は gentype_c_Klaipe.ies の
+    -- 「[마지막 제단] 고고학자 아이리네」(パッチ 407247 で確認)。
+    -- 依頼のウィンドウ(archeology_mission)は NPC と話したときにサーバーが候補マップ付きで
+    -- 開くもので、こちらからは開けない。話しかけるのは利用者に任せる。
+    home_npc_dialog = "KLAPEDA_AIRINE",
+    -- 「クラペダへ」を押してから何秒以内にクラペダへ着いたら NPC へ移動するか。
+    -- クエストワープの確認を断ったまま、後で別の手段でクラペダへ入ったときに勝手に動かないようにする。
+    home_npc_wait = 60,
     -- クエストワープに使えるクエスト(Lets Go Home と同じ判定)。state は GET_QUEST_NPC_STATE の値で、
     -- Start = 受注可能(開始 NPC へ飛ぶ)、End = 完了可能(完了 NPC へ飛ぶ)。どちらの NPC もクラペダに居る。
     home_quests = {{
@@ -36,8 +45,65 @@ g.aoh = {
         ArcheologyRelicImmediate = "FFFFFFFF"
     },
     default_color = "FFFFA500",
-    marker_ver = 2
+    -- 遺物を飾る展示のスロット(3 つ)の番号と色。遺物の種類(archeology_base_list.ies の ExhibitSlotType)で決まる。
+    -- 素の archeology_exhibition.lua の ARCEX_SLOT_INFO_BY_TYPE と同じ並びだが、向こうは local で引けないので持つ。
+    -- 1 = 聖物と祭礼 / 2 = 生活と技術 / 3 = 戦争と災難(パッチ 407247)
+    exhibit_slots = {
+        ForgottenGoddess = {
+            index = 1,
+            color = "9fd8ff"
+        },
+        NamelessAncestor = {
+            index = 2,
+            color = "d8bd62"
+        },
+        Unreturned = {
+            index = 3,
+            color = "ff9b57"
+        }
+    },
+    marker_ver = 2,
+    -- インベントリの遺物の並べ替え。等級は ClassName の末尾(_N / _M / _R)で決まる。
+    relic_rarity_rank = {
+        _R = 3,
+        _M = 2,
+        _N = 1
+    },
+    -- 効果の並び。素の展示画面の効果一覧と同じく「大分類 → 効果ごとの重み → 効果のキー」の順。
+    -- 大分類の重み(ARCEX_EFFECT_CATEGORY_INFO)と効果の重み(GET_EFFECT_SORT_WEIGHT)は
+    -- 素の archeology_exhibition.lua の local なので、ここに写す(パッチ 407247)。
+    relic_category_weight = {
+        Arch = 10,
+        Combat = 20,
+        Special = 30
+    },
+    relic_effect_weight = {
+        ARCHEOLOGY_RARE_CHANCE = 10,
+        ARCHEOLOGY_DETECTING = 20,
+        ARCHEOLOGY_COIN_GAIN = 30,
+        ARCHEOLOGY_SPECIAL_REWARD = 40,
+        ARCHEOLOGY_MON_FIND = 50,
+        ARCHEOLOGY_DOUBLE_DROP = 60,
+        ARCHEOLOGY_MON_DROP_RATE = 70,
+        ARCHEOLOGY_HP_BONUS = 100,
+        ARCHEOLOGY_DEF_BONUS = 110,
+        ARCHEOLOGY_MDEF_BONUS = 120,
+        ARCHEOLOGY_DODGE = 130,
+        ARCHEOLOGY_CRIT_RES = 140,
+        ARCHEOLOGY_BLOCK_PEN = 150,
+        ARCHEOLOGY_HP_ON_KILL = 160,
+        ARCHEOLOGY_MOVE_SPEED = 165,
+        ARCHEOLOGY_PORTAL_MOVE_SPEED = 166,
+        ARCHEOLOGY_DMG_REDUCE = 210
+    }
 }
+
+-- Archeology Helper が ON か。**掛けたフックとメッセージはセッション中ずっと残る**(OFF にしても
+-- 外れない)ので、フックとメッセージの受け口は最初にこれを見て、OFF なら素の動きだけにする
+function Archeology_helper_active()
+    return g.settings ~= nil and g.settings.archeology_helper ~= nil and g.settings.archeology_helper.use == 1 and
+               g.aoh_settings ~= nil
+end
 
 function Archeology_helper_save_settings()
     g.save_json(g.aoh_settings_path, g.aoh_settings)
@@ -63,6 +129,14 @@ function Archeology_helper_load_settings()
         settings.marker_ver = g.aoh.marker_ver
     end
     settings.map_info = settings.map_info or {}
+    -- 旧版(end_ver 無し)は「地点に触れた回数」で依頼の終わりを決めていて、途中で聞いてしまうことがあった。
+    -- そのとき立てた「聞いた」印(end_asked)が残ると今の依頼の本当の終わりで聞かなくなるので、一度だけ下ろす
+    if settings.end_ver ~= 2 then
+        settings.end_pending = nil
+        settings.end_asked = nil
+        settings.end_result = nil
+        settings.end_ver = 2
+    end
     g.aoh_settings = settings
     Archeology_helper_save_settings()
 end
@@ -83,10 +157,41 @@ function archeology_helper_on_init()
     end
     if g.settings.archeology_helper.use == 0 then
         ui.DestroyFrame(addon_name_lower .. "au_map")
+        -- ON の間にインベントリを並べ替え・セクション分けしていたら、素の並びへ組み立て直す
+        -- (フックは OFF を見て素の動きだけになるので、組み立て直せば元に戻る)
+        if g.aoh_inventory_touched then
+            g.aoh_inventory_touched = nil
+            local inventory = ui.GetFrame("inventory")
+            if inventory then
+                INVENTORY_TOTAL_LIST_GET(inventory)
+            end
+        end
         return
     end
     Archeology_helper_start()
     g.setup_hook_and_event(g.addon, "TARGETSPACE_PRECHECK", "Archeology_helper_TARGETSPACE_PRECHECK", true)
+    g.setup_hook(Archeology_helper_INV_ICON_SETINFO, "INV_ICON_SETINFO")
+    -- インベントリはログイン時(この初期化より前)に組み立てられ、開くだけでは描き直されないので、
+    -- 掛けた後に一度描き直して番号を出す
+    ReserveScript("Archeology_helper_relic_refresh()", 1.0)
+    -- 遺物の並べ替え。インベントリを組み立て直した後と、アイテムが増減した後に並べ直す。
+    -- INVENTORY_TOTAL_LIST_GET は Mini Addons が置換方式で掛けているので、こちらは後ろで
+    -- メッセージを受ける方式にする(g.setup_hook で掛けると Mini Addons の置換を飛ばして素を呼んでしまう)。
+    g.setup_hook_and_event(g.addon, "INVENTORY_TOTAL_LIST_GET", "Archeology_helper_relic_sort_request", true)
+    g.register_msg("INV_ITEM_ADD", "Archeology_helper_relic_sort_request")
+    g.register_msg("INV_ITEM_REMOVE", "Archeology_helper_relic_sort_request")
+    -- 鑑定した遺物の NEW の印(鑑定の結果は素の archeology_identify と同じメッセージで受ける)
+    g.register_msg("ARCHEOLOGY_IDENTIFY_FINISHED", "Archeology_helper_IDENTIFY_FINISHED")
+    g.register_msg("SUCCESS_ARCH_IDENTIFY", "Archeology_helper_IDENTIFY_SUCCESS")
+    g.register_msg("INV_ITEM_REMOVE", "Archeology_helper_relic_new_remove")
+    -- 祭壇ランク上昇の投入数を、使える最大数で始める
+    g.setup_hook(Archeology_helper_EXCUTE_EXHIBITION_RANKUP, "EXCUTE_EXHIBITION_RANKUP")
+    g.setup_hook(Archeology_helper_INSERT_ITEM_TO_TREE, "INSERT_ITEM_TO_TREE")
+    -- 最後の祭壇(展示画面)を開いている間は、インベントリをアーキオロジーだけにする
+    g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN, "ARCHEOLOGY_EXHIBITION_OPEN")
+    g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE, "ARCHEOLOGY_EXHIBITION_CLOSE")
+    Archeology_helper_arrive_home()
+    Archeology_helper_try_ask_end("map")
 end
 
 function Archeology_helper_start()
@@ -106,6 +211,10 @@ function Archeology_helper_start()
     g.register_msg("ARCHEOLOGY_MISSION_ACCEPT_RESULT", "Archeology_helper_MISSION_ACCEPT_RESULT")
     g.register_msg("ARCHE_SEARCH_RESULT", "Archeology_helper_ARCHE_SEARCH_RESULT")
     g.register_msg("ARCHE_SEARCH_RESET", "Archeology_helper_ARCHE_SEARCH_RESET")
+    -- 地点を見つけると開くポータルのインスタンスダンジョンの結果と、その表示が閉じたとき
+    -- (addon.ipf/archeology_portal_tracker の ON_ARCHEOLOGY_PORTAL_TRACKER_RESULT / _CLOSE と同じメッセージ)
+    g.register_msg("ARCHEOLOGY_PORTAL_TRACKER_RESULT", "Archeology_helper_PORTAL_RESULT")
+    g.register_msg("ARCHEOLOGY_PORTAL_TRACKER_CLOSE", "Archeology_helper_PORTAL_CLOSE")
     -- 敵の位置。素のミニマップ・全体マップと同じメッセージ(addon.ipf/map/map_monpos.lua の MAP_MON_MINIMAP)
     g.register_msg("MON_MINIMAP", "Archeology_helper_MON_MINIMAP")
     g.register_msg("MON_MINIMAP_END", "Archeology_helper_MON_MINIMAP_END")
@@ -280,6 +389,117 @@ function Archeology_helper_ARCHE_SEARCH_RESULT(frame, msg, arg_str, arg_num)
     Archeology_helper_frame_init()
 end
 
+-- 依頼を終えた後、次の依頼を受けにクラペダへ戻るか聞く。試行回数(n/70)の上限では聞かない。
+-- **地点を見つけた時点では聞かない。** 地点に触れるとポータルのダンジョンが始まり、依頼が終わるのはそれを終えたとき。
+-- 依頼が終わったかは**ゲームの記録(アカウントの archeology_map_<n>_complete)**で見る。素の全体マップも
+-- これを見ている。地点に触れた回数を数える方法は、1 つの地点で TARGETSPACE_PRECHECK が何度も来るので
+-- 早く 4 に届いてしまい、途中のダンジョンの後で聞いてしまった(2026-10-12 の実機)。流れは次の 3 段:
+--   1. ダンジョンの結果が届いた(ARCHEOLOGY_PORTAL_TRACKER_RESULT) → end_result にそのマップ名を控える
+--   2. フィールドへ戻った(マップの読み込み)か、フィールド(レイヤー 0)で結果の表示が閉じた
+--   3. 全ての対象マップが完了になっていれば聞く。なっていなければ(途中のダンジョン)控えを消して聞かない
+-- 2 でフィールドかを見るのは、ダンジョンの中でクラペダへ戻ろうとしても飛べないため。
+function Archeology_helper_PORTAL_RESULT(frame, msg, arg_str, arg_num)
+    if not Archeology_helper_active() then
+        return
+    end
+    g.vlog("archeology_helper: ARCHEOLOGY_PORTAL_TRACKER_RESULT arg_str=%s map=%s layer=%d", tostring(arg_str),
+        session.GetMapName(), world.GetLayer())
+    g.aoh_settings.end_result = session.GetMapName()
+    g.aoh_end_retry = 0
+    Archeology_helper_save_settings()
+end
+
+-- 依頼の対象マップが全部「完了」になっているか(ゲームの記録で見る)。
+-- ダンジョンの後でしか呼ばないので、対象マップが空(終わって消された)も完了として扱う
+function Archeology_helper_mission_complete()
+    local maps = Archeology_helper_active_maps()
+    if #maps == 0 then
+        g.vlog("archeology_helper: 依頼の対象マップが空なので、終わったものとして扱う")
+        return true
+    end
+    for _, map in ipairs(maps) do
+        if not map.complete then
+            return false
+        end
+    end
+    return true
+end
+
+-- 最後の地点のダンジョンでは結果(RESULT)が届かず、表示が閉じる(CLOSE)だけだった(2026-10-12 の実機)。
+-- そのため、結果を受けていなくても、閉じた時点で依頼が完了になっていれば聞く流れに乗せる
+function Archeology_helper_PORTAL_CLOSE(frame, msg, arg_str, arg_num)
+    if not Archeology_helper_active() then
+        return
+    end
+    -- ここは結果を受けていないので、対象マップが空(依頼が無い)ときは完了と見なさない
+    local maps = Archeology_helper_active_maps()
+    local complete = #maps > 0
+    for _, map in ipairs(maps) do
+        complete = complete and map.complete
+    end
+    g.vlog("archeology_helper: ARCHEOLOGY_PORTAL_TRACKER_CLOSE map=%s layer=%d 完了=%s end_result=%s",
+        session.GetMapName(), world.GetLayer(), tostring(complete), tostring(g.aoh_settings.end_result))
+    if not g.aoh_settings.end_result and complete and not g.aoh_settings.end_asked then
+        g.aoh_settings.end_result = session.GetMapName()
+        g.aoh_end_retry = 0
+        Archeology_helper_save_settings()
+    end
+    Archeology_helper_try_ask_end("close")
+end
+
+-- from = "map"(マップの読み込み)/ "close"(結果の表示が閉じた)
+function Archeology_helper_try_ask_end(from)
+    local pending = g.aoh_settings and g.aoh_settings.end_result
+    if type(pending) ~= "string" then
+        return
+    end
+    local map_name = session.GetMapName()
+    -- 表示が閉じただけのときは、最後の地点があったフィールドに居る(= ダンジョンを出ている)ときだけ聞く
+    if from ~= "map" and map_name ~= pending then
+        g.vlog("archeology_helper: ダンジョンの結果は出たが、まだ %s に居るので聞かない(地点は %s)", map_name, pending)
+        return
+    end
+    -- 同じマップのままダンジョンがレイヤーで分かれている場合は、出るまで 2 秒ごとに見直す
+    -- (マップを移ったら上の判定で止まり、読み込みの側で聞く)
+    if from ~= "map" and world.GetLayer() ~= 0 then
+        g.vlog("archeology_helper: ダンジョンの結果は出たが、まだレイヤー %d に居るので待つ", world.GetLayer())
+        ReserveScript("Archeology_helper_try_ask_end('close')", 2.0)
+        return
+    end
+    -- 完了の記録はダンジョンの結果より少し遅れて届くことがあるので、閉じた直後は 1 秒おきに 3 回まで見直す
+    if not Archeology_helper_mission_complete() then
+        g.aoh_end_retry = (g.aoh_end_retry or 0) + 1
+        if from ~= "map" and g.aoh_end_retry <= 3 then
+            ReserveScript("Archeology_helper_try_ask_end('close')", 1.0)
+            return
+        end
+        g.vlog("archeology_helper: ダンジョンを終えたが、依頼はまだ終わっていない(%s, map=%s)", from, map_name)
+        g.aoh_settings.end_result = nil
+        Archeology_helper_save_settings()
+        return
+    end
+    g.vlog("archeology_helper: 依頼の最後のダンジョンを終えた(%s, map=%s)", from, map_name)
+    g.aoh_settings.end_result = nil
+    Archeology_helper_save_settings()
+    -- マップの読み込み直後は、確認の窓を出しても描き直しで消えることがあるので少し待つ
+    ReserveScript("Archeology_helper_ask_go_home()", from == "map" and 1.5 or 0.1)
+end
+
+-- 次の依頼を受けにクラペダへ戻るか聞く。聞くのは 1 つの依頼につき 1 回だけ(end_asked。次の依頼を受けたら下ろす)。
+function Archeology_helper_ask_go_home()
+    if (g.aoh_settings.end_ask or 1) ~= 1 or g.aoh_settings.end_asked then
+        g.vlog("archeology_helper: 全地点を掘り終えたが聞かない(end_ask=%s end_asked=%s)",
+            tostring(g.aoh_settings.end_ask), tostring(g.aoh_settings.end_asked))
+        return
+    end
+    g.vlog("archeology_helper: 全地点を掘り終えたのでクラペダへ戻るか聞く")
+    g.aoh_settings.end_asked = true
+    Archeology_helper_save_settings()
+    local msg = g.lang == "Japanese" and "全ての地点の発掘が完了しました{nl}再度依頼を受けにクラペダへ戻りますか？" or
+                    "All excavation points are done{nl}Return to Klaipeda to take the next mission?"
+    ui.MsgBox(msg, "Archeology_helper_go_home()", "None")
+end
+
 -- 敵を表示するか(既定は表示する)
 function Archeology_helper_mon_enabled()
     return (g.aoh_settings.mob_display or 1) == 1
@@ -431,6 +651,7 @@ function Archeology_helper_TARGETSPACE_PRECHECK(my_frame, my_msg)
         end
         Archeology_helper_save_settings()
         Archeology_helper_frame_init()
+        -- クラペダへ戻るかは、ここではなくダンジョンを終えた後にゲームの記録で決める(Archeology_helper_try_ask_end)
     end
 end
 
@@ -458,12 +679,38 @@ function Archeology_helper_MISSION_ACCEPT_RESULT(frame, msg, arg_str, arg_num)
     g.aoh_settings.count = 0
     g.aoh_settings.is_archeology = true
     g.aoh_settings.map_info = {}
+    g.aoh_settings.end_asked = nil
+    g.aoh_settings.end_pending = nil -- 旧版の控え(今は使わない)
+    g.aoh_settings.end_result = nil
+    -- 鑑定した遺物の NEW の印は、次の依頼を受けた時点で「もう見た」ものとして下ろす
+    if next(g.aoh_settings.relic_new_guids or {}) then
+        g.aoh_settings.relic_new_guids = {}
+        Archeology_helper_relic_redraw_request()
+    end
     Archeology_helper_save_settings()
     g.aoh_display = 0
     ui.DestroyFrame(addon_name_lower .. "au_map")
     -- 対象マップはアカウントのプロパティに後から入るので、少し待ってから描く
     local _nexus_addons_p = ui.GetFrame("_nexus_addons_p")
     _nexus_addons_p:RunUpdateScript("Archeology_helper_frame_init", 1.0)
+    -- 対象マップへのトークンワープ。素の WORLDMAP2_TOKEN_WARP が確認を出すので、こちらでは聞かない。
+    -- 対象マップが入るのを待つため、パネルを描き直すより少し後にする。
+    if (g.aoh_settings.accept_warp or 1) == 1 then
+        ReserveScript("Archeology_helper_accept_tokenwarp()", 1.5)
+    end
+end
+
+-- 依頼を受けた直後に、まだ掘り終えていない最初の対象マップへトークンワープする。
+function Archeology_helper_accept_tokenwarp()
+    for _, map in ipairs(Archeology_helper_active_maps()) do
+        if not Archeology_helper_is_map_done(map) then
+            g.vlog("archeology_helper: 依頼を受けたので %s へトークンワープする(CD=%s)", map.name,
+                tostring(GET_TOKEN_WARP_COOLDOWN()))
+            WORLDMAP2_TOKEN_WARP(map.name)
+            return
+        end
+    end
+    g.vlog("{#FF6347}archeology_helper: 依頼を受けたが対象マップがまだ入っていないのでトークンワープしない{/}")
 end
 
 function Archeology_helper_frame_init(_nexus_addons_p)
@@ -639,8 +886,8 @@ function Archeology_helper_frame_init(_nexus_addons_p)
     AUTO_CAST(home_btn)
     home_btn:SetText(g.lang == "Japanese" and "{ol}{s12}クラペダへ" or "{ol}{s12}Klaipeda")
     home_btn:SetTextTooltip(g.lang == "Japanese" and
-                                "{ol}依頼の NPC が居るクラペダへ戻ります{nl}トークンワープは使いません(クエストワープ / ワープスクロール){nl}使うクエストは設定で選べます" or
-                                "{ol}Return to Klaipeda, where the mission NPC is{nl}Does not use token warp (quest warp / warp scroll){nl}Choose the quest in settings")
+                                "{ol}依頼の NPC が居るクラペダへ戻ります{nl}トークンワープは使いません(クエストワープ / ワープスクロール){nl}着いたら NPC の前へ移動します(クラペダに居るときは NPC の前へ移動だけ){nl}使うクエスト・NPC への移動は設定で選べます" or
+                                "{ol}Return to Klaipeda, where the mission NPC is{nl}Does not use token warp (quest warp / warp scroll){nl}Moves to the NPC on arrival (only moves to the NPC if already in Klaipeda){nl}Quest and NPC move are configurable in settings")
     home_btn:SetEventScript(ui.LBUTTONUP, "Archeology_helper_go_home")
     local base_btn = au_map:CreateOrGetControl("button", "base_btn", g.aoh_panel_w - 50, 0, 50, 20)
     AUTO_CAST(base_btn)
@@ -701,8 +948,47 @@ function Archeology_helper_home_quest_candidates()
     return list
 end
 
+-- 依頼の NPC の前へ移動する。クラペダに居るときだけ。
+function Archeology_helper_move_npc()
+    if session.GetMapName() ~= g.aoh.home_map then
+        g.vlog("archeology_helper: NPC へ移動しない(クラペダではない map=%s)", session.GetMapName())
+        return
+    end
+    if world.GetLayer() ~= 0 then
+        g.vlog("archeology_helper: NPC へ移動しない(レイヤー %d)", world.GetLayer())
+        ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
+        return
+    end
+    local name = g.lang == "Japanese" and "考古学者アイリーネ" or "Archeologist Airine"
+    g.vlog("archeology_helper: NPC へ移動する dialog=%s", g.aoh.home_npc_dialog)
+    FullScreenMenuMoveNpc(name, "NO", g.aoh.home_map, g.aoh.home_npc_dialog, "None", "YES")
+end
+
+-- マップを読み込むたびに呼ぶ。「クラペダへ」で出発してクラペダに着いたときだけ NPC へ移動する。
+-- 着いた場所に関係なく印は 1 回で消す(途中で別のマップへ寄ったら、もう NPC へは動かさない)。
+function Archeology_helper_arrive_home()
+    local pending = g.aoh_npc_pending
+    if not pending then
+        return
+    end
+    g.aoh_npc_pending = nil
+    local elapsed = imcTime.GetAppTime() - pending
+    local map_name = session.GetMapName()
+    g.vlog("archeology_helper: 「クラペダへ」の後のマップ読み込み map=%s 経過=%.1f 秒", map_name, elapsed)
+    if map_name ~= g.aoh.home_map or elapsed > g.aoh.home_npc_wait then
+        return
+    end
+    -- 読み込み直後はまだ移動を受け付けないことがあるので少し待つ
+    ReserveScript("Archeology_helper_move_npc()", 1.5)
+end
+
 function Archeology_helper_go_home()
+    local to_npc = (g.aoh_settings.home_npc or 1) == 1
     if session.GetMapName() == g.aoh.home_map then
+        if to_npc then
+            Archeology_helper_move_npc()
+            return
+        end
         ui.SysMsg(g.lang == "Japanese" and "既にクラペダに居ます" or "You are already in Klaipeda")
         return
     end
@@ -719,6 +1005,7 @@ function Archeology_helper_go_home()
             g.vlog("archeology_helper: クラペダへ クエスト %d result=%s state=%s", quest.quest_id, tostring(result),
                 tostring(state))
             if result == quest.result and state == quest.state then
+                g.aoh_npc_pending = to_npc and imcTime.GetAppTime() or nil
                 QUESTION_QUEST_WARP(nil, nil, nil, quest.quest_id)
                 return
             end
@@ -729,6 +1016,7 @@ function Archeology_helper_go_home()
         if inv_item then
             local item_obj = GetIES(inv_item:GetObject())
             g.vlog("archeology_helper: クラペダへ ワープスクロールを使う(残り %d)", inv_item.count)
+            g.aoh_npc_pending = to_npc and imcTime.GetAppTime() or nil
             if TRY_TO_USE_WARP_ITEM(inv_item, item_obj) ~= 1 then
                 INV_ICON_USE(inv_item)
             end
@@ -746,6 +1034,66 @@ end
 
 function Archeology_helper_home_item_setting(frame, ctrl)
     g.aoh_settings.home_item = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+end
+
+function Archeology_helper_home_npc_setting(frame, ctrl)
+    g.aoh_settings.home_npc = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+end
+
+function Archeology_helper_accept_warp_setting(frame, ctrl)
+    g.aoh_settings.accept_warp = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+end
+
+function Archeology_helper_exhibit_focus_setting(frame, ctrl)
+    g.aoh_settings.exhibit_focus = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+end
+
+function Archeology_helper_relic_section_setting(frame, ctrl)
+    g.aoh_settings.relic_section = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+    -- 作ったセクションを消すには組み立て直すしかない(ON のときは組み立て直しの後に作り直す)
+    Archeology_helper_relic_refresh(true)
+end
+
+function Archeology_helper_relic_new_setting(frame, ctrl)
+    g.aoh_settings.relic_new = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+    Archeology_helper_relic_redraw_request()
+end
+
+function Archeology_helper_relic_slot_setting(frame, ctrl)
+    g.aoh_settings.relic_slot = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+    Archeology_helper_relic_refresh(true)
+end
+
+-- インベントリを描き直して、遺物の番号を付け直す(描き直しで INV_ICON_SETINFO を通す)。
+-- force = 設定を切り替えたとき(OFF にしたときも、出ている番号を消すために描き直す)
+function Archeology_helper_relic_refresh(force)
+    if not force and (g.aoh_settings.relic_slot or 1) ~= 1 then
+        return
+    end
+    local inventory = ui.GetFrame("inventory")
+    if not inventory then
+        return
+    end
+    g.vlog("archeology_helper: 遺物の番号のためにインベントリを描き直す")
+    INVENTORY_TOTAL_LIST_GET(inventory)
+end
+
+function Archeology_helper_relic_sort_setting(frame, ctrl)
+    g.aoh_settings.relic_sort = ctrl:IsChecked()
+    Archeology_helper_save_settings()
+    -- OFF にしたときは描き直しで素の並びへ戻る(ON なら描き直しの後に並べ直す)
+    Archeology_helper_relic_refresh(true)
+end
+
+function Archeology_helper_end_ask_setting(frame, ctrl)
+    g.aoh_settings.end_ask = ctrl:IsChecked()
     Archeology_helper_save_settings()
 end
 
@@ -821,13 +1169,64 @@ function Archeology_helper_setting_frame(au_map, display)
                           "{ol}クエストワープが使えないときはクラペダ ワープスクロールを使う" or
                           "{ol}Use a Klaipeda warp scroll when no quest warp is available")
     home_item:SetEventScript(ui.LBUTTONUP, "Archeology_helper_home_item_setting")
-    local mob_display = gbox:CreateOrGetControl('checkbox', "mob_display", 10, 150, 30, 30)
+    local home_npc = gbox:CreateOrGetControl('checkbox', "home_npc", 10, 150, 30, 30)
+    AUTO_CAST(home_npc)
+    home_npc:SetCheck(g.aoh_settings.home_npc or 1)
+    home_npc:SetText(g.lang == "Japanese" and "{ol}クラペダに着いたら依頼の NPC(アイリーネ)の前へ移動する" or
+                         "{ol}Move to the mission NPC (Airine) after arriving in Klaipeda")
+    home_npc:SetEventScript(ui.LBUTTONUP, "Archeology_helper_home_npc_setting")
+    local end_ask = gbox:CreateOrGetControl('checkbox', "end_ask", 10, 185, 30, 30)
+    AUTO_CAST(end_ask)
+    end_ask:SetCheck(g.aoh_settings.end_ask or 1)
+    end_ask:SetText(g.lang == "Japanese" and "{ol}全地点を掘り終えたらクラペダへ戻るか聞く" or
+                        "{ol}Ask to return to Klaipeda when all points are dug")
+    end_ask:SetEventScript(ui.LBUTTONUP, "Archeology_helper_end_ask_setting")
+    local accept_warp = gbox:CreateOrGetControl('checkbox', "accept_warp", 10, 220, 30, 30)
+    AUTO_CAST(accept_warp)
+    accept_warp:SetCheck(g.aoh_settings.accept_warp or 1)
+    accept_warp:SetText(g.lang == "Japanese" and "{ol}依頼を受けたら対象マップへトークンワープする" or
+                            "{ol}Token warp to the target map after accepting a mission")
+    accept_warp:SetEventScript(ui.LBUTTONUP, "Archeology_helper_accept_warp_setting")
+    local relic_slot = gbox:CreateOrGetControl('checkbox', "relic_slot", 10, 255, 30, 30)
+    AUTO_CAST(relic_slot)
+    relic_slot:SetCheck(g.aoh_settings.relic_slot or 1)
+    relic_slot:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物に展示スロットの番号を出す" or
+                           "{ol}Show the exhibition slot number on relics in the inventory")
+    relic_slot:SetEventScript(ui.LBUTTONUP, "Archeology_helper_relic_slot_setting")
+    local relic_sort = gbox:CreateOrGetControl('checkbox', "relic_sort", 10, 290, 30, 30)
+    AUTO_CAST(relic_sort)
+    relic_sort:SetCheck(g.aoh_settings.relic_sort or 1)
+    relic_sort:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物を レア度 → 効果 → 数値 の順に並べる" or
+                           "{ol}Sort relics in the inventory by rarity, effect, then value")
+    relic_sort:SetEventScript(ui.LBUTTONUP, "Archeology_helper_relic_sort_setting")
+    local relic_new = gbox:CreateOrGetControl('checkbox', "relic_new", 10, 325, 30, 30)
+    AUTO_CAST(relic_new)
+    relic_new:SetCheck(g.aoh_settings.relic_new or 1)
+    relic_new:SetText(g.lang == "Japanese" and "{ol}新しく入った遺物に NEW の印(N)を付ける(次の依頼を受けると消える)" or
+                          "{ol}Mark newly obtained relics as new (N) until the next mission")
+    relic_new:SetEventScript(ui.LBUTTONUP, "Archeology_helper_relic_new_setting")
+    local relic_section = gbox:CreateOrGetControl('checkbox', "relic_section", 10, 360, 30, 30)
+    AUTO_CAST(relic_section)
+    relic_section:SetCheck(g.aoh_settings.relic_section or 1)
+    relic_section:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物を展示スロット(1 / 2 / 3)ごとのセクションに分ける" or
+                              "{ol}Split relics in the inventory into sections by exhibition slot (1 / 2 / 3)")
+    relic_section:SetEventScript(ui.LBUTTONUP, "Archeology_helper_relic_section_setting")
+    local exhibit_focus = gbox:CreateOrGetControl('checkbox', "exhibit_focus", 10, 395, 30, 30)
+    AUTO_CAST(exhibit_focus)
+    exhibit_focus:SetCheck(g.aoh_settings.exhibit_focus or 1)
+    exhibit_focus:SetText(g.lang == "Japanese" and
+                              "{ol}最後の祭壇を開いたら、インベントリをアーキオロジーだけにする" or
+                              "{ol}Show only Archeology in the inventory while the altar is open")
+    exhibit_focus:SetEventScript(ui.LBUTTONUP, "Archeology_helper_exhibit_focus_setting")
+    local mob_display = gbox:CreateOrGetControl('checkbox', "mob_display", 10, 430, 30, 30)
     AUTO_CAST(mob_display)
     mob_display:SetCheck(g.aoh_settings.mob_display or 1)
     mob_display:SetText(g.lang == "Japanese" and "{ol}地図に敵を表示する" or "{ol}Show monsters on the map")
     mob_display:SetEventScript(ui.LBUTTONUP, "Archeology_helper_mob_display_setting")
-    setting:Resize(math.max(sta_check:GetWidth(), home_item:GetWidth(), 330) + 50, 245)
-    gbox:Resize(setting:GetWidth() - 20, 195)
+    setting:Resize(math.max(sta_check:GetWidth(), home_item:GetWidth(), home_npc:GetWidth(), relic_slot:GetWidth(),
+        relic_sort:GetWidth(), relic_new:GetWidth(), relic_section:GetWidth(), exhibit_focus:GetWidth(), 330) + 50,
+        525)
+    gbox:Resize(setting:GetWidth() - 20, 475)
     setting:ShowWindow(1)
     g.esc_register_destroy(addon_name_lower .. "archeology_helper_setting")
 end
@@ -1015,4 +1414,853 @@ function Archeology_helper_tokenwarp(frame, ctrl)
         WORLDMAP2_TOKEN_WARP(map_name)
     end
 end
+-- 遺物 1 つが入る展示のスロット(g.aoh.exhibit_slots の 1 件)。遺物でなければ nil。
+-- 遺物の ClassName は「系統名 + 等級(_N / _M / _R)」で、系統名から archeology_base_list の行を引く
+-- (素の GET_ARCEX_SLOT_INFO_BY_ITEM_CLASS と同じ引き方)。
+function Archeology_helper_relic_slot_of(class_name)
+    if type(class_name) ~= "string" or string.sub(class_name, 1, 4) ~= "Arc_" then
+        return nil
+    end
+    if not (shared_archeology and shared_archeology.get_base_profile and GET_ARCHEOLOGY_RELIC_FAMILY_CLASS_NAME) then
+        return nil
+    end
+    local profile = shared_archeology.get_base_profile(GET_ARCHEOLOGY_RELIC_FAMILY_CLASS_NAME(class_name))
+    return profile and g.aoh.exhibit_slots[profile.exhibitSlotType or "None"]
+end
+
+-- 鑑定した遺物の左上に NEW の印(N)を出す。番号と同じく、使い回されたスロットでは消す。
+function Archeology_helper_relic_new_label(slot, inv_item)
+    local name = "aoh_relic_new"
+    local is_new = (g.aoh_settings.relic_new or 1) == 1 and inv_item and
+                       (g.aoh_settings.relic_new_guids or {})[inv_item:GetIESID()]
+    if not is_new then
+        if GET_CHILD(slot, name) then
+            DESTROY_CHILD_BYNAME(slot, name)
+        end
+        return
+    end
+    local label = slot:CreateOrGetControl("richtext", name, 0, 0, 16, 16)
+    AUTO_CAST(label)
+    label:SetGravity(ui.LEFT, ui.TOP)
+    label:SetMargin(4, 2, 0, 0)
+    label:EnableHitTest(0) -- 掴む・右クリックはスロットへ通す
+    label:SetText("{ol}{s16}{#FFFF33}N")
+end
+
+-- 鑑定が終わった遺物(素の ON_ARCHEOLOGY_IDENTIFY_FINISHED と同じく、3 つ目に GUID が来る)。
+-- 鑑定はアイテムを作り直さず同じ GUID の遺物に効果を足すので、GUID で覚える
+function Archeology_helper_IDENTIFY_FINISHED(frame, msg, guid)
+    if not Archeology_helper_active() then
+        return
+    end
+    g.vlog("archeology_helper: ARCHEOLOGY_IDENTIFY_FINISHED guid=%s", tostring(guid))
+    if type(guid) ~= "string" or guid == "" or guid == "None" then
+        return
+    end
+    g.aoh_settings.relic_new_guids = g.aoh_settings.relic_new_guids or {}
+    if not g.aoh_settings.relic_new_guids[guid] then
+        g.aoh_settings.relic_new_guids[guid] = true
+        Archeology_helper_save_settings()
+    end
+    Archeology_helper_relic_redraw_request()
+end
+
+-- 鑑定の成功(素の ON_SUCCESS_ARCH_IDENTIFY と同じメッセージ)。GUID は載らないので、
+-- 鑑定の窓に置いている遺物(素が ITEM_GUID に控えている)を印の対象にする。
+-- ARCHEOLOGY_IDENTIFY_FINISHED だけでは実機で一度も届かなかったので、こちらでも拾う
+function Archeology_helper_IDENTIFY_SUCCESS(frame, msg, arg_str, arg_num)
+    if not Archeology_helper_active() then
+        return
+    end
+    local identify = ui.GetFrame("archeology_identify")
+    local guid = identify and identify:GetUserValue("ITEM_GUID")
+    g.vlog("archeology_helper: SUCCESS_ARCH_IDENTIFY guid=%s", tostring(guid))
+    Archeology_helper_IDENTIFY_FINISHED(frame, msg, guid)
+end
+
+-- 展示・分解・売却などでインベントリから無くなった遺物は印の控えからも消す
+function Archeology_helper_relic_new_remove(frame, msg, guid)
+    if not Archeology_helper_active() then
+        return
+    end
+    local guids = g.aoh_settings.relic_new_guids
+    if guids and type(guid) == "string" and guids[guid] then
+        guids[guid] = nil
+        Archeology_helper_save_settings()
+    end
+end
+
+-- 遺物の表示(番号・NEW の印・並び)を描き直す。鑑定は続けて行うので、まとめて 1 回にする
+function Archeology_helper_relic_redraw_request()
+    if g.aoh_relic_redraw_pending then
+        return
+    end
+    g.aoh_relic_redraw_pending = true
+    ReserveScript("Archeology_helper_relic_redraw()", 0.5)
+end
+
+function Archeology_helper_relic_redraw()
+    g.aoh_relic_redraw_pending = nil
+    if Archeology_helper_relic_layout_enabled() then
+        Archeology_helper_relic_sort() -- 遺物のスロットを全部置き直すので、印も付け直される
+    else
+        Archeology_helper_relic_refresh(true)
+    end
+end
+
+-- 祭壇ランク上昇の窓は、使用数を 1 で開く(素の EXCUTE_EXHIBITION_RANKUP)。素が開いた後に、
+-- 素の EXHIBITION_RANKUP_UPDATE と同じ式(所持数と次の等級までの経験値の小さいほう)の最大数を入れ直す
+function Archeology_helper_EXCUTE_EXHIBITION_RANKUP(frame, ctrl, arg_str, arg_num)
+    local results = {g.FUNCS["EXCUTE_EXHIBITION_RANKUP"](frame, ctrl, arg_str, arg_num)}
+    if not Archeology_helper_active() then
+        return table.unpack(results)
+    end
+    local ok, err = pcall(function()
+        local exhibition = ui.GetFrame("archeology_exhibition")
+        local dialog = exhibition and GET_CHILD_RECURSIVELY(exhibition, "rankup_overlay")
+        if not dialog or dialog:IsVisible() == 0 then
+            return
+        end
+        local coin = session.GetInvItemCountByType(11039559)
+        local next_exp = math.max(GET_EXHIBITION_GOAL_EXP() - TryGetProp(GetMyAccountObj(), "ARCHEOLOGY_EXP", 0), 0)
+        local maximum = math.min(coin, next_exp)
+        g.vlog("archeology_helper: 祭壇ランク上昇の使用数を最大へ 所持=%s 次まで=%s → %s", tostring(coin),
+            tostring(next_exp), tostring(maximum))
+        if maximum < 1 then
+            return
+        end
+        local count = GET_CHILD_RECURSIVELY(dialog, "rankup_count")
+        -- 素は SetTextByKey で書式の控えを入れ直しているが、それでは欄の表示は変わらない
+        -- (実機で 0 のままだった)。素の EXHIBITION_RANKUP_UPDATE は欄の GetText を読むので、欄へ直接書く
+        count:SetTextByKey("count", "")
+        count:SetTextByKey("count", tostring(maximum))
+        AUTO_CAST(count)
+        count:SetText(tostring(maximum))
+        g.vlog("archeology_helper: 祭壇ランク上昇の欄 = %s", tostring(count:GetText()))
+        EXHIBITION_RANKUP_UPDATE()
+    end)
+    if not ok then
+        g.vlog("{#FF6347}archeology_helper: 祭壇ランク上昇の使用数を入れられなかった %s{/}", tostring(err))
+    end
+    return table.unpack(results)
+end
+
+-- インベントリのスロットの右上に、遺物が入る展示スロットの番号を出す。
+-- スロットは別のアイテムへ使い回されるので、遺物でないときは前の番号を消す。
+function Archeology_helper_relic_label(slot, inv_item)
+    Archeology_helper_relic_new_label(slot, inv_item)
+    local name = "aoh_relic_slot"
+    local exhibit = nil
+    if (g.aoh_settings.relic_slot or 1) == 1 and inv_item then
+        local item_cls = GetClassByType("Item", inv_item.type)
+        local class_name = item_cls and item_cls.ClassName
+        exhibit = Archeology_helper_relic_slot_of(class_name)
+        -- 判断材料は 1 回ずつだけ出す(インベントリの全スロットぶん通るので)
+        if exhibit and not g.aoh_relic_logged then
+            g.aoh_relic_logged = true
+            g.vlog("archeology_helper: 遺物に番号を付けた 例 %s → %d", class_name, exhibit.index)
+        elseif not exhibit and type(class_name) == "string" and string.sub(class_name, 1, 4) == "Arc_" and
+            not g.aoh_relic_miss_logged then
+            g.aoh_relic_miss_logged = true
+            g.vlog("archeology_helper: Arc_ だが展示スロットが引けなかった 例 %s", class_name)
+        end
+    end
+    if not exhibit then
+        if GET_CHILD(slot, name) then
+            DESTROY_CHILD_BYNAME(slot, name)
+        end
+        return
+    end
+    local label = slot:CreateOrGetControl("richtext", name, 0, 0, 16, 16)
+    AUTO_CAST(label)
+    label:SetGravity(ui.RIGHT, ui.TOP)
+    label:SetMargin(0, 2, 4, 0)
+    label:EnableHitTest(0) -- 掴む・右クリックはスロットへ通す
+    label:SetText(string.format("{ol}{s16}{#%s}%d", exhibit.color, exhibit.index))
+end
+
+-- 素の INV_ICON_SETINFO(インベントリの 1 スロットにアイテムを置く)の後に番号を足す。
+-- インベントリを描くたびに全スロットぶん通るので、遺物でなければ ClassName の先頭だけ見て抜ける。
+-- こちらで転ぶとインベントリの描画ごと止まるので pcall で包む。
+function Archeology_helper_INV_ICON_SETINFO(frame, slot, inv_item, custom_func, script_arg, count)
+    local results = {g.FUNCS["INV_ICON_SETINFO"](frame, slot, inv_item, custom_func, script_arg, count)}
+    if not Archeology_helper_active() then
+        return table.unpack(results)
+    end
+    g.aoh_inventory_touched = true
+    local ok, err = pcall(Archeology_helper_relic_label, slot, inv_item)
+    if not ok and not g.aoh_relic_label_err then
+        g.aoh_relic_label_err = true -- スロットの数だけ出ないよう 1 回だけ
+        g.vlog("{#FF6347}archeology_helper: 遺物のスロット番号を出せなかった %s{/}", tostring(err))
+    end
+    return table.unpack(results)
+end
+-- ===== インベントリの遺物の並べ替え(見た目だけ) =====
+-- 素のインベントリはアイテムを「インベントリ上の位置(invIndex)」のスロットへ置く。位置そのものを
+-- 入れ替えるにはサーバーへ 1 つずつ送るしかないので、**表示だけ**並べ替える。素の検索中と同じく、
+-- 遺物の入る slotset のスロットへ並べ替えた順に置き直す(1 個ずつの更新は GUID でスロットを探すので崩れない)。
+-- 素がインベントリを組み立て直したり 1 個だけ足し引きしたりすると位置どおりに戻るので、そのたびに並べ直す。
+
+-- 遺物 1 つの並びの鍵。rank = 等級(高いほど前)、opts = 効果の並び(1 つ目から)
+function Archeology_helper_relic_sort_key(inv_item)
+    local obj = GetIES(inv_item:GetObject())
+    local class_name = TryGetProp(obj, "ClassName", "None")
+    local key = {
+        rank = 0,
+        opts = {},
+        name = class_name,
+        index = inv_item.invIndex
+    }
+    if string.sub(class_name, 1, 4) ~= "Arc_" then
+        return key
+    end
+    key.rank = g.aoh.relic_rarity_rank[string.sub(class_name, -2)] or 0
+    -- 効果は接頭(Arc_Prefix)→ 接尾(Arc_Suffix)の順。素のツールチップと同じ並び
+    local metas = {}
+    for _, prop in ipairs({"Arc_Prefix", "Arc_Suffix"}) do
+        local meta = TryGetProp(obj, prop, "None")
+        if meta ~= nil and meta ~= "" and meta ~= "None" then
+            metas[#metas + 1] = meta
+        end
+    end
+    if #metas == 0 or not GET_ARCHEOLOGY_OPTION_INFO then
+        return key
+    end
+    for _, opt in ipairs(GET_ARCHEOLOGY_OPTION_INFO(table.concat(metas, ",")) or {}) do
+        local category = GET_ARCHEOLOGY_EXHIBITION_EFFECT_CATEGORY_KEY and
+                             GET_ARCHEOLOGY_EXHIBITION_EFFECT_CATEGORY_KEY(opt.tag) or "Combat"
+        key.opts[#key.opts + 1] = {
+            category = g.aoh.relic_category_weight[category] or 99,
+            weight = g.aoh.relic_effect_weight[opt.tag] or 999,
+            tag = tostring(opt.tag),
+            value = tonumber(opt.value) or 0
+        }
+    end
+    return key
+end
+
+-- 等級の高い順 → 効果(1 つ目から順に、種類 → 数値の高い順) → ClassName → 位置
+function Archeology_helper_relic_sort_less(a, b)
+    if a.rank ~= b.rank then
+        return a.rank > b.rank
+    end
+    for i = 1, math.max(#a.opts, #b.opts) do
+        local x, y = a.opts[i], b.opts[i]
+        if not x or not y then
+            return x ~= nil -- 効果の多いほうを前へ
+        end
+        if x.category ~= y.category then
+            return x.category < y.category
+        end
+        if x.weight ~= y.weight then
+            return x.weight < y.weight
+        end
+        if x.tag ~= y.tag then
+            return x.tag < y.tag
+        end
+        if x.value ~= y.value then
+            return x.value > y.value
+        end
+    end
+    if a.name ~= b.name then
+        return a.name < b.name
+    end
+    return a.index < b.index
+end
+
+-- 並べ直しの依頼。組み立て直しや足し引きは続けて来るので、まとめて 1 回にする
+function Archeology_helper_relic_sort_request()
+    if not Archeology_helper_active() then
+        return
+    end
+    -- 足し引きの結果が一覧へ反映されるのが遅れることがあるので、1.5 秒後にもう 1 回だけ並べ直す
+    if not g.aoh_relic_followup_pending then
+        g.aoh_relic_followup_pending = true
+        ReserveScript("Archeology_helper_relic_followup()", 1.5)
+    end
+    if g.aoh_relic_sort_pending then
+        return
+    end
+    g.aoh_relic_sort_pending = true
+    ReserveScript("Archeology_helper_relic_update()", 0.3)
+end
+
+function Archeology_helper_relic_followup()
+    g.aoh_relic_followup_pending = nil
+    if not g.aoh_relic_sort_pending then
+        Archeology_helper_relic_update()
+    end
+end
+
+-- 組み立て直し・足し引きの後の処理。新しく増えた遺物に NEW の印を付けてから、並べ替える。
+-- ReserveScript から呼ばれるので、転んでもエラーが見えない。**1 つ転ぶと後ろが全部止まる**
+-- (セクションが作られたまま空で残った。2026-10-12 の実機)ので、段ごとに pcall で包んでログへ出す
+function Archeology_helper_relic_update()
+    g.aoh_relic_sort_pending = nil
+    local function step(label, func)
+        local ok, result = pcall(func)
+        if not ok then
+            g.vlog("{#FF6347}archeology_helper: %s で失敗 %s{/}", label, tostring(result))
+            return nil
+        end
+        return result
+    end
+    local found_new = step("NEW の印", Archeology_helper_relic_detect_new)
+    if Archeology_helper_relic_layout_enabled() then
+        step("遺物の並べ替え", Archeology_helper_relic_sort) -- 遺物のスロットを全部置き直すので、印もここで付く
+    elseif found_new then
+        step("描き直し", function()
+            Archeology_helper_relic_refresh(true)
+        end)
+    end
+    -- 祭壇を開いている間に素が組み立て直すと(OpenNodeAll で)カテゴリが全部開くので、畳み直す
+    if g.aoh_exhibit_saved then
+        step("アーキオロジーだけにする", Archeology_helper_exhibit_focus)
+    end
+end
+
+-- 素のインベントリが表示するアイテムか(素の INVENTORY_TOTAL_LIST_GET と同じ条件:
+-- MarketCategory が None でない・個数が 1 以上)。祭壇に展示した遺物は一覧に個数 0 で残ることがあり、
+-- これを数えると展示した遺物がインベントリに出たままになった(2026-10-12 の実機)
+function Archeology_helper_inv_item_shown(inv_item)
+    if not inv_item or (inv_item.count or 0) <= 0 then
+        return false
+    end
+    local obj = GetIES(inv_item:GetObject())
+    return obj ~= nil and TryGetProp(obj, "MarketCategory", "None") ~= "None"
+end
+
+-- 新しくインベントリへ入った遺物を NEW にする。
+-- 遺物はダンジョンの報酬として保管され、街へ戻ったときの精算でインベントリへ届く
+-- (archeology_reward_vault)。精算のメッセージには GUID が無いので、**前に見た遺物の GUID の控え**
+-- (キャラごとの relic_known)と比べて、無かったものを新しい遺物とする。
+-- 控えが無い最初の 1 回は、今ある遺物を控えるだけで印は付けない(全部 NEW になってしまうので)。
+function Archeology_helper_relic_detect_new()
+    local char = g.aoh_settings[g.cid]
+    if not char then
+        return false
+    end
+    session.BuildInvItemSortedList()
+    local list = session.GetInvItemSortedList()
+    local now = {}
+    for i = 0, list:size() - 1 do
+        local inv_item = list:at(i)
+        if Archeology_helper_inv_item_shown(inv_item) then
+            local obj = GetIES(inv_item:GetObject())
+            local class_name = TryGetProp(obj, "ClassName", "None")
+            if string.sub(class_name, 1, 4) == "Arc_" and GetClass("archeology_exhibition_item", class_name) then
+                now[inv_item:GetIESID()] = true
+            end
+        end
+    end
+    local known = char.relic_known
+    local added = 0
+    -- 祭壇を開いている間に入ったものは、展示から外して戻った遺物(戻るときに GUID が変わる)なので印を付けない
+    local exhibition = ui.GetFrame("archeology_exhibition")
+    local from_exhibition = exhibition ~= nil and exhibition:IsVisible() == 1
+    if type(known) == "table" and (g.aoh_settings.relic_new or 1) == 1 and not from_exhibition then
+        g.aoh_settings.relic_new_guids = g.aoh_settings.relic_new_guids or {}
+        for guid in pairs(now) do
+            if not known[guid] and not g.aoh_settings.relic_new_guids[guid] then
+                g.aoh_settings.relic_new_guids[guid] = true
+                added = added + 1
+            end
+        end
+    end
+    -- 増減を出す(展示すると GUID が入れ替わるので、古い GUID がいつ消えるかを追う)
+    if type(known) == "table" then
+        local plus, minus = {}, {}
+        for guid in pairs(now) do
+            if not known[guid] then
+                plus[#plus + 1] = guid
+            end
+        end
+        for guid in pairs(known) do
+            if not now[guid] then
+                minus[#minus + 1] = guid
+            end
+        end
+        if #plus > 0 or #minus > 0 then
+            g.vlog("archeology_helper: 遺物の増減 +%d [%s] -%d [%s] 祭壇=%s", #plus, table.concat(plus, " "), #minus,
+                table.concat(minus, " "), tostring(from_exhibition))
+        end
+    end
+    -- 控えは今ある遺物だけにする(無くなった遺物を残すと控えが膨らむ)
+    local changed = type(known) ~= "table" or added > 0
+    if not changed then
+        for guid in pairs(known) do
+            if not now[guid] then
+                changed = true
+                break
+            end
+        end
+        if not changed then
+            for guid in pairs(now) do
+                if not known[guid] then
+                    changed = true
+                    break
+                end
+            end
+        end
+    end
+    if changed then
+        char.relic_known = now
+        Archeology_helper_save_settings()
+    end
+    if added > 0 then
+        g.vlog("archeology_helper: 新しく入った遺物 %d 個に NEW の印を付けた", added)
+    end
+    return added > 0
+end
+
+-- 空いたスロットを素の INVENTORY_SLOTSET_INIT と同じ形へ戻す
+function Archeology_helper_relic_clear_slot(slot)
+    INIT_INVEN_SLOT(slot)
+    slot:SetText(' ', 'count', ui.RIGHT, ui.BOTTOM, -2, 1)
+    slot:ClearIcon()
+    slot:SetFrontImage('None')
+    DESTROY_CHILD_BYNAME(slot, "styleset_")
+    DESTROY_CHILD_BYNAME(slot, "itemlock")
+    DESTROY_CHILD_BYNAME(slot, "aoh_relic_slot")
+    DESTROY_CHILD_BYNAME(slot, "aoh_relic_new")
+    -- 前に置いていたアイテムの位置を指したままにしない(右クリックで使われないように)
+    slot:SetEventScriptArgNumber(ui.RBUTTONDOWN, 0)
+    slot:SetEventScriptArgNumber(ui.RBUTTONDBLCLICK, 0)
+    slot:SetEventScriptArgNumber(ui.LBUTTONDOWN, 0)
+end
+
+-- 並べ替え・セクション分けのどちらかが ON なら置き直す(並べ替えが OFF なら元の位置の順のまま)
+function Archeology_helper_relic_layout_enabled()
+    return (g.aoh_settings.relic_sort or 1) == 1 or (g.aoh_settings.relic_section or 1) == 1
+end
+
+function Archeology_helper_relic_sort()
+    g.aoh_relic_sort_pending = nil
+    if not Archeology_helper_relic_layout_enabled() then
+        return
+    end
+    local inventory = ui.GetFrame("inventory")
+    if not inventory then
+        return
+    end
+    -- 検索中は素が絞り込んだ結果を詰めて並べているので触らない
+    local search = GET_CHILD_RECURSIVELY(inventory, "ItemSearch")
+    if search and search:GetText() ~= "" then
+        g.vlog("archeology_helper: 検索欄に「%s」があるので遺物を並べ替えない", tostring(search:GetText()))
+        return
+    end
+    -- 遺物の入る slotset ごとに、そこへ入るアイテムを**全部**集める(遺物以外も落とさない)
+    session.BuildInvItemSortedList()
+    local list = session.GetInvItemSortedList()
+    local sets = {}
+    local has_relic = {}
+    local hidden = 0
+    -- 展示の出し入れの直後は、同じ遺物(GUID)が一覧に 2 回入っていることがある(2026-10-12 の実機で
+    -- 展示しても遺物が残って見えた)ので、GUID で 1 つにまとめる
+    local seen = {}
+    local dup = {}
+    for i = 0, list:size() - 1 do
+        local inv_item = list:at(i)
+        local shown = Archeology_helper_inv_item_shown(inv_item)
+        if inv_item and not shown then
+            hidden = hidden + 1
+        end
+        if shown then
+            local guid = inv_item:GetIESID()
+            if seen[guid] then
+                dup[#dup + 1] = string.format("%s(%d/%d)", guid, seen[guid], inv_item.invIndex)
+                shown = false
+            else
+                seen[guid] = inv_item.invIndex
+            end
+        end
+        if shown then
+            local set_name = GET_SLOTSET_NAME(inv_item.invIndex)
+            local sort_key = Archeology_helper_relic_sort_key(inv_item)
+            sets[set_name] = sets[set_name] or {}
+            table.insert(sets[set_name], {
+                item = inv_item,
+                sort_key = sort_key
+            })
+            if sort_key.rank > 0 then
+                has_relic[set_name] = true
+            end
+        end
+    end
+    if #dup > 0 then
+        g.vlog("{#FF6347}archeology_helper: 一覧に同じアイテムが重なっていた %d 件 %s{/}", #dup, table.concat(dup, " "))
+    end
+    if g.aoh_relic_hidden ~= hidden then
+        g.aoh_relic_hidden = hidden
+        g.vlog("archeology_helper: 一覧にあるが表示しないアイテム(個数 0 など) %d 個", hidden)
+    end
+    local group = GET_CHILD_RECURSIVELY(inventory, "inventoryGbox")
+    if not group then
+        return
+    end
+    local sectioned = (g.aoh_settings.relic_section or 1) == 1
+    for set_name in pairs(has_relic) do
+        local entries = sets[set_name]
+        local sorted = (g.aoh_settings.relic_sort or 1) == 1
+        table.sort(entries, function(a, b)
+            if not sorted then
+                return a.sort_key.index < b.sort_key.index
+            end
+            return Archeology_helper_relic_sort_less(a.sort_key, b.sort_key)
+        end)
+        local placed = 0
+        for _, type_str in ipairs(g_invenTypeStrList or {}) do
+            local tree_box = GET_CHILD_RECURSIVELY(group, "treeGbox_" .. type_str)
+            local tree = tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_" .. type_str)
+            local slotset = tree and GET_CHILD_RECURSIVELY(tree, set_name, "ui::CSlotSet")
+            if slotset then
+                AUTO_CAST(slotset)
+                if sectioned then
+                    Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries)
+                else
+                    Archeology_helper_relic_fill_slotset(inventory, slotset, entries)
+                end
+                placed = placed + 1
+            end
+        end
+        -- 展示の出し入れで置き直しが効かない不具合を追うため、毎回出す(足し引きのときだけ通る経路)
+        g.vlog("archeology_helper: 遺物を置き直した %s (%d 個 / %d か所)", set_name, #entries, placed)
+        -- 素が遺物を 1 個抜いた(展示した)後は、元の「遺物」の区切りがどの tree にも見つからなくなり
+        -- (0 か所)、足したセクションが古いまま残って、展示した遺物が出たままになった(2026-10-12 の実機)。
+        -- そのときは組み立て直して、区切りごと作り直す。続けて来ても 1 秒に 1 回まで
+        if placed == 0 then
+            local now = imcTime.GetAppTime()
+            if not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 1.0 then
+                g.aoh_relic_rebuild_at = now
+                g.vlog("archeology_helper: %s が見つからないのでインベントリを組み立て直す", set_name)
+                INVENTORY_TOTAL_LIST_GET(inventory)
+            end
+        end
+    end
+end
+-- slotset のスロットへ entries の順にアイテムを置き、余ったスロットは空にする
+function Archeology_helper_relic_fill_slotset(inventory, slotset, entries)
+    while slotset:GetSlotCount() < #entries do
+        slotset:ExpandRow(true)
+    end
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        local entry = entries[i + 1]
+        if entry then
+            slot:ShowWindow(1)
+            INV_SLOT_UPDATE(inventory, entry.item, slot)
+        elseif slot:GetIcon() then
+            Archeology_helper_relic_clear_slot(slot)
+        end
+    end
+    slotset:MakeSelectionList()
+end
+
+-- ===== 遺物を展示スロットごとのセクションに分ける(見た目だけ) =====
+-- 元の「遺物」の区切り(見出しの richtext + slotset)を「遺物 1スロット」として使い、2 / 3 / その他は
+-- 素の MAKE_INVEN_SLOTSET / MAKE_INVEN_SLOTSET_NAME で足す(素の MAKE_INVEN_SLOTSET_AND_TITLE と同じ作り)。
+-- 名前は「元の名前 + _aoh<番号>」。**tree は足した順に並べるだけ**(素の GET_SLOTSET_SORT_SCORE を広げても
+-- 並びは変わらず、後から足すと「発掘材料」の下に付いた。2026-10-12 の実機)ので、素が組み立て直すときに
+-- 元の区切りを作った直後(INSERT_ITEM_TO_TREE)で 2 / 3 / その他を足し、元の区切りのすぐ下に並べる。
+-- 組み立て直し(tree:Clear)で消えるので、そのたびに作り直される。
+-- 番号 0 は展示スロットに入らないもの(増幅用・ボスの鍵など)。
+-- **元の区切りを空にして残す形は、空のスロットを隠しても行の高さが残り、大きな空白になった**(2026-10-12 の実機)
+-- ので、どの区切りも中身の行数ぶんの高さへ作り直す
+function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries)
+    local base_name = string.sub(set_name, string.len("sset_") + 1)
+    local base_cls = GetClass("inven_baseid", base_name)
+    if not base_cls then
+        return
+    end
+    local treegroup = tree:FindByValue(base_cls.TreeGroup)
+    if tree:IsExist(treegroup) == 0 then
+        return
+    end
+    local buckets = {
+        [0] = {},
+        [1] = {},
+        [2] = {},
+        [3] = {}
+    }
+    for _, entry in ipairs(entries) do
+        local exhibit = Archeology_helper_relic_slot_of(entry.sort_key.name)
+        table.insert(buckets[exhibit and exhibit.index or 0], entry)
+    end
+    local is_jp = g.lang == "Japanese"
+    local created = false
+    for _, k in ipairs({1, 2, 3, 0}) do
+        -- 1 は元の区切りをそのまま使う(見出しの文言だけ変える)
+        local key = k == 1 and base_name or (base_name .. "_aoh" .. k)
+        local section_name = "sset_" .. key
+        local title_name = "ssettitle_" .. key
+        local title_text
+        if k == 0 then
+            title_text = is_jp and "遺物 その他" or "Relics - Other"
+        else
+            title_text = is_jp and string.format("遺物 %dスロット", k) or string.format("Relics - Slot %d", k)
+        end
+        local section = GET_CHILD_RECURSIVELY(tree, section_name, "ui::CSlotSet")
+        if not section and #buckets[k] > 0 then
+            -- 通常は素の組み立て直しの途中で作ってある(Archeology_helper_INSERT_ITEM_TO_TREE)。
+            -- 無いのは設定を途中で ON にしたときなどで、ここで足すとカテゴリの末尾に付く
+            section = Archeology_helper_relic_make_section(tree, treegroup, base_name, k)
+            created = true
+        end
+        if section then
+            AUTO_CAST(section)
+            local title = GET_CHILD_RECURSIVELY(tree, title_name, "ui::CRichText")
+            -- 見出しを押して畳んでいる区切り(素の SET_INVENTORY_SLOTSET_OPEN が高さ 0 にしている)は畳んだまま
+            local folded = title and string.find(title:GetText(), "btn_plus", 1, true) ~= nil
+            Archeology_helper_relic_rebuild_slotset(inventory, section, buckets[k], folded)
+            -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので消さない)
+            if title and k ~= 1 then
+                local title_height = title:GetUserIValue("AOH_HEIGHT")
+                if #buckets[k] == 0 then
+                    title:Resize(title:GetWidth(), 0)
+                    title:ShowWindow(0)
+                elseif title_height > 0 then
+                    title:Resize(title:GetWidth(), title_height)
+                    title:ShowWindow(1)
+                end
+            end
+            if title then
+                -- 素の SET_SLOTSETTITLE_COUNT と同じ書式。押すと畳む / 開くも素と同じ処理を付ける
+                title:SetText(string.format("{img %s 20 20} %s (%d)", folded and "btn_plus" or "btn_minus",
+                    title_text, #buckets[k]))
+                title:SetEventScript(ui.LBUTTONUP, "SET_INVENTORY_SLOTSET_OPEN")
+                title:SetEventScript(ui.DROP, "INVENTORY_ON_DROP")
+                title:SetEventScriptArgString(ui.LBUTTONUP, key)
+            end
+        end
+    end
+    if created then
+        -- 素の INVENTORY_TOTAL_LIST_GET の締めと同じ。足した区切りを開き、利用者が畳んだカテゴリは畳み直す
+        tree:OpenNodeAll()
+        INVENTORY_CATEGORY_OPENCHECK(inventory, tree)
+    end
+    tree:InvalidateTree()
+    -- 数が変わったときだけ出す(足し引きのたびに通るので)
+    local counts = string.format("%s 1=%d 2=%d 3=%d その他=%d 作った=%s", tree:GetName(), #buckets[1], #buckets[2],
+        #buckets[3], #buckets[0], tostring(created))
+    g.aoh_relic_section_counts = g.aoh_relic_section_counts or {}
+    if g.aoh_relic_section_counts[tree:GetName()] ~= counts then
+        g.aoh_relic_section_counts[tree:GetName()] = counts
+        g.vlog("archeology_helper: 遺物をセクションに分けた %s", counts)
+    end
+end
+
+-- セクション k(2 / 3 / 0)の見出しと slotset を作り、treegroup の末尾へ足す
+function Archeology_helper_relic_make_section(tree, treegroup, base_name, k)
+    local key = base_name .. "_aoh" .. k
+    local is_jp = g.lang == "Japanese"
+    local title_text
+    if k == 0 then
+        title_text = is_jp and "遺物 その他" or "Relics - Other"
+    else
+        title_text = is_jp and string.format("遺物 %dスロット", k) or string.format("Relics - Slot %d", k)
+    end
+    local title = MAKE_INVEN_SLOTSET_NAME(tree, "ssettitle_" .. key, title_text)
+    -- 空のときに高さ 0 へ畳むので、戻す高さを控える。中身を置くまでは畳んでおく
+    -- (検索中は並べ直さないので、空の見出しだけが出てしまう)
+    title:SetUserValue("AOH_HEIGHT", title:GetHeight())
+    title:Resize(title:GetWidth(), 0)
+    title:ShowWindow(0)
+    local new_section = MAKE_INVEN_SLOTSET(tree, "sset_" .. key)
+    tree:Add(treegroup, title, "ssettitle_" .. key)
+    local handle = tree:Add(treegroup, new_section, "sset_" .. key)
+    local node = tree:GetNodeByTreeItem(handle)
+    if node then
+        node:SetUserValue("IS_ITEM_SLOTSET", 1)
+    end
+    return GET_CHILD_RECURSIVELY(tree, "sset_" .. key, "ui::CSlotSet")
+end
+
+-- 区切りのスロットを作り直して items を詰めて置き、高さを中身の行数ぶんにする。
+-- 素が検索中に行うのと同じく、RemoveAllChild の後に ExpandRow で行を足す
+function Archeology_helper_relic_rebuild_slotset(inventory, slotset, items, folded)
+    slotset:RemoveAllChild()
+    while slotset:GetSlotCount() < #items do
+        slotset:ExpandRow(true)
+    end
+    local slot_height = 0
+    for i = 0, slotset:GetSlotCount() - 1 do
+        local slot = slotset:GetSlotByIndex(i)
+        INIT_INVEN_SLOT(slot)
+        slot:SetText(' ', 'count', ui.RIGHT, ui.BOTTOM, -2, 1)
+        slot_height = slot:GetHeight()
+        local entry = items[i + 1]
+        if entry then
+            slot:ShowWindow(1)
+            INV_SLOT_UPDATE(inventory, entry.item, slot)
+        else
+            slot:ShowWindow(0)
+        end
+    end
+    slotset:MakeSelectionList()
+    -- 1 行の数は素の MAKE_INVEN_SLOTSET と同じ設定(TREE_COL_COUNT)
+    local cols = math.max(1, tonumber(inventory:GetUserConfig("TREE_COL_COUNT")) or 1)
+    local height = math.ceil(#items / cols) * slot_height
+    if folded then
+        -- 畳んだまま。開いたときに戻る高さだけ今の中身に合わせる(素は "height" に控えた高さへ戻す)
+        slotset:SetUserValue("width", slotset:GetWidth())
+        slotset:SetUserValue("height", height)
+        slotset:Resize(0, 0)
+    else
+        slotset:Resize(slotset:GetWidth(), height)
+    end
+end
+
+-- 遺物の区切りへ素が 1 個足すとき(INSERT_ITEM_TO_TREE)、上で詰めて行を減らした区切りだと
+-- 位置(invIndex)に当たるスロットがまだ無いことがあるので、足す前に行を増やしておく。
+-- 増えた分は 0.3 秒後の並べ直しで詰め直す
+function Archeology_helper_INSERT_ITEM_TO_TREE(frame, tree, inv_item, item_cls, baseidcls)
+    if not Archeology_helper_active() then
+        return g.FUNCS["INSERT_ITEM_TO_TREE"](frame, tree, inv_item, item_cls, baseidcls)
+    end
+    -- 素がこの呼び出しで元の「遺物」の区切りを初めて作るなら、その直後に 2 / 3 / その他を足して
+    -- すぐ下に並べる(後の区切り「遺物管理」などは、この後に素が足すので下に来る)
+    local make_sections = false
+    if baseidcls and baseidcls.ClassName == "Archeology_ArcRelic" and (g.aoh_settings.relic_section or 1) == 1 then
+        local ok, exists = pcall(function()
+            return GET_CHILD_RECURSIVELY(tree, "sset_" .. baseidcls.ClassName, "ui::CSlotSet") ~= nil
+        end)
+        make_sections = ok and not exists
+    end
+    if baseidcls and baseidcls.TreeGroup == "Archeology" then
+        pcall(function()
+            local slotset = GET_CHILD_RECURSIVELY(tree, GET_SLOTSET_NAME(inv_item.invIndex), "ui::CSlotSet")
+            if slotset then
+                AUTO_CAST(slotset)
+                local index = inv_item.invIndex - GET_BASE_SLOT_INDEX(inv_item.invIndex) - 1
+                while slotset:GetSlotCount() <= index do
+                    slotset:ExpandRow(true)
+                end
+            end
+        end)
+    end
+    local results = {g.FUNCS["INSERT_ITEM_TO_TREE"](frame, tree, inv_item, item_cls, baseidcls)}
+    if make_sections then
+        local ok, err = pcall(function()
+            local treegroup = tree:FindByValue(baseidcls.TreeGroup)
+            for _, k in ipairs({2, 3, 0}) do
+                Archeology_helper_relic_make_section(tree, treegroup, baseidcls.ClassName, k)
+            end
+        end)
+        if not ok then
+            g.vlog("{#FF6347}archeology_helper: 遺物のセクションを作れなかった %s{/}", tostring(err))
+        end
+    end
+    return table.unpack(results)
+end
+
+-- ===== 最後の祭壇を開いている間は、インベントリをアーキオロジーだけにする =====
+-- インベントリに「アーキオロジー」のタブは無く、アーキオロジーの区分は「その他」タブの中にある
+-- (inven_baseid の InvenTabName = Etc)。そこで祭壇を開いたら「その他」タブへ切り替え、
+-- アーキオロジー以外のカテゴリを畳む。閉じたら、切り替える前のタブと、こちらが畳んだカテゴリを戻す。
+-- 畳む・開くは素と同じ tree:OpenNode(node, 開く?, true)。
+function Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN(frame)
+    local results = {g.FUNCS["ARCHEOLOGY_EXHIBITION_OPEN"](frame)}
+    if Archeology_helper_active() and (g.aoh_settings.exhibit_focus or 1) == 1 then
+        -- 素はこの中でインベントリを開くので、開き終わってから切り替える
+        ReserveScript("Archeology_helper_exhibit_focus()", 0.3)
+    end
+    return table.unpack(results)
+end
+
+function Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE(frame)
+    local results = {g.FUNCS["ARCHEOLOGY_EXHIBITION_CLOSE"](frame)}
+    local ok, err = pcall(Archeology_helper_exhibit_unfocus)
+    if not ok then
+        g.vlog("{#FF6347}archeology_helper: インベントリを元に戻せなかった %s{/}", tostring(err))
+    end
+    return table.unpack(results)
+end
+
+-- 「その他」タブの tree(アーキオロジーの区分が入るタブ)
+function Archeology_helper_exhibit_tree(inventory)
+    local tree_box = GET_CHILD_RECURSIVELY(inventory, "treeGbox_Etc")
+    return tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_Etc")
+end
+
+function Archeology_helper_exhibit_focus()
+    local exhibition = ui.GetFrame("archeology_exhibition")
+    local inventory = ui.GetFrame("inventory")
+    if not exhibition or exhibition:IsVisible() == 0 or not inventory or inventory:IsVisible() == 0 then
+        return
+    end
+    local tab = GET_CHILD_RECURSIVELY(inventory, "inventype_Tab")
+    local tree = Archeology_helper_exhibit_tree(inventory)
+    if not tab or not tree then
+        return
+    end
+    AUTO_CAST(tab)
+    AUTO_CAST(tree)
+    local etc_index = nil
+    for i, type_str in ipairs(g_invenTypeStrList or {}) do
+        if type_str == "Etc" then
+            etc_index = i - 1
+        end
+    end
+    if not etc_index then
+        return
+    end
+    -- 戻す先は最初に切り替えたときだけ控える(組み立て直しの後に畳み直すときは控え直さない)
+    if not g.aoh_exhibit_saved then
+        g.aoh_exhibit_saved = {
+            tab = tab:GetSelectItemIndex(),
+            closed = {}
+        }
+    end
+    -- 既に「その他」なら選び直さない(選び直すと素が組み立て直し、それを受けてまたここへ来る)
+    if tab:GetSelectItemIndex() ~= etc_index then
+        tab:SelectTab(etc_index)
+    end
+    local closed = 0
+    for i = 1, ui.inventory.GetInvenGroupNameCount() do
+        local group_name = ui.inventory.GetInvenGroupNameByIndex(i - 1)
+        local treegroup = tree:FindByValue(group_name)
+        local node = treegroup and tree:IsExist(treegroup) == 1 and tree:GetNodeByTreeItem(treegroup)
+        if node then
+            if group_name == "Archeology" then
+                tree:OpenNode(node, true, true)
+            elseif node:GetIsOpen() then
+                tree:OpenNode(node, false, true)
+                g.aoh_exhibit_saved.closed[group_name] = true
+                closed = closed + 1
+            end
+        end
+    end
+    g.vlog("archeology_helper: 祭壇を開いたのでインベントリをアーキオロジーだけにした(タブ %d → %d、畳んだカテゴリ %d)",
+        g.aoh_exhibit_saved.tab, etc_index, closed)
+end
+
+function Archeology_helper_exhibit_unfocus()
+    local saved = g.aoh_exhibit_saved
+    g.aoh_exhibit_saved = nil
+    if not saved then
+        return
+    end
+    local inventory = ui.GetFrame("inventory")
+    if not inventory then
+        return
+    end
+    local tree = Archeology_helper_exhibit_tree(inventory)
+    if tree then
+        AUTO_CAST(tree)
+        for group_name in pairs(saved.closed) do
+            local treegroup = tree:FindByValue(group_name)
+            local node = treegroup and tree:IsExist(treegroup) == 1 and tree:GetNodeByTreeItem(treegroup)
+            if node then
+                tree:OpenNode(node, true, true)
+            end
+        end
+    end
+    local tab = GET_CHILD_RECURSIVELY(inventory, "inventype_Tab")
+    if tab then
+        AUTO_CAST(tab)
+        tab:SelectTab(saved.tab)
+    end
+    g.vlog("archeology_helper: 祭壇を閉じたのでインベントリを戻した(タブ %d)", saved.tab)
+end
 -- archeology_helper ここまで
+
