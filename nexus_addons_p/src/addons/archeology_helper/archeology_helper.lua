@@ -63,6 +63,52 @@ g.aoh = {
         }
     },
     marker_ver = 2,
+    -- 設定の窓のチェック(上から順に並ぶ)。key = 設定のキー = チェックの名前
+    setting_checks = {{
+        key = "home_item",
+        jp = "クエストワープが使えないときはクラペダ ワープスクロールを使う",
+        en = "Use a Klaipeda warp scroll when no quest warp is available"
+    }, {
+        key = "home_npc",
+        jp = "クラペダに着いたら依頼の NPC(アイリーネ)の前へ移動する",
+        en = "Move to the mission NPC (Airine) after arriving in Klaipeda"
+    }, {
+        key = "end_ask",
+        jp = "全地点を掘り終えたらクラペダへ戻るか聞く",
+        en = "Ask to return to Klaipeda when all points are dug"
+    }, {
+        key = "accept_warp",
+        jp = "依頼を受けたら対象マップへトークンワープする",
+        en = "Token warp to the target map after accepting a mission"
+    }, {
+        key = "relic_slot",
+        jp = "インベントリの遺物に展示スロットの番号を出す",
+        en = "Show the exhibition slot number on relics in the inventory"
+    }, {
+        key = "relic_sort",
+        jp = "インベントリの遺物を レア度 → 効果 → 数値 の順に並べる",
+        en = "Sort relics in the inventory by rarity, effect, then value"
+    }, {
+        key = "relic_new",
+        jp = "新しく入った遺物に NEW の印(N)を付ける(次の依頼を受けると消える)",
+        en = "Mark newly obtained relics as new (N) until the next mission"
+    }, {
+        key = "relic_section",
+        jp = "インベントリの遺物を展示スロット(1 / 2 / 3)ごとのセクションに分ける",
+        en = "Split relics in the inventory into sections by exhibition slot (1 / 2 / 3)"
+    }, {
+        key = "exhibit_focus",
+        jp = "最後の祭壇を開いたら、インベントリをアーキオロジーだけにする",
+        en = "Show only Archeology in the inventory while the altar is open"
+    }, {
+        key = "denter_last",
+        jp = "探査ポータルの入場画面を「最近の設定」で開く",
+        en = "Open the portal entry window with the last settings"
+    }, {
+        key = "mob_display",
+        jp = "地図に敵を表示する",
+        en = "Show monsters on the map"
+    }},
     -- 設定の窓のチェックを切り替えた後の処理(Archeology_helper_setting_check)
     setting_after = {
         relic_slot = "refresh",
@@ -180,7 +226,11 @@ function archeology_helper_on_init()
     g.setup_hook(Archeology_helper_INV_ICON_SETINFO, "INV_ICON_SETINFO")
     -- インベントリはログイン時(この初期化より前)に組み立てられ、開くだけでは描き直されないので、
     -- 掛けた後に一度描き直して番号を出す
-    ReserveScript("Archeology_helper_relic_refresh()", 1.0)
+    -- 2 回目以降のマップの読み込みでは、フックが掛かったまま素が組み立てるので要らない
+    if not g.aoh_relic_refreshed_once then
+        g.aoh_relic_refreshed_once = true
+        ReserveScript("Archeology_helper_relic_refresh()", 1.0)
+    end
     -- 遺物の並べ替え。インベントリを組み立て直した後と、アイテムが増減した後に並べ直す。
     -- INVENTORY_TOTAL_LIST_GET は Mini Addons が置換方式で掛けているので、こちらは後ろで
     -- メッセージを受ける方式にする(g.setup_hook で掛けると Mini Addons の置換を飛ばして素を呼んでしまう)。
@@ -473,9 +523,16 @@ function Archeology_helper_try_ask_end(from)
         return
     end
     local map_name = session.GetMapName()
-    -- 表示が閉じただけのときは、最後の地点があったフィールドに居る(= ダンジョンを出ている)ときだけ聞く
-    if from ~= "map" and map_name ~= pending then
-        g.vlog("archeology_helper: ダンジョンの結果は出たが、まだ %s に居るので聞かない(地点は %s)", map_name, pending)
+    -- 聞くのはフィールドか街に居るときだけ。控え(end_result)は結果を受けたマップ名なので、ダンジョンが
+    -- 別マップだとダンジョンのマップ名が入り、それと比べるだけではダンジョンの中で聞いてしまう。
+    -- 依頼の対象マップに居るか、マップの種類が Field / City かで見る
+    local in_field = g.get_map_type() == "City" or g.get_map_type() == "Field"
+    for _, map in ipairs(Archeology_helper_active_maps()) do
+        in_field = in_field or map.name == map_name
+    end
+    if not in_field then
+        g.vlog("archeology_helper: ダンジョンの結果は出たが、まだ %s(%s)に居るので聞かない", map_name,
+            tostring(g.get_map_type()))
         return
     end
     -- 同じマップのままダンジョンがレイヤーで分かれている場合は、出るまで 2 秒ごとに見直す
@@ -510,6 +567,10 @@ function Archeology_helper_try_ask_end(from)
     g.vlog("archeology_helper: 依頼の最後のダンジョンを終えた(%s, map=%s)", from, map_name)
     g.aoh_settings.end_result = nil
     g.aoh_end_retry = 0
+    g.aoh_settings.is_archeology = false
+    g.aoh_settings.count = 0
+    g.aoh_settings.map_info = {}
+    ui.SysMsg(g.lang == "Japanese" and "全てのMAPの発掘が完了しました" or "Archeology completed for all maps")
     Archeology_helper_save_settings()
     -- マップの読み込み直後は、確認の窓を出しても描き直しで消えることがあるので少し待つ
     ReserveScript("Archeology_helper_ask_go_home()", from == "map" and 1.5 or 0.1)
@@ -638,11 +699,6 @@ function Archeology_helper_mon_update(map_pic)
     return 1
 end
 
-function Archeology_helper_mob_display_setting(frame, ctrl)
-    g.aoh_settings.mob_display = ctrl:IsChecked()
-    Archeology_helper_save_settings()
-end
-
 -- いつ届くのかが分かっていないので、記録は消さずにログだけ出す(素は全体マップの輪を消している)。
 function Archeology_helper_ARCHE_SEARCH_RESET(frame, msg, arg_str, arg_num)
     g.vlog("archeology_helper: ARCHE_SEARCH_RESET arg_str=%s arg_num=%s map=%s", tostring(arg_str),
@@ -663,25 +719,18 @@ function Archeology_helper_TARGETSPACE_PRECHECK(my_frame, my_msg)
     if actor:GetType() == 155003 then
         local map_info = g.aoh_settings.map_info[map_name]
         map_info.markers = {}
-        map_info.get_count = (map_info.get_count or 0) + 1
-        local is_all_complete = true
-        for _, map in ipairs(Archeology_helper_active_maps()) do
-            if not Archeology_helper_is_map_done(map) then
-                is_all_complete = false
-                break
-            end
+        -- 1 つの地点で何度も来るので、回数を足さずに「いま探している地点の番号」(調査結果の target_key の
+        -- _pos_<n>)へそろえる。足していたころは 2 つ目の地点で 4 に届き、途中で完了扱いになった
+        local pos_index = tonumber(string.match(map_info.target_key or "", "_pos_(%d+)"))
+        if pos_index and pos_index > (map_info.get_count or 0) then
+            map_info.get_count = pos_index
         end
-        g.vlog("archeology_helper: %s の地点を掘った (%d/%d) 全マップ完了=%s", map_name, map_info.get_count,
-            Archeology_helper_point_count(), tostring(is_all_complete))
-        if is_all_complete then
-            g.aoh_settings.is_archeology = false
-            g.aoh_settings.count = 0
-            g.aoh_settings.map_info = {}
-            ui.SysMsg(g.lang == "Japanese" and "全てのMAPの発掘が完了しました" or "Archeology completed for all maps")
-        end
+        g.vlog("archeology_helper: %s の地点に触れた (%d/%d)", map_name, map_info.get_count or 0,
+            Archeology_helper_point_count())
         Archeology_helper_save_settings()
         Archeology_helper_frame_init()
-        -- クラペダへ戻るかは、ここではなくダンジョンを終えた後にゲームの記録で決める(Archeology_helper_try_ask_end)
+        -- 依頼が終わったか(と「全てのMAPの発掘が完了しました」)は、ダンジョンを終えた後にゲームの記録で決める
+        -- (Archeology_helper_try_ask_end)
     end
 end
 
@@ -701,6 +750,9 @@ function Archeology_helper_MAP_CHARACTER_UPDATE()
 end
 
 function Archeology_helper_MISSION_ACCEPT_RESULT(frame, msg, arg_str, arg_num)
+    if not Archeology_helper_active() then
+        return
+    end
     g.vlog("archeology_helper: ARCHEOLOGY_MISSION_ACCEPT_RESULT arg_str=%s arg_num=%s", tostring(arg_str),
         tostring(arg_num))
     if arg_str ~= "SUCCESS" then
@@ -731,7 +783,14 @@ function Archeology_helper_MISSION_ACCEPT_RESULT(frame, msg, arg_str, arg_num)
 end
 
 -- 依頼を受けた直後に、まだ掘り終えていない最初の対象マップへトークンワープする。
+-- トークンが無い利用者だと素の WORLDMAP2_TOKEN_WARP が毎回「トークン利用者だけ」と出すので、
+-- 素と同じ条件(IsPremiumState(ITEM_TOKEN) / Premium_Nexon)で先に見て、黙って抜ける
 function Archeology_helper_accept_tokenwarp()
+    if session.loginInfo.IsPremiumState(ITEM_TOKEN) == false and
+        IsBuffApplied(GetMyPCObject(), "Premium_Nexon") ~= "YES" then
+        g.vlog("archeology_helper: トークンが無いので依頼の対象マップへトークンワープしない")
+        return
+    end
     for _, map in ipairs(Archeology_helper_active_maps()) do
         if not Archeology_helper_is_map_done(map) then
             g.vlog("archeology_helper: 依頼を受けたので %s へトークンワープする(CD=%s)", map.name,
@@ -1062,11 +1121,6 @@ function Archeology_helper_home_quest_setting(value)
     Archeology_helper_save_settings()
 end
 
-function Archeology_helper_home_item_setting(frame, ctrl)
-    g.aoh_settings.home_item = ctrl:IsChecked()
-    Archeology_helper_save_settings()
-end
-
 -- 設定の窓のチェック(アカウント共通の ON/OFF)。チェックの名前 = 設定のキー。
 -- 切り替えた後にインベントリへ反映が要るものだけ、表(g.aoh.setting_after)で後処理を引く
 --   refresh = 組み立て直す(番号・並び・セクションを付け直す / OFF なら素の並びへ戻す)
@@ -1102,7 +1156,6 @@ end
 
 function Archeology_helper_setting_frame(au_map, display)
     local setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "archeology_helper_setting", 0, 0, 0, 0)
-    setting:SetPos(1220, 100)
     setting:SetSkinName("test_frame_low")
     setting:EnableHittestFrame(1)
     setting:EnableHitTest(1)
@@ -1165,78 +1218,23 @@ function Archeology_helper_setting_frame(au_map, display)
         selected = none_index
     end
     home_list:SelectItem(selected)
-    local home_item = gbox:CreateOrGetControl('checkbox', "home_item", 10, 115, 30, 30)
-    AUTO_CAST(home_item)
-    home_item:SetCheck(g.aoh_settings.home_item or 1)
-    home_item:SetText(g.lang == "Japanese" and
-                          "{ol}クエストワープが使えないときはクラペダ ワープスクロールを使う" or
-                          "{ol}Use a Klaipeda warp scroll when no quest warp is available")
-    home_item:SetEventScript(ui.LBUTTONUP, "Archeology_helper_home_item_setting")
-    local home_npc = gbox:CreateOrGetControl('checkbox', "home_npc", 10, 150, 30, 30)
-    AUTO_CAST(home_npc)
-    home_npc:SetCheck(g.aoh_settings.home_npc or 1)
-    home_npc:SetText(g.lang == "Japanese" and "{ol}クラペダに着いたら依頼の NPC(アイリーネ)の前へ移動する" or
-                         "{ol}Move to the mission NPC (Airine) after arriving in Klaipeda")
-    home_npc:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local end_ask = gbox:CreateOrGetControl('checkbox', "end_ask", 10, 185, 30, 30)
-    AUTO_CAST(end_ask)
-    end_ask:SetCheck(g.aoh_settings.end_ask or 1)
-    end_ask:SetText(g.lang == "Japanese" and "{ol}全地点を掘り終えたらクラペダへ戻るか聞く" or
-                        "{ol}Ask to return to Klaipeda when all points are dug")
-    end_ask:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local accept_warp = gbox:CreateOrGetControl('checkbox', "accept_warp", 10, 220, 30, 30)
-    AUTO_CAST(accept_warp)
-    accept_warp:SetCheck(g.aoh_settings.accept_warp or 1)
-    accept_warp:SetText(g.lang == "Japanese" and "{ol}依頼を受けたら対象マップへトークンワープする" or
-                            "{ol}Token warp to the target map after accepting a mission")
-    accept_warp:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local relic_slot = gbox:CreateOrGetControl('checkbox', "relic_slot", 10, 255, 30, 30)
-    AUTO_CAST(relic_slot)
-    relic_slot:SetCheck(g.aoh_settings.relic_slot or 1)
-    relic_slot:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物に展示スロットの番号を出す" or
-                           "{ol}Show the exhibition slot number on relics in the inventory")
-    relic_slot:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local relic_sort = gbox:CreateOrGetControl('checkbox', "relic_sort", 10, 290, 30, 30)
-    AUTO_CAST(relic_sort)
-    relic_sort:SetCheck(g.aoh_settings.relic_sort or 1)
-    relic_sort:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物を レア度 → 効果 → 数値 の順に並べる" or
-                           "{ol}Sort relics in the inventory by rarity, effect, then value")
-    relic_sort:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local relic_new = gbox:CreateOrGetControl('checkbox', "relic_new", 10, 325, 30, 30)
-    AUTO_CAST(relic_new)
-    relic_new:SetCheck(g.aoh_settings.relic_new or 1)
-    relic_new:SetText(g.lang == "Japanese" and "{ol}新しく入った遺物に NEW の印(N)を付ける(次の依頼を受けると消える)" or
-                          "{ol}Mark newly obtained relics as new (N) until the next mission")
-    relic_new:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local relic_section = gbox:CreateOrGetControl('checkbox', "relic_section", 10, 360, 30, 30)
-    AUTO_CAST(relic_section)
-    relic_section:SetCheck(g.aoh_settings.relic_section or 1)
-    relic_section:SetText(g.lang == "Japanese" and "{ol}インベントリの遺物を展示スロット(1 / 2 / 3)ごとのセクションに分ける" or
-                              "{ol}Split relics in the inventory into sections by exhibition slot (1 / 2 / 3)")
-    relic_section:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local exhibit_focus = gbox:CreateOrGetControl('checkbox', "exhibit_focus", 10, 395, 30, 30)
-    AUTO_CAST(exhibit_focus)
-    exhibit_focus:SetCheck(g.aoh_settings.exhibit_focus or 1)
-    exhibit_focus:SetText(g.lang == "Japanese" and
-                              "{ol}最後の祭壇を開いたら、インベントリをアーキオロジーだけにする" or
-                              "{ol}Show only Archeology in the inventory while the altar is open")
-    exhibit_focus:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local denter_last = gbox:CreateOrGetControl('checkbox', "denter_last", 10, 430, 30, 30)
-    AUTO_CAST(denter_last)
-    denter_last:SetCheck(g.aoh_settings.denter_last or 1)
-    denter_last:SetText(g.lang == "Japanese" and "{ol}探査ポータルの入場画面を「最近の設定」で開く" or
-                            "{ol}Open the portal entry window with the last settings")
-    denter_last:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
-    local mob_display = gbox:CreateOrGetControl('checkbox', "mob_display", 10, 465, 30, 30)
-    AUTO_CAST(mob_display)
-    mob_display:SetCheck(g.aoh_settings.mob_display or 1)
-    mob_display:SetText(g.lang == "Japanese" and "{ol}地図に敵を表示する" or "{ol}Show monsters on the map")
-    mob_display:SetEventScript(ui.LBUTTONUP, "Archeology_helper_mob_display_setting")
-    setting:Resize(math.max(sta_check:GetWidth(), home_item:GetWidth(), home_npc:GetWidth(), relic_slot:GetWidth(),
-        relic_sort:GetWidth(), relic_new:GetWidth(), relic_section:GetWidth(), exhibit_focus:GetWidth(),
-        denter_last:GetWidth(), 330) + 50, 560)
-    gbox:Resize(setting:GetWidth() - 20, 510)
+    -- アカウント共通の ON/OFF(既定はどれも ON)。名前 = 設定のキー。切り替えは Archeology_helper_setting_check
+    local width = math.max(sta_check:GetWidth(), 330)
+    local y = 115
+    for _, def in ipairs(g.aoh.setting_checks) do
+        local check = gbox:CreateOrGetControl('checkbox', def.key, 10, y, 30, 30)
+        AUTO_CAST(check)
+        check:SetCheck(g.aoh_settings[def.key] or 1)
+        check:SetText("{ol}" .. (g.lang == "Japanese" and def.jp or def.en))
+        check:SetEventScript(ui.LBUTTONUP, "Archeology_helper_setting_check")
+        width = math.max(width, check:GetWidth())
+        y = y + 35
+    end
+    setting:Resize(width + 50, y + 60)
+    gbox:Resize(setting:GetWidth() - 20, y + 10)
+    setting:SetPos(g.settings_frame_pos(setting:GetWidth(), setting:GetHeight()))
     setting:ShowWindow(1)
+    g.block_click_through(setting)
     g.esc_register_destroy(addon_name_lower .. "archeology_helper_setting")
 end
 
@@ -1519,7 +1517,8 @@ function Archeology_helper_relic_redraw()
 end
 
 -- 祭壇ランク上昇の窓は、使用数を 1 で開く(素の EXCUTE_EXHIBITION_RANKUP)。素が開いた後に、
--- 素の EXHIBITION_RANKUP_UPDATE と同じ式(所持数と次の等級までの経験値の小さいほう)の最大数を入れ直す
+-- 素が窓に出した「使用可能数: 1〜<最大>」(rankup_range の max)を読んで入れ直す。
+-- 式やコインのアイテム ID を写すと、パッチで変わったときに黙って効かなくなるので、素の計算結果を使う
 function Archeology_helper_EXCUTE_EXHIBITION_RANKUP(frame, ctrl, arg_str, arg_num)
     local results = {g.FUNCS["EXCUTE_EXHIBITION_RANKUP"](frame, ctrl, arg_str, arg_num)}
     if not Archeology_helper_active() then
@@ -1531,11 +1530,9 @@ function Archeology_helper_EXCUTE_EXHIBITION_RANKUP(frame, ctrl, arg_str, arg_nu
         if not dialog or dialog:IsVisible() == 0 then
             return
         end
-        local coin = session.GetInvItemCountByType(11039559)
-        local next_exp = math.max(GET_EXHIBITION_GOAL_EXP() - TryGetProp(GetMyAccountObj(), "ARCHEOLOGY_EXP", 0), 0)
-        local maximum = math.min(coin, next_exp)
-        g.vlog("archeology_helper: 祭壇ランク上昇の使用数を最大へ 所持=%s 次まで=%s → %s", tostring(coin),
-            tostring(next_exp), tostring(maximum))
+        local range = GET_CHILD_RECURSIVELY(dialog, "rankup_range")
+        local maximum = range and range:IsVisible() == 1 and tonumber(range:GetTextByKey("max")) or 0
+        g.vlog("archeology_helper: 祭壇ランク上昇の使用数を最大へ → %s", tostring(maximum))
         if maximum < 1 then
             return
         end
@@ -1679,6 +1676,26 @@ function Archeology_helper_relic_sort_less(a, b)
     return a.index < b.index
 end
 
+-- インベントリのタブごとの tree。{ {type_str = "All", tree = ...}, ... }
+function Archeology_helper_inventory_trees(inventory)
+    local list = {}
+    local group = inventory and GET_CHILD_RECURSIVELY(inventory, "inventoryGbox")
+    if not group then
+        return list
+    end
+    for _, type_str in ipairs(g_invenTypeStrList or {}) do
+        local tree_box = GET_CHILD_RECURSIVELY(group, "treeGbox_" .. type_str)
+        local tree = tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_" .. type_str)
+        if tree then
+            list[#list + 1] = {
+                type_str = type_str,
+                tree = tree
+            }
+        end
+    end
+    return list
+end
+
 -- 並べ直しの依頼。組み立て直しや足し引きは続けて来るので、まとめて 1 回にする。
 -- force = 中身が前回と同じでも置き直す(組み立て直しで区切りが作り直された・印が変わったとき)
 function Archeology_helper_relic_sort_request(force)
@@ -1729,23 +1746,22 @@ function Archeology_helper_relic_item_update(frame, msg, guid, lock_state)
     end
     local inventory = ui.GetFrame("inventory")
     local inv_item = session.GetInvItemByGuid(guid)
-    local group = inventory and GET_CHILD_RECURSIVELY(inventory, "inventoryGbox")
-    if not group or not inv_item then
+    if not inventory or not inv_item then
         return
     end
-    for _, type_str in ipairs(g_invenTypeStrList or {}) do
-        local tree_box = GET_CHILD_RECURSIVELY(group, "treeGbox_" .. type_str)
-        local tree = tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_" .. type_str)
-        for _, k in ipairs({2, 3, 0}) do
-            local slotset = tree and GET_CHILD_RECURSIVELY(tree, "sset_Archeology_ArcRelic_aoh" .. k, "ui::CSlotSet")
-            local slot = slotset and GET_SLOT_BY_ITEMID(slotset, guid)
-            if slot then
-                INV_SLOT_UPDATE(inventory, inv_item, slot)
-                if msg == "UPDATE_LOCK_STATE" and tonumber(lock_state) then
-                    -- ロックは一覧より先に届くことがあるので、素の _UPDATE_LOCK_STATE と同じく印を直接出し入れする
-                    local lock = slot:CreateOrGetControlSet("inv_itemlock", "itemlock", 0, 0)
-                    lock:SetGravity(ui.RIGHT, ui.TOP)
-                    lock:ShowWindow(tonumber(lock_state))
+    for _, entry in ipairs(Archeology_helper_inventory_trees(inventory)) do
+        for set_name in pairs(g.aoh_relic_section_sets or {}) do
+            for _, k in ipairs({2, 3, 0}) do
+                local slotset = GET_CHILD_RECURSIVELY(entry.tree, set_name .. "_aoh" .. k, "ui::CSlotSet")
+                local slot = slotset and GET_SLOT_BY_ITEMID(slotset, guid)
+                if slot then
+                    INV_SLOT_UPDATE(inventory, inv_item, slot)
+                    if msg == "UPDATE_LOCK_STATE" and tonumber(lock_state) then
+                        -- ロックは一覧より先に届くことがあるので、素の _UPDATE_LOCK_STATE と同じく印を直接出し入れする
+                        local lock = slot:CreateOrGetControlSet("inv_itemlock", "itemlock", 0, 0)
+                        lock:SetGravity(ui.RIGHT, ui.TOP)
+                        lock:ShowWindow(tonumber(lock_state))
+                    end
                 end
             end
         end
@@ -1842,29 +1858,58 @@ function Archeology_helper_relic_detect_new(list)
             end
         end
     end
-    -- 増減を出す(展示すると GUID が入れ替わるので、古い GUID がいつ消えるかを追う)
-    local changed = type(known) ~= "table"
+    -- 控えに足す遺物(控えに無い = 初めて見た)。控えは消えた遺物も残すので、消えた側は
+    -- このセッションで前に見たインベントリ(g.aoh_relic_prev_now)と比べてログにだけ出す
+    local plus = {}
     if type(known) == "table" then
-        local plus, minus = {}, {}
         for guid in pairs(now) do
             if not known[guid] then
                 plus[#plus + 1] = guid
             end
         end
-        for guid in pairs(known) do
-            if not now[guid] then
-                minus[#minus + 1] = guid
+    end
+    local changed = type(known) ~= "table" or #plus > 0
+    local prev = g.aoh_relic_prev_now
+    if prev then
+        local appeared, gone = {}, {}
+        for guid in pairs(now) do
+            if not prev[guid] then
+                appeared[#appeared + 1] = guid
             end
         end
-        if #plus > 0 or #minus > 0 then
-            changed = true
-            g.vlog("archeology_helper: 遺物の増減 +%d [%s] -%d [%s] 祭壇=%s", #plus, table.concat(plus, " "), #minus,
-                table.concat(minus, " "), tostring(from_exhibition))
+        for guid in pairs(prev) do
+            if not now[guid] then
+                gone[#gone + 1] = guid
+            end
+        end
+        if #appeared > 0 or #gone > 0 then
+            g.vlog("archeology_helper: 遺物の増減 +%d [%s] -%d [%s] 祭壇=%s", #appeared, table.concat(appeared, " "),
+                #gone, table.concat(gone, " "), tostring(from_exhibition))
         end
     end
-    -- 控えは今ある遺物だけにする(無くなった遺物を残すと控えが膨らむ)
+    g.aoh_relic_prev_now = now
+    -- 控えには、無くなった遺物も残す(倉庫・取引・郵便から同じ GUID で戻ったときに NEW にしないため)。
+    -- 増え続けないよう、2000 件を超えたら今ある遺物だけに戻す
     if changed then
-        char.relic_known = now
+        local merged = now
+        if type(known) == "table" then
+            merged = {}
+            local size = 0
+            for guid in pairs(known) do
+                merged[guid] = true
+                size = size + 1
+            end
+            for guid in pairs(now) do
+                if not merged[guid] then
+                    merged[guid] = true
+                    size = size + 1
+                end
+            end
+            if size > 2000 then
+                merged = now
+            end
+        end
+        char.relic_known = merged
         Archeology_helper_save_settings()
     end
     if added > 0 then
@@ -1947,14 +1992,17 @@ function Archeology_helper_relic_sort(list)
             shown = block_group[block]
         end
         if shown then
+            -- ここでは軽いものだけ(ClassName と等級)。効果を引く並びの鍵は、置き直すと決まってから作る
             local set_name = GET_SLOTSET_NAME(inv_item.invIndex)
-            local sort_key = Archeology_helper_relic_sort_key(inv_item)
+            local class_name = TryGetProp(GetIES(inv_item:GetObject()), "ClassName", "None")
+            local rank = string.sub(class_name, 1, 4) == "Arc_" and
+                             (g.aoh.relic_rarity_rank[string.sub(class_name, -2)] or 0) or 0
             sets[set_name] = sets[set_name] or {}
             table.insert(sets[set_name], {
                 item = inv_item,
-                sort_key = sort_key
+                name = class_name
             })
-            if sort_key.rank > 0 then
+            if rank > 0 then
                 has_relic[set_name] = true
             end
         end
@@ -1966,8 +2014,8 @@ function Archeology_helper_relic_sort(list)
         g.aoh_relic_hidden = hidden
         g.vlog("archeology_helper: 一覧にあるが表示しないアイテム(個数 0 など) %d 個", hidden)
     end
-    local group = GET_CHILD_RECURSIVELY(inventory, "inventoryGbox")
-    if not group then
+    local trees = Archeology_helper_inventory_trees(inventory)
+    if #trees == 0 then
         return
     end
     local sectioned = (g.aoh_settings.relic_section or 1) == 1
@@ -1993,12 +2041,19 @@ function Archeology_helper_relic_sort(list)
     g.aoh_relic_force = nil
     g.aoh_relic_signature = signature
     g.aoh_relic_laid_guids = {}
+    local sorted = (g.aoh_settings.relic_sort or 1) == 1
     for set_name in pairs(has_relic) do
         local entries = sets[set_name]
         for _, entry in ipairs(entries) do
             g.aoh_relic_laid_guids[entry.item:GetIESID()] = true
+            -- 並べ替えが OFF なら効果は引かない(位置の順に並べるだけ)
+            entry.sort_key = sorted and Archeology_helper_relic_sort_key(entry.item) or {
+                rank = 0,
+                opts = {},
+                name = entry.name,
+                index = entry.item.invIndex
+            }
         end
-        local sorted = (g.aoh_settings.relic_sort or 1) == 1
         table.sort(entries, function(a, b)
             if not sorted then
                 return a.sort_key.index < b.sort_key.index
@@ -2006,10 +2061,9 @@ function Archeology_helper_relic_sort(list)
             return Archeology_helper_relic_sort_less(a.sort_key, b.sort_key)
         end)
         local placed = 0
-        for _, type_str in ipairs(g_invenTypeStrList or {}) do
-            local tree_box = GET_CHILD_RECURSIVELY(group, "treeGbox_" .. type_str)
-            local tree = tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_" .. type_str)
-            local slotset = tree and GET_CHILD_RECURSIVELY(tree, set_name, "ui::CSlotSet")
+        for _, tree_entry in ipairs(trees) do
+            local tree = tree_entry.tree
+            local slotset = GET_CHILD_RECURSIVELY(tree, set_name, "ui::CSlotSet")
             if slotset then
                 AUTO_CAST(slotset)
                 if sectioned then
@@ -2018,7 +2072,7 @@ function Archeology_helper_relic_sort(list)
                     Archeology_helper_relic_fill_slotset(inventory, slotset, entries)
                 end
                 placed = placed + 1
-            elseif sectioned and tree and GET_CHILD_RECURSIVELY(tree, set_name .. "_aoh2", "ui::CSlotSet") then
+            elseif sectioned and GET_CHILD_RECURSIVELY(tree, set_name .. "_aoh2", "ui::CSlotSet") then
                 -- 元の区切りが無くても(遺物が全部無くなった)、足したセクションは空にする
                 Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries)
             end
@@ -2029,9 +2083,17 @@ function Archeology_helper_relic_sort(list)
         -- (0 か所)、足したセクションが古いまま残って、展示した遺物が出たままになった(2026-10-12 の実機)。
         -- そのときは組み立て直して、区切りごと作り直す。組み立て直しは並べ直しを頼む
         -- (Archeology_helper_INSERT_ITEM_TO_TREE)ので、見つからないままだと繰り返す。5 秒に 1 回まで
-        if placed == 0 and #entries > 0 then
+        -- 組み立て直しても見つからないときは繰り返さない(続けて 2 回で打ち切り、見つかったら数え直す)
+        if placed > 0 then
+            g.aoh_relic_rebuild_fail = 0
+        elseif #entries > 0 then
             local now = imcTime.GetAppTime()
-            if not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 5.0 then
+            g.aoh_relic_rebuild_fail = (g.aoh_relic_rebuild_fail or 0) + 1
+            if g.aoh_relic_rebuild_fail > 2 then
+                if g.aoh_relic_rebuild_fail == 3 then
+                    g.vlog("{#FF6347}archeology_helper: 組み立て直しても %s が見つからないので諦める{/}", set_name)
+                end
+            elseif not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 5.0 then
                 g.aoh_relic_rebuild_at = now
                 g.vlog("archeology_helper: %s が見つからないのでインベントリを組み立て直す", set_name)
                 INVENTORY_TOTAL_LIST_GET(inventory)
@@ -2069,11 +2131,15 @@ end
 -- ので、どの区切りも中身の行数ぶんの高さへ作り直す
 function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries)
     local base_name = string.sub(set_name, string.len("sset_") + 1)
-    local base_cls = GetClass("inven_baseid", base_name)
-    if not base_cls then
+    local tree_group = (g.aoh_relic_section_sets or {})[set_name]
+    if type(tree_group) ~= "string" then
+        local base_cls = GetClass("inven_baseid", base_name)
+        tree_group = base_cls and base_cls.TreeGroup
+    end
+    if not tree_group then
         return
     end
-    local treegroup = tree:FindByValue(base_cls.TreeGroup)
+    local treegroup = tree:FindByValue(tree_group)
     if tree:IsExist(treegroup) == 0 then
         return
     end
@@ -2104,8 +2170,14 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
         if section then
             AUTO_CAST(section)
             local title = GET_CHILD_RECURSIVELY(tree, title_name, "ui::CRichText")
-            -- 見出しを押して畳んでいる区切り(素の SET_INVENTORY_SLOTSET_OPEN が高さ 0 にしている)は畳んだまま
-            local folded = title and string.find(title:GetText(), "btn_plus", 1, true) ~= nil
+            -- 畳んでいる区切りは畳んだまま。1 は素の区切り(素が畳んで見出しを btn_plus にする)、
+            -- 足したセクションは作り直すと見出しも作り直されるので、こちらの控え(キャラごと)で見る
+            local folded
+            if k == 1 then
+                folded = title and string.find(title:GetText(), "btn_plus", 1, true) ~= nil
+            else
+                folded = Archeology_helper_section_folded()[key] == true
+            end
             Archeology_helper_relic_rebuild_slotset(inventory, section, buckets[k], folded)
             -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので消さない)
             if title and k ~= 1 then
@@ -2133,7 +2205,7 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
         end
     end
     g.aoh_relic_section_sets = g.aoh_relic_section_sets or {}
-    g.aoh_relic_section_sets[set_name] = true
+    g.aoh_relic_section_sets[set_name] = tree_group
     if created then
         -- 素の INVENTORY_TOTAL_LIST_GET の締めと同じ。足した区切りを開き、利用者が畳んだカテゴリは畳み直す
         tree:OpenNodeAll()
@@ -2167,15 +2239,29 @@ function Archeology_helper_section_toggle(parent, ctrl, key)
         return
     end
     local text = ctrl:GetText()
+    local folded = Archeology_helper_section_folded()
     if slotset:GetHeight() ~= 0 then
         slotset:SetUserValue("width", slotset:GetWidth())
         slotset:SetUserValue("height", slotset:GetHeight())
         slotset:Resize(0, 0)
         ctrl:SetText((string.gsub(text, "btn_minus", "btn_plus")))
+        folded[tostring(key)] = true
     else
         slotset:Resize(slotset:GetUserIValue("width"), slotset:GetUserIValue("height"))
         ctrl:SetText((string.gsub(text, "btn_plus", "btn_minus")))
+        folded[tostring(key)] = nil
     end
+    Archeology_helper_save_settings()
+end
+
+-- 足したセクションの畳んだ状態(キャラごと)。key = 区切りの名前から sset_ を除いたもの
+function Archeology_helper_section_folded()
+    local char = g.aoh_settings[g.cid]
+    if not char then
+        return {}
+    end
+    char.section_folded = char.section_folded or {}
+    return char.section_folded
 end
 
 -- セクション k(2 / 3 / 0)の見出しと slotset を作り、treegroup の末尾へ足す
@@ -2244,38 +2330,32 @@ function Archeology_helper_INSERT_ITEM_TO_TREE(frame, tree, inv_item, item_cls, 
     -- 元の「遺物」の区切りがまだ無い = 素がインベントリを組み立て直している途中。並べ直しもここで頼む。
     -- (INVENTORY_TOTAL_LIST_GET の後のメッセージでは、Mini Addons の置換フックと掛ける順番しだいで
     --  届かなくなり、マップを移った後に並べ直されなかった。2026-10-12 の実機)
+    -- 区切りの名前は素の INSERT_ITEM_TO_TREE と同じく GET_SLOTSET_NAME から取る(MergedTreeTitle が付くと
+    -- ClassName ではなくそちらが名前になる)
     local first_relic = false
+    local set_name = nil
     if baseidcls and baseidcls.ClassName == "Archeology_ArcRelic" then
         local ok, exists = pcall(function()
-            return GET_CHILD_RECURSIVELY(tree, "sset_" .. baseidcls.ClassName, "ui::CSlotSet") ~= nil
+            set_name = GET_SLOTSET_NAME(inv_item.invIndex)
+            return GET_CHILD_RECURSIVELY(tree, set_name, "ui::CSlotSet") ~= nil
         end)
-        first_relic = ok and not exists
+        first_relic = ok and not exists and set_name ~= nil
     end
     local make_sections = first_relic and (g.aoh_settings.relic_section or 1) == 1
     if first_relic then
         Archeology_helper_relic_sort_request(true)
     end
-    if baseidcls and baseidcls.TreeGroup == "Archeology" then
-        pcall(function()
-            local slotset = GET_CHILD_RECURSIVELY(tree, GET_SLOTSET_NAME(inv_item.invIndex), "ui::CSlotSet")
-            if slotset then
-                AUTO_CAST(slotset)
-                local index = inv_item.invIndex - GET_BASE_SLOT_INDEX(inv_item.invIndex) - 1
-                while slotset:GetSlotCount() <= index do
-                    slotset:ExpandRow(true)
-                end
-            end
-        end)
-    end
     local results = {g.FUNCS["INSERT_ITEM_TO_TREE"](frame, tree, inv_item, item_cls, baseidcls)}
     if make_sections then
         local ok, err = pcall(function()
             local treegroup = tree:FindByValue(baseidcls.TreeGroup)
+            local key = string.sub(set_name, string.len("sset_") + 1)
             for _, k in ipairs({2, 3, 0}) do
-                Archeology_helper_relic_make_section(tree, treegroup, baseidcls.ClassName, k)
+                Archeology_helper_relic_make_section(tree, treegroup, key, k)
             end
+            -- 区切りの名前 → カテゴリ(TreeGroup)。lay_sections がカテゴリを引くのに使う
             g.aoh_relic_section_sets = g.aoh_relic_section_sets or {}
-            g.aoh_relic_section_sets["sset_" .. baseidcls.ClassName] = true
+            g.aoh_relic_section_sets[set_name] = baseidcls.TreeGroup
         end)
         if not ok then
             g.vlog("{#FF6347}archeology_helper: 遺物のセクションを作れなかった %s{/}", tostring(err))
@@ -2327,7 +2407,18 @@ function Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP(tooltipframe, invitem
         if not y or not old_bottom then
             return end_y
         end
-        return end_y + (y - old_bottom)
+        local delta = y - old_bottom
+        -- 今回の範囲で行より下にある他の部品(区切り線など)も、伸びたぶんだけ下げる
+        if delta ~= 0 then
+            for i = 0, gbox:GetChildCount() - 1 do
+                local child = gbox:GetChildByIndex(i)
+                if child and not string.find(child:GetName(), "archeology_option_text_", 1, true) and
+                    child:GetY() >= old_bottom and child:GetY() < end_y then
+                    child:SetOffset(child:GetX(), child:GetY() + delta)
+                end
+            end
+        end
+        return end_y + delta
     end)
     if not ok then
         g.vlog("{#FF6347}archeology_helper: 遺物のツールチップを折り返せなかった %s{/}", tostring(result))
@@ -2414,8 +2505,12 @@ end
 
 -- 「その他」タブの tree(アーキオロジーの区分が入るタブ)
 function Archeology_helper_exhibit_tree(inventory)
-    local tree_box = GET_CHILD_RECURSIVELY(inventory, "treeGbox_Etc")
-    return tree_box and GET_CHILD_RECURSIVELY(tree_box, "inventree_Etc")
+    for _, entry in ipairs(Archeology_helper_inventory_trees(inventory)) do
+        if entry.type_str == "Etc" then
+            return entry.tree
+        end
+    end
+    return nil
 end
 
 function Archeology_helper_exhibit_focus()
