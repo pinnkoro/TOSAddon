@@ -187,6 +187,8 @@ function archeology_helper_on_init()
     -- 祭壇ランク上昇の投入数を、使える最大数で始める
     g.setup_hook(Archeology_helper_EXCUTE_EXHIBITION_RANKUP, "EXCUTE_EXHIBITION_RANKUP")
     g.setup_hook(Archeology_helper_INSERT_ITEM_TO_TREE, "INSERT_ITEM_TO_TREE")
+    -- 遺物のツールチップの効果が長いと 1 行に収まらず切れるので折り返す
+    g.setup_hook(Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP, "DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP")
     -- 最後の祭壇(展示画面)を開いている間は、インベントリをアーキオロジーだけにする
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN, "ARCHEOLOGY_EXHIBITION_OPEN")
     g.setup_hook(Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE, "ARCHEOLOGY_EXHIBITION_CLOSE")
@@ -2151,6 +2153,58 @@ function Archeology_helper_INSERT_ITEM_TO_TREE(frame, tree, inv_item, item_cls, 
         end
     end
     return table.unpack(results)
+end
+
+-- ===== 遺物のツールチップの効果を折り返す =====
+-- 素の DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP は効果を 1 行ずつ controlset(archeology_tooltip_option_row)に
+-- 入れるが、折り返さないので長い効果(「探査ポータルクリア時、色褪せた記録の破片の追加獲得…」など)が
+-- ツールチップの端で切れる。素の旧版(DRAW_ARCHEOLOGY_LEGACY_OPTIONS_TOOLTIP の前身)は SetTextFixWidth(1) で
+-- 折り返していたので、素が描いた後に同じく折り返し、行を詰め直して、増えた高さを返り値の ypos に足す
+-- (素の ITEM_TOOLTIP_ARCHEOLOGY が返り値でツールチップの高さを決める)
+function Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP(tooltipframe, invitem, ypos, mainframename)
+    local end_y = g.FUNCS["DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP"](tooltipframe, invitem, ypos, mainframename)
+    if not Archeology_helper_active() or type(end_y) ~= "number" then
+        return end_y
+    end
+    local ok, result = pcall(function()
+        local gbox = GET_CHILD(tooltipframe, mainframename, "ui::CGroupBox")
+        if not gbox then
+            return end_y
+        end
+        local y = nil
+        local old_bottom = nil
+        -- 名前は使い回されるので、今回描いた範囲(ypos 〜 end_y)にある行だけを見る
+        for i = 1, 20 do
+            local row = GET_CHILD(gbox, "archeology_option_text_" .. i)
+            if row and row:GetY() >= ypos and row:GetY() < end_y then
+                local text = GET_CHILD_RECURSIVELY(row, "text")
+                if text then
+                    AUTO_CAST(text)
+                    y = y or row:GetY()
+                    old_bottom = row:GetY() + row:GetHeight()
+                    local width = gbox:GetWidth() - row:GetX() - text:GetX() - 10
+                    row:Resize(gbox:GetWidth() - row:GetX() - 10, row:GetHeight())
+                    text:SetTextFixWidth(1)
+                    text:SetMaxWidth(width)
+                    text:Resize(width, text:GetHeight())
+                    text:SetText(text:GetText()) -- 折り返しの幅で測り直す
+                    local height = math.max(row:GetHeight(), text:GetY() + text:GetHeight() + 2)
+                    row:SetOffset(row:GetX(), y)
+                    row:Resize(row:GetWidth(), height)
+                    y = y + height
+                end
+            end
+        end
+        if not y or not old_bottom then
+            return end_y
+        end
+        return end_y + (y - old_bottom)
+    end)
+    if not ok then
+        g.vlog("{#FF6347}archeology_helper: 遺物のツールチップを折り返せなかった %s{/}", tostring(result))
+        return end_y
+    end
+    return result
 end
 
 -- ===== 最後の祭壇を開いている間は、インベントリをアーキオロジーだけにする =====
