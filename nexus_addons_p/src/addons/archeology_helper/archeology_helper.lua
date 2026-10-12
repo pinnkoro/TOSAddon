@@ -2178,6 +2178,12 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
             else
                 folded = Archeology_helper_section_folded()[key] == true
             end
+            -- 最後の祭壇を開いている間は、どのセクションも開いて出す(畳んだ状態は覚えたまま、閉じた後に戻る)。
+            -- 展示の出し入れで並べ直すと、1 だけ開いて 2 / 3 が畳まれた状態になって揃わなかった(2026-10-12 の実機)
+            local exhibition = ui.GetFrame("archeology_exhibition")
+            if folded and exhibition and exhibition:IsVisible() == 1 then
+                folded = false
+            end
             Archeology_helper_relic_rebuild_slotset(inventory, section, buckets[k], folded)
             -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので消さない)
             if title and k ~= 1 then
