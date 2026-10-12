@@ -2497,6 +2497,9 @@ function Archeology_helper_ARCHEOLOGY_EXHIBITION_OPEN(frame)
         -- 素はこの中でインベントリを開くので、開き終わってから切り替える
         ReserveScript("Archeology_helper_exhibit_focus()", 0.3)
     end
+    -- 祭壇を開いている間はセクションをどれも開いて出すので、開き終わってから置き直す。
+    -- 素がインベントリを開いた時点ではまだ祭壇が見えておらず、畳んだまま並べてしまうことがあった
+    Archeology_helper_relic_sort_request(true)
     return table.unpack(results)
 end
 
@@ -2506,6 +2509,8 @@ function Archeology_helper_ARCHEOLOGY_EXHIBITION_CLOSE(frame)
     if not ok then
         g.vlog("{#FF6347}archeology_helper: インベントリを元に戻せなかった %s{/}", tostring(err))
     end
+    -- 閉じたら、利用者が畳んだセクションを畳み直す
+    Archeology_helper_relic_sort_request(true)
     return table.unpack(results)
 end
 
