@@ -1094,6 +1094,7 @@ function Archeology_helper_relic_refresh(force)
     end
     g.vlog("archeology_helper: 遺物の番号のためにインベントリを描き直す")
     INVENTORY_TOTAL_LIST_GET(inventory)
+    Archeology_helper_relic_sort_request()
 end
 
 function Archeology_helper_relic_sort_setting(frame, ctrl)
@@ -1944,10 +1945,11 @@ function Archeology_helper_relic_sort()
         g.vlog("archeology_helper: 遺物を置き直した %s (%d 個 / %d か所)", set_name, #entries, placed)
         -- 素が遺物を 1 個抜いた(展示した)後は、元の「遺物」の区切りがどの tree にも見つからなくなり
         -- (0 か所)、足したセクションが古いまま残って、展示した遺物が出たままになった(2026-10-12 の実機)。
-        -- そのときは組み立て直して、区切りごと作り直す。続けて来ても 1 秒に 1 回まで
+        -- そのときは組み立て直して、区切りごと作り直す。組み立て直しは並べ直しを頼む
+        -- (Archeology_helper_INSERT_ITEM_TO_TREE)ので、見つからないままだと繰り返す。5 秒に 1 回まで
         if placed == 0 then
             local now = imcTime.GetAppTime()
-            if not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 1.0 then
+            if not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 5.0 then
                 g.aoh_relic_rebuild_at = now
                 g.vlog("archeology_helper: %s が見つからないのでインベントリを組み立て直す", set_name)
                 INVENTORY_TOTAL_LIST_GET(inventory)
@@ -2136,12 +2138,19 @@ function Archeology_helper_INSERT_ITEM_TO_TREE(frame, tree, inv_item, item_cls, 
     end
     -- 素がこの呼び出しで元の「遺物」の区切りを初めて作るなら、その直後に 2 / 3 / その他を足して
     -- すぐ下に並べる(後の区切り「遺物管理」などは、この後に素が足すので下に来る)
-    local make_sections = false
-    if baseidcls and baseidcls.ClassName == "Archeology_ArcRelic" and (g.aoh_settings.relic_section or 1) == 1 then
+    -- 元の「遺物」の区切りがまだ無い = 素がインベントリを組み立て直している途中。並べ直しもここで頼む。
+    -- (INVENTORY_TOTAL_LIST_GET の後のメッセージでは、Mini Addons の置換フックと掛ける順番しだいで
+    --  届かなくなり、マップを移った後に並べ直されなかった。2026-10-12 の実機)
+    local first_relic = false
+    if baseidcls and baseidcls.ClassName == "Archeology_ArcRelic" then
         local ok, exists = pcall(function()
             return GET_CHILD_RECURSIVELY(tree, "sset_" .. baseidcls.ClassName, "ui::CSlotSet") ~= nil
         end)
-        make_sections = ok and not exists
+        first_relic = ok and not exists
+    end
+    local make_sections = first_relic and (g.aoh_settings.relic_section or 1) == 1
+    if first_relic then
+        Archeology_helper_relic_sort_request()
     end
     if baseidcls and baseidcls.TreeGroup == "Archeology" then
         pcall(function()
