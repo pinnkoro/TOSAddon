@@ -184,11 +184,14 @@ function Archeology_helper_load_settings()
     settings.map_info = settings.map_info or {}
     -- 旧版(end_ver 無し)は「地点に触れた回数」で依頼の終わりを決めていて、途中で聞いてしまうことがあった。
     -- そのとき立てた「聞いた」印(end_asked)が残ると今の依頼の本当の終わりで聞かなくなるので、一度だけ下ろす
-    -- 以前はセクションの畳んだ状態をキャラごとに保存していた。今はセッションの間だけなので消す
-    for _, char in pairs(settings) do
-        if type(char) == "table" then
-            char.section_folded = nil
+    -- 以前はセクションの畳んだ状態をキャラごとに保存していた。今はセッションの間だけなので、一度だけ消す
+    if settings.section_ver ~= 1 then
+        for _, char in pairs(settings) do
+            if type(char) == "table" then
+                char.section_folded = nil
+            end
         end
+        settings.section_ver = 1
     end
     if settings.end_ver ~= 2 then
         settings.end_pending = nil
@@ -237,10 +240,9 @@ function archeology_helper_on_init()
         g.aoh_relic_refreshed_once = true
         ReserveScript("Archeology_helper_relic_refresh()", 1.0)
     end
-    -- 遺物の並べ替え。インベントリを組み立て直した後と、アイテムが増減した後に並べ直す。
-    -- INVENTORY_TOTAL_LIST_GET は Mini Addons が置換方式で掛けているので、こちらは後ろで
-    -- メッセージを受ける方式にする(g.setup_hook で掛けると Mini Addons の置換を飛ばして素を呼んでしまう)。
-    g.setup_hook_and_event(g.addon, "INVENTORY_TOTAL_LIST_GET", "Archeology_helper_relic_sort_request", true)
+    -- 遺物の並べ替え。インベントリの組み立て直しは INSERT_ITEM_TO_TREE(下)で見分け、アイテムの増減は
+    -- メッセージで受けて並べ直す。INVENTORY_TOTAL_LIST_GET には掛けない(Mini Addons が置換方式で掛けていて、
+    -- 掛ける順番しだいでこちらの受け口が外れ、マップを移った後に並べ直されなかった)
     g.register_msg("INV_ITEM_ADD", "Archeology_helper_relic_item_msg")
     g.register_msg("INV_ITEM_REMOVE", "Archeology_helper_relic_item_msg")
     -- 1 個ずつの更新(プロパティ・個数・ロック)。素は元の「遺物」の区切りしか探さないので、
@@ -476,24 +478,45 @@ function Archeology_helper_PORTAL_RESULT(frame, msg, arg_str, arg_num)
     if not Archeology_helper_active() then
         return
     end
-    g.vlog("archeology_helper: ARCHEOLOGY_PORTAL_TRACKER_RESULT arg_str=%s map=%s layer=%d", tostring(arg_str),
-        session.GetMapName(), world.GetLayer())
+    g.vlog("archeology_helper: ARCHEOLOGY_PORTAL_TRACKER_RESULT arg_str=%s map=%s layer=%d end_asked=%s",
+        tostring(arg_str), session.GetMapName(), world.GetLayer(), tostring(g.aoh_settings.end_asked))
+    -- この依頼で既に聞いた後(次の依頼を受ける前にポータルをもう一度回したなど)は、完了の処理をやり直さない
+    if g.aoh_settings.end_asked then
+        return
+    end
+    Archeology_helper_end_wait_start()
     g.aoh_settings.end_result = session.GetMapName()
-    g.aoh_end_retry = 0
-    g.aoh_layer_wait = 0
     Archeology_helper_save_settings()
 end
 
+-- 依頼の終わりの見直しを始める(控えを立てた時点)。完了の記録の遅れは時間で待ち、レイヤーは回数で待つ
+function Archeology_helper_end_wait_start()
+    g.aoh_end_deadline = imcTime.GetAppTime() + 4.0
+    g.aoh_layer_wait = 0
+end
+
+-- 見直しの予約は 1 本だけにする。結果の表示が閉じた側(close)とマップの読み込み側(map)が
+-- 別々に予約すると、待つ回数が半分の時間で尽きた
+function Archeology_helper_try_ask_end_later(from, delay)
+    if g.aoh_end_retry_pending then
+        return
+    end
+    g.aoh_end_retry_pending = true
+    ReserveScript(string.format("Archeology_helper_try_ask_end_retry('%s')", from), delay)
+end
+
+function Archeology_helper_try_ask_end_retry(from)
+    g.aoh_end_retry_pending = nil
+    Archeology_helper_try_ask_end(from)
+end
+
 -- 依頼の対象マップが全部「完了」になっているか(ゲームの記録で見る)。
--- allow_empty = 対象マップが空(終わって消された)も完了として扱う。ダンジョンの結果を受けた後に使う。
--- 結果を受けていないとき(PORTAL_CLOSE)は、空 = 依頼が無いだけかもしれないので false にする
-function Archeology_helper_mission_complete(allow_empty)
+-- 対象マップが空のときは完了にしない。マップの読み込み直後はアカウントの情報がまだ届いておらず空に見えるので、
+-- 空を完了とすると途中のダンジョンの後で依頼を終えたことにしてしまう(完了しても対象マップは残る)
+function Archeology_helper_mission_complete()
     local maps = Archeology_helper_active_maps()
     if #maps == 0 then
-        if allow_empty then
-            g.vlog("archeology_helper: 依頼の対象マップが空なので、終わったものとして扱う")
-        end
-        return allow_empty == true
+        return false
     end
     for _, map in ipairs(maps) do
         if not map.complete then
@@ -509,14 +532,12 @@ function Archeology_helper_PORTAL_CLOSE(frame, msg, arg_str, arg_num)
     if not Archeology_helper_active() then
         return
     end
-    -- ここは結果を受けていないので、対象マップが空(依頼が無い)ときは完了と見なさない
-    local complete = Archeology_helper_mission_complete(false)
+    local complete = Archeology_helper_mission_complete()
     g.vlog("archeology_helper: ARCHEOLOGY_PORTAL_TRACKER_CLOSE map=%s layer=%d 完了=%s end_result=%s",
         session.GetMapName(), world.GetLayer(), tostring(complete), tostring(g.aoh_settings.end_result))
     if not g.aoh_settings.end_result and complete and not g.aoh_settings.end_asked then
+        Archeology_helper_end_wait_start()
         g.aoh_settings.end_result = session.GetMapName()
-        g.aoh_end_retry = 0
-        g.aoh_layer_wait = 0
         Archeology_helper_save_settings()
     end
     Archeology_helper_try_ask_end("close")
@@ -552,27 +573,29 @@ function Archeology_helper_try_ask_end(from)
             return
         end
         g.vlog("archeology_helper: ダンジョンの結果は出たが、まだレイヤー %d に居るので待つ", world.GetLayer())
-        ReserveScript("Archeology_helper_try_ask_end('close')", 2.0)
+        Archeology_helper_try_ask_end_later("close", 2.0)
         return
     end
-    -- 完了の記録はダンジョンの結果より少し遅れて届くことがあるので、1 秒おきに 3 回まで見直す。
-    -- マップの読み込みの側でも同じ(別マップのダンジョンから戻った直後に、まだ届いていないことがある)
-    if not Archeology_helper_mission_complete(true) then
-        g.aoh_end_retry = (g.aoh_end_retry or 0) + 1
-        if g.aoh_end_retry <= 3 then
-            ReserveScript(string.format("Archeology_helper_try_ask_end('%s')", from == "map" and "map" or "close"),
-                1.0)
+    -- 完了の記録はダンジョンの結果より少し遅れて届くことがあるので、控えを立ててから 4 秒までは 1 秒おきに見直す。
+    -- マップの読み込みの側でも同じ(別マップのダンジョンから戻った直後や、ログインし直した直後)
+    if not Archeology_helper_mission_complete() then
+        local now = imcTime.GetAppTime()
+        if not g.aoh_end_deadline then
+            g.aoh_end_deadline = now + 4.0
+        end
+        if now < g.aoh_end_deadline then
+            Archeology_helper_try_ask_end_later(from, 1.0)
             return
         end
         g.vlog("archeology_helper: ダンジョンを終えたが、依頼はまだ終わっていない(%s, map=%s)", from, map_name)
         g.aoh_settings.end_result = nil
-        g.aoh_end_retry = 0
+        g.aoh_end_deadline = nil
         Archeology_helper_save_settings()
         return
     end
     g.vlog("archeology_helper: 依頼の最後のダンジョンを終えた(%s, map=%s)", from, map_name)
     g.aoh_settings.end_result = nil
-    g.aoh_end_retry = 0
+    g.aoh_end_deadline = nil
     g.aoh_settings.is_archeology = false
     g.aoh_settings.count = 0
     g.aoh_settings.map_info = {}
@@ -1458,6 +1481,7 @@ function Archeology_helper_relic_new_label(slot, inv_item)
     label:SetMargin(4, 2, 0, 0)
     label:EnableHitTest(0) -- 掴む・右クリックはスロットへ通す
     label:SetText("{ol}{s16}{#FFFF33}N")
+    g.aoh_inventory_touched = true
 end
 
 -- 鑑定が終わった遺物(素の ON_ARCHEOLOGY_IDENTIFY_FINISHED と同じく、3 つ目に GUID が来る)。
@@ -1590,6 +1614,7 @@ function Archeology_helper_relic_label(slot, inv_item)
     label:SetMargin(0, 2, 4, 0)
     label:EnableHitTest(0) -- 掴む・右クリックはスロットへ通す
     label:SetText(string.format("{ol}{s16}{#%s}%d", exhibit.color, exhibit.index))
+    g.aoh_inventory_touched = true
 end
 
 -- 素の INV_ICON_SETINFO(インベントリの 1 スロットにアイテムを置く)の後に番号を足す。
@@ -1600,7 +1625,6 @@ function Archeology_helper_INV_ICON_SETINFO(frame, slot, inv_item, custom_func, 
     if not Archeology_helper_active() then
         return table.unpack(results)
     end
-    g.aoh_inventory_touched = true
     local ok, err = pcall(Archeology_helper_relic_label, slot, inv_item)
     if not ok and not g.aoh_relic_label_err then
         g.aoh_relic_label_err = true -- スロットの数だけ出ないよう 1 回だけ
@@ -2046,6 +2070,7 @@ function Archeology_helper_relic_sort(list)
     end
     g.aoh_relic_force = nil
     g.aoh_relic_signature = signature
+    g.aoh_inventory_touched = true
     g.aoh_relic_laid_guids = {}
     local sorted = (g.aoh_settings.relic_sort or 1) == 1
     for set_name in pairs(has_relic) do
@@ -2187,8 +2212,22 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
             -- 最後の祭壇を開いている間は、どのセクションも開いて出す(畳んだ状態は覚えたまま、閉じた後に戻る)。
             -- 展示の出し入れで並べ直すと、1 だけ開いて 2 / 3 が畳まれた状態になって揃わなかった(2026-10-12 の実機)
             local exhibition = ui.GetFrame("archeology_exhibition")
-            if folded and exhibition and exhibition:IsVisible() == 1 then
+            local altar_open = exhibition ~= nil and exhibition:IsVisible() == 1
+            local forced_key = tree:GetName() .. ":" .. key
+            g.aoh_forced_open = g.aoh_forced_open or {}
+            if folded and altar_open then
                 folded = false
+                -- 1 は素の区切りで、畳んだ状態を素が控えている(_invenCatOpenOption)。見た目だけ開くと、
+                -- 祭壇で見出しを押したときに素の控えが逆向きに切り替わるので、素の控えも「開いている」に合わせ、
+                -- 祭壇を閉じたら畳み直す(g.aoh_forced_open)
+                if k == 1 then
+                    INVENTORY_CATEGORY_OPENOPTION_CHANGE(tree, nil, key)
+                    g.aoh_forced_open[forced_key] = true
+                end
+            elseif k == 1 and not altar_open and g.aoh_forced_open[forced_key] then
+                g.aoh_forced_open[forced_key] = nil
+                INVENTORY_CATEGORY_OPENOPTION_CHANGE(tree, nil, key)
+                folded = true
             end
             Archeology_helper_relic_rebuild_slotset(inventory, section, buckets[k], folded)
             -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので消さない)
@@ -2209,7 +2248,7 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
                 --  途中で抜けて、他のカテゴリの畳み状態まで戻らなくなる)
                 title:SetText(string.format("{img %s 20 20} %s (%d)", folded and "btn_plus" or "btn_minus",
                     title_text, #buckets[k]))
-                title:SetEventScript(ui.LBUTTONUP, k == 1 and "SET_INVENTORY_SLOTSET_OPEN" or
+                title:SetEventScript(ui.LBUTTONUP, k == 1 and "Archeology_helper_section1_toggle" or
                     "Archeology_helper_section_toggle")
                 title:SetEventScript(ui.DROP, "INVENTORY_ON_DROP")
                 title:SetEventScriptArgString(ui.LBUTTONUP, key)
@@ -2241,6 +2280,15 @@ function Archeology_helper_relic_section_title(k)
         return is_jp and "遺物 その他" or "Relics - Other"
     end
     return is_jp and string.format("遺物 %dスロット", k) or string.format("Relics - Slot %d", k)
+end
+
+-- 1 スロット(素の区切り)の見出しを押したとき。素の SET_INVENTORY_SLOTSET_OPEN をそのまま呼ぶが、
+-- 祭壇で開いて出していた区切りなら、利用者が自分で切り替えたので「祭壇を閉じたら畳み直す」をやめる
+function Archeology_helper_section1_toggle(parent, ctrl, key, num)
+    if g.aoh_forced_open and parent then
+        g.aoh_forced_open[parent:GetName() .. ":" .. tostring(key)] = nil
+    end
+    return SET_INVENTORY_SLOTSET_OPEN(parent, ctrl, key, num)
 end
 
 -- 足したセクションの見出しを押したときに畳む / 開く。素の SET_INVENTORY_SLOTSET_OPEN と同じく
@@ -2314,22 +2362,28 @@ function Archeology_helper_relic_rebuild_slotset(inventory, slotset, items, fold
         end
     end
     slotset:MakeSelectionList()
-    -- 1 行の数は素の MAKE_INVEN_SLOTSET と同じ設定(TREE_COL_COUNT)
+    -- 1 行の数とスロットの大きさは素の MAKE_INVEN_SLOTSET と同じ設定(TREE_COL_COUNT / TREE_SLOT_SIZE)。
+    -- 幅は今の幅から取らない(畳んで幅 0 になっている区切りだと 0 を控え、開いても中身が見えなくなる)
     local cols = math.max(1, tonumber(inventory:GetUserConfig("TREE_COL_COUNT")) or 1)
+    local slot_size = tonumber(inventory:GetUserConfig("TREE_SLOT_SIZE")) or slot_height
+    if slot_height <= 0 then
+        slot_height = slot_size
+    end
+    local width = cols * slot_size
     local height = math.ceil(#items / cols) * slot_height
     if folded then
-        -- 畳んだまま。開いたときに戻る高さだけ今の中身に合わせる(素は "height" に控えた高さへ戻す)
-        slotset:SetUserValue("width", slotset:GetWidth())
+        -- 畳んだまま。開いたときに戻る大きさだけ今の中身に合わせる(素は "width" / "height" に控えた大きさへ戻す)
+        slotset:SetUserValue("width", width)
         slotset:SetUserValue("height", height)
         slotset:Resize(0, 0)
     else
-        slotset:Resize(slotset:GetWidth(), height)
+        slotset:Resize(width, height)
     end
 end
 
--- 遺物の区切りへ素が 1 個足すとき(INSERT_ITEM_TO_TREE)、上で詰めて行を減らした区切りだと
--- 位置(invIndex)に当たるスロットがまだ無いことがあるので、足す前に行を増やしておく。
--- 増えた分は 0.3 秒後の並べ直しで詰め直す
+-- 素の INSERT_ITEM_TO_TREE。素はスロットを位置(invIndex)ではなく区切りの個数で取り、足りなければ自分で
+-- 行を増やす(素の `cap == ""` の分岐は、cap が素のどこでも代入されないグローバルなので通らない)。
+-- そのため、こちらで詰めて行を減らした区切りへ足されても落ちない。増えた行は 0.3 秒後の並べ直しで詰め直す
 function Archeology_helper_INSERT_ITEM_TO_TREE(frame, tree, inv_item, item_cls, baseidcls)
     if not Archeology_helper_active() then
         return g.FUNCS["INSERT_ITEM_TO_TREE"](frame, tree, inv_item, item_cls, baseidcls)
