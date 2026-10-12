@@ -525,6 +525,10 @@ g._nexus_addons_p = {{
 }, {
     key = "skill_gem_tooltip",
     category = "gear",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    updated = g.VER_NEXT,
+    updated_note_jp = "インベントリから無くなったアイテム(展示した遺物など)のツールチップでエラーが出ていたのを直しました",
+    updated_note_en = "Fixed an error on tooltips of items no longer in the inventory (such as exhibited relics)",
     data = {
         use = 0,
         name = "Skill Gem Tooltip",
