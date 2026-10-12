@@ -2556,6 +2556,8 @@ function Archeology_helper_ARCH_DENTER_CLOSE_UI(keep_confirm)
     if not ok then
         g.vlog("{#FF6347}archeology_helper: インベントリを元に戻せなかった %s{/}", tostring(err))
     end
+    -- 見た目だけ畳んでいた遺物のセクションを、今の中身の大きさで置き直す
+    Archeology_helper_relic_sort_request(true)
     return table.unpack(results)
 end
 
@@ -2655,8 +2657,96 @@ function Archeology_helper_exhibit_focus()
             end
         end
     end
-    g.vlog("archeology_helper: 祭壇か入場画面を開いたのでインベントリをアーキオロジーだけにした(タブ %d → %d、畳んだカテゴリ %d)",
-        g.aoh_exhibit_saved.tab, etc_index, closed)
+    -- 探査ポータルの入場画面では、アーキオロジーの中も「探査・ポータル」だけにする(入れるアイテムがそこにある)
+    local folded = 0
+    local denter = ui.GetFrame("archeology_dungeon_enter")
+    if denter and denter:IsVisible() == 1 then
+        g.aoh_exhibit_saved.sections = g.aoh_exhibit_saved.sections or {}
+        for _, key in ipairs(Archeology_helper_archeology_section_keys()) do
+            -- 入場画面を開いてから利用者が自分で開いた区切りは、置き直しの後も畳み直さない
+            local user_opened = (g.aoh_exhibit_saved.user_opened or {})[key]
+            if key ~= "Archeology_ArcPortal" and not user_opened and Archeology_helper_focus_fold(tree, key) then
+                g.aoh_exhibit_saved.sections[key] = true
+                folded = folded + 1
+            end
+        end
+    end
+    g.vlog("archeology_helper: 祭壇か入場画面を開いたのでインベントリをアーキオロジーだけにした(タブ %d → %d、畳んだカテゴリ %d / 区切り %d)",
+        g.aoh_exhibit_saved.tab, etc_index, closed, folded)
+end
+
+-- アーキオロジーのカテゴリにある区切りの名前(sset_ / ssettitle_ の後ろ)。素の区切り(inven_baseid の
+-- TreeGroup = Archeology。MergedTreeTitle があればそちら)と、こちらで足した遺物のセクション
+function Archeology_helper_archeology_section_keys()
+    local keys = {}
+    local list, count = GetClassList("inven_baseid")
+    for i = 0, (count or 0) - 1 do
+        local cls = GetClassByIndexFromList(list, i)
+        if cls and cls.TreeGroup == "Archeology" then
+            keys[#keys + 1] = cls.MergedTreeTitle ~= "NO" and cls.MergedTreeTitle or cls.ClassName
+        end
+    end
+    for set_name in pairs(g.aoh_relic_section_sets or {}) do
+        for _, k in ipairs({2, 3, 0}) do
+            keys[#keys + 1] = string.sub(set_name, string.len("sset_") + 1) .. "_aoh" .. k
+        end
+    end
+    return keys
+end
+
+-- 入場画面を開いている間だけ区切りを畳む。素の畳む処理(SET_INVENTORY_SLOTSET_OPEN)は使わない
+-- (素は畳んだ状態を控えに残すので、閉じた後も畳まれたままになる)。見た目だけ高さ 0 にし、
+-- 見出しを押したら見た目だけ開くようにして、閉じたら元に戻す。畳んだら true
+function Archeology_helper_focus_fold(tree, key)
+    local slotset = GET_CHILD_RECURSIVELY(tree, "sset_" .. key)
+    local title = GET_CHILD_RECURSIVELY(tree, "ssettitle_" .. key)
+    if not slotset or not title or slotset:GetHeight() == 0 then
+        return false
+    end
+    slotset:SetUserValue("AOH_FOCUS_W", slotset:GetWidth())
+    slotset:SetUserValue("AOH_FOCUS_H", slotset:GetHeight())
+    slotset:Resize(0, 0)
+    title:SetText((string.gsub(title:GetText(), "btn_minus", "btn_plus")))
+    title:SetEventScript(ui.LBUTTONUP, "Archeology_helper_focus_toggle")
+    title:SetEventScriptArgString(ui.LBUTTONUP, key)
+    return true
+end
+
+-- 入場画面を開いている間に、畳んだ区切りの見出しを押したとき。見た目だけ開き、閉じたときに戻す対象から外す
+function Archeology_helper_focus_toggle(parent, ctrl, key)
+    local slotset = GET_CHILD_RECURSIVELY(parent, "sset_" .. tostring(key))
+    if not slotset or not ctrl then
+        return
+    end
+    Archeology_helper_focus_unfold(parent, tostring(key))
+    if g.aoh_exhibit_saved then
+        if g.aoh_exhibit_saved.sections then
+            g.aoh_exhibit_saved.sections[tostring(key)] = nil
+        end
+        g.aoh_exhibit_saved.user_opened = g.aoh_exhibit_saved.user_opened or {}
+        g.aoh_exhibit_saved.user_opened[tostring(key)] = true
+    end
+end
+
+-- 見た目だけ畳んだ区切りを元の大きさへ戻し、見出しを押したときの処理も素(か、こちらのセクション)へ戻す
+function Archeology_helper_focus_unfold(tree, key)
+    local slotset = GET_CHILD_RECURSIVELY(tree, "sset_" .. key)
+    local title = GET_CHILD_RECURSIVELY(tree, "ssettitle_" .. key)
+    if not slotset or not title then
+        return
+    end
+    if slotset:GetHeight() == 0 and slotset:GetUserIValue("AOH_FOCUS_H") > 0 then
+        slotset:Resize(slotset:GetUserIValue("AOH_FOCUS_W"), slotset:GetUserIValue("AOH_FOCUS_H"))
+        title:SetText((string.gsub(title:GetText(), "btn_plus", "btn_minus")))
+    end
+    local script = "SET_INVENTORY_SLOTSET_OPEN"
+    if string.find(key, "_aoh%d$") then
+        script = "Archeology_helper_section_toggle"
+    elseif (g.aoh_relic_section_sets or {})["sset_" .. key] then
+        script = "Archeology_helper_section1_toggle"
+    end
+    title:SetEventScript(ui.LBUTTONUP, script)
+    title:SetEventScriptArgString(ui.LBUTTONUP, key)
 end
 
 function Archeology_helper_exhibit_unfocus()
@@ -2672,6 +2762,9 @@ function Archeology_helper_exhibit_unfocus()
     local tree = Archeology_helper_exhibit_tree(inventory)
     if tree then
         AUTO_CAST(tree)
+        for key in pairs(saved.sections or {}) do
+            Archeology_helper_focus_unfold(tree, key)
+        end
         for group_name in pairs(saved.closed) do
             local treegroup = tree:FindByValue(group_name)
             local node = treegroup and tree:IsExist(treegroup) == 1 and tree:GetNodeByTreeItem(treegroup)
