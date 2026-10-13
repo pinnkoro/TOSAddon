@@ -335,7 +335,7 @@ g._nexus_addons_p = {{
 }, {
     key = "lets_go_home",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.18.0",
     updated_note_jp = "ホームに着いた後に倉庫番の前まで移動できるようにしました。設定の「レティーシア移動設定」を「到着後の移動先」(しない / レティーシャ / 倉庫番)に置き換えています(レティーシャ移動を ON にしていた場合は引き継ぎます)",
     updated_note_en = "You can now move to the warehouse keeper after arriving home. The Leticia move checkbox became a 'Move after arrival' list (None / Leticia / Warehouse keeper); an enabled Leticia move carries over",
     data = {
