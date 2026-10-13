@@ -10,7 +10,7 @@ function Lets_go_home_load_settings()
         settings = {
             map = "",
             ch = 1,
-            leticia = 0,
+            arrival = "none",
             x = 0,
             y = 0,
             move = 1,
@@ -18,9 +18,37 @@ function Lets_go_home_load_settings()
             short_cut = 1
         }
     end
+    -- 到着後の移動先は、以前は「レティーシャへ移動するか」の 0 / 1(leticia)だった。
+    -- 倉庫番を足して 3 択(arrival)にしたので、ON だった人は "leticia" として引き継ぐ。
+    if not settings.arrival then
+        settings.arrival = settings.leticia == 1 and "leticia" or "none"
+    end
+    settings.leticia = nil
     g.lets_go_home_settings = settings
     Lets_go_home_save_settings()
 end
+
+-- 到着後の移動先。dialog は FullScreenMenuMoveNpc に渡す NPC のダイアログ名(倉庫番は都市ごと)。
+-- 倉庫番のダイアログ名は gentype_<都市>.ies の Dialog 列(Name が「[창고지기]」の行)。
+-- レティーシャはナビゲーションメニュー(full_screen_navigation_menu 309)の定義をそのまま使う。
+g.lets_go_home_arrivals = {{
+    key = "none",
+    ja = "しない",
+    en = "None"
+}, {
+    key = "leticia",
+    ja = "レティーシャ",
+    en = "Leticia"
+}, {
+    key = "warehouse",
+    ja = "倉庫番",
+    en = "Warehouse keeper",
+    dialog = {
+        ["c_Klaipe"] = "WAREHOUSE", -- リタ
+        ["c_orsha"] = "ORSHA_WAREHOUSE", -- アイサ
+        ["c_fedimian"] = "WAREHOUSE_FEDIMIAN" -- ジャダン
+    }
+}}
 
 function lets_go_home_on_init()
     if not g.lets_go_home_settings then
@@ -189,13 +217,31 @@ function Lets_go_home_settings_frame()
                                  "{ol}Checked: enables the shortcut")
     short_cut:SetEventScript(ui.LBUTTONUP, "Lets_go_home_check_toggle")
     short_cut:SetCheck(g.lets_go_home_settings.short_cut)
-    local leticia = gbox:CreateOrGetControl('checkbox', "leticia", 10, 160, 30, 30)
-    AUTO_CAST(leticia)
-    leticia:SetText(g.lang == "Japanese" and "{ol}レティーシア移動設定" or "{ol}Leticia Move Settings")
-    leticia:SetTextTooltip(g.lang == "Japanese" and "{ol}チェックするとレティーシア移動有効化" or
-                               "{ol}Checked: enables the Leticia Move")
-    leticia:SetEventScript(ui.LBUTTONUP, "Lets_go_home_check_toggle")
-    leticia:SetCheck(g.lets_go_home_settings.leticia)
+    local arrival_text = gbox:CreateOrGetControl('richtext', 'arrival_text', 10, 165, 150, 30)
+    AUTO_CAST(arrival_text)
+    arrival_text:SetText(g.lang == "Japanese" and "{ol}到着後の移動先" or "{ol}Move after arrival")
+    arrival_text:SetTextTooltip(g.lang == "Japanese" and "{ol}ホームに着いたら、選んだ NPC の前まで移動します" or
+                                    "{ol}After arriving home, move to the selected NPC")
+    local arrival_list = gbox:CreateOrGetControl('droplist', 'arrival_list', 150, 160, 180, 20)
+    AUTO_CAST(arrival_list)
+    arrival_list:SetSkinName('droplist_normal')
+    arrival_list:EnableHitTest(1)
+    arrival_list:SetTextAlign("center", "center")
+    local arrival_index = 0
+    for i, arrival in ipairs(g.lets_go_home_arrivals) do
+        local label = g.lang == "Japanese" and arrival.ja or arrival.en
+        arrival_list:AddItem(i - 1, "{ol}" .. label, 0,
+            string.format("Lets_go_home_arrival_settings('%s')", arrival.key))
+        if g.lets_go_home_settings.arrival == arrival.key then
+            arrival_index = i - 1
+        end
+    end
+    arrival_list:SelectItem(arrival_index)
+end
+
+function Lets_go_home_arrival_settings(key)
+    g.lets_go_home_settings.arrival = key
+    Lets_go_home_save_settings()
 end
 
 function Lets_go_home_map_settings(city_class_name)
@@ -225,8 +271,6 @@ function Lets_go_home_check_toggle(parent, ctrl)
         end
     elseif ctrl_name == "short_cut" then
         g.lets_go_home_settings.short_cut = is_check
-    elseif ctrl_name == "leticia" then
-        g.lets_go_home_settings.leticia = is_check
     end
     Lets_go_home_save_settings()
 end
@@ -260,22 +304,18 @@ function Lets_go_home_settings_reg()
     local map_name = map_cls.Name
     g.lets_go_home_settings.ch = channel
     g.lets_go_home_settings.map = map_clas_name
-    g.lets_go_home_settings.leticia = 0
+    Lets_go_home_save_settings()
+    -- 到着後の移動先は 3 択になったので、登録のたびに聞かずに設定の窓で選んでもらう(登録しても変えない)
+    local arrival_label = ""
+    for _, arrival in ipairs(g.lets_go_home_arrivals) do
+        if arrival.key == g.lets_go_home_settings.arrival then
+            arrival_label = g.lang == "Japanese" and arrival.ja or arrival.en
+        end
+    end
     ui.SysMsg(g.lang == "Japanese" and "マップ名: " .. map_name .. " チャンネル: " .. channel ..
-                  "を登録{nl}レティーシャへの移動を無効にしました" or "MapName: " .. map_name ..
-                  " Channel: " .. channel .. "Registered{nl}Move to Leticia disabled")
-    Lets_go_home_save_settings()
-    local msg = g.lang == "Japanese" and "レティーシャへ移動は使用しますか？" or
-                    "Do you use Move to Leticia?"
-    local yes_scp = string.format("Lets_go_home_settings_reg_()")
-    ui.MsgBox(msg, yes_scp, "None")
-end
-
-function Lets_go_home_settings_reg_()
-    ui.SysMsg(g.lang == "Japanese" and "レティーシャへの移動を有効にしました" or
-                  "Move to Leticia enabled")
-    g.lets_go_home_settings.leticia = 1
-    Lets_go_home_save_settings()
+                  "を登録{nl}到着後の移動先: " .. arrival_label .. "(設定の窓で変えられます)" or "MapName: " ..
+                  map_name .. " Channel: " .. channel .. " Registered{nl}Move after arrival: " .. arrival_label ..
+                  " (change it in the settings)")
 end
 
 function Lets_go_home_update_frame(lets_go_home)
@@ -382,9 +422,12 @@ function Lets_go_home_change_move()
         return
     end
     g.lets_go_home_warp_state = 0
-    local leticia_warp = g.lets_go_home_settings.leticia
-    if leticia_warp == 1 then
+    local arrival = g.lets_go_home_settings.arrival
+    g.vlog("lets_go_home: ホームに着いた map=%s 到着後の移動先=%s", g.map_name, tostring(arrival))
+    if arrival == "leticia" then
         Lets_go_home_leticia_move()
+    elseif arrival == "warehouse" then
+        Lets_go_home_warehouse_move()
     end
 end
 
@@ -432,24 +475,7 @@ function Lets_go_home_leticia_move()
         local move_zone_select_msg = TryGetProp(cls, "MoveZoneSelectMsg", "None")
         local move_only_in_town = TryGetProp(cls, "MoveOnlyInTown", "None")
         if move_zone ~= "None" and move_npc_dialog ~= "None" then
-            local pc = GetMyPCObject()
-            if session.world.IsIntegrateServer() == true or IsPVPField(pc) == 1 or IsPVPServer(pc) == 1 then
-                ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
-                return
-            end
-            if world.GetLayer() ~= 0 then
-                ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
-                return
-            end
-            if g.get_map_type() == "Dungeon" then
-                ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
-                return
-            end
-            local cur_map = GetClass("Map", session.GetMapName())
-            local zoneKeyword = TryGetProp(cur_map, 'Keyword', 'None')
-            local keywordTable = StringSplit(zoneKeyword, '')
-            if table.find(keywordTable, 'IsRaidField') > 0 or table.find(keywordTable, 'WeeklyBossMap') > 0 then
-                ui.SysMsg(ScpArgMsg('ThisLocalUseNot'))
+            if not Lets_go_home_can_move_npc() then
                 return
             end
             FullScreenMenuMoveNpc(name, move_zone_select, move_zone, move_npc_dialog, move_zone_select_msg,
@@ -457,6 +483,53 @@ function Lets_go_home_leticia_move()
             ui.CloseFrame("fullscreen_navigation_menu")
         end
     end
+end
+-- NPC の前へ移動してよい場所か。ナビゲーションメニューの移動と同じ制限。
+-- 駄目なら素と同じ文言を出して false を返す。
+function Lets_go_home_can_move_npc()
+    local pc = GetMyPCObject()
+    if session.world.IsIntegrateServer() == true or IsPVPField(pc) == 1 or IsPVPServer(pc) == 1 then
+        ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
+        return false
+    end
+    if world.GetLayer() ~= 0 then
+        ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
+        return false
+    end
+    if g.get_map_type() == "Dungeon" then
+        ui.SysMsg(ScpArgMsg("ThisLocalUseNot"))
+        return false
+    end
+    local cur_map = GetClass("Map", session.GetMapName())
+    local zoneKeyword = TryGetProp(cur_map, 'Keyword', 'None')
+    local keywordTable = StringSplit(zoneKeyword, '')
+    if table.find(keywordTable, 'IsRaidField') > 0 or table.find(keywordTable, 'WeeklyBossMap') > 0 then
+        ui.SysMsg(ScpArgMsg('ThisLocalUseNot'))
+        return false
+    end
+    return true
+end
+
+-- 今いる都市の倉庫番の前へ移動する。ナビゲーションメニューに倉庫番は無いので、
+-- ダイアログ名を直接渡す(Archeology Helper のアイリーネへの移動と同じやり方)。
+function Lets_go_home_warehouse_move()
+    local map_name = session.GetMapName()
+    local dialog = nil
+    for _, arrival in ipairs(g.lets_go_home_arrivals) do
+        if arrival.key == "warehouse" then
+            dialog = arrival.dialog[map_name]
+        end
+    end
+    if not dialog then
+        g.vlog("lets_go_home: %s には倉庫番の定義が無いので移動しない", map_name)
+        return
+    end
+    if not Lets_go_home_can_move_npc() then
+        return
+    end
+    local name = g.lang == "Japanese" and "倉庫番" or "Warehouse keeper"
+    g.vlog("lets_go_home: 倉庫番へ移動する map=%s dialog=%s", map_name, dialog)
+    FullScreenMenuMoveNpc(name, "NO", map_name, dialog, "None", "YES")
 end
 -- lets_go_home　ここまで
 
