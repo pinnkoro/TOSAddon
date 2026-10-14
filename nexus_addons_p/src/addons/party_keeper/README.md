@@ -39,6 +39,8 @@ PT に入っている間は入り直せません（素の PT リンクを押し�
 
 * 保存するのは `session.party.GetPartyInfo()` の `info:GetPartyID()` と `info.name` です。
 * 入り直しは素の `SLP`（チャットの PT リンク）と同じ `party.JoinPartyByLink(PARTY_NORMAL, PT ID)` を呼びます。
+* 窓を開いている間は `PARTY_UPDATE` / `PARTY_OUT` / `PARTY_PROPERTY_UPDATE` / `PARTY_NAME_UPDATE` を受けて表示を書き直します。
+  PT の出入りや、リーダーが保存したときのリンク参加の切り替えはここで反映されます。
 * **同じ ID の PT を作り直すことはできません。** PT ID はサーバーが払い出すもので、
   PT を作る素の API（`party.ReqPartyMake`）は名前しか受け取りません。
 
@@ -51,6 +53,7 @@ PT に入っている間は入り直せません（素の PT リンクを押し�
 ```
 
 PT はキャラではなくチーム単位なので、アカウント単位で 1 件だけ持ちます。
+ファイルは「現在のPTを保存」か「消去」を押したときに初めて作られます（OFF のままなら作られません）。
 
 ## 注意
 
