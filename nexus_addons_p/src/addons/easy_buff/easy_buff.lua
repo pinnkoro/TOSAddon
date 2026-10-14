@@ -99,6 +99,9 @@ function Easy_buff_load_settings()
         maint_presets_name = {},
         maint_presets_check = {},
         char_maint_preset = {},
+        -- 他人の装備メンテナンスを開いたときに自動で実行するか({[cid] = 0/1}。無いキャラは 1 = これまでどおり)。
+        -- 0 でも店のプリセットボタンは使える(赤いボタンが char_maint_preset)
+        char_maint_auto = {},
         confirm_check = 0,
         repair_check = 0
     }
@@ -171,9 +174,17 @@ function Easy_buff_maint_preset()
     return value
 end
 
--- このキャラが装備メンテナンスで選ぶ部位か(1 / 0)
-function Easy_buff_maint_selected(slot_name)
-    local preset = Easy_buff_maint_preset()
+-- このキャラで他人の装備メンテナンスを開いたときに自動実行するか(1 / 0)
+function Easy_buff_maint_auto()
+    local value = g.easy_buff_settings.char_maint_auto[g.cid]
+    if value == nil then
+        value = 1
+    end
+    return value
+end
+
+-- プリセット preset で選ぶ部位か(1 / 0)
+function Easy_buff_maint_selected(preset, slot_name)
     local checks = g.easy_buff_settings.maint_presets_check[tostring(preset)]
     if not checks then
         return 0
@@ -191,7 +202,8 @@ function easy_buff_on_init()
     end
     g.setup_hook_and_event(g.addon, "OPEN_FOOD_TABLE_UI", "Easy_buff_OPEN_FOOD_TABLE_UI", true)
     g.setup_hook_and_event(g.addon, "ITEMBUFF_REPAIR_UI_COMMON", "Easy_buff_ITEMBUFF_REPAIR_UI_COMMON", true)
-    g.setup_hook_and_event(g.addon, "SQUIRE_BUFF_EQUIP_CTRL", "Easy_buff_SQUIRE_BUFF_EQUIP_CTRL", true)
+    g.setup_hook_and_event(g.addon, "OPEN_ITEMBUFF_UI_COMMON", "Easy_buff_OPEN_ITEMBUFF_UI_COMMON", true)
+    g.setup_hook_and_event(g.addon, "SQUIRE_BUFF_EXCUTE", "Easy_buff_SQUIRE_BUFF_EXCUTE", true)
     g.setup_hook_and_event(g.addon, "TARGET_BUFF_AUTOSELL_LIST", "Easy_buff_TARGET_BUFF_AUTOSELL_LIST", true)
     g.easy_buff_first = true
 end
@@ -202,7 +214,7 @@ function Easy_buff_config_frame()
     easy_buff:RemoveAllChild()
     easy_buff:SetSkinName("test_frame_low")
     easy_buff:SetLayerLevel(999)
-    local frame_w, frame_h = 580, 820
+    local frame_w, frame_h = 580, 850
     easy_buff:Resize(frame_w, frame_h)
     -- 位置は g.settings_frame_pos に任せる(一覧が開いていなければ画面中央)。
     -- **素で list_frame:GetX() を呼ばないこと。** Addons Menu のショートカットから
@@ -291,6 +303,16 @@ function Easy_buff_config_frame()
                                   "{ol}他人の装備メンテナンスを開いたとき、左端でチェックしたプリセットの部位だけを選んで実行します{nl}全部外すと自動実行しません" or
                                   "{ol}On another player's maintenance shop, only the slots of the checked preset are selected and run{nl}Uncheck all to disable auto-run")
     y = y + 30
+    local maint_auto = gbox:CreateOrGetControl('checkbox', "maint_auto_open", 10, y, 30, 30)
+    AUTO_CAST(maint_auto)
+    maint_auto:SetText(g.lang == "Japanese" and "{ol}店を開いたら自動で実行する(キャラごと)" or
+                           "{ol}Run automatically on opening the shop (per character)")
+    maint_auto:SetTextTooltip(g.lang == "Japanese" and
+                                  "{ol}外すと店を開いても何もしません{nl}店の上に並ぶプリセットのボタンを押すと、そのプリセットで実行します" or
+                                  "{ol}Unchecked: nothing happens on opening the shop{nl}Press a preset button on the shop to run that preset")
+    maint_auto:SetEventScript(ui.LBUTTONUP, "Easy_buff_config_check_toggle")
+    maint_auto:SetCheck(Easy_buff_maint_auto())
+    y = y + 30
     local maint_preset = Easy_buff_maint_preset()
     for i = 1, g.easy_buff_maint_preset_count do
         local str_i = tostring(i)
@@ -375,6 +397,10 @@ function Easy_buff_config_check_toggle(parent, ctrl, str, num)
         g.easy_buff_settings.confirm_check = is_check
     elseif ctrl_name == "repair_check" then
         g.easy_buff_settings.repair_check = is_check
+    elseif ctrl_name == "maint_auto_open" then
+        g.easy_buff_settings.char_maint_auto[g.cid] = is_check
+        g.vlog("easy_buff: 装備メンテナンスの自動実行を %d にした(cid=%s %s)", is_check, tostring(g.cid),
+            tostring(g.login_name))
     elseif string.find(ctrl_name, "^maint_auto_") then
         local preset = is_check == 1 and num or 0
         g.easy_buff_settings.char_maint_preset[g.cid] = preset
@@ -673,41 +699,182 @@ function Easy_buff_repair_msg(itembuffrepair)
     end
 end
 -- メンテ処理
-function Easy_buff_SQUIRE_BUFF_EQUIP_CTRL(my_frame, my_msg)
-    if g.settings.easy_buff.use == 0 then
+-- 店を開いたとき(素の OPEN_ITEMBUFF_UI_COMMON)。
+-- 以前は SQUIRE_BUFF_EQUIP_CTRL を見ていたが、そちらはタブを切り替えるたびにも呼ばれ、
+-- 閉じるタイマーが止まる・自動実行がもう一度走る、が起きていた。開いたときだけを拾う
+function Easy_buff_OPEN_ITEMBUFF_UI_COMMON(my_frame, my_msg)
+    local group_name = g.get_event_args(my_msg)
+    local itembuffopen = ui.GetFrame("itembuffopen")
+    if group_name == "None" then
+        -- 素が窓を閉じる側の呼び出し
         return
     end
-    local itembuffopen = ui.GetFrame("itembuffopen")
+    -- 前に開いた窓の閉じるタイマーと「頼んだ」印は、開き直したら持ち越さない
     itembuffopen:StopUpdateScript("Easy_buff_squire_frame_close")
+    itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
+    itembuffopen:SetUserValue("EASY_BUFF_REQUESTED", 0)
+    if g.settings.easy_buff.use == 0 then
+        -- 使い回す窓に、ON だった頃のボタン・下げた一覧・差し替えた × が残らないよう戻す
+        Easy_buff_maint_buttons(itembuffopen, false)
+        return
+    end
+    -- 素は開いた直後に SQUIRE_UI_RESET で選択を外すので、それより後で選ぶ
     itembuffopen:RunUpdateScript("Easy_buff_squire_buff_equip_ctrl_update", 0.5)
-    return
 end
 
-function Easy_buff_squire_buff_equip_ctrl_update(itembuffopen)
-    if session.GetMyHandle() == itembuffopen:GetUserIValue("HANDLE") then
+-- 素の実行ボタン(SQUIRE_BUFF_EXCUTE)。素で頼んだ後にプリセットボタンで二重に頼まないよう印を付ける。
+-- 素は何も選んでいなければ MsgBox を出すだけで頼まないので、そのときは付けない
+function Easy_buff_SQUIRE_BUFF_EXCUTE(my_frame, my_msg)
+    local itembuffopen = ui.GetFrame("itembuffopen")
+    for _, slot_name in ipairs(g.easy_buff_maint_slots) do
+        local ctrlset = GET_CHILD_RECURSIVELY(itembuffopen, 'ITEMBUFF_CTRL_' .. slot_name)
+        if ctrlset then
+            local checkbox = GET_CHILD(ctrlset, 'checkbox')
+            AUTO_CAST(checkbox)
+            if checkbox:IsChecked() == 1 then
+                itembuffopen:SetUserValue("EASY_BUFF_REQUESTED", 1)
+                g.vlog("easy_buff: 装備メンテナンスを頼んだ印を付けた")
+                return
+            end
+        end
+    end
+end
+
+-- 素の一覧(ctrlGbox)をボタン 1 段ぶん下げる幅
+g.easy_buff_maint_btn_space = 36
+
+-- 他人の店ではプリセットのボタンを出し、自分の店(スクワイア本人)・アドオン OFF では隠して素の状態へ戻す。
+-- 窓は同じ itembuffopen を使い回すので、どちらの向きにも毎回そろえる。
+-- 戻す値(一覧の位置と高さ・× のスクリプト)は、書き換える前に素の値を覚えておいたものを使う
+function Easy_buff_maint_buttons(itembuffopen, show)
+    local bg_mid = GET_CHILD_RECURSIVELY(itembuffopen, "bg_mid")
+    local ctrl_gbox = GET_CHILD_RECURSIVELY(itembuffopen, "ctrlGbox")
+    if not bg_mid or not ctrl_gbox then
+        return
+    end
+    local space = g.easy_buff_maint_btn_space
+    local shifted = itembuffopen:GetUserIValue("EASY_BUFF_SHIFTED") == 1
+    if show and not shifted then
+        local margin = ctrl_gbox:GetMargin()
+        itembuffopen:SetUserValue("EASY_BUFF_LIST_TOP", margin.top)
+        itembuffopen:SetUserValue("EASY_BUFF_LIST_H", ctrl_gbox:GetHeight())
+        ctrl_gbox:SetMargin(margin.left, margin.top + space, margin.right, margin.bottom)
+        ctrl_gbox:Resize(ctrl_gbox:GetWidth(), ctrl_gbox:GetHeight() - space)
+        itembuffopen:SetUserValue("EASY_BUFF_SHIFTED", 1)
+    elseif not show and shifted then
+        local margin = ctrl_gbox:GetMargin()
+        ctrl_gbox:SetMargin(margin.left, itembuffopen:GetUserIValue("EASY_BUFF_LIST_TOP"), margin.right, margin.bottom)
+        ctrl_gbox:Resize(ctrl_gbox:GetWidth(), itembuffopen:GetUserIValue("EASY_BUFF_LIST_H"))
+        itembuffopen:SetUserValue("EASY_BUFF_SHIFTED", 0)
+    end
+    if not show then
+        Easy_buff_maint_restore_close(itembuffopen)
+        -- 作ったことがあるものだけ隠す(自分の店を開くたびに作らない)
+        for i = 1, g.easy_buff_maint_preset_count do
+            local btn = GET_CHILD(bg_mid, "easy_buff_maint_btn" .. i)
+            if btn then
+                btn:ShowWindow(0)
+            end
+        end
         return
     end
     local maint_preset = Easy_buff_maint_preset()
-    g.vlog("easy_buff: 他人の装備メンテナンスを開いた プリセット=%d (cid=%s)", maint_preset, tostring(g.cid))
-    if maint_preset == 0 then
-        -- 自動実行のプリセットを選んでいない(メシ屋で全部外したときと同じ)。素の窓には触らない
-        itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
-        return 0
+    local btn_w, gap = 88, 4
+    local x = math.floor((bg_mid:GetWidth() - (btn_w + gap) * g.easy_buff_maint_preset_count + gap) / 2)
+    for i = 1, g.easy_buff_maint_preset_count do
+        local btn = bg_mid:CreateOrGetControl("button", "easy_buff_maint_btn" .. i, x, 5, btn_w, 30)
+        AUTO_CAST(btn)
+        btn:SetSkinName(i == maint_preset and "test_red_button" or "test_gray_button")
+        btn:SetText("{ol}" .. tostring(g.easy_buff_settings.maint_presets_name[tostring(i)] or "preset " .. i))
+        -- 名前が長いと文字に合わせて広がるので、幅を戻す(メシ屋のボタンと同じ)
+        btn:Resize(btn_w, 30)
+        btn:SetEventScript(ui.LBUTTONUP, "Easy_buff_maint_btn_click")
+        btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
+        btn:ShowWindow(1)
+        x = x + btn_w + gap
+    end
+end
+
+-- × を「時間アクションを止めて閉じる」に差し替える。素のスクリプト名は差し替える前に覚えておく
+function Easy_buff_maint_hook_close(itembuffopen)
+    local close = GET_CHILD_RECURSIVELY(itembuffopen, 'close')
+    AUTO_CAST(close)
+    local current = close:GetEventScript(ui.LBUTTONUP)
+    if current ~= "Easy_buff_squire_timestop_frame_close" then
+        itembuffopen:SetUserValue("EASY_BUFF_CLOSE_SCP", current)
+    end
+    close:SetEventScript(ui.LBUTTONUP, "Easy_buff_squire_timestop_frame_close")
+end
+
+-- × を素のスクリプトへ戻す。自分の店で StopTimeAction を走らせないため
+function Easy_buff_maint_restore_close(itembuffopen)
+    local original = itembuffopen:GetUserValue("EASY_BUFF_CLOSE_SCP")
+    if original == nil or original == "" or original == "None" then
+        return
     end
     local close = GET_CHILD_RECURSIVELY(itembuffopen, 'close')
     AUTO_CAST(close)
-    close:SetEventScript(ui.LBUTTONUP, "Easy_buff_squire_timestop_frame_close")
-    -- 「すべて選択」ではなく、このキャラで選んだプリセットの部位だけにチェックを入れる。
+    close:SetEventScript(ui.LBUTTONUP, original)
+end
+
+-- 他人の店かどうか(窓は自分の店と使い回し)
+function Easy_buff_maint_is_others(itembuffopen)
+    return session.GetMyHandle() ~= itembuffopen:GetUserIValue("HANDLE")
+end
+
+function Easy_buff_squire_buff_equip_ctrl_update(itembuffopen)
+    itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
+    if not Easy_buff_maint_is_others(itembuffopen) then
+        Easy_buff_maint_buttons(itembuffopen, false)
+        return 0
+    end
+    Easy_buff_maint_buttons(itembuffopen, true)
+    local maint_preset = Easy_buff_maint_preset()
+    local maint_auto = Easy_buff_maint_auto()
+    g.vlog("easy_buff: 他人の装備メンテナンスを開いた プリセット=%d 自動実行=%d (cid=%s)", maint_preset, maint_auto,
+        tostring(g.cid))
+    if maint_preset == 0 or maint_auto == 0 then
+        -- 自動実行しない。ボタンだけ置いて、素の選択には触らない
+        return 0
+    end
+    Easy_buff_maint_run(itembuffopen, maint_preset, false)
+    return 0
+end
+
+-- 店のプリセットボタン
+function Easy_buff_maint_btn_click(parent, btn, str, preset)
+    local itembuffopen = ui.GetFrame("itembuffopen")
+    if g.settings.easy_buff.use == 0 or not Easy_buff_maint_is_others(itembuffopen) then
+        -- 自分の店へ切り替わった直後(ボタンを隠す前の 0.5 秒)や、アドオンを OFF にした後は何もしない
+        g.vlog("easy_buff: 装備メンテナンスのボタン %d を無視(自分の店 / OFF)", preset)
+        return
+    end
+    if itembuffopen:GetUserIValue("EASY_BUFF_REQUESTED") == 1 then
+        -- この窓では頼み済み(このアドオンでも素の実行ボタンでも)。二重に頼まない
+        g.vlog("easy_buff: 装備メンテナンスは頼み済みなのでボタン %d を無視", preset)
+        ui.SysMsg(g.lang == "Japanese" and "{ol}Easy Buff: この店では依頼済みです" or
+                      "{ol}Easy Buff: already requested at this shop")
+        return
+    end
+    g.vlog("easy_buff: 装備メンテナンスのボタン %d を押した", preset)
+    Easy_buff_maint_run(itembuffopen, preset, true)
+end
+
+-- プリセット preset の部位だけにチェックを入れて実行し、5.5 秒後に窓を閉じる。
+-- by_button はボタンから押したとき(何もしなかった理由を必ず知らせる)
+function Easy_buff_maint_run(itembuffopen, preset, by_button)
+    -- 「すべて選択」ではなく、プリセットの部位だけにチェックを入れる。
     -- 1 つずつの選択は素の SQUIRE_BUFF_EQUIP_SELECT_ALL と同じ呼び方(by_checkall = true で費用の再計算は最後に 1 回)
-    local listed, selected = 0, 0
+    local listed, selected, wanted = 0, 0, 0
     for _, slot_name in ipairs(g.easy_buff_maint_slots) do
+        local want = Easy_buff_maint_selected(preset, slot_name)
+        wanted = wanted + want
         local ctrlset = GET_CHILD_RECURSIVELY(itembuffopen, 'ITEMBUFF_CTRL_' .. slot_name)
         if ctrlset then
             listed = listed + 1
             local checkbox = GET_CHILD(ctrlset, 'checkbox')
             AUTO_CAST(checkbox)
-            local check = Easy_buff_maint_selected(slot_name)
-            checkbox:SetCheck(check)
+            checkbox:SetCheck(want)
             SQUIRE_BUFF_EQUIP_SELECT(ctrlset, checkbox, '', 0, true)
             -- 素の SQUIRE_BUFF_EQUIP_SELECT は装備が外れていればチェックを戻すので、結果の方を数える
             if checkbox:IsChecked() == 1 then
@@ -719,26 +886,27 @@ function Easy_buff_squire_buff_equip_ctrl_update(itembuffopen)
     local checkall = GET_CHILD_RECURSIVELY(itembuffopen, 'checkall')
     AUTO_CAST(checkall)
     checkall:SetCheck((listed > 0 and selected == listed) and 1 or 0)
-    g.vlog("easy_buff: 装備メンテナンス 対象 %d 部位のうち %d 部位を選択(cid=%s)", listed, selected, tostring(g.cid))
-    itembuffopen:StopUpdateScript("Easy_buff_squire_buff_equip_ctrl_update")
+    g.vlog("easy_buff: 装備メンテナンス プリセット %d 対象 %d 部位のうち %d 部位を選択(cid=%s)", preset, listed,
+        selected, tostring(g.cid))
     if selected == 0 then
-        local any_on = false
-        for _, slot_name in ipairs(g.easy_buff_maint_slots) do
-            if Easy_buff_maint_selected(slot_name) == 1 then
-                any_on = true
+        if wanted == 0 then
+            -- プリセットの部位が全部外れている。自動実行なら黙って何もしない
+            if by_button then
+                ui.SysMsg(g.lang == "Japanese" and "{ol}Easy Buff: このプリセットは部位が 1 つも選ばれていません" or
+                              "{ol}Easy Buff: this preset has no slots selected")
             end
-        end
-        if not any_on then
-            -- 選んだプリセットの部位が全部外れている = 自動実行しない
-            return 0
+            return
         end
         -- 実行すると素が「アイテムを選択してください」の MsgBox を出すので、押さずに知らせるだけにする
         ui.SysMsg(g.lang == "Japanese" and "{ol}Easy Buff: 装備メンテナンスで選ぶ部位がこの店にありません" or
                       "{ol}Easy Buff: none of the selected slots can be maintained here")
-        return 0
+        return
     end
+    Easy_buff_maint_hook_close(itembuffopen)
     local btn_excute = GET_CHILD_RECURSIVELY(itembuffopen, "btn_excute")
     SQUIRE_BUFF_EXCUTE(itembuffopen, btn_excute)
+    -- 印は素の SQUIRE_BUFF_EXCUTE のイベントでも付くが、イベントは後から届くのでここでも付ける
+    itembuffopen:SetUserValue("EASY_BUFF_REQUESTED", 1)
     local str = g.lang == "Japanese" and
                     "{ol}装備メンテナンス自動付与中{nl}フレームを閉じればキャンセルします" or
                     "{ol}Equipment maintenance automatic grant is in progress{nl}Canceled when frame is closed"
