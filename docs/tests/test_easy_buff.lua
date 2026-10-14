@@ -11,6 +11,9 @@
 --   5. 設定画面の操作（自動実行の選択・部位のチェック・名前）が正しいキーへ書かれる
 --   6. 「店を開いたら自動で実行する」を外すと、店を開いても実行しない（ボタンは出す）。
 --      自分の店ではボタンを出さない
+--   7. プリセットボタンは、自分の店・頼み済み・アドオン OFF では何もしない
+--   8. 店を開き直したら、前の窓のタイマーと「頼んだ」印を持ち越さない。OFF なら残ったボタンを戻す
+--   9. 下げた一覧と差し替えた × を、素の値へ戻す
 --
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_easy_buff.lua
@@ -227,18 +230,27 @@ _G.session = {
         return 1
     end
 }
+g.settings = {easy_buff = {use = 1}}
 local function shop(owner_handle)
     local values = {}
+    local stopped = {}
     return setmetatable({
         GetUserIValue = function(_, key)
             if key == "HANDLE" then
                 return owner_handle
             end
-            return values[key] or 0
+            return tonumber(values[key]) or 0
+        end,
+        GetUserValue = function(_, key)
+            return values[key]
         end,
         SetUserValue = function(_, key, value)
             values[key] = value
-        end
+        end,
+        StopUpdateScript = function(_, name)
+            stopped[name] = true
+        end,
+        stopped = stopped
     }, {
         __index = function()
             return function()
@@ -246,6 +258,10 @@ local function shop(owner_handle)
             end
         end
     })
+end
+local current_shop
+_G.ui.GetFrame = function()
+    return current_shop
 end
 local shown, ran
 local real_buttons, real_run = Easy_buff_maint_buttons, Easy_buff_maint_run
@@ -267,15 +283,55 @@ shown, ran = nil, nil
 Easy_buff_squire_buff_equip_ctrl_update(shop(1))
 check("自分の店ではボタンを隠す", shown, false)
 check("自分の店では実行しない", ran, nil)
+
+print("[7] プリセットボタン")
+current_shop = shop(2)
+ran = nil
+Easy_buff_maint_btn_click(nil, nil, "", 2)
+check("他人の店ならボタンのプリセットで実行", ran, 2)
+current_shop:SetUserValue("EASY_BUFF_REQUESTED", 1)
+ran = nil
+Easy_buff_maint_btn_click(nil, nil, "", 2)
+check("頼み済みなら実行しない", ran, nil)
+current_shop = shop(1)
+ran = nil
+Easy_buff_maint_btn_click(nil, nil, "", 2)
+check("自分の店に切り替わった直後は実行しない", ran, nil)
+current_shop = shop(2)
+g.settings.easy_buff.use = 0
+ran = nil
+Easy_buff_maint_btn_click(nil, nil, "", 2)
+check("アドオン OFF なら実行しない", ran, nil)
+
+print("[8] 店を開き直したとき")
+g.get_event_args = function()
+    return "group"
+end
+current_shop = shop(2)
+current_shop:SetUserValue("EASY_BUFF_REQUESTED", 1)
+shown = nil
+Easy_buff_OPEN_ITEMBUFF_UI_COMMON(nil, "OPEN_ITEMBUFF_UI_COMMON")
+check("アドオン OFF なら、残ったボタンと一覧を戻す", shown, false)
+check("頼んだ印は持ち越さない", current_shop:GetUserIValue("EASY_BUFF_REQUESTED"), 0)
+check("前の窓の閉じるタイマーを止める", current_shop.stopped["Easy_buff_squire_frame_close"], true)
+g.settings.easy_buff.use = 1
+shown = nil
+Easy_buff_OPEN_ITEMBUFF_UI_COMMON(nil, "OPEN_ITEMBUFF_UI_COMMON")
+check("ON なら 0.5 秒後の処理に任せる", shown, nil)
 Easy_buff_maint_buttons, Easy_buff_maint_run = real_buttons, real_run
--- 一覧は 1 回だけ下げ、自分の店で戻す(開き直すたびに下がり続けない)
-local list_h, list_top = 580, 3
+
+print("[9] 一覧の位置と × を素へ戻す")
+-- 一覧は 1 回だけ下げ、自分の店で「下げる前の値」へ戻す(開き直すたびに下がり続けない)
+local list_h, list_top = 580, 7
 local list = setmetatable({
     GetWidth = function()
         return 480
     end,
     GetHeight = function()
         return list_h
+    end,
+    GetMargin = function()
+        return {left = 0, top = list_top, right = 0, bottom = 0}
     end,
     Resize = function(_, w, h)
         list_h = h
@@ -290,21 +346,45 @@ local list = setmetatable({
         end
     end
 })
+local close_scp = "SQUIRE_TARGET_UI_CLOSE"
+local close = setmetatable({
+    GetEventScript = function()
+        return close_scp
+    end,
+    SetEventScript = function(_, _, scp)
+        close_scp = scp
+    end
+}, {
+    __index = function()
+        return function()
+            return dummy
+        end
+    end
+})
 _G.GET_CHILD_RECURSIVELY = function(_, name)
     if name == "ctrlGbox" then
         return list
+    elseif name == "close" then
+        return close
     end
     return dummy
+end
+_G.GET_CHILD = function()
+    return nil
 end
 local frame = shop(2)
 Easy_buff_maint_buttons(frame, true)
 Easy_buff_maint_buttons(frame, true)
-check("下げたのは 1 回(上端)", list_top, 3 + g.easy_buff_maint_btn_space)
+check("下げたのは 1 回(上端)", list_top, 7 + g.easy_buff_maint_btn_space)
 check("下げたのは 1 回(高さ)", list_h, 580 - g.easy_buff_maint_btn_space)
+Easy_buff_maint_hook_close(frame)
+Easy_buff_maint_hook_close(frame)
+check("× を差し替える", close_scp, "Easy_buff_squire_timestop_frame_close")
 Easy_buff_maint_buttons(frame, false)
 Easy_buff_maint_buttons(frame, false)
-check("自分の店で戻す(上端)", list_top, 3)
+check("自分の店で戻す(上端は下げる前の値)", list_top, 7)
 check("自分の店で戻す(高さ)", list_h, 580)
+check("× を素のスクリプトへ戻す(2 回差し替えても素の名前を覚えている)", close_scp, "SQUIRE_TARGET_UI_CLOSE")
 
 if failed > 0 then
     print(string.format("FAILED: %d 件", failed))
