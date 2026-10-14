@@ -252,7 +252,7 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.19.0",
     updated_note_jp = "他人の装備メンテナンスの窓の上に、メシ屋と同じくプリセットのボタンを並べました。店を開いたときに自動で実行するかどうかを、キャラごとに選べるようにしました(既定は ON)",
     updated_note_en = "Preset buttons now appear at the top of another player's equipment maintenance window, like the food shop. Auto-run on opening the shop can be turned off per character (on by default)",
     data = {
