@@ -284,7 +284,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v2.19.0**
   * Party Keeper を追加しました。今入っている PT を保存しておき、後から**同じ PT へ入り直せます**
     （PT が残っていて、リンク参加が許可されている場合だけ）。
 

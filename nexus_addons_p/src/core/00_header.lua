@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.18.0"
+local ver = "2.19.0"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
