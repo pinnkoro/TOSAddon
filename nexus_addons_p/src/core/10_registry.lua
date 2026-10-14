@@ -252,9 +252,9 @@ g._nexus_addons_p = {{
 }, {
     key = "easy_buff",
     category = "battle",
-    updated = "2.16.0",
-    updated_note_jp = "装備メンテナンスの部位を、メシ屋と同じく 5 つのプリセットから選ぶ形にしました(キャラごとの部位の設定はプリセットへ引き継ぎます)",
-    updated_note_en = "Equipment maintenance slots are now chosen from 5 presets, like the food shop (per-character slot settings are carried over)",
+    updated = g.VER_NEXT,
+    updated_note_jp = "他人の装備メンテナンスの窓の上に、メシ屋と同じくプリセットのボタンを並べました。店を開いたときに自動で実行するかどうかを、キャラごとに選べるようにしました(既定は ON)",
+    updated_note_en = "Preset buttons now appear at the top of another player's equipment maintenance window, like the food shop. Auto-run on opening the shop can be turned off per character (on by default)",
     data = {
         use = 0,
         name = "Easy Buff",

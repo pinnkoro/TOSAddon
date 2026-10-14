@@ -9,6 +9,8 @@
 --   3. 空きが尽きたらプリセット 1 に寄せる
 --   4. 移行は 1 回だけ（char_maint_check を消す）
 --   5. 設定画面の操作（自動実行の選択・部位のチェック・名前）が正しいキーへ書かれる
+--   6. 「店を開いたら自動で実行する」を外すと、店を開いても実行しない（ボタンは出す）。
+--      自分の店ではボタンを出さない
 --
 -- 使い方（リポジトリルートから）:
 --     luajit docs/tests/test_easy_buff.lua
@@ -121,7 +123,7 @@ for i = 1, 5 do
     check("プリセット " .. i .. " はすべて選択", count_on(i), 8)
 end
 check("自動実行は 1", Easy_buff_maint_preset(), 1)
-check("RH を選ぶ", Easy_buff_maint_selected("RH"), 1)
+check("RH を選ぶ", Easy_buff_maint_selected(Easy_buff_maint_preset(), "RH"), 1)
 check("char_maint_check は作らない", g.easy_buff_settings.char_maint_check, nil)
 
 print("[2] 移行")
@@ -150,10 +152,10 @@ check("プリセット 4 は手付かず", count_on(4), 8)
 check("char_maint_check を消した", g.easy_buff_settings.char_maint_check, nil)
 check("保存した", saved, 1)
 g.cid = "b_none"
-check("全部外したキャラは選ばない", Easy_buff_maint_selected("RH"), 0)
+check("全部外したキャラは選ばない", Easy_buff_maint_selected(Easy_buff_maint_preset(), "RH"), 0)
 g.cid = "c_weapon"
-check("武器だけのキャラは RH を選ぶ", Easy_buff_maint_selected("RH"), 1)
-check("武器だけのキャラは BOOTS を選ばない", Easy_buff_maint_selected("BOOTS"), 0)
+check("武器だけのキャラは RH を選ぶ", Easy_buff_maint_selected(Easy_buff_maint_preset(), "RH"), 1)
+check("武器だけのキャラは BOOTS を選ばない", Easy_buff_maint_selected(Easy_buff_maint_preset(), "BOOTS"), 0)
 
 print("[3] 空きが尽きたら 1 へ")
 loaded_json = {
@@ -212,6 +214,97 @@ check("メンテの名前", g.easy_buff_settings.maint_presets_name["5"], "武�
 check("メシ屋の名前は触らない", g.easy_buff_settings.food_presets_name["5"], nil)
 Easy_buff_config_presetname_change(nil, ctrl("preset_title_2", 0))
 check("メシ屋の名前", g.easy_buff_settings.food_presets_name["2"], "武器")
+check("店を開いたら自動実行は既定で ON", Easy_buff_maint_auto(), 1)
+Easy_buff_config_check_toggle(nil, ctrl("maint_auto_3", 1), "", 3)
+-- maint_auto_open は maint_auto_<n>(プリセットの選択)と頭がそろうので、取り違えないこと
+Easy_buff_config_check_toggle(nil, ctrl("maint_auto_open", 0), "", 0)
+check("自動実行を OFF", g.easy_buff_settings.char_maint_auto.char1, 0)
+check("プリセットの選択は触らない", g.easy_buff_settings.char_maint_preset.char1, 3)
+
+print("[6] 店を開いたとき")
+_G.session = {
+    GetMyHandle = function()
+        return 1
+    end
+}
+local function shop(owner_handle)
+    local values = {}
+    return setmetatable({
+        GetUserIValue = function(_, key)
+            if key == "HANDLE" then
+                return owner_handle
+            end
+            return values[key] or 0
+        end,
+        SetUserValue = function(_, key, value)
+            values[key] = value
+        end
+    }, {
+        __index = function()
+            return function()
+                return dummy
+            end
+        end
+    })
+end
+local shown, ran
+local real_buttons, real_run = Easy_buff_maint_buttons, Easy_buff_maint_run
+Easy_buff_maint_buttons = function(_, show)
+    shown = show
+end
+Easy_buff_maint_run = function(_, preset, by_button)
+    ran = preset
+end
+shown, ran = nil, nil
+Easy_buff_squire_buff_equip_ctrl_update(shop(2))
+check("自動実行 OFF でもボタンは出す", shown, true)
+check("自動実行 OFF なら実行しない", ran, nil)
+Easy_buff_config_check_toggle(nil, ctrl("maint_auto_open", 1), "", 0)
+shown, ran = nil, nil
+Easy_buff_squire_buff_equip_ctrl_update(shop(2))
+check("自動実行 ON なら赤いプリセットで実行", ran, 3)
+shown, ran = nil, nil
+Easy_buff_squire_buff_equip_ctrl_update(shop(1))
+check("自分の店ではボタンを隠す", shown, false)
+check("自分の店では実行しない", ran, nil)
+Easy_buff_maint_buttons, Easy_buff_maint_run = real_buttons, real_run
+-- 一覧は 1 回だけ下げ、自分の店で戻す(開き直すたびに下がり続けない)
+local list_h, list_top = 580, 3
+local list = setmetatable({
+    GetWidth = function()
+        return 480
+    end,
+    GetHeight = function()
+        return list_h
+    end,
+    Resize = function(_, w, h)
+        list_h = h
+    end,
+    SetMargin = function(_, l, t)
+        list_top = t
+    end
+}, {
+    __index = function()
+        return function()
+            return dummy
+        end
+    end
+})
+_G.GET_CHILD_RECURSIVELY = function(_, name)
+    if name == "ctrlGbox" then
+        return list
+    end
+    return dummy
+end
+local frame = shop(2)
+Easy_buff_maint_buttons(frame, true)
+Easy_buff_maint_buttons(frame, true)
+check("下げたのは 1 回(上端)", list_top, 3 + g.easy_buff_maint_btn_space)
+check("下げたのは 1 回(高さ)", list_h, 580 - g.easy_buff_maint_btn_space)
+Easy_buff_maint_buttons(frame, false)
+Easy_buff_maint_buttons(frame, false)
+check("自分の店で戻す(上端)", list_top, 3)
+check("自分の店で戻す(高さ)", list_h, 580)
 
 if failed > 0 then
     print(string.format("FAILED: %d 件", failed))
