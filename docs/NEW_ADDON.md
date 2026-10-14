@@ -97,6 +97,13 @@ end
   節を間違えるとテストが落ちる。
 * **更新履歴**の `* **（次回リリース）**` へ追記（[RELEASE.md](RELEASE.md) のルール）。
 
+### 1-6. `nexus_addons_p/src/core/30_maintenance.lua` — 自前の保存ファイルを持つなら
+
+`../addons/%s/%s/<key>.json` のように**アカウントのフォルダへ自前のファイルを書くなら**、
+`g.backup_files` へファイル名を足す。足さないとバックアップ・復元の対象から漏れる。
+**足し忘れは [docs/tests/test_core.lua](tests/test_core.lua) の [17] が止める**（bundle の中のパスと一覧を突き合わせる）。
+`settings.json` の `data` だけで足りるアドオンは触らなくてよい。
+
 ---
 
 ## 2. 窓を作るなら（共通部品）
@@ -248,5 +255,6 @@ nexus_addons_p/src/addons/<key>/README.md      新規
 nexus_addons_p/src/core/10_registry.lua        エントリ + 説明(3 言語)
 nexus_addons_p/src/build_manifest.json         連結順に 1 行
 nexus_addons_p/README.md                       一覧に 1 行 + 更新履歴
+nexus_addons_p/src/core/30_maintenance.lua    自前の保存ファイルを持つなら g.backup_files へ
 docs/vanilla_api.json                          素の API を使い始めたら
 ```
