@@ -225,6 +225,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | [Indun List Viewer](src/addons/indun_list_viewer/README.md) | 全キャラのレイド入場回数・掃討回数を一覧表示。掃討バフの期限も警告 |
 | [Indun Panel](src/addons/indun_panel/README.md) | レイド・チャレンジ等の入場を 1 枚のパネルに集約（表示セット 3 つ） |
 | [Monster Kill Count](src/addons/monster_kill_count/README.md) | マップ別に討伐数・滞在時間・ドロップを記録して集計 |
+| [Party Keeper](src/addons/party_keeper/README.md) | 今の PT を保存しておき、後から同じ PT へ入り直す |
 | [Save Quest](src/addons/save_quest/README.md) | ワープ用クエストの NPC を消して誤完了を防止。ショートカットパネルつき |
 | [Silent Velnice Ranking](src/addons/silent_velnice_ranking/README.md) | ヴェルニケで勝手に開くランキングを抑止（TAB で表示） |
 
@@ -282,6 +283,10 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
+
+* **v2.19.0**
+  * Party Keeper を追加しました。今入っている PT を保存しておき、後から**同じ PT へ入り直せます**
+    （PT が残っていて、リンク参加が許可されている場合だけ）。
 
 * **v2.18.0**
   * Lets Go Home: ホームに着いた後に**倉庫番の前まで移動**できるようにしました。

@@ -53,7 +53,7 @@ g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json",
                   "mini_addons_buffs.lua", "mini_addons_buffs_backup.json", "mini_addons_buffs_backup.lua",
                   "mini_addons_log.dat", "monster_card_changer.json", "monster_kill_count.json", "muteki.json",
                   "my_buffs_control.dat", "my_buffs_control.json", "other_character_skill_list.json",
-                  "other_character_skill_list.lua", "pick_item_tracker.json", "quickslot_operate.json",
+                  "other_character_skill_list.lua", "party_keeper.json", "pick_item_tracker.json", "quickslot_operate.json",
                   "relic_change.json", "revival_timer.json", "save_quest.json", "separate_buff_custom.json",
                   "settings_250609.json", "settings_2507.json", "settings_2510.json", "sub_map.json",
                   "sub_slotset.json", "vakarine_equip.json", "warehouse.dat"}

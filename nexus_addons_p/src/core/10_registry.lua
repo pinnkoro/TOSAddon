@@ -440,6 +440,17 @@ g._nexus_addons_p = {{
         expanded = 0
     }
 }, {
+    key = "party_keeper",
+    category = "content",
+    since = "2.19.0",
+    data = {
+        use = 0,
+        name = "Party Keeper",
+        frame_use = true,
+        config_func = "Party_keeper_settings_frame",
+        old_init_func = ""
+    }
+}, {
     key = "party_marker",
     category = "battle",
     data = {
@@ -708,6 +719,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}パーティ情報を職業アイコンだけにします{nl}クリック判定もアイコンの範囲だけになります",
         etc = "{ol}Reduce the party info to job icons only{nl}Clicks pass through everywhere except the icons",
         kr = "{ol}파티 정보를 직업 아이콘만 표시{nl}클릭 판정도 아이콘 범위로 축소"
+    },
+    ["party_keeper"] = {
+        ja = "{ol}今のPTを保存しておき、後から同じPTへ入り直します{nl}PTが残っていて、リンク参加が許可されている場合だけ入れます",
+        etc = "{ol}Save the current PT and rejoin the same PT later{nl}Works only while the PT exists and allows link join",
+        kr = "{ol}현재 파티를 저장해 두고 나중에 같은 파티에 다시 참가{nl}파티가 남아 있고 링크 참가가 허용된 경우에만 참가 가능"
     },
     ["party_marker"] = {
         ja = "{ol}Charbonさん作成{nl}パーティーメンバーの頭上にアイコンを付けます",

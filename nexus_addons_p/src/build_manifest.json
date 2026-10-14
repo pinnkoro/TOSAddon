@@ -50,6 +50,7 @@
       "addons/debuff_notice/debuff_notice.lua",
       "addons/boss_gauge/boss_gauge.lua",
       "addons/party_icon_only/party_icon_only.lua",
+      "addons/party_keeper/party_keeper.lua",
       "addons/party_marker/party_marker.lua",
       "addons/aethergem_manager/aethergem_manager.lua",
       "addons/job_change_helper/job_change_helper.lua",
@@ -168,7 +169,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "1f2fd703cc9152d47c0874960a960e187068a8ec8cc48b30f3cd359956544a9a",
+    "_nexus_addons_p.lua": "93571019bd1ae17fdf98f5c9df9ba9ff5032bcff57071dae2b6cb70b9cf70f37",
     "_icor_planner.lua": "c870ed5f3e33ba24e22b0bc786f05ed18295eef917d200160a0680508ecc0726",
     "_guild_storage_list.lua": "862f8eb3366243142674c4848b4be401b260af675460850150f33336e976d564"
   },
