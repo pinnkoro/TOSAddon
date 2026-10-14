@@ -442,7 +442,7 @@ g._nexus_addons_p = {{
 }, {
     key = "party_keeper",
     category = "content",
-    since = g.VER_NEXT,
+    since = "2.19.0",
     data = {
         use = 0,
         name = "Party Keeper",
