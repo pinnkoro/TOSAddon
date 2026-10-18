@@ -792,6 +792,215 @@ function Indun_panel_collect_tickets(ticket_ids)
     return buckets, locked
 end
 
+-- ===== 結果を待ってから次へ進む共通部品 =====
+--
+-- **秒数を決め打ちして次の手を打たないこと。** 入場窓を開く・券を使う・券を買うは、どれも
+-- サーバーの応答で結果が届く。以前は「0.3 秒後に入場」「1.5 秒後に入場」のように決め打ちで
+-- 進めていたため、応答が遅いと窓が開く前に入場を押したり、券の回数が戻る前に入場したりしていた。
+-- ここを通して、結果(窓が開いた / 回数が戻った / 券が届いた)を確かめてから進める。
+--
+-- cond が true を返すまで 0.2 秒おきに確かめ、成り立ったら on_ok を呼ぶ。
+-- opts.timeout 秒(既定 3)たっても成り立たなければ opts.on_timeout を呼ぶ。
+-- **on_timeout を渡さなければ on_ok を呼ぶ。** 決め打ちだった頃と同じく「確かめられなくても進む」に
+-- 戻すためで、待ちを足したせいで今まで入れていたものが入れなくなる、ということを起こさない。
+-- opts.log_only を立てると、成り立ったか時間切れかをログに出すだけで何も呼ばない(on_ok は nil でよい)。
+-- どちらで進んだかは必ずログに出す(実機で確かめる手掛かり)。
+--
+-- ReserveScript は文字列しか受け取れないので、待ちの中身は表に預けて番号で引く。
+--
+-- **同じ label の待ちが残っていたら古い方を捨てる。** 入場ボタンの連打で待ちが重なると、
+-- それぞれが成り立って ReqMoveToIndun を 2 回送ってしまう。マップ移動などで ReserveScript が
+-- 走らずに残った待ちも、次に同じ待ちを積んだときにここで片付く。
+-- label にはダンジョンの番号まで入れて、別の流れの待ちと名前がぶつからないようにすること。
+function Indun_panel_wait_until(label, cond, on_ok, opts)
+    opts = opts or {}
+    g.indun_panel_waits = g.indun_panel_waits or {}
+    g.indun_panel_wait_by_label = g.indun_panel_wait_by_label or {}
+    local old_id = g.indun_panel_wait_by_label[label]
+    if old_id and g.indun_panel_waits[old_id] then
+        g.indun_panel_waits[old_id] = nil
+        g.vlog("indun_panel: 待ち[%s] が残っていたので古い方を捨てた", label)
+    end
+    g.indun_panel_wait_seq = (g.indun_panel_wait_seq or 0) + 1
+    local id = g.indun_panel_wait_seq
+    g.indun_panel_wait_by_label[label] = id
+    g.indun_panel_waits[id] = {
+        label = label,
+        cond = cond,
+        on_ok = on_ok,
+        on_timeout = opts.on_timeout,
+        log_only = opts.log_only,
+        tries = 0,
+        max_tries = math.ceil((opts.timeout or 3) / 0.2)
+    }
+    ReserveScript(string.format("Indun_panel_wait_tick(%d)", id), 0.1)
+end
+
+-- 終わった待ちを片付ける。名前の表は、同じ名前で後から積まれた待ちを指していたら残す
+function Indun_panel_wait_forget(id, w)
+    g.indun_panel_waits[id] = nil
+    local by_label = g.indun_panel_wait_by_label or {}
+    if by_label[w.label] == id then
+        by_label[w.label] = nil
+    end
+end
+
+function Indun_panel_wait_tick(id)
+    local waits = g.indun_panel_waits or {}
+    local w = waits[id]
+    if not w then
+        return
+    end
+    w.tries = w.tries + 1
+    local ok, result = pcall(w.cond)
+    if not ok then
+        g.vlog("indun_panel: 待ち[%s] の確認で落ちた: %s", w.label, tostring(result))
+    end
+    if ok and result then
+        Indun_panel_wait_forget(id, w)
+        g.vlog("indun_panel: 待ち[%s] %d 回目で成立", w.label, w.tries)
+        if not w.log_only then
+            w.on_ok()
+        end
+        return
+    end
+    if w.tries >= w.max_tries then
+        Indun_panel_wait_forget(id, w)
+        local proceed = not w.log_only and not w.on_timeout
+        g.vlog("indun_panel: 待ち[%s] 時間切れ(%d 回)%s", w.label, w.tries,
+            proceed and "。確かめられないまま進む" or "")
+        if w.log_only then
+            return
+        elseif w.on_timeout then
+            w.on_timeout()
+        else
+            w.on_ok()
+        end
+        return
+    end
+    ReserveScript(string.format("Indun_panel_wait_tick(%d)", id), 0.2)
+end
+
+-- 入場窓が indun_type で開いているか。素の SHOW_INDUNENTER_DIALOG は TOSHero 系を 652 に
+-- 書き換えてから INDUN_TYPE へ入れるので、比べる側も同じ書き換えをする。
+-- (素は窓が既に開いていると何もせずに戻るので、別のダンジョンの窓が開いたままだと
+--  成り立たずに時間切れになる。そのときは on_ok で以前どおり進む)
+function Indun_panel_indunenter_shown(indun_type)
+    local indunenter = ui.GetFrame("indunenter")
+    if not indunenter or indunenter:IsVisible() ~= 1 then
+        return false
+    end
+    local expected = indun_type
+    local indun_cls = GetClassByType("Indun", indun_type)
+    if indun_cls and string.find(TryGetProp(indun_cls, "DungeonType", ""), "TOSHero") == 1 then
+        expected = 652
+    end
+    return indunenter:GetUserIValue("INDUN_TYPE") == expected
+end
+
+-- 入場窓が開くのを待ってから ReqMoveToIndun を送る(move_type: 1 = 入場 / 2 = 自動マッチ)。
+-- **ReqChallengeAutoUIOpen / ReqRaidAutoUIOpen の直後に呼ぶこと。** 窓はサーバーの応答で開くので、
+-- 呼ばれた時点の窓の状態は「要求を送る前」のものとして控えられる。
+--
+-- 成り立つのは次のどちらか。
+--   * 窓が indun_type で開いている
+--   * 要求前は閉じていた窓が開いた(番号が違っても、自分が開かせた窓と見なす。
+--     要求した番号と窓の番号が違う種類があっても止まらないように。違ったときはログに出す)
+-- **元から別のダンジョンの窓が開いていたときだけ押さない。** 素の SHOW_INDUNENTER_DIALOG は
+-- 窓が開いていると何もせずに戻るので、押すとその別ダンジョンの窓で入場 / 自動マッチしてしまう。
+-- 窓が無いまま時間切れになったときは、決め打ちだった頃と同じく押す。
+--
+-- no_entry(省略可)は「入場回数が無いか」。チャレンジ / 分裂の入場券ダンジョンは回数が無いと
+-- サーバーが入場窓を開かない(2026-10 に PT ボタンで実機確認。以前は空振りの入場を押すだけで
+-- 何も知らせていなかった)。回数が無ければ**押した時点で知らせ**、窓が開かずに時間切れに
+-- なっても入場は押さない。
+-- **知らせても、窓を開く要求と待ちは止めないこと。** 回数の意味(入れる側が 1 か 0 か)を
+-- 全ダンジョンでは確かめ切れていないので、判定が外れていても窓さえ開けばそのまま入れるようにしておく。
+function Indun_panel_req_move_when_shown(indun_type, move_type, no_entry)
+    local before = ui.GetFrame("indunenter")
+    local was_visible = before and before:IsVisible() == 1
+    local predicted_no_entry = no_entry and no_entry() or false
+    if predicted_no_entry then
+        g.vlog("indun_panel: indun %d は入場回数が無いと判定した(窓が開けばそのまま進む)", indun_type)
+        ui.SysMsg(g.lang == "Japanese" and "入場回数がありません。入場券は USE ボタンから使えます" or
+                      "No entries left. Use a ticket with the USE button")
+    end
+    local function send()
+        local indunenter = ui.GetFrame("indunenter")
+        -- AUTOMATCH_MODE は窓を閉じても残るので、表示中の窓の値だけを信じる
+        if move_type == 2 and indunenter and indunenter:IsVisible() == 1 and
+            indunenter:GetUserValue("AUTOMATCH_MODE") == "YES" then
+            g.vlog("indun_panel: indun %d はもう自動マッチ中なので押さない", indun_type)
+            return
+        end
+        g.vlog("indun_panel: ReqMoveToIndun(%d) indun=%d", move_type, indun_type)
+        ReqMoveToIndun(move_type, 0)
+        if move_type == 2 then
+            -- 押した結果の確認(ログだけ)。素の INDUNENTER_AUTOMATCH_TYPE が AUTOMATCH_MODE を 'YES' にする
+            Indun_panel_wait_until(string.format("自動マッチ開始 %d", indun_type), function()
+                local frame = ui.GetFrame("indunenter")
+                return frame and frame:GetUserValue("AUTOMATCH_MODE") == "YES"
+            end, nil, {
+                log_only = true
+            })
+        end
+    end
+    Indun_panel_wait_until(string.format("入場窓 %d", indun_type), function()
+        if Indun_panel_indunenter_shown(indun_type) then
+            return true
+        end
+        local frame = ui.GetFrame("indunenter")
+        if not was_visible and frame and frame:IsVisible() == 1 then
+            g.vlog("indun_panel: indun %d を要求して開いた窓の INDUN_TYPE が %d だった(自分が開かせた窓として進む)",
+                indun_type, frame:GetUserIValue("INDUN_TYPE"))
+            return true
+        end
+        return false
+    end, send, {
+        on_timeout = function()
+            local indunenter = ui.GetFrame("indunenter")
+            if was_visible and indunenter and indunenter:IsVisible() == 1 then
+                g.vlog("indun_panel: 別のダンジョンの入場窓(INDUN_TYPE=%d)が元から開いていたので indun %d の入場を押さない",
+                    indunenter:GetUserIValue("INDUN_TYPE"), indun_type)
+                ui.SysMsg(g.lang == "Japanese" and "別のダンジョンの入場画面が開いているため入場できませんでした" or
+                              "Could not enter because another dungeon's entry window is open")
+                return
+            end
+            if predicted_no_entry then
+                g.vlog("indun_panel: indun %d は入場回数が無く入場窓も開かないので押さない", indun_type)
+                return
+            end
+            g.vlog("indun_panel: indun %d の入場窓を確かめられないまま押す", indun_type)
+            send()
+        end
+    })
+end
+
+-- 券を使った(または買って使った)あと、入場できる状態に戻るのを待ってから enter を呼ぶ。
+-- can_enter は「券を使うかどうか」を決めたときと同じ判定を渡すこと
+-- (ダンジョンによって回数の意味が違う。残り回数 / 消費済みフラグ / 入った回数)。
+--
+-- ticket_ids を渡すと、**券の枚数が減った(= 使ったのがサーバーに届いた)ことでも進む。**
+-- レイド / テルハルシャ / ヴェルニケは「券を使うと入った回数が減る」ことを実機で確かめていない。
+-- 減らない種類だと回数の条件が成り立たず毎回時間切れまで待つので、枚数で受け止める。
+-- チャレンジ / 分裂は回数(消費済みフラグ)を確かめてから入りたいので渡さない。
+-- INV_ICON_USE は要求を送るだけなので、ここで数える枚数は使う前の枚数になる。
+function Indun_panel_enter_after_ticket(label, can_enter, enter, ticket_ids)
+    local before_count = ticket_ids and Indun_panel_get_invitem_count(ticket_ids) or nil
+    Indun_panel_wait_until("券の反映 " .. label, function()
+        if can_enter() then
+            return true
+        end
+        if before_count and Indun_panel_get_invitem_count(ticket_ids) < before_count then
+            g.vlog("indun_panel: %s は回数ではなく券が減ったことで反映を確かめた(%d 枚から)", label, before_count)
+            return true
+        end
+        return false
+    end, enter, {
+        timeout = 5
+    })
+end
+
 -- 使用順に沿って「券を 1 枚使う」か「ショップで買う」を **1 回だけ** 行う。
 --   group_key  … g.INDUN_PANEL_TICKET_GROUPS のキー
 --   ticket_ids … 候補の ClassID(同じ分類の中ではこの並び順)
@@ -1122,11 +1331,27 @@ function Indun_panel_INDUN_ALREADY_PLAYING(my_frame, my_msg)
         g.FUNCS["INDUN_ALREADY_PLAYING"]()
         return
     end
-    ReserveScript("Indun_panel_INDUN_ALREADY_PLAYING_dilay()", 0.3)
+    -- 入場窓が開いているのを確かめてから判定する。**INDUN_TYPE は窓を閉じても残る**ので、
+    -- 表示中でないときの値は前に開いた窓のもの。それで判定すると、確認窓を出すべき入場を
+    -- 確認なしで放棄してしまう。
+    -- 待つのは 1 秒まで。入場窓を使わない経路(NPC など)では窓が開かないので、
+    -- 長く待つと素の確認窓が出るまで毎回止まる(以前の決め打ちは 0.3 秒)。
+    Indun_panel_wait_until("放棄の確認", function()
+        local indunenter = ui.GetFrame("indunenter")
+        return indunenter and indunenter:IsVisible() == 1 and indunenter:GetUserIValue("INDUN_TYPE") ~= 0
+    end, Indun_panel_INDUN_ALREADY_PLAYING_dilay, {
+        timeout = 1
+    })
 end
 
 function Indun_panel_INDUN_ALREADY_PLAYING_dilay()
     local indunenter = ui.GetFrame("indunenter")
+    -- 窓が無い(時間切れで来た)ときは古い INDUN_TYPE を信じず、素の確認窓に任せる
+    if not indunenter or indunenter:IsVisible() ~= 1 then
+        g.vlog("indun_panel: 放棄の確認で入場窓が開いていないので素の確認窓を出す")
+        g.FUNCS["INDUN_ALREADY_PLAYING"]()
+        return
+    end
     local indun_type = indunenter:GetUserIValue('INDUN_TYPE')
     -- 対象は「自動マッチングで入るもの」= チャレンジの PT と分裂の全段。
     -- 以前は 1005 / 2000 / 2001 を直接並べていたが、1005 は削除され 1007 と 2003 が
@@ -1134,15 +1359,94 @@ function Indun_panel_INDUN_ALREADY_PLAYING_dilay()
     -- (この関数は段の表より前にあるので、表を upvalue で掴めない。
     --  グローバル関数にして実行時に引く)。
     if Indun_panel_is_auto_rejoin_indun(indun_type) then
+        -- 素の確認窓で「はい」を押したのと同じ答えだけを返す。
+        -- **ここで入場窓を閉じてはいけない。** 入場窓の CloseScp は INDUNENTER_CLOSE で、
+        -- 中で INDUNENTER_AUTOMATCH_CANCEL を呼ぶ。以前は閉じてから入り直していたため、
+        -- 始まった自動マッチを自分で取り消し、窓を開き直してもう一度マッチしていた
+        -- (「マッチ開始 → キャンセル → 窓が開き直してまたマッチ」の 2 回マッチ)。
+        local before_mode = indunenter:GetUserValue("AUTOMATCH_MODE")
+        g.vlog("indun_panel: 前のダンジョンを放棄する(indun_type=%d AUTOMATCH_MODE=%s)", indun_type, before_mode)
         AnsGiveUpPrevPlayingIndun(1)
-        ui.CloseFrame("indunenter")
-        ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
+        Indun_panel_giveup_watch(indun_type, before_mode)
         return
     else
         local yes_scp = string.format("AnsGiveUpPrevPlayingIndun(%d)", 1)
         local no_scp = string.format("AnsGiveUpPrevPlayingIndun(%d)", 0)
         ui.MsgBox(ClMsg("IndunAlreadyPlaying_AreYouGiveUp"), yes_scp, no_scp)
     end
+end
+
+-- 放棄の答えを返した後、自動マッチが続いているかを見て、入り直すかを決める。
+--
+-- **答える前から自動マッチ中だったら、何もしない(続いていると見る)。** 解除の知らせは
+-- 利用者のキャンセルやマッチの成立でも来るので、「止まったら入り直す」にすると、
+-- キャンセルしたのに勝手にもう一度マッチしたり、入場の流れの中で窓を開き直したりする。
+-- 止まったかどうかはログにだけ出す(本当に止まるのかを実機で確かめる手掛かり)。
+--
+-- 答える前が自動マッチ中でなければ、3 秒のうちに始まるかを見て、始まらなければ入り直す。
+function Indun_panel_giveup_watch(indun_type, before_mode)
+    local label = string.format("放棄後の自動マッチ %d", indun_type)
+    local function automatch_on()
+        local frame = ui.GetFrame("indunenter")
+        return frame and frame:GetUserValue("AUTOMATCH_MODE") == "YES"
+    end
+    if before_mode == "YES" then
+        g.vlog("indun_panel: 答える前から自動マッチ中なので入り直さない(indun_type=%d)", indun_type)
+        Indun_panel_wait_until(label .. " が止まるか", function()
+            return not automatch_on()
+        end, nil, {
+            log_only = true
+        })
+        return
+    end
+    Indun_panel_wait_until(label .. " が始まるか", automatch_on, function()
+        g.vlog("indun_panel: 放棄後に自動マッチが始まったので入り直さない(indun_type=%d)", indun_type)
+    end, {
+        on_timeout = function()
+            Indun_panel_giveup_rejoin(indun_type)
+        end
+    })
+end
+
+-- 入り直すのは **1 回まで**(30 秒の間)。放棄がサーバーに反映される前に入り直すと、
+-- もう一度 INDUN_ALREADY_PLAYING が来て放棄 → 入り直しを繰り返すことがあるため。
+function Indun_panel_giveup_rejoin(indun_type)
+    -- **閉じる直前にもう一度確かめる。** 時間切れから閉じるまでの間にマッチが始まっていたら、
+    -- 閉じると INDUNENTER_CLOSE → INDUNENTER_AUTOMATCH_CANCEL で自分で取り消すことになる
+    -- (AUTOMATCH_MODE は窓を閉じても残るので、表示中の窓の値だけを信じる)
+    local indunenter = ui.GetFrame("indunenter")
+    if indunenter and indunenter:IsVisible() == 1 and indunenter:GetUserValue("AUTOMATCH_MODE") == "YES" then
+        g.vlog("indun_panel: 入り直す直前に自動マッチ中になったので入り直さない(indun_type=%d)", indun_type)
+        return
+    end
+    local now = imcTime.GetAppTime()
+    if g.indun_panel_last_rejoin and now - g.indun_panel_last_rejoin < 30 then
+        g.vlog("indun_panel: 30 秒以内に入り直したばかりなので、もう入り直さない(indun_type=%d)", indun_type)
+        return
+    end
+    g.indun_panel_last_rejoin = now
+    g.vlog("indun_panel: 放棄後 3 秒たっても自動マッチが始まらないので入り直す(indun_type=%d)", indun_type)
+    Indun_panel_INDUN_ALREADY_PLAYING_rejoin(indun_type)
+end
+
+-- 窓を閉じて入り直す。閉じ切る前に開く要求を送ると、素の SHOW_INDUNENTER_DIALOG は
+-- 窓が開いているので何もせずに戻ってしまう。閉じたのを確かめてから入り直す。
+-- 分裂特異点とチャレンジの PT で入場処理を呼び分ける(分裂の設定 singularity_check を
+-- チャレンジに効かせない / チャレンジは PT が無ければ作る)
+function Indun_panel_INDUN_ALREADY_PLAYING_rejoin(indun_type)
+    ui.CloseFrame("indunenter")
+    Indun_panel_wait_until(string.format("入場窓を閉じる %d", indun_type), function()
+        local frame = ui.GetFrame("indunenter")
+        return not frame or frame:IsVisible() == 0
+    end, function()
+        if Indun_panel_is_singularity_indun(indun_type) then
+            Indun_panel_enter_singularity(nil, nil, "", indun_type)
+        else
+            Indun_panel_enter_challenge(nil, nil, "2", indun_type)
+        end
+    end, {
+        timeout = 2
+    })
 end
 
 -- Indun_panel_challenge(入場時の覚え直し)と Indun_panel_challenge_map_context(予定表)の両方から
@@ -3187,6 +3491,7 @@ function Indun_panel_get_my_housing_point_callback(code, ret_json)
 end
 
 -- ショップで 1 枚買い、届いた券を使う。買いに行ったら true。
+-- on_used は**券を使った後**に呼ぶ(入場の予約など)。券が届かず使えなかったときは呼ばない。
 --
 -- **ticket_ids(その経路の券の候補)を必ず渡すこと。** 取引名の売り物は運営の都合で
 -- 黙って差し替わる。2026-09 には分裂 520 の EVENT_TOS_WHOLE_SHOP_314 がライマラの券に、
@@ -3194,7 +3499,7 @@ end
 -- 買って使ってしまっていた**(利用者の報告で発覚)。取引名は数字の連番で中身が読めず、
 -- 構文チェックもテストも通り抜けて、実機で券を溶かすまで気付けない。
 -- そこで売り物(TargetItem)が候補に入っていないときは買わない。
-function Indun_panel_item_buy_use(recipe_name, ticket_ids)
+function Indun_panel_item_buy_use(recipe_name, ticket_ids, on_used)
     local recipe_cls = recipe_name and recipe_name ~= "" and GetClass("ItemTradeShop", recipe_name)
     if not recipe_cls then
         return false
@@ -3213,6 +3518,11 @@ function Indun_panel_item_buy_use(recipe_name, ticket_ids)
             tostring(TryGetProp(recipe_cls, "TargetItem", "None")), tostring(target_id))
         return false
     end
+    -- 届いたかは枚数が増えたかで見る(同じ券を元から持っていることがある)。
+    -- 期限付きの券は重ならず 1 枚ごとに別の GUID になるので、全部を合算して数える。
+    -- 使うときは**買って増えた券**を選ぶ(元から持っていた鍵付きの券などを使わない)
+    local before_count = Indun_panel_get_invitem_count({target_id})
+    local before_stacks = Indun_panel_inv_stacks(target_id)
     session.ResetItemList()
     session.AddItemID(tostring(0), 1)
     local itemlist = session.GetItemIDList()
@@ -3223,19 +3533,69 @@ function Indun_panel_item_buy_use(recipe_name, ticket_ids)
         item.DialogTransaction("PVP_MINE_SHOP", itemlist, cnt_text)
     end
     local item_name = recipe_cls.TargetItem
-    g.vlog("indun_panel: 取引 %s で %s を買って使う", recipe_name, tostring(item_name))
-    ReserveScript(string.format("Indun_panel_inv_item_use('%s')", item_name), 1.0)
+    g.vlog("indun_panel: 取引 %s で %s を買って使う(手持ち %d 枚)", recipe_name, tostring(item_name), before_count)
+    Indun_panel_wait_until("購入 " .. tostring(item_name), function()
+        return Indun_panel_get_invitem_count({target_id}) > before_count
+    end, function()
+        if Indun_panel_use_new_item(target_id, before_stacks) then
+            if on_used then
+                on_used()
+            end
+        else
+            g.vlog("indun_panel: 買った %s(新しく増えた券)が見つからないので使わず、入場もしない", tostring(item_name))
+            Indun_panel_bought_not_used_msg()
+        end
+    end, {
+        timeout = 5,
+        -- **届かなかったら使わない。** 時間切れで使うと、元から持っていた同じ券
+        -- (hold_permanent で温存した期限なしの券など)を溶かして入場してしまう
+        on_timeout = function()
+            g.vlog("indun_panel: 買った %s が届かないので使わず、入場もしない", tostring(item_name))
+            Indun_panel_bought_not_used_msg()
+        end
+    })
     return true
 end
 
-function Indun_panel_inv_item_use(item_name)
-    local item_cls = GetClass("Item", item_name)
-    if item_cls then
-        local inv_item = session.GetInvItemByType(item_cls.ClassID)
-        if inv_item then
-            INV_ICON_USE(inv_item)
+-- 買った券を使えなかったときの知らせ。Indun_panel_item_buy_use は買いに行った時点で true を
+-- 返すので、使えなかったことは呼び出し側の「使える入場券が無かった」の知らせにも出ない
+function Indun_panel_bought_not_used_msg()
+    ui.SysMsg(g.lang == "Japanese" and "入場券を買いましたが使えませんでした。届いた券をインベントリから使ってください" or
+                  "Bought a ticket but could not use it. Use it from your inventory")
+end
+
+-- class_id の券をスタック(GUID)ごとの枚数で控える(購入前の控え)
+function Indun_panel_inv_stacks(class_id)
+    local stacks = {}
+    Indun_panel_for_each_invitem({class_id}, function(guid, inv_item)
+        stacks[guid] = inv_item.count
+    end)
+    return stacks
+end
+
+-- before_stacks と比べて**増えた**(= いま買って届いた)鍵の掛かっていない class_id の券を 1 枚使う。
+-- 期限付きの券は 1 枚ごとに新しい GUID で届くが、重なる券は既存のスタックへ足されて
+-- GUID が増えない。新しい GUID が無ければ、枚数が増えたスタックを使う。使えたら true
+function Indun_panel_use_new_item(class_id, before_stacks)
+    local new_item, grown_item
+    Indun_panel_for_each_invitem({class_id}, function(guid, inv_item)
+        if inv_item.isLockState then
+            return
         end
+        local before = before_stacks[guid]
+        if not before then
+            new_item = new_item or inv_item
+        elseif inv_item.count > before then
+            grown_item = grown_item or inv_item
+        end
+    end)
+    local target = new_item or grown_item
+    if not target then
+        return false
     end
+    g.vlog("indun_panel: 買った券を使う(%s)", new_item and "新しい GUID" or "枚数が増えたスタック")
+    INV_ICON_USE(target)
+    return true
 end
 
 function Indun_panel_get_entrance_count(indun_type, index)
@@ -3350,25 +3710,30 @@ function Indun_panel_overbuy_amount(recipe_name)
     return 1050 + (current_overbuy_count * 50)
 end
 
-function Indun_panel_get_invitem_count(tbl)
-    local count = 0
+-- インベントリのうち ClassID が class_ids に入っているものを 1 つずつ cb(guid 文字列, inv_item) へ渡す。
+-- 数える / 控える / 新しく増えたものを探す、はどれもこの上に載せる(走査を書き写さない)。
+function Indun_panel_for_each_invitem(class_ids, cb)
+    local wanted = {}
+    for _, class_id in ipairs(class_ids) do
+        wanted[class_id] = true
+    end
     local inv_item_list = session.GetInvItemList()
     local guid_list = inv_item_list:GetGuidList()
-    local cnt = guid_list:Count()
-    for i = 0, cnt - 1 do
+    for i = 0, guid_list:Count() - 1 do
         local guid = guid_list:Get(i)
         local inv_item = inv_item_list:GetItemByGuid(guid)
-        if inv_item then
-            local obj = GetIES(inv_item:GetObject())
-            local item_id = obj.ClassID
-            for _, class_id in ipairs(tbl) do
-                if item_id == class_id then
-                    count = count + inv_item.count
-                    break
-                end
-            end
+        local obj = inv_item and inv_item:GetObject()
+        if obj and wanted[GetIES(obj).ClassID] then
+            cb(tostring(guid), inv_item)
         end
     end
+end
+
+function Indun_panel_get_invitem_count(tbl)
+    local count = 0
+    Indun_panel_for_each_invitem(tbl, function(_, inv_item)
+        count = count + inv_item.count
+    end)
     return count
 end
 
@@ -3564,15 +3929,7 @@ function Indun_panel_challenge_item_use(indun_panel, ctrl, mode, indun_type)
         g.vlog("indun_panel: チャレンジの段が見つからない indun_type=%s", tostring(indun_type))
         return
     end
-    local entrance_count = Indun_panel_get_entrance_count(indun_type, 4)
-    -- 520 は入場券ダンジョンではないので「残り回数」がそのまま返る(行けるとき > 0)。
-    -- 540 以降は入場券の消費済みフラグなので、行けるときが 1 で、0 のときに券を使う。
-    local need_ticket
-    if indun_type == 1001 then
-        need_ticket = entrance_count > 0
-    else
-        need_ticket = entrance_count == 0
-    end
+    local need_ticket, entrance_count = Indun_panel_challenge_need_ticket(indun_type)
     if need_ticket then
         Indun_panel_process_ticket(indun_type, mode, CHALLENGE_CONFIG[tier.config])
     else
@@ -3609,12 +3966,13 @@ function Indun_panel_process_ticket(indun_type, mode, config)
     end
     local used = Indun_panel_consume_ticket("challenge", ticket_ids, {
         on_use = function()
-            Indun_panel_enter_reserve(enter_mode, indun_type)
+            Indun_panel_enter_reserve(enter_mode, indun_type, ticket_ids)
         end,
         on_buy = function()
             if recipe_name ~= "" and Indun_panel_get_recipe_trade_count(recipe_name) >= 1 and
-                Indun_panel_item_buy_use(recipe_name, ticket_ids) then
-                Indun_panel_enter_reserve(enter_mode, indun_type)
+                Indun_panel_item_buy_use(recipe_name, ticket_ids, function()
+                    Indun_panel_enter_reserve(enter_mode, indun_type, ticket_ids)
+                end) then
                 return true
             end
             return false
@@ -3642,17 +4000,39 @@ function Indun_panel_process_ticket(indun_type, mode, config)
     -- 追加で買える枠なので、持っている券を使い切ってから手を付けるのが今までの動きで、
     -- 設定の「購入」(通常の購入枠)とは意味が違う。
     if mode == "pvp" and recipe_name ~= "" then
-        if Indun_panel_overbuy_count(recipe_name) > 0 and Indun_panel_item_buy_use(recipe_name, ticket_ids) then
-            Indun_panel_enter_reserve(enter_mode, indun_type)
+        if Indun_panel_overbuy_count(recipe_name) > 0 and Indun_panel_item_buy_use(recipe_name, ticket_ids, function()
+            Indun_panel_enter_reserve(enter_mode, indun_type, ticket_ids)
+        end) then
             g.vlog("indun_panel: 入場券を追加購入枠(OverBuy)で買った recipe=%s", recipe_name)
         end
     end
 end
 
-function Indun_panel_enter_reserve(index, indun_type)
-    AnsGiveUpPrevPlayingIndun(1)
-    ReserveScript(string.format("Indun_panel_enter_challenge(nil,nil,'%d', %d)", index, indun_type), 1.5)
+-- チャレンジで券を使う必要があるか。
+-- 520 は入場券ダンジョンではないので「残り回数」がそのまま返る(行けるとき > 0)。
+-- 540 以降は入場券の消費済みフラグなので、行けるときが 1 で、0 のときに券を使う。
+-- 2 つ目の戻り値は判定に使った回数(ログ用)。
+function Indun_panel_challenge_need_ticket(indun_type)
+    local entrance_count = tonumber(Indun_panel_get_entrance_count(indun_type, 4)) or 0
+    if indun_type == 1001 then
+        return entrance_count > 0, entrance_count
+    end
+    return entrance_count == 0, entrance_count
 end
+
+-- 券を使った後に呼ぶ。回数が戻って券が要らなくなってから入場する。
+-- **520(1001)だけは券の枚数でも反映を受ける。** 520 は入場券ダンジョンではなく、券を使っても
+-- 「券が要らない」側へ回数が戻るとは限らないので、回数だけを見ると毎回時間切れまで待つ。
+-- 540 以降は消費済みフラグを確かめてから入りたいので、枚数では進めない。
+function Indun_panel_enter_reserve(index, indun_type, ticket_ids)
+    AnsGiveUpPrevPlayingIndun(1)
+    Indun_panel_enter_after_ticket(string.format("チャレンジ %d", indun_type), function()
+        return not Indun_panel_challenge_need_ticket(indun_type)
+    end, function()
+        Indun_panel_enter_challenge(nil, nil, tostring(index), indun_type)
+    end, indun_type == 1001 and ticket_ids or nil)
+end
+
 
 function Indun_panel_enter_challenge(indun_panel, ctrl, index, indun_type)
     index = tonumber(index)
@@ -3664,7 +4044,10 @@ function Indun_panel_enter_challenge(indun_panel, ctrl, index, indun_type)
         CREATE_PARTY_BTN()
     end
     ReqChallengeAutoUIOpen(indun_type)
-    ReserveScript(string.format("ReqMoveToIndun(%d,%d)", index, 0), 0.3)
+    -- 判定は券のボタンが「券を使うかどうか」を決めるのと同じもの
+    Indun_panel_req_move_when_shown(indun_type, index, function()
+        return Indun_panel_challenge_need_ticket(indun_type)
+    end)
 end
 
 -- 分裂特異点もチャレンジと同じく Lv 帯ごとに入場券とショップが別物なので段の表にする。
@@ -3716,6 +4099,11 @@ function Indun_panel_is_auto_rejoin_indun(indun_type)
     if tier and tier.pt == indun_type then
         return true
     end
+    return Indun_panel_is_singularity_indun(indun_type)
+end
+
+-- 分裂特異点の段か(放棄後の入り直しで、チャレンジの PT と入場処理を呼び分けるため)
+function Indun_panel_is_singularity_indun(indun_type)
     return SINGULARITY_TIER_BY_INDUN[indun_type] ~= nil
 end
 
@@ -3827,12 +4215,13 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
     -- 「買えなければ手持ちを使う」だけの作りで、ショップの在庫を見ていない。
     Indun_panel_consume_ticket("challenge", ticket_ids, {
         on_use = function()
-            ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 0.5)
+            Indun_panel_singularity_enter_after_ticket(indun_type)
         end,
         on_buy = function()
             for _, recipe in ipairs(recipes) do
-                if Indun_panel_get_recipe_trade_count(recipe) >= 1 and Indun_panel_item_buy_use(recipe, ticket_ids) then
-                    ReserveScript(string.format("Indun_panel_enter_singularity(nil,nil,'', %d)", indun_type), 1.5)
+                if Indun_panel_get_recipe_trade_count(recipe) >= 1 and Indun_panel_item_buy_use(recipe, ticket_ids, function()
+                    Indun_panel_singularity_enter_after_ticket(indun_type)
+                end) then
                     return true
                 end
             end
@@ -3844,6 +4233,15 @@ function Indun_panel_item_use_sin(frame, ctrl, mode, indun_type)
             AnsGiveUpPrevPlayingIndun(1)
         end
     })
+end
+
+-- 券を使った後、回数が戻ってから入場する(戻ったかは Indun_panel_item_use_sin の判定と同じ)
+function Indun_panel_singularity_enter_after_ticket(indun_type)
+    Indun_panel_enter_after_ticket(string.format("分裂 %d", indun_type), function()
+        return (tonumber(Indun_panel_get_entrance_count(indun_type, 4)) or 0) > 0
+    end, function()
+        Indun_panel_enter_singularity(nil, nil, "", indun_type)
+    end)
 end
 
 function Indun_panel_enter_singularity(frame, ctrl, str, indun_type)
@@ -3858,8 +4256,13 @@ function Indun_panel_enter_singularity(frame, ctrl, str, indun_type)
                 return
             end
         end
+        g.vlog("indun_panel: 分裂 %d の入場窓を開く(singularity_check=%s)", indun_type,
+            tostring(g.indun_panel_settings.etc.singularity_check))
         if g.indun_panel_settings.etc.singularity_check == 0 then
-            ReserveScript(string.format("ReqMoveToIndun(%d,%d)", 2, 0), 0.3)
+            -- 判定は Indun_panel_item_use_sin(券のボタン)と同じ
+            Indun_panel_req_move_when_shown(indun_type, 2, function()
+                return (tonumber(Indun_panel_get_entrance_count(indun_type, 4)) or 0) <= 0
+            end)
         end
     end
 end
@@ -3986,7 +4389,9 @@ function Indun_panel_raid_itemuse(indun_panel, ctrl, str, indun_type)
             ReqUseRaidAutoSweep(indun_type)
         elseif not Indun_panel_consume_ticket("raid", target_items, {
             on_use = function()
-                ReserveScript(string.format("ReqUseRaidAutoSweep(%d)", indun_type), 0.5)
+                Indun_panel_count_enter_after_ticket(indun_type, limit_count, function()
+                    ReqUseRaidAutoSweep(indun_type)
+                end, target_items)
             end
         }) then
             ui.SysMsg(g.lang == "Japanese" and "入場回数不足（チケットなし）" or
@@ -4025,7 +4430,7 @@ function Indun_panel_enter_solo(indun_panel, ctrl, str, indun_type)
         g.vlog("indun_panel: indun %d は窓を開くところで止める(入場は押さない)", indun_type)
         return
     end
-    ReserveScript(string.format("ReqMoveToIndun(%d,%d)", 1, 0), 0.3)
+    Indun_panel_req_move_when_shown(indun_type, 1)
 end
 
 function Indun_panel_enter_auto(indun_panel, ctrl, str, indun_type)
@@ -4040,7 +4445,7 @@ function Indun_panel_enter_auto(indun_panel, ctrl, str, indun_type)
                 return
             end
         end
-        ReserveScript(string.format("ReqMoveToIndun(%d,%d)", 2, 0), 0.3)
+        Indun_panel_req_move_when_shown(indun_type, 2)
     end
 end
 
@@ -4173,6 +4578,16 @@ function Indun_panel_telharsha_frame(indun_panel, key, value, y, x)
         Indun_panel_s(15), Indun_panel_s(15), change_count))
 end
 
+-- 入った回数(GET_CURRENT_ENTERANCE_COUNT)が上限を下回るのを待ってから enter() を呼ぶ。
+-- レイドの掃討 / テルハルシャ / ヴェルニケの「券を使うかどうか」と同じ判定。
+-- ticket_ids は Indun_panel_enter_after_ticket へそのまま渡す(券が減ったことでも進む)
+function Indun_panel_count_enter_after_ticket(indun_type, max_count, enter, ticket_ids)
+    local indun_cls = GetClassByType("Indun", indun_type)
+    Indun_panel_enter_after_ticket(string.format("indun %d", indun_type), function()
+        return indun_cls and (GET_CURRENT_ENTERANCE_COUNT(indun_cls.PlayPerResetType) or 0) < max_count
+    end, enter, ticket_ids)
+end
+
 function Indun_panel_buyuse_telharsha(indun_panel, ctrl, recipe_name, indun_type)
     if not indun_type then
         return
@@ -4186,17 +4601,22 @@ function Indun_panel_buyuse_telharsha(indun_panel, ctrl, recipe_name, indun_type
         current_count = GET_CURRENT_ENTERANCE_COUNT(indun_cls.PlayPerResetType) or 0
     end
     if tonumber(current_count) < TELHARSHA_CONFIG.max_count then
+        -- 何かの結果を待つ遅延ではないが、ボタンの処理の中から入場窓を開かないよう元の 0.2 秒を残す
+        -- (外したときに困らないかを実機で確かめていない)
         ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.2)
         return
     end
+    -- 券を使った後(手持ちを使っても、買って使っても同じ)
+    local function after_ticket()
+        Indun_panel_count_enter_after_ticket(indun_type, TELHARSHA_CONFIG.max_count, function()
+            Indun_panel_enter_solo(nil, nil, "", indun_type)
+        end, TELHARSHA_CONFIG.tickets)
+    end
     local used = Indun_panel_consume_ticket("other", TELHARSHA_CONFIG.tickets, {
-        on_use = function()
-            ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 0.5)
-        end,
+        on_use = after_ticket,
         on_buy = function()
             if Indun_panel_get_recipe_trade_count(recipe_name) >= 1 and
-                Indun_panel_item_buy_use(recipe_name, TELHARSHA_CONFIG.tickets) then
-                ReserveScript(string.format("Indun_panel_enter_solo(nil, nil, '', %d)", indun_type), 1.5)
+                Indun_panel_item_buy_use(recipe_name, TELHARSHA_CONFIG.tickets, after_ticket) then
                 return true
             end
             return false
@@ -4265,22 +4685,26 @@ function Indun_panel_buyuse_vel(indun_panel, ctrl, recipe_name, indun_type)
     if indun_cls then
         current_count = GET_CURRENT_ENTERANCE_COUNT(indun_cls.PlayPerResetType) or 0
     end
-    local reserve_script = string.format("Indun_panel_enter_velnice_solo(nil, nil, '', %d)", indun_type)
     if tonumber(current_count) < VELNICE_CONFIG.max_count then
-        ReserveScript(reserve_script, 0.2)
+        -- テルハルシャと同じ理由で元の 0.2 秒を残す(段の選択窓をボタンの処理の中から開かない)
+        ReserveScript(string.format("Indun_panel_enter_velnice_solo(nil, nil, '', %d)", indun_type), 0.2)
         return
     end
     -- ヴェルニケは追加購入枠(OverBuy)も「購入」の段でまとめて見る。
     -- チャレンジと違い、以前からここは通常枠と追加枠を同じ 1 手として扱っている。
+    -- 券を使った後(手持ちを使っても、買って使っても同じ)
+    local function after_ticket()
+        Indun_panel_count_enter_after_ticket(indun_type, VELNICE_CONFIG.max_count, function()
+            Indun_panel_enter_velnice_solo(nil, nil, "", indun_type)
+        end, VELNICE_CONFIG.tickets)
+    end
     local used = Indun_panel_consume_ticket("other", VELNICE_CONFIG.tickets, {
-        on_use = function()
-            ReserveScript(reserve_script, 1.0)
-        end,
+        on_use = after_ticket,
         on_buy = function()
             local trade_count = Indun_panel_get_recipe_trade_count(recipe_name)
             local overbuy_limit = Indun_panel_overbuy_count(recipe_name)
-            if (trade_count >= 1 or overbuy_limit > 0) and Indun_panel_item_buy_use(recipe_name, VELNICE_CONFIG.tickets) then
-                ReserveScript(reserve_script, 1.5)
+            if (trade_count >= 1 or overbuy_limit > 0) and
+                Indun_panel_item_buy_use(recipe_name, VELNICE_CONFIG.tickets, after_ticket) then
                 return true
             end
             return false
