@@ -302,7 +302,7 @@ g._nexus_addons_p = {{
     key = "indun_panel",
     category = "content",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = g.VER_NEXT,
+    updated = "2.19.1",
     updated_note_jp = "分裂特異点の 2 回マッチを直し、入場・券の使用・購入を結果を確かめてから進むようにしました",
     updated_note_en = "Fixed double matching in Singularity; entering, using and buying tickets now wait for the result",
     data = {
