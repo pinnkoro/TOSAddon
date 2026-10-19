@@ -391,7 +391,7 @@ local SUB_FRAME_SETTINGS = {
         text_kr = "시스템 옵션의 편의 기능에서 끈 아이템 현황과 미니맵 지역 정보가 NPC와 대화한 뒤 등에 다시 나타나는 것을 숨깁니다",
         text_en = "Keep the item status and minimap region info hidden after talking to an NPC etc. when they are turned off in the Convenience Features of the system options",
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-        since = core_g.VER_NEXT
+        since = "2.20.0"
     }, {
         name = "raid_record",
         text_jp = "レイドレコードを移動可能にしてサイズを変更",
