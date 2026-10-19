@@ -10,7 +10,7 @@
 
 | ファイル | 設定キー | 内容 |
 | --- | --- | --- |
-| [ui_tweaks.lua](ui_tweaks.lua) | — | 細かい修正のまとめ。ノーマルジェムをはめるとき / カード・ジェム強化の数値入力 / ジェムロースティング屋の操作を減らす。古い装備ダメージフレームを消す |
+| [ui_tweaks.lua](ui_tweaks.lua) | `convenience_hide`（便利機能の窓だけ） | 細かい修正のまとめ。ノーマルジェムをはめるとき / カード・ジェム強化の数値入力 / ジェムロースティング屋の操作を減らす。古い装備ダメージフレームを消す。システムオプションの「便利機能」で OFF にした素の窓（アイテム現況 / ミニマップの地域情報）が NPC 会話などの後でまた出てくるのを隠す |
 | [frame_tweaks.lua](frame_tweaks.lua) | `auto_zoom` / `separated_buff` / `cupole_portion` | マップ切り替え時の自動ズーム。セパレートバフフレームの周りを綺麗にする。クポルのポーションフレームの移動と非表示 |
 | [skill_enchant_tooltip.lua](skill_enchant_tooltip.lua) | `enchant_tooltip` | スキル錬成のスロットにツールチップを足す |
 | [craft.lua](craft.lua) | `auto_craft` | アイテム製造時に材料を自動でセットする |
