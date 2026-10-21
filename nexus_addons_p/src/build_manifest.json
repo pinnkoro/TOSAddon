@@ -62,6 +62,7 @@
       "addons/auto_pet_summon/auto_pet_summon.lua",
       "addons/auto_map_change/auto_map_change.lua",
       "addons/bulk_sales/bulk_sales.lua",
+      "addons/login_bonus_control/login_bonus_control.lua",
       "guard_close.lua",
       "core/90_addons_menu.lua",
       "core/91_icon_picker.lua",
@@ -169,7 +170,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "bfd2d21f051cd5e80b289c033f108a208d9f6208eb4974630c6d233f056edec5",
+    "_nexus_addons_p.lua": "8fd1ee85b9c14c34e62f4ae2e3583e57252327b67d5eebd7aa5e080b005cd64f",
     "_icor_planner.lua": "c870ed5f3e33ba24e22b0bc786f05ed18295eef917d200160a0680508ecc0726",
     "_guild_storage_list.lua": "862f8eb3366243142674c4848b4be401b260af675460850150f33336e976d564"
   },

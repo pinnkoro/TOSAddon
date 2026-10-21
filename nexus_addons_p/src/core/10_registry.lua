@@ -347,6 +347,17 @@ g._nexus_addons_p = {{
         old_init_func = "LETS_GO_HOME_ON_INIT"
     }
 }, {
+    key = "login_bonus_control",
+    category = "misc",
+    since = g.VER_NEXT,
+    data = {
+        use = 0,
+        name = "Login Bonus Control",
+        frame_use = false,
+        config_func = "Login_bonus_control_settings_frame",
+        old_init_func = ""
+    }
+}, {
     key = "market_voucher",
     category = "storage",
     data = {
@@ -775,6 +786,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}ホームタウンのホームチャンネルにワープします",
         etc = "{ol}Warp to the hometown's home channel",
         kr = "{ol}홈타운의 홈 채널로 워프"
+    },
+    ["login_bonus_control"] = {
+        ja = "{ol}ログインボーナスの画面をキャラごとに{nl}表示する / 表示しない / 自動で受け取る",
+        etc = "{ol}Per character, show / hide / auto-receive{nl}the login bonus (attendance) window",
+        kr = "{ol}출석 보상 창을 캐릭터별로{nl}표시 / 숨김 / 자동 수령"
     },
     ["market_voucher"] = {
         ja = "{ol}マーケットでの取引履歴表示",
