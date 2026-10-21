@@ -288,9 +288,10 @@ g._nexus_addons_p = {{
 }, {
     key = "indun_list_viewer",
     category = "content",
-    updated = "2.9.0",
-    updated_note_jp = "偽りの輝翼 / 堕落した審判の翼をハード列にも出すようにしました",
-    updated_note_en = "False Radiant Wings / Fallen Judgment Wings now also appear in the Hard column",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    updated = "2.21.0",
+    updated_note_jp = "上端の行を掴んで窓を動かせるようにしました(位置は保存されます)。設定画面が画面の右へはみ出して × を押せないことがあったのを直しました",
+    updated_note_en = "The window can now be dragged by its top row (position is saved). Fixed the settings view sometimes extending off the right edge of the screen so that × could not be clicked",
     data = {
         use = 0,
         name = "Indun List Viewer",
