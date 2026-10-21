@@ -20,6 +20,10 @@
 右上の ✕ か ESC で閉じられます（ESC で閉じるのは一番手前の 1 枚だけで、
 他の Nexus Addons P のウィンドウは開いたままです）。
 
+上端の行（アイコンやボタンの無いところ）を掴むとウィンドウを動かせます。
+動かした位置は保存され、一覧・設定画面のどちらもそこに出ます。
+ウィンドウの幅は表示するレイドやキャラ数で変わるので、画面からはみ出す分は画面内へ寄せて表示します。
+
 ### 表の見方
 
 1 行 1 キャラで、左から職業アイコン・キャラ名・ハード回数・ソロ/自動回数・メモ・表示チェックです。
@@ -101,7 +105,8 @@ Instant CC のキャラチェンジもこれを通ります。
 ```lua
 return {
   ver = 1.4,
-  options = { reset_time = 0, display_mode = "full", hidden = 0 },
+  options = { reset_time = 0, display_mode = "full", hidden = 0,
+              frame_x = 600, frame_y = 35 },  -- frame_x / frame_y は一度動かすまで無い(画面上端の中央に出る)
   display = { Memo = 1, Zmei_H = 1, Zmei_S = 1, ... },
   chars = { ["<キャラ名>"] = { layer = 1, order = 0, hide = false, memo = "",
                                president_jobid = "", jobid = "/1/2/3",

@@ -642,10 +642,10 @@ function Indun_list_viewer_config(parent)
         indun_list_viewer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "indun_list_viewer", 0, 0, 10, 10)
         AUTO_CAST(indun_list_viewer)
         g.block_click_through(indun_list_viewer)
+        Indun_list_viewer_enable_move(indun_list_viewer)
     end
     indun_list_viewer:RemoveAllChild()
-    local title_gb = indun_list_viewer:CreateOrGetControl("groupbox", "title_gb", 0, 0, 10, 10)
-    AUTO_CAST(title_gb)
+    -- 見出し行はフレームへ直接置く(groupbox に入れると、行の余白を掴んでも窓が動かない)。
     local config_gb = indun_list_viewer:CreateOrGetControl("groupbox", "config_gb", 10, 35, 10, 10)
     AUTO_CAST(config_gb)
     config_gb:SetSkinName("bg")
@@ -659,7 +659,7 @@ function Indun_list_viewer_config(parent)
     for _, raid_key in ipairs(g.ilv_RAID_KEYS) do
         local raid_info = g.ilv_RAID_INFO[raid_key]
         if raid_info.hard then
-            local pic = title_gb:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_H", x + 5, 5, 30, 30)
+            local pic = indun_list_viewer:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_H", x + 5, 5, 30, 30)
             AUTO_CAST(pic)
             pic:SetImage(raid_info.icon)
             pic:SetEnableStretch(1)
@@ -672,7 +672,7 @@ function Indun_list_viewer_config(parent)
             x = x + 30
         end
     end
-    local hard_text = title_gb:CreateOrGetControl("richtext", "hard_text", text_x - 40, 10)
+    local hard_text = indun_list_viewer:CreateOrGetControl("richtext", "hard_text", text_x - 40, 10)
     AUTO_CAST(hard_text)
     hard_text:SetText("{ol}Hard")
     x = x + 100
@@ -682,7 +682,7 @@ function Indun_list_viewer_config(parent)
         if text_x == 0 then
             text_x = x
         end
-        local pic = title_gb:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_S", x + 5, 5, 30, 30)
+        local pic = indun_list_viewer:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_S", x + 5, 5, 30, 30)
         AUTO_CAST(pic)
         pic:SetImage(raid_info.icon)
         pic:SetEnableStretch(1)
@@ -694,11 +694,11 @@ function Indun_list_viewer_config(parent)
         check:SetEventScriptArgString(ui.LBUTTONDOWN, raid_info.name .. "_S")
         x = x + 30
     end
-    local auto_text = title_gb:CreateOrGetControl("richtext", "auto_text", text_x - 80, 10)
+    local auto_text = indun_list_viewer:CreateOrGetControl("richtext", "auto_text", text_x - 80, 10)
     AUTO_CAST(auto_text)
     auto_text:SetText("{ol}Solo/Auto")
     x = x + 30
-    local memo_text = title_gb:CreateOrGetControl("richtext", "memo_text", x, 10)
+    local memo_text = indun_list_viewer:CreateOrGetControl("richtext", "memo_text", x, 10)
     AUTO_CAST(memo_text)
     memo_text:SetText("{ol}Memo")
     local memo_check = config_gb:CreateOrGetControl("checkbox", "check_memo", x, 5, 30, 30)
@@ -706,18 +706,62 @@ function Indun_list_viewer_config(parent)
     memo_check:SetCheck(g.ilv_settings.display["Memo"])
     memo_check:SetEventScript(ui.LBUTTONDOWN, "Indun_list_viewer_display_check")
     memo_check:SetEventScriptArgString(ui.LBUTTONDOWN, "Memo")
-    local close_button = title_gb:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
+    local close_button = indun_list_viewer:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
     AUTO_CAST(close_button)
     close_button:SetImage("testclose_button")
     close_button:SetGravity(ui.RIGHT, ui.TOP)
+    close_button:SetMargin(0, 0, 20, 0)
     close_button:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_close")
     close_button:SetEventScriptArgNumber(ui.LBUTTONUP, 1)
-    -- 右上の閉じるボタン(title_gb の右端 20px)が、右端の「Memo」見出しに被らない幅を確保する。
+    -- 右上の閉じるボタン(右端から 20px 内側に 20px 幅)が、右端の「Memo」見出しに被らない幅を確保する。
     -- 見出しの幅は言語とフォントで変わるので実測から出す(本体側の frame_width と同じ考え方)。
     -- 下限の +50 は変更前と同じ幅。
-    title_gb:Resize(math.max(x + 50, x + memo_text:GetWidth() + 30), 55)
-    indun_list_viewer:Resize(title_gb:GetWidth() + 20, 85)
+    local title_width = math.max(x + 50, x + memo_text:GetWidth() + 30)
+    indun_list_viewer:Resize(title_width + 20, 85)
     config_gb:Resize(indun_list_viewer:GetWidth() - 20, indun_list_viewer:GetHeight() - 45)
+    -- 一覧より大幅に広くなる(全レイドの列が並ぶ)。一覧の位置のまま広げると右へはみ出して
+    -- × と Memo が画面外に出るので、置き直す。
+    Indun_list_viewer_place(indun_list_viewer)
+end
+
+-- 一覧と設定画面の位置を決める。ドラッグで動かした位置があればそこ、無ければ画面上端の中央。
+-- 窓の幅は表示するレイド・キャラ数・一覧か設定画面かで変わるので、どちらの場合も画面内へ収める。
+-- 収めた結果は保存しない(狭い窓に合わせて詰めた位置で、広い窓を開いたときの位置を上書きしないため)。
+function Indun_list_viewer_place(indun_list_viewer)
+    local map_frame = ui.GetFrame("map")
+    local screen_w = map_frame:GetWidth()
+    local screen_h = map_frame:GetHeight()
+    local w = indun_list_viewer:GetWidth()
+    local h = indun_list_viewer:GetHeight()
+    local options = g.ilv_settings.options
+    local saved = options.frame_x ~= nil and options.frame_y ~= nil
+    local x = saved and options.frame_x or (screen_w - w) / 2
+    local y = saved and options.frame_y or 35
+    local clamped_x = math.max(0, math.min(x, screen_w - w))
+    local clamped_y = math.max(0, math.min(y, screen_h - h))
+    indun_list_viewer:SetPos(clamped_x, clamped_y)
+    g.vlog("indun_list_viewer: 位置 saved=%s (%s,%s) -> (%s,%s) size=%sx%s screen=%sx%s", tostring(saved),
+        tostring(x), tostring(y), tostring(clamped_x), tostring(clamped_y), tostring(w), tostring(h),
+        tostring(screen_w), tostring(screen_h))
+end
+
+-- 見出し行の余白を掴んで動かせるようにする。フレーム本体で受けるので EnableHittestFrame(block_click_through)も要る。
+function Indun_list_viewer_enable_move(indun_list_viewer)
+    indun_list_viewer:EnableMove(1)
+    indun_list_viewer:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_end_drag")
+end
+
+function Indun_list_viewer_end_drag(indun_list_viewer)
+    local x = indun_list_viewer:GetX()
+    local y = indun_list_viewer:GetY()
+    local options = g.ilv_settings.options
+    if options.frame_x == x and options.frame_y == y then
+        return
+    end
+    options.frame_x = x
+    options.frame_y = y
+    Indun_list_viewer_save_settings()
+    g.vlog("indun_list_viewer: 位置を保存 (%s,%s)", tostring(x), tostring(y))
 end
 
 function Indun_list_viewer_display_check(parent, ctrl, key, num)
@@ -733,11 +777,11 @@ function Indun_list_viewer_title_frame_open()
     local indun_list_viewer = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "indun_list_viewer", 0, 0, 10, 10)
     AUTO_CAST(indun_list_viewer)
     g.block_click_through(indun_list_viewer)
+    Indun_list_viewer_enable_move(indun_list_viewer)
     indun_list_viewer:RemoveAllChild()
     indun_list_viewer:SetLayerLevel(99)
     indun_list_viewer:SetSkinName("test_frame_low")
-    local title_gb = indun_list_viewer:CreateOrGetControl("groupbox", "title_gb", 0, 0, 10, 10)
-    AUTO_CAST(title_gb)
+    -- 見出し行はフレームへ直接置く(groupbox に入れると、行の余白を掴んでも窓が動かない)。
     local texts = (g.lang == "Japanese") and {
         hard_raid = "ハード",
         auto_raid = "左クリック:ソロ入場{nl}右クリック:自動入場{nl} {nl}入場回数/掃討回数",
@@ -760,7 +804,7 @@ function Indun_list_viewer_title_frame_open()
         local raid_info = g.ilv_RAID_INFO[raid_key]
         if raid_info and raid_info.name then -- ここで安全確認
             if raid_info.hard and g.ilv_settings.display[raid_info.name .. "_H"] == 1 then
-                local pic = title_gb:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_H", x, 5, 30, 30)
+                local pic = indun_list_viewer:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_H", x, 5, 30, 30)
                 AUTO_CAST(pic)
                 pic:SetImage(raid_info.icon)
                 pic:SetEnableStretch(1)
@@ -778,7 +822,7 @@ function Indun_list_viewer_title_frame_open()
         local raid_info = g.ilv_RAID_INFO[raid_key]
         if raid_info and raid_info.name then -- ここで安全確認
             if g.ilv_settings.display[raid_info.name .. "_S"] == 1 then
-                local pic = title_gb:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_S", x, 5, 30, 30)
+                local pic = indun_list_viewer:CreateOrGetControl("picture", "title_pic_" .. raid_key .. "_S", x, 5, 30, 30)
                 AUTO_CAST(pic)
                 pic:SetImage(raid_info.icon)
                 pic:SetEnableStretch(1)
@@ -794,38 +838,39 @@ function Indun_list_viewer_title_frame_open()
             end
         end
     end
-    local close_button = title_gb:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
+    local close_button = indun_list_viewer:CreateOrGetControl("button", "close_button", 0, 0, 20, 20)
     AUTO_CAST(close_button)
     close_button:SetImage("testclose_button")
     close_button:SetGravity(ui.RIGHT, ui.TOP)
+    close_button:SetMargin(0, 0, 20, 0)
     close_button:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_close")
-    local cc_button = title_gb:CreateOrGetControl("button", "cc_button", 40, 5, 30, 30)
+    local cc_button = indun_list_viewer:CreateOrGetControl("button", "cc_button", 40, 5, 30, 30)
     AUTO_CAST(cc_button)
     cc_button:SetSkinName("None")
     cc_button:SetText("{img barrack_button_normal 30 30}")
     cc_button:SetEventScript(ui.LBUTTONUP, "_nexus_addons_p_APPS_TRY_MOVE_BARRACK")
-    local config_btn = title_gb:CreateOrGetControl("button", "config_btn", 75, 5, 30, 30)
+    local config_btn = indun_list_viewer:CreateOrGetControl("button", "config_btn", 75, 5, 30, 30)
     AUTO_CAST(config_btn)
     config_btn:SetSkinName("None")
     config_btn:SetText("{img config_button_normal 30 30}")
     config_btn:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_config")
-    local mode_check = title_gb:CreateOrGetControl("checkbox", "mode_check", 115, 5, 30, 30)
+    local mode_check = indun_list_viewer:CreateOrGetControl("checkbox", "mode_check", 115, 5, 30, 30)
     AUTO_CAST(mode_check)
     mode_check:SetCheck(g.ilv_settings.options.display_mode == "slide" and 1 or 0)
     mode_check:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_modechange")
     mode_check:SetTextTooltip("{ol}" .. texts.mode_text)
-    local hidden_check = title_gb:CreateOrGetControl("checkbox", "hidden_check", 150, 5, 30, 30)
+    local hidden_check = indun_list_viewer:CreateOrGetControl("checkbox", "hidden_check", 150, 5, 30, 30)
     AUTO_CAST(hidden_check)
     hidden_check:SetCheck(g.ilv_settings.options.hidden)
     hidden_check:SetEventScript(ui.LBUTTONUP, "Indun_list_viewer_modechange")
     hidden_check:SetTextTooltip("{ol}" .. texts.hidden)
     if g.ilv_settings.display["Memo"] == 1 then
-        local memo_text = title_gb:CreateOrGetControl("richtext", "memo_text", x, 10)
+        local memo_text = indun_list_viewer:CreateOrGetControl("richtext", "memo_text", x, 10)
         AUTO_CAST(memo_text)
         memo_text:SetText("{ol}" .. texts.memo)
         x = x + 160
     end
-    local display_text = title_gb:CreateOrGetControl("richtext", "display_text", x, 10)
+    local display_text = indun_list_viewer:CreateOrGetControl("richtext", "display_text", x, 10)
     AUTO_CAST(display_text)
     display_text:SetText("{ol}" .. texts.display)
     display_text:SetTextTooltip("{ol}" .. texts.display_text)
@@ -860,9 +905,7 @@ function Indun_list_viewer_modechange(parent, ctrl)
 end
 
 function Indun_list_viewer_frame_open(indun_list_viewer)
-    local title_gb = GET_CHILD(indun_list_viewer, "title_gb")
-    AUTO_CAST(title_gb)
-    local gb = indun_list_viewer:CreateOrGetControl("groupbox", "gb", 10, 35, 10, 10)
+    local gb =indun_list_viewer:CreateOrGetControl("groupbox", "gb", 10, 35, 10, 10)
     AUTO_CAST(gb)
     gb:SetSkinName("bg")
     local sorted_char_list = {}
@@ -967,9 +1010,9 @@ function Indun_list_viewer_frame_open(indun_list_viewer)
         display_check:SetCheck(data.hide and 1 or 0)
         y = y + 25
     end
-    -- 閉じるボタンは title_gb(= フレーム幅 - 20)の右上に付き、右端 20px を占める。
+    -- 閉じるボタンはフレームの右端から 20px 内側に付き、20px 幅を占める。
     -- その手前に来るのが display_x に置く「表示」見出しなので、
-    --   フレーム幅 - 20(title_gb) - 20(ボタン) - 10(余白) >= display_x + 見出しの幅
+    --   フレーム幅 - 20(右余白) - 20(ボタン) - 10(余白) >= display_x + 見出しの幅
     -- を満たす幅を確保する。見出しの幅は言語とフォントで変わる(日本語「表示」/英語「Disp」)ため、
     -- 固定値ではなく実測から出す(アドオン一覧のタイトル幅と同じ考え方。20_lifecycle.lua 参照)。
     -- 下限の +60 は見出しが無い場合用で、変更前と同じ幅。
@@ -986,12 +1029,10 @@ function Indun_list_viewer_frame_open(indun_list_viewer)
     end
     indun_list_viewer:Resize(frame_width, frame_height)
     gb:Resize(indun_list_viewer:GetWidth() - 20, indun_list_viewer:GetHeight() - 45)
-    title_gb:Resize(indun_list_viewer:GetWidth() - 20, 55)
     if display_text then
         display_text:SetPos(display_x, 10)
     end
-    local map_frame = ui.GetFrame("map")
-    indun_list_viewer:SetPos((map_frame:GetWidth() - indun_list_viewer:GetWidth()) / 2, 35)
+    Indun_list_viewer_place(indun_list_viewer)
 end
 
 function Indun_list_viewer_job_slot(indun_list_viewer, data, y)
