@@ -612,9 +612,9 @@ g._nexus_addons_p = {{
     key = "mini_addons",
     category = "misc",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.11.0",
-    updated_note_jp = "週間ボスレイドのランキング取得で、「保存しました」と出るのに表示すると「未取得です」と言われ、データが保存されていなかったのを直しました。保存先を設定と同じフォルダへ移し、個別版 Mini Addons で取得したデータも引き継ぎます。data ボタンのメニューを見やすくし、4週より古いデータを自動で削除する切り替え(既定は OFF)を足しました",
-    updated_note_en = "Fixed weekly boss raid ranking data not actually being saved (it said \"saved\", but showing the ranking said it had not been acquired). The data now lives next to the settings, and data acquired with the standalone Mini Addons is carried over. The data button menu is easier to read and has a toggle to auto-delete data older than 4 weeks (off by default)",
+    updated = "2.20.0",
+    updated_note_jp = "設定に「便利機能で OFF にした窓を隠す」を足しました(既定は OFF)。システムオプションの「便利機能」でアイテム現況(フィールドルーティングトラッカー)やミニマップの地域情報を OFF にしているのに、NPC と会話した後などにまた表示されてしまうのを隠します。便利機能を ON にしている場合は何もしません",
+    updated_note_en = "Added a setting (off by default) that keeps the item status (field looting tracker) and minimap region info windows hidden after talking to an NPC etc. when you have turned them off in the Convenience Features of the system options. Nothing changes if they are on",
     data = {
         use = 0,
         name = "Mini Addons",

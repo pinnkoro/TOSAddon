@@ -181,3 +181,36 @@ function Mini_addons_durnotify_hide()
     end
 end
 
+-- システムオプションの「便利機能」を OFF にしているのに、窓が出てくるのを抑える。
+--
+-- 素の fieldloot(アイテム現況) / minimap_region_info(ミニマップの地域情報)は、
+-- OFF にされると ShowWindow(0) で隠して自前のタイマーを止めるだけ。ところが窓の XML が
+-- alwaysVisible="true" なので、NPC との会話などでクライアントが UI を出し直すと
+-- また表示され、タイマーが止まっているので素の側では二度と隠れない。
+--   addon.ipf/fieldloot/fieldloot.lua            FIELDLOOT_SET_ENABLED
+--   addon.ipf/minimap_region_info/minimap_region_info.lua  MINIMAP_REGION_INFO_SET_ENABLED
+-- 設定 convenience_hide(既定 OFF)。素の ON/OFF もそのまま見るので、便利機能を ON にしている人には何もしない。
+-- 0.5 秒ごとの Mini_addons_runupdate_5 から呼ぶ。見えていないときは IsVisible だけで帰る。
+function Mini_addons_convenience_off_rehide()
+    if g.settings.convenience_hide ~= 1 then
+        return
+    end
+    -- { 本体の窓, 付属の窓, 素の ON/OFF を返す関数 }
+    for _, entry in ipairs({{"fieldloot", "fieldloot_detail", "FIELDLOOT_IS_ENABLED"},
+                            {"minimap_region_info", "minimap_region_info_detail", "MINIMAP_REGION_INFO_IS_ENABLED"}}) do
+        local frame = ui.GetFrame(entry[1])
+        if frame and frame:IsVisible() == 1 then
+            -- 素の関数が無いクライアント(機能が入る前のパッチ)では触らない
+            local is_enabled = _G[entry[3]]
+            if type(is_enabled) == "function" and is_enabled() == false then
+                frame:ShowWindow(0)
+                local sub = ui.GetFrame(entry[2])
+                if sub and sub:IsVisible() == 1 then
+                    sub:ShowWindow(0)
+                end
+                core_g.vlog("mini_addons: 便利機能 OFF の %s が表示されていたので隠した(map=%s)",
+                    entry[1], session.GetMapName())
+            end
+        end
+    end
+end

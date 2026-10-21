@@ -75,6 +75,8 @@ function Mini_addons_runupdate_5(mini_addons)
     Mini_addons_BGM_PLAY_LIST()
     -- パーティー情報フレームを小さくする
     Mini_addons_PARTY_BUFFLIST_UPDATE()
+    -- 便利機能を OFF にした素の窓が、NPC 会話などの後でまた出てくるのを隠す
+    Mini_addons_convenience_off_rehide()
     return 1
 end
 

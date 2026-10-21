@@ -20,6 +20,8 @@ local DEFAULT_SETTINGS = {
     equip_info = 0,
     automatch_layer = 0,
     indun_enter_fit = 0,
+    -- システムオプションの「便利機能」で OFF にした素の窓が、NPC 会話などの後でまた出てくるのを隠す(misc/ui_tweaks.lua)
+    convenience_hide = 0,
     quest_hide = 0,
     pc_name = 0,
     auto_gacha = 0,
@@ -134,7 +136,7 @@ local DEFAULT_SETTINGS = {
 }
 
 local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info", "pc_name", "quest_hide",
-                       "automatch_layer", "indun_enter_fit", "equip_info", "under_staff", "raid_record", "party_buff", "chat_system",
+                       "automatch_layer", "indun_enter_fit", "convenience_hide", "equip_info", "under_staff", "raid_record", "party_buff", "chat_system",
                        "channel_display", "mini_btn", "market_display", "restart_move", "pet_init", "dialog_ctrl",
                        "auto_cast", "coin_use", "auto_gacha", "skill_enchant", "party_info", "relic_gauge",
                        "raid_check", "coin_count", "bgm", "vakarine", "weekly_boss_reward", "solodun_reward",
@@ -384,6 +386,13 @@ local SUB_FRAME_SETTINGS = {
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
         since = "2.10.0"
     }, {
+        name = "convenience_hide",
+        text_jp = "システムオプションの便利機能で OFF にしたアイテム現況とミニマップの地域情報が、NPC と会話した後などにまた出てくるのを隠します",
+        text_kr = "시스템 옵션의 편의 기능에서 끈 아이템 현황과 미니맵 지역 정보가 NPC와 대화한 뒤 등에 다시 나타나는 것을 숨깁니다",
+        text_en = "Keep the item status and minimap region info hidden after talking to an NPC etc. when they are turned off in the Convenience Features of the system options",
+        -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+        since = "2.20.0"
+    }, {
         name = "raid_record",
         text_jp = "レイドレコードを移動可能にしてサイズを変更",
         text_kr = "레이드 기록의 이동이 가능하고, 크기 조절을 할 수 있습니다",
@@ -532,7 +541,7 @@ local SETTING_SECTIONS = {{
 }, {
     name = "frames",
     names = {"raid_record", "mini_btn", "market_display", "restart_move", "restart_colony", "automatch_layer",
-             "indun_enter_fit",
+             "indun_enter_fit", "convenience_hide",
              "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "pt_info", "party_buff",
              "cupole_portion", "separated_buff", "pet_ring", "daily_quest", "inventory_mod", "icor_status_search",
              "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort",
