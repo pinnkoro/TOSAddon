@@ -353,7 +353,7 @@ g._nexus_addons_p = {{
     data = {
         use = 0,
         name = "Login Bonus Control",
-        frame_use = false,
+        frame_use = true,
         config_func = "Login_bonus_control_settings_frame",
         old_init_func = ""
     }
