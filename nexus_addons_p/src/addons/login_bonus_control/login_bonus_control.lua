@@ -219,6 +219,9 @@ function Login_bonus_control_ON_ATTENDANCE_RESULT(frame, msg, arg_str, arg_num, 
             return GET_ATTENDANCE_ID_NEED_TO_SHOW(arg_num or 0)
         end)
         id = ok and id or 0
+        -- どちらも滅多に来ない(ログイン時と受け取り時だけ)。突き合わせに使う値を毎回出す
+        g.vlog("login_bonus_control: ON_ATTENDANCE_RESULT msg=%s arg_num=%s id=%s", tostring(msg), tostring(arg_num),
+            tostring(id))
         if msg == "UPDATE_ATTENDANCE_REWARD" and g.login_bonus_control_sent and g.login_bonus_control_sent[id] then
             g.login_bonus_control_sent[id] = nil
             -- 受け取りごとに 1 行だけ(毎フレームの経路ではない)。出席表を止めた証跡として残す
@@ -336,7 +339,13 @@ function Login_bonus_control_settings_frame()
         return
     end
     local ja = g.lang == "Japanese"
-    local width, height = 440, 520
+    -- 高さはキャラの数に合わせる(多いときは一覧の中をスクロール)。行は Login_bonus_control_build_list と同じ 32px
+    local count = 0
+    for _ in pairs(Login_bonus_control_settings().chars) do
+        count = count + 1
+    end
+    local list_h = math.min(math.max(count * 32 + 16, 80), 400)
+    local width, height = 510, 85 + list_h + 50
     local setting = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
     AUTO_CAST(setting)
     setting:Resize(width, height)
@@ -359,7 +368,7 @@ function Login_bonus_control_settings_frame()
     local default_text = setting:CreateOrGetControl('richtext', 'default_text', 20, 52, 200, 20)
     AUTO_CAST(default_text)
     default_text:SetText(ja and "{ol}既定（未登録のキャラ）" or "{ol}Default (unregistered)")
-    local default_list = setting:CreateOrGetControl('droplist', 'default_list', 240, 48, 180, 20)
+    local default_list = setting:CreateOrGetControl('droplist', 'default_list', 240, 48, 230, 20)
     AUTO_CAST(default_list)
     default_list:SetSkinName('droplist_normal')
     default_list:EnableHitTest(1)
@@ -378,7 +387,7 @@ function Login_bonus_control_settings_frame()
         end
     end
     default_list:SelectItem(selected)
-    local gbox = setting:CreateOrGetControl("groupbox", "gbox", 10, 85, width - 20, height - 135)
+    local gbox = setting:CreateOrGetControl("groupbox", "gbox", 10, 85, width - 20, list_h)
     AUTO_CAST(gbox)
     gbox:SetSkinName("test_frame_midle_light")
     gbox:EnableScrollBar(1)
@@ -418,7 +427,7 @@ function Login_bonus_control_build_list()
         AUTO_CAST(name_text)
         local color = key == current_key and "{#FFCC33}" or ""
         name_text:SetText("{ol}" .. color .. Login_bonus_control_plain(entry.name))
-        local list = gbox:CreateOrGetControl('droplist', 'mode_' .. key, 210, y, 160, 20)
+        local list = gbox:CreateOrGetControl('droplist', 'mode_' .. key, 210, y, 230, 20)
         AUTO_CAST(list)
         list:SetSkinName('droplist_normal')
         list:EnableHitTest(1)
@@ -437,7 +446,7 @@ function Login_bonus_control_build_list()
             end
         end
         list:SelectItem(selected)
-        local delete = gbox:CreateOrGetControl('button', 'delete_' .. key, 378, y, 30, 26)
+        local delete = gbox:CreateOrGetControl('button', 'delete_' .. key, 448, y, 30, 26)
         AUTO_CAST(delete)
         delete:SetSkinName("test_pvp_btn")
         delete:SetText("{ol}×")
