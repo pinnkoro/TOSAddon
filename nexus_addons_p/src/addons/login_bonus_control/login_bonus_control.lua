@@ -221,6 +221,8 @@ function Login_bonus_control_ON_ATTENDANCE_RESULT(frame, msg, arg_str, arg_num, 
         id = ok and id or 0
         if msg == "UPDATE_ATTENDANCE_REWARD" and g.login_bonus_control_sent and g.login_bonus_control_sent[id] then
             g.login_bonus_control_sent[id] = nil
+            -- 受け取りごとに 1 行だけ(毎フレームの経路ではない)。出席表を止めた証跡として残す
+            g.vlog("login_bonus_control: 受け取った id=%s 出席表は開かずにチャットへ知らせる", tostring(id))
             Login_bonus_control_notify(id)
             return
         end
