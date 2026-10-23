@@ -77,6 +77,8 @@ luajit docs/tests/test_core.lua             # ロジックテスト（他のテ�
   積むのは `ShowWindow(1)` の後。HUD とゲーム窓の付属パネルには積まない。
 * **設定画面の位置は `g.settings_frame_pos(width, height)` で決める。** `list_frame:GetX()` を素で呼ぶと、
   Addons Menu から開いたときに中身が空の窓が出る。
+* **キャラを一覧に並べるときはバラック順（層 → 層の中の順番）にする。** 名前順にしない。
+  取り方と、ほかの層のキャラの扱いは [docs/UI_RULES.md](docs/UI_RULES.md)。
 * **検索欄は `g.setup_incremental_search` か `g.setup_enter_search` のどちらかを使う。**
   選ぶ基準は「空文字で検索関数を呼んだとき何が起きるか」（全件に当たるなら後者）。
 * **`os.execute` を避ける。** GUI プロセスから呼ぶと必ずコンソール窓が点滅する。
