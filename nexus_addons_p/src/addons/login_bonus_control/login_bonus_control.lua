@@ -145,24 +145,41 @@ function login_bonus_control_on_init()
 end
 
 -- 今のキャラと、同じバラックの層に居るキャラを一覧へ登録する(名前は毎回書き直す。改名に追従するため)。
+-- 一覧はバラック順に並べるので(docs/UI_RULES.md)、層と層の中の順番も控える。
+--   layer … 素のバラック画面が持つグローバル current_layer。バラックを通らずに入った
+--           セッションでは無いので、そのときは書き換えない(Indun List Viewer などと同じ取り方)
+--   order … GetPCByIndex の添字(= その層のバラックでの並び)
 -- 書くのは変わったときだけ。
 function Login_bonus_control_sync_chars()
     local settings = Login_bonus_control_settings()
     local changed = false
-    local function upsert(cid, name)
+    local layer = nil
+    if _G["BARRACK_CHARLIST_ON_INIT"] and type(_G["current_layer"]) == "number" then
+        layer = _G["current_layer"]
+    end
+    local function upsert(cid, name, order)
         if not cid or cid == "" or not name or name == "" then
             return
         end
         local key = Login_bonus_control_char_key(cid)
         local entry = settings.chars[key]
         if not entry then
-            settings.chars[key] = {
+            entry = {
                 name = name,
                 mode = "default"
             }
+            settings.chars[key] = entry
             changed = true
         elseif entry.name ~= name then
             entry.name = name
+            changed = true
+        end
+        if order ~= nil and entry.order ~= order then
+            entry.order = order
+            changed = true
+        end
+        if order ~= nil and layer ~= nil and entry.layer ~= layer then
+            entry.layer = layer
             changed = true
         end
     end
@@ -174,7 +191,7 @@ function Login_bonus_control_sync_chars()
             if pc_info then
                 local pc_apc = pc_info:GetApc()
                 if pc_apc then
-                    upsert(pc_info:GetCID(), pc_apc:GetName())
+                    upsert(pc_info:GetCID(), pc_apc:GetName(), i)
                 end
             end
         end
@@ -398,7 +415,8 @@ function Login_bonus_control_settings_frame()
     Login_bonus_control_build_list()
 end
 
--- キャラの行を組み直す(窓は作り直さない)。並びは名前順で、今のキャラは色を変える。
+-- キャラの行を組み直す(窓は作り直さない)。並びはバラック順(層 → 層の中の順番)で、今のキャラは色を変える。
+-- 層や順番がまだ分からないキャラ(ほかの層で、バラックを通らずに入ったなど)は後ろへ回し、名前順にする。
 function Login_bonus_control_build_list()
     local setting = ui.GetFrame(addon_name_lower .. "login_bonus_control_setting")
     if not setting then
@@ -417,7 +435,19 @@ function Login_bonus_control_build_list()
     for key, _ in pairs(settings.chars) do
         table.insert(keys, key)
     end
+    -- 層が分からないものは最後の層の後ろ、順番が分からないものは層の中の最後
+    local function rank(entry)
+        return tonumber(entry.layer) or math.huge, tonumber(entry.order) or math.huge
+    end
     table.sort(keys, function(a, b)
+        local a_layer, a_order = rank(settings.chars[a])
+        local b_layer, b_order = rank(settings.chars[b])
+        if a_layer ~= b_layer then
+            return a_layer < b_layer
+        end
+        if a_order ~= b_order then
+            return a_order < b_order
+        end
         return tostring(settings.chars[a].name) < tostring(settings.chars[b].name)
     end)
     local y = 8
