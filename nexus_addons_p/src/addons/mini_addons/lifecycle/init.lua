@@ -153,9 +153,18 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
         g.setup_hook_and_event(g.addon, "INVENTORY_OP_POP", "Mini_addons_INVENTORY_OP_POP", true)
         -- 素が宛先を選び直すたびに入力欄を 415 基準へ戻すので、ボタンの手前で止め直す
         g.setup_hook_and_event(g.addon, "CHAT_SET_TO_TITLENAME", "Mini_addons_chat_fit_input_after_title", true)
-    elseif g.settings.chat_new_btn == 1 then
-        g.settings.chat_new_btn = 0
-        Mini_addons_save_settings()
+        -- 日本版は入力バーを開くたびに入力欄の幅を組み直すので、同じく合わせ直す
+        g.setup_hook_and_event(g.addon, "CHAT_OPEN_INIT", "Mini_addons_chat_fit_input_after_open", true)
+    else
+        -- チャットエクステンドが入力バーを組み直すので、こちらのチャット枠の改造は OFF にする
+        if g.settings.chat_new_btn == 1 then
+            g.settings.chat_new_btn = 0
+            Mini_addons_save_settings()
+        end
+        if type(g.settings.chat_width) == "table" and g.settings.chat_width.use == 1 then
+            g.settings.chat_width.use = 0
+            Mini_addons_save_settings()
+        end
     end
     -- ちょい残しボタンcuervoexから移植
     g.setup_hook_and_event(g.addon, "WEEKLYBOSSREWARD_REWARD_OPEN", "Mini_addons_WEEKLYBOSSREWARD_REWARD_OPEN", true)
