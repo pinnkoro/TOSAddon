@@ -111,13 +111,17 @@ end
 -- 素の CHAT_SET_TO_TITLENAME(宛先を選び直すたびに走る)・CHAT_OPEN_INIT(日本版は開くたびに
 -- 入力欄の幅を組み直す)と、グループチャットの Mini_addons_group_chat_setting は
 -- **mainchat:GetOriginalWidth()(= 415)基準で幅を組み直す**ので、その都度ここを通すこと。
+--
+-- 両方 OFF でも、一度広げて高さが 150 に丸まったまま(再起動まで戻らない)なら取っ手が
+-- 残って button_emo が左へ寄っている(Mini_addons_chat_update_grip)ので、その手前で縮める
 function Mini_addons_chat_fit_input(tag)
-    local extra = Mini_addons_chat_width_px()
-    if g.settings.chat_new_btn ~= 1 and extra == 0 then
-        return
-    end
     local chat = ui.GetFrame("chat")
     if not chat then
+        return
+    end
+    local extra = Mini_addons_chat_width_px()
+    local tall = chat:GetHeight() > chat:GetOriginalHeight()
+    if g.settings.chat_new_btn ~= 1 and extra == 0 and not tall then
         return
     end
     local mainchat = GET_CHILD(chat, "mainchat")
@@ -247,9 +251,40 @@ function Mini_addons_chat_drag_update(ctrl)
     local mx, my = GET_MOUSE_POS()
     mx = mx / ui.GetRatioWidth()
     my = my / ui.GetRatioHeight()
-    chat:SetPos(chat:GetUserIValue("NEXUS_DRAG_X") + math.floor(mx) - chat:GetUserIValue("NEXUS_DRAG_MX"),
+    Mini_addons_chat_set_pos(chat,
+        chat:GetUserIValue("NEXUS_DRAG_X") + math.floor(mx) - chat:GetUserIValue("NEXUS_DRAG_MX"),
         chat:GetUserIValue("NEXUS_DRAG_Y") + math.floor(my) - chat:GetUserIValue("NEXUS_DRAG_MY"))
     return 1
+end
+
+-- 入力バーを画面の中へ収めて置く。**画面外へ出すと掴む場所(取っ手と edit_bg)も外へ出て、
+-- settings.json を手で直す以外に戻せなくなる**(保存は chat_xy)。ドラッグ中も、保存済みの
+-- 位置を当てるときも、広げて右端がはみ出したときもここを通す。
+-- 収めるのは見た目の入力バー(原寸の高さ 36)だけ。下の透明な帯は画面外へ出てよい。
+-- 画面の大きさは addons_menu_clamp_pos と同じく map フレーム(画面全体を覆う)から取る
+function Mini_addons_chat_set_pos(chat, x, y)
+    local map_ui = ui.GetFrame("map")
+    local screen_w = (map_ui and map_ui:GetWidth()) or 1920
+    local screen_h = (map_ui and map_ui:GetHeight()) or 1080
+    local cx = math.max(0, math.min(x, screen_w - chat:GetWidth()))
+    local cy = math.max(0, math.min(y, screen_h - chat:GetOriginalHeight()))
+    chat:SetPos(cx, cy)
+    return cx ~= x or cy ~= y
+end
+
+-- 保存済みの位置(chat_xy)を当てる。画面外だったら収めた位置で保存し直す
+function Mini_addons_chat_apply_saved_pos(chat)
+    local x = g.settings.chat_xy.x or chat:GetX()
+    local y = g.settings.chat_xy.y or chat:GetY()
+    if Mini_addons_chat_set_pos(chat, x, y) then
+        core_g.vlog("mini_addons: chat_pos 画面外だったので戻した (%s,%s) -> (%s,%s) w=%s", tostring(x), tostring(y),
+            tostring(chat:GetX()), tostring(chat:GetY()), tostring(chat:GetWidth()))
+        if g.settings.chat_xy.x then
+            g.settings.chat_xy.x = chat:GetX()
+            g.settings.chat_xy.y = chat:GetY()
+            Mini_addons_save_settings()
+        end
+    end
 end
 
 -- 設定画面の「広げる幅」の入力欄(Enter で確定)。
@@ -261,10 +296,12 @@ function Mini_addons_chat_width_edit(frame, ctrl)
         ui.SysMsg(g.lang == "Japanese" and
                       string.format("無効な値です。0から%dの間で設定してください。", Mini_addons_CHAT_WIDTH_MAX) or
                       string.format("Invalid value please set between 0 and %d", Mini_addons_CHAT_WIDTH_MAX))
-        value = Mini_addons_CHAT_WIDTH_DEF
+        -- 打ち間違いで今の幅を失わないよう、既定値ではなく元の値へ戻すだけにする
+        -- **{ol} を混ぜない**(混ぜると GetText がそのまま返し、次の Enter で無効な値になる)
+        ctrl:SetText(tostring(g.settings.chat_width.px or Mini_addons_CHAT_WIDTH_DEF))
+        return
     end
     value = math.floor(value)
-    -- **{ol} を混ぜない**(混ぜると GetText がそのまま返し、次の Enter で無効な値になる)
     ctrl:SetText(tostring(value))
     g.settings.chat_width.px = value
     Mini_addons_save_settings()
@@ -300,6 +337,12 @@ function Mini_addons_chat_fit_input_after_open(my_frame, my_msg)
 end
 
 function Mini_addons_update_chat_frame()
+    -- チャットエクステンドが入力バーを組み直しているときは触らない(起動時は init.lua が
+    -- 設定ごと OFF にする)。設定画面のチェックや幅の入力からも呼ばれるので、ここでも止める
+    if type(_G["ZCHATEXTENDS_ON_INIT"]) == "function" then
+        core_g.vlog("mini_addons: update_chat_frame チャットエクステンドが有効なので触らない")
+        return
+    end
     Mini_addons_chat_frame_vlog("before")
     local chat = ui.GetFrame("chat")
     local mainchat = GET_CHILD(chat, "mainchat")
@@ -328,7 +371,9 @@ function Mini_addons_update_chat_frame()
     end
     if g.settings.chat_new_btn == 0 and extra == 0 then
         Mini_addons_chat_unfit_input(chat, mainchat)
-        chat:SetPos(g.settings.chat_xy.x or chat:GetX(), g.settings.chat_xy.y or chat:GetY())
+        -- 高さが 150 のまま(取っ手が残っている)なら、寄った button_emo の手前で縮める
+        Mini_addons_chat_fit_input("off")
+        Mini_addons_chat_apply_saved_pos(chat)
         Mini_addons_chat_frame_vlog("off")
         -- 素の CHAT_SET_TO_TITLENAME は宛先が決まってから走るので、こちらが組み終えた
         -- 直後の姿だけでは足りない。後から素に上書きされていないかを遅れて見る
@@ -340,7 +385,7 @@ function Mini_addons_update_chat_frame()
         Mini_addons_chat_create_buttons(chat)
     end
     Mini_addons_chat_fit_input("update")
-    chat:SetPos(g.settings.chat_xy.x or chat:GetX(), g.settings.chat_xy.y or chat:GetY())
+    Mini_addons_chat_apply_saved_pos(chat)
     chat:Invalidate()
     Mini_addons_chat_frame_vlog("on")
     ReserveScript("Mini_addons_chat_frame_vlog('on_delay')", 3.0)
