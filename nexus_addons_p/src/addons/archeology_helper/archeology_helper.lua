@@ -2435,8 +2435,11 @@ end
 -- ツールチップの端で切れる。素の旧版(DRAW_ARCHEOLOGY_LEGACY_OPTIONS_TOOLTIP の前身)は SetTextFixWidth(1) で
 -- 折り返していたので、素が描いた後に同じく折り返し、行を詰め直して、増えた高さを返り値の ypos に足す
 -- (素の ITEM_TOOLTIP_ARCHEOLOGY が返り値でツールチップの高さを決める)
-function Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP(tooltipframe, invitem, ypos, mainframename)
-    local end_y = g.FUNCS["DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP"](tooltipframe, invitem, ypos, mainframename)
+--
+-- 5 個目以降はそのまま素へ渡す。素は後から argStr(マーケットの出品なら "market"。基本値も出す)を
+-- 足しており、4 個で決め打ちするとマーケットのツールチップから基本値が消える。
+function Archeology_helper_DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP(tooltipframe, invitem, ypos, mainframename, ...)
+    local end_y = g.FUNCS["DRAW_ARCHEOLOGY_OPTIONS_TOOLTIP"](tooltipframe, invitem, ypos, mainframename, ...)
     if not Archeology_helper_active() or type(end_y) ~= "number" then
         return end_y
     end

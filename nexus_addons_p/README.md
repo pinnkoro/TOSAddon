@@ -249,6 +249,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | アドオン | 概要 |
 | --- | --- |
 | [Ancient Monster Bookshelf](src/addons/ancient_monster_bookshelf/README.md) | **未完成のため無効**（アシスターカードの一括合成） |
+| [Login Bonus Control](src/addons/login_bonus_control/README.md) | ログインボーナスの画面をキャラごとに「表示する / 表示しない / 自動で受け取る」から選ぶ |
 | [Mini Addons](src/addons/mini_addons/README.md) | 細かい便利機能 60 種類以上の詰め合わせ（機能ごとに ON/OFF） |
 | [No Check](src/addons/no_check/README.md) | 各種確認ダイアログを省略。アイテム連続使用フレームとゴミ箱フレームを追加 |
 | [Tavern of Soul](src/addons/tavern_of_soul/README.md) | アイテム・バフ・スキル・モンスターの ID を逆引きする簡易検索 |
@@ -285,6 +286,10 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * **Login Bonus Control を追加しました**（その他）。ログインボーナス（出席報酬確認）の画面を、キャラごとに
+    「表示する / 表示しない / 自動で受け取る」から選べます。キャラを登録していないときの既定も選べます（既定は「表示する」= 今までどおり）。
+    「自動で受け取る」キャラでは、受け取った報酬の名前をチャットに出し、出席表の画面は開きません。設定画面のキャラはバラックと同じ順に並びます。
+  * Archeology Helper: 最新のパッチ以降、**マーケットの出品のツールチップで遺物の基本値が出ていなかった**のを直しました。
   * Debuff Notice: **表示位置を動かせる**ようにしました。アドオン一覧の歯車で位置合わせの窓が出るので、
     ドラッグして置きたい場所へ動かします（「初期位置」でターゲットのバフ欄の下へ戻せます）。
 * **v2.21.0**
