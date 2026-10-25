@@ -232,7 +232,7 @@ g._nexus_addons_p = {{
 }, {
     key = "debuff_notice",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.22.0",
     updated_note_jp = "表示位置を動かせるようにしました。アドオン一覧の歯車で位置合わせの窓が出るので、ドラッグして置きたい場所へ動かします(「初期位置」で元の位置に戻せます)",
     updated_note_en = "The display can now be moved. The gear in the addon list opens a placement window; drag it where you want (Reset returns it to the original position)",
     data = {
@@ -355,7 +355,7 @@ g._nexus_addons_p = {{
 }, {
     key = "login_bonus_control",
     category = "misc",
-    since = g.VER_NEXT,
+    since = "2.22.0",
     data = {
         use = 0,
         name = "Login Bonus Control",
