@@ -28,7 +28,8 @@ local NESTED_USE_SETTINGS = {
     velnice = true,
     auto_zoom = true,
     event_shout = true,
-    fragmentation = true
+    fragmentation = true,
+    chat_width = true
 }
 
 -- 設定 1 行（チェックボックスと、項目によっては隣に付く操作 UI）を作る。
@@ -157,6 +158,18 @@ local function create_setting_row(gbox, setting, y)
         edit_ctrl:SetFontName("white_16_ol")
         edit_ctrl:SetTextAlign("center", "center")
         edit_ctrl:SetText("{ol}" .. g.settings.auto_zoom.zoom)
+        right = right + 15 + 60
+    elseif setting.name == "chat_width" then
+        -- 広げる幅(px)。Enter で確定(他の数値入力と同じ)
+        local edit_ctrl = gbox:CreateOrGetControl("edit", "chat_width_edit", right + 15, y, 60, 25)
+        AUTO_CAST(edit_ctrl)
+        edit_ctrl:SetEventScript(ui.ENTERKEY, "Mini_addons_chat_width_edit")
+        edit_ctrl:SetTextTooltip(string.format("{ol}0~%d Default %d", Mini_addons_CHAT_WIDTH_MAX,
+            Mini_addons_CHAT_WIDTH_DEF))
+        edit_ctrl:SetFontName("white_16_ol")
+        edit_ctrl:SetTextAlign("center", "center")
+        -- **{ol} を混ぜない**(混ぜると GetText がそのまま返し、次の Enter で無効な値になる)
+        edit_ctrl:SetText(tostring((g.settings.chat_width and g.settings.chat_width.px) or Mini_addons_CHAT_WIDTH_DEF))
         right = right + 15 + 60
     elseif setting.name == "fragmentation" then
         -- スロットの列数・行数。**「窓に入る大きさ」は環境で変わる**(画面の高さで
@@ -546,7 +559,8 @@ function Mini_addons_ISCHECK(frame, ctrl, argStr, argNum)
     for _, setting_name in ipairs(SETTINGS_NAME) do
         if ctrl_name == setting_name then
             if setting_name == "cupole_portion" or setting_name == "velnice" or setting_name == "baubas_call" or
-                setting_name == "auto_zoom" or setting_name == "event_shout" or setting_name == "fragmentation" then
+                setting_name == "auto_zoom" or setting_name == "event_shout" or setting_name == "fragmentation" or
+                setting_name == "chat_width" then
                 g.settings[setting_name] = g.settings[setting_name] or {}
                 g.settings[setting_name].use = is_checked
             else
@@ -578,7 +592,7 @@ function Mini_addons_ISCHECK(frame, ctrl, argStr, argNum)
                 inventory:SetUserValue("TRY", 0)
                 g.inven_tbl = {}
                 Mini_addons_INVENTORY_OPEN_logic(inventory)
-            elseif setting_name == "chat_new_btn" then
+            elseif setting_name == "chat_new_btn" or setting_name == "chat_width" then
                 Mini_addons_update_chat_frame()
             elseif setting_name == "fragmentation" then
                 -- 破片化の窓が開いたままでも切り替えが効くように。閉じていれば何もしない
