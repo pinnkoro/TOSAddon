@@ -29,7 +29,7 @@
 | [lifecycle/](lifecycle/README.md) | 起動とマップ移動のたびの初期化、フレームの更新スクリプト |
 | [chat/](chat/README.md) | チャットフレームの改造・グループチャット・システムメッセージの間引き |
 | [quest/](quest/README.md) | クエストリストの非表示・デイリークエストの別窓・トークンワープの残り時間 |
-| [inventory/](inventory/README.md) | インベントリの改造・イコルステータス検索・コインの自動使用 |
+| [inventory/](inventory/README.md) | インベントリの改造・イコルステータス／遺物効果の検索・コインの自動使用 |
 | [weekly_boss/](weekly_boss/README.md) | 週間ボスのダメージ報酬・ビルドランキング・報酬の自動受け取り |
 | [hair_enchant/](hair_enchant/README.md) | ヘアアクセサリーの魔法付与を、目標を決めて回せるようにする |
 | [skill_reroll/](skill_reroll/README.md) | スキル錬成を、希望スキルが出るまで回せるようにする |
