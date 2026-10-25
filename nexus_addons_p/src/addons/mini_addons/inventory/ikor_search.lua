@@ -6,7 +6,8 @@ local function mini_addons_is_match_or(text, keyword_list)
         return false
     end
     for _, word in ipairs(keyword_list) do
-        if string.find(text, word) then
+        -- 検索語は文字どおりに探す(パターン扱いだと「(」「%」でエラー、「-」「.」で誤ヒットする)
+        if string.find(text, word, 1, true) then
             return true
         end
     end
@@ -77,6 +78,8 @@ function Mini_addons_INVENTORY_TOTAL_LIST_GET(frame, set_pos, is_ignore_lift_ico
             is_searching = true
         end
     end
+    -- 遺物の効果検索の件数(1 回の組み立てで 1 行だけログに出す)
+    local relic_checked, relic_no_opts, relic_hit = 0, 0, 0
     local inv_item_list = {}
     local index_count = 1
     for i = 0, inv_item_count - 1 do
@@ -180,6 +183,42 @@ function Mini_addons_INVENTORY_TOTAL_LIST_GET(frame, set_pos, is_ignore_lift_ico
                                                 end
                                             end
                                         end
+                                    elseif string.sub(TryGetProp(item_cls, "ClassName", "None"), 1, 4) == "Arc_" and
+                                        GET_ARCHEOLOGY_OPTION_INFO then
+                                        -- 遺物は効果名で当てる。効果は接頭(Arc_Prefix)→ 接尾(Arc_Suffix)。
+                                        -- 文字列は素のツールチップと同じ GET_ARCHEOLOGY_STAT_DESC から色の記法を
+                                        -- 外したもの。今のクライアントは効果名を displayNameMsg から引き、種類の文言も付けるので
+                                        -- ClMsg(tag) では画面の表示と食い違う(isLegacy は数値の書式にしか効かない)
+                                        local metas = {}
+                                        for _, prop in ipairs({"Arc_Prefix", "Arc_Suffix"}) do
+                                            local meta = TryGetProp(item_cls, prop, "None")
+                                            if meta ~= nil and meta ~= "" and meta ~= "None" then
+                                                metas[#metas + 1] = meta
+                                            end
+                                        end
+                                        local opts = #metas > 0 and GET_ARCHEOLOGY_OPTION_INFO(table.concat(metas, ",")) or {}
+                                        for _, opt in ipairs(opts) do
+                                            local desc
+                                            if GET_ARCHEOLOGY_STAT_DESC then
+                                                desc = string.gsub(
+                                                    GET_ARCHEOLOGY_STAT_DESC(opt.tag, tonumber(opt.value) or 0) or "",
+                                                    "{[^}]*}", "")
+                                            else
+                                                desc = ClMsg(tostring(opt.tag))
+                                            end
+                                            item_name = string.lower(dictionary.ReplaceDicIDInCompStr(desc))
+                                            if mini_addons_is_match_or(item_name, search_keywords) then
+                                                make_slot = true
+                                                break
+                                            end
+                                        end
+                                        relic_checked = relic_checked + 1
+                                        if #opts == 0 then
+                                            relic_no_opts = relic_no_opts + 1
+                                        end
+                                        if make_slot then
+                                            relic_hit = relic_hit + 1
+                                        end
                                     end
                                 end
                             end
@@ -234,6 +273,10 @@ function Mini_addons_INVENTORY_TOTAL_LIST_GET(frame, set_pos, is_ignore_lift_ico
                 end
             end
         end
+    end
+    if relic_checked > 0 then
+        core_g.vlog("mini_addons: 遺物の効果検索 keywords=%s 照合=%d 当たり=%d 効果なし=%d", cap, relic_checked,
+            relic_hit, relic_no_opts)
     end
     for type_no = 1, #g_invenTypeStrList do
         local tree_box = GET_CHILD_RECURSIVELY(group, "treeGbox_" .. g_invenTypeStrList[type_no], "ui::CGroupBox")

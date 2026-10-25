@@ -1,6 +1,6 @@
 # インベントリ（inventory）
 
-> インベントリの改造・イコルステータス検索・コインの自動使用
+> インベントリの改造・イコルステータス／遺物効果の検索・コインの自動使用
 
 | 項目 | 内容 |
 | --- | --- |
@@ -13,7 +13,7 @@
 | ファイル | 設定キー | 内容 |
 | --- | --- | --- |
 | [inventory_op_pop.lua](inventory_op_pop.lua) | `chat_new_btn` | アイテムを掴んだときにチャットへアイテムリンクを貼る。チャットが出ていないとき・CTRL 押下中は何もしない |
-| [ikor_search.lua](ikor_search.lua) | `icor_status_search` | `INVENTORY_TOTAL_LIST_GET` を差し替え、イコルのステータスで絞り込む。**半角スペース区切りで OR 検索** |
+| [ikor_search.lua](ikor_search.lua) | `icor_status_search` | `INVENTORY_TOTAL_LIST_GET` を差し替え、イコルのステータス・遺物（`Arc_`）の効果名で絞り込む。**半角スペース区切りで OR 検索** |
 | [coin_auto_use.lua](coin_auto_use.lua) | `coin_use` | 傭兵団コイン・女神コイン・王国再建団コインなどを取得時に自動で使う（対象は `COIN_ITEM`） |
 | [inventory_open.lua](inventory_open.lua) | `inventory_mod` | インベントリを開いたときのスロットまわりの改造 |
 
