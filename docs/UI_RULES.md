@@ -103,6 +103,23 @@ Enter の処理では次のようにする。
 実装例は [guild_storage_list.lua](../guild_storage_list/src/guild_storage_list.lua) の
 `Guild_storage_list_edit_enter` / `Guild_storage_list_update_row` / `Guild_storage_list_after_enter`。
 
+## キャラを一覧に並べるときはバラック順にする
+
+アカウントのキャラを並べる窓（設定画面のキャラ一覧など）は、**バラックの並びと同じ順**にする。
+名前順や登録した順にすると、利用者がバラックで見慣れた並びと食い違って探しにくい（2026-10-23 に依頼）。
+
+* **順番は「層 → 層の中の順番」。** どちらも素の API から取れる。
+  * 層 … 素のバラック画面（`barrack_charlist.lua`）が持つグローバル `current_layer`。
+    `_G["BARRACK_CHARLIST_ON_INIT"] and _G["current_layer"]` のときだけ信じる。
+  * 層の中の順番 … `session.barrack.GetMyAccount():GetPCByIndex(i)` の添字 `i`。
+    **見えるのは今の層のキャラだけ**なので、ほかの層のキャラは、その層で入ったときに控えた値を使う。
+* **控えは設定ファイルに `layer` / `order` として残す。** 毎回取り直せるのは今の層だけなので、
+  覚えておかないとほかの層のキャラの順番が分からなくなる。
+* **層や順番が分からないキャラは後ろへ回す**（その中は名前順）。並べられないことを理由に一覧から消さない。
+* 実装例は [login_bonus_control.lua](../nexus_addons_p/src/addons/login_bonus_control/login_bonus_control.lua) の
+  `Login_bonus_control_sync_chars` / `Login_bonus_control_build_list`。
+  同じ取り方は Indun List Viewer（`Indun_list_viewer_sort_characters`）・Instant CC にもある。
+
 ## 検索欄は 2 つの共通部品のどちらかを使う
 
 **検索欄を作ったら、必ず次のどちらかを呼ぶこと**（[core/00_header.lua](../nexus_addons_p/src/core/00_header.lua)）。

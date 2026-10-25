@@ -232,12 +232,18 @@ g._nexus_addons_p = {{
 }, {
     key = "debuff_notice",
     category = "battle",
+    updated = "2.22.0",
+    updated_note_jp = "表示位置を動かせるようにしました。アドオン一覧の歯車で位置合わせの窓が出るので、ドラッグして置きたい場所へ動かします(「初期位置」で元の位置に戻せます)",
+    updated_note_en = "The display can now be moved. The gear in the addon list opens a placement window; drag it where you want (Reset returns it to the original position)",
     data = {
         use = 0,
         name = "Debuff Notice",
-        frame_use = false,
-        config_func = "",
-        old_init_func = "DEBUFF_NOTICE_ON_INIT"
+        frame_use = true,
+        config_func = "Debuff_notice_move_frame",
+        old_init_func = "DEBUFF_NOTICE_ON_INIT",
+        -- 表示位置。0 / 0 は「動かしていない」= targetbuff 基準の従来の位置(Debuff_notice_pos)
+        x = 0,
+        y = 0
     }
 }, {
     key = "dungeon_rp_charger",
@@ -345,6 +351,17 @@ g._nexus_addons_p = {{
         frame_use = true,
         config_func = "Lets_go_home_settings_frame",
         old_init_func = "LETS_GO_HOME_ON_INIT"
+    }
+}, {
+    key = "login_bonus_control",
+    category = "misc",
+    since = "2.22.0",
+    data = {
+        use = 0,
+        name = "Login Bonus Control",
+        frame_use = true,
+        config_func = "Login_bonus_control_settings_frame",
+        old_init_func = ""
     }
 }, {
     key = "market_voucher",
@@ -752,9 +769,9 @@ g._nexus_addons_p_trans = {
         kr = "{ol}갓데스 장비 연속 강화"
     },
     ["debuff_notice"] = {
-        ja = "{ol}自分が与えたデバフを見やすく表示",
-        etc = "{ol}Clearly display the debuffs inflicted by oneself",
-        kr = "{ol}자신이 부여한 디버프를 보기 쉽게 표시"
+        ja = "{ol}自分が与えたデバフを見やすく表示{nl}表示位置は歯車ボタンで動かせます",
+        etc = "{ol}Clearly display the debuffs inflicted by oneself{nl}Use the gear button to move the display",
+        kr = "{ol}자신이 부여한 디버프를 보기 쉽게 표시{nl}표시 위치는 톱니바퀴 버튼으로 옮길 수 있습니다"
     },
     ["easy_buff"] = {
         ja = "{ol}Kiicchanさん作成{nl}各種商店でバフ自動付与",
@@ -775,6 +792,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}ホームタウンのホームチャンネルにワープします",
         etc = "{ol}Warp to the hometown's home channel",
         kr = "{ol}홈타운의 홈 채널로 워프"
+    },
+    ["login_bonus_control"] = {
+        ja = "{ol}ログインボーナスの画面をキャラごとに{nl}表示する / 表示しない / 自動で受け取る",
+        etc = "{ol}Per character, show / hide / auto-receive{nl}the login bonus (attendance) window",
+        kr = "{ol}출석 보상 창을 캐릭터별로{nl}표시 / 숨김 / 자동 수령"
     },
     ["market_voucher"] = {
         ja = "{ol}マーケットでの取引履歴表示",

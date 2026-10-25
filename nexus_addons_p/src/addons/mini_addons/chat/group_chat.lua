@@ -196,7 +196,7 @@ function Mini_addons_group_chat_setting(chat, target_id)
         tostring(edit_to_bg:GetWidth()), tostring(button_type:GetWidth()), tostring(width), tostring(offset_x))
     mainchat:Resize(width, mainchat:GetOriginalHeight())
     mainchat:SetOffset(offset_x, mainchat:GetOriginalY())
-    -- 415 基準で組み直したので、ボタン追加が ON ならボタンの手前で止め直す
+    -- 415 基準で組み直したので、ボタン追加 / 入力バーを広げるが ON なら右端を合わせ直す
     Mini_addons_chat_fit_input("group_chat_setting")
     Mini_addons_chat_frame_vlog("group_chat_setting")
 end

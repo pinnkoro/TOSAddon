@@ -103,6 +103,11 @@ local DEFAULT_SETTINGS = {
     skill_reroll_presets = {},
     new_groups = {},
     chat_new_btn = 0,
+    -- チャット入力バーを広げる。px = 広げる幅(素の 500 に足す量)
+    chat_width = {
+        use = 0,
+        px = 200
+    },
     chat_xy = {},
     pt_info = 0,
     enchant_tooltip = 0,
@@ -143,7 +148,7 @@ local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info
                        "cupole_portion", "goodbye_ragana", "status_upgrade", "icor_status_search", "velnice",
                        "separated_buff", "group_chat", "memberinfo", "baubas_call", "pt_buff", "chat_recv", "pet_ring",
                        "daily_quest", "chat_frame", "restart_colony", "auto_zoom", "rp_charge", "skill_cool_sound",
-                       "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "pt_info",
+                       "inventory_mod", "reroll_option", "hair_enchant", "skill_reroll", "chat_new_btn", "chat_width", "pt_info",
                        "enchant_tooltip", "boss_rank", "auto_craft", "keep_first", "multiple_item", "event_shout",
                        "auto_accept_duel", "ability_sort", "fragmentation", "guild_storage_reload"}
 
@@ -328,6 +333,12 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "ワイドモニターの追加チャットフレームの移動制限解除",
         text_kr = "와이드 모니터에서 추가 채팅창의 이동 제한 해제",
         text_en = "Freely move additional chat frames on wide monitors"
+    }, {
+        name = "chat_width",
+        text_jp = "チャット入力バーを広げる(px)",
+        text_kr = "채팅 입력창을 넓힙니다(px)",
+        text_en = "Widen the chat input bar (px)",
+        since = "2.22.0"
     }},
     chars = {{
         name = "my_effect",
@@ -527,7 +538,7 @@ local SUB_FRAME_SETTINGS = {
 local SETTING_SECTIONS = {{
     name = "chats",
     names = {"chat_system", "group_chat", "baubas_call", "chat_recv", "chat_frame", "event_shout", "multiple_item",
-             "chat_new_btn"},
+             "chat_new_btn", "chat_width"},
     text_jp = "チャット関連",
     text_kr = "채팅 관련",
     text_en = "Chat-related"
