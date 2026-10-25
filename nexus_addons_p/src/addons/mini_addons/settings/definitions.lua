@@ -288,9 +288,13 @@ local MAIN_FRAME_SETTINGS = {{
     text_en = "Always play BGM in the city"
 }, {
     name = "icor_status_search",
-    text_jp = "インベントリでイコルのステータスを検索 半角スペースでor検索",
-    text_kr = "인벤토리에서 아이커 능력치 검색 반각 공백으로 OR 검색",
-    text_en = "Search Icor status in Inventory OR search using half-width spaces"
+    text_jp = "インベントリの検索を拡張(イコルのステータス・遺物の効果でも検索) 半角スペースでor検索",
+    text_kr = "인벤토리 검색 확장(아이커 능력치·유물 효과로도 검색) 반각 공백으로 OR 검색",
+    text_en = "Extended inventory search (also matches Icor status and relic effects) OR search using half-width spaces",
+    -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+    updated = core_g.VER_NEXT,
+    updated_note_jp = "アーキオロジーの遺物も効果名で検索できるようにしました。インベントリの検索欄に効果名の一部を入れると、その効果を持つ遺物が出ます",
+    updated_note_en = "Archeology relics can now be searched by their effects. Type part of an effect name in the inventory search box to show relics with that effect"
 }, {
     name = "velnice",
     text_jp = "ヴェルニケの以前の階層を覚える",
