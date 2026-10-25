@@ -78,13 +78,12 @@ function Debuff_notice_COMMON_BUFF_MSG(my_frame, my_msg)
 end
 
 function Debuff_notice_frame_init()
-    local targetbuff = ui.GetFrame("targetbuff")
     local frame_name = addon_name_lower .. "debuff_notice"
     local debuff_notice = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
     debuff_notice:SetSkinName("None")
     debuff_notice:SetTitleBarSkin("None")
     debuff_notice:Resize(0, 0)
-    debuff_notice:SetPos(targetbuff:GetX() + 100, targetbuff:GetY() + targetbuff:GetHeight() + 50)
+    debuff_notice:SetPos(Debuff_notice_pos())
     local debuff_slotset = debuff_notice:CreateOrGetControl("slotset", "debuff_slotset", 0, 0, 415, 50)
     AUTO_CAST(debuff_slotset)
     debuff_slotset:SetColRow(8, 1)
@@ -182,6 +181,90 @@ function Debuff_notice_update_and_cleanup(debuff_notice)
         Debuff_notice_frame_redraw(debuff_notice, handle)
     end
     return 1
+end
+-- 表示位置。x / y が 0 のまま(一度も動かしていない)なら従来どおり targetbuff の右下に置く
+function Debuff_notice_pos()
+    local x = g.settings.debuff_notice.x or 0
+    local y = g.settings.debuff_notice.y or 0
+    if x ~= 0 or y ~= 0 then
+        return x, y
+    end
+    local targetbuff = ui.GetFrame("targetbuff")
+    return targetbuff:GetX() + 100, targetbuff:GetY() + targetbuff:GetHeight() + 50
+end
+
+-- 位置合わせ用の窓を出す(アドオン一覧の歯車から)。
+-- 本体はデバフが無いと大きさ 0 で掴めず、出るのもボス戦の最中だけなので、
+-- 本体は動かさずに同じ大きさ(8 枠 = 400x50)の別の窓を置き、閉じるときに位置を移す。
+function Debuff_notice_move_frame()
+    if not g.debuff_notice then
+        return
+    end
+    local frame_name = addon_name_lower .. "debuff_notice_move"
+    if ui.GetFrame(frame_name) then
+        return
+    end
+    local ja = g.lang == "Japanese"
+    local move = ui.CreateNewFrame("notice_on_pc", frame_name, 0, 0, 0, 0)
+    AUTO_CAST(move)
+    move:SetSkinName("bg")
+    move:SetTitleBarSkin("None")
+    move:Resize(400, 50)
+    move:SetPos(Debuff_notice_pos())
+    g.block_click_through(move)
+    move:EnableMove(1)
+    move:SetLayerLevel(999)
+    move:SetEventScript(ui.LBUTTONUP, "Debuff_notice_move_save")
+    move:SetEventScript(ui.RBUTTONUP, "Debuff_notice_move_close")
+    local text = move:CreateOrGetControl("richtext", "text", 10, 6, 300, 40)
+    AUTO_CAST(text)
+    text:EnableHitTest(0)
+    text:SetText(ja and "{ol}{s14}Debuff Notice の表示位置{nl}ドラッグで移動・右クリックか ESC で閉じる" or
+                     "{ol}{s14}Debuff Notice position{nl}Drag to move, right-click or ESC to close")
+    local reset = move:CreateOrGetControl("button", "reset", 0, 0, 70, 30)
+    AUTO_CAST(reset)
+    reset:SetSkinName("test_gray_button")
+    reset:SetGravity(ui.RIGHT, ui.CENTER_VERT)
+    reset:SetMargin(0, 0, 8, 0)
+    reset:SetText(ja and "{ol}{s14}初期位置" or "{ol}{s14}Reset")
+    reset:SetEventScript(ui.LBUTTONUP, "Debuff_notice_move_reset")
+    move:ShowWindow(1)
+    g.esc_register_destroy(frame_name)
+    g.vlog("debuff_notice: 位置合わせを開いた x=%s y=%s", tostring(move:GetX()), tostring(move:GetY()))
+end
+
+-- 本体を窓と同じ位置へ移す。LBUTTONUP は動かさないクリックでも来るので、変わっていなければ保存しない
+function Debuff_notice_move_save(move)
+    local x, y = move:GetX(), move:GetY()
+    local debuff_notice = ui.GetFrame(addon_name_lower .. "debuff_notice")
+    if debuff_notice then
+        debuff_notice:SetPos(x, y)
+    end
+    if g.settings.debuff_notice.x == x and g.settings.debuff_notice.y == y then
+        return
+    end
+    g.settings.debuff_notice.x = x
+    g.settings.debuff_notice.y = y
+    _nexus_addons_p_save_settings()
+    g.vlog("debuff_notice: 位置を保存 x=%s y=%s", tostring(x), tostring(y))
+end
+
+function Debuff_notice_move_close()
+    ui.DestroyFrame(addon_name_lower .. "debuff_notice_move")
+end
+
+-- 0 / 0 に戻すと Debuff_notice_pos が targetbuff 基準の位置を返す
+function Debuff_notice_move_reset(frame, ctrl)
+    g.settings.debuff_notice.x = 0
+    g.settings.debuff_notice.y = 0
+    _nexus_addons_p_save_settings()
+    local x, y = Debuff_notice_pos()
+    frame:SetPos(x, y)
+    local debuff_notice = ui.GetFrame(addon_name_lower .. "debuff_notice")
+    if debuff_notice then
+        debuff_notice:SetPos(x, y)
+    end
+    g.vlog("debuff_notice: 位置を初期化 x=%s y=%s", tostring(x), tostring(y))
 end
 -- debuff_notice ここまで
 
