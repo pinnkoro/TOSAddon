@@ -338,7 +338,7 @@ local SUB_FRAME_SETTINGS = {
         text_jp = "チャット入力バーを広げる(px)",
         text_kr = "채팅 입력창을 넓힙니다(px)",
         text_en = "Widen the chat input bar (px)",
-        since = core_g.VER_NEXT
+        since = "2.22.0"
     }},
     chars = {{
         name = "my_effect",
