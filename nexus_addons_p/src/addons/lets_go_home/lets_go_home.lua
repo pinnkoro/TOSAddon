@@ -68,6 +68,8 @@ g.lets_go_home_quest_defaults = {
 -- その都市へクエストワープしうるクエスト(QuestProgressCheck の ClassID)。都市ごとに 1 回だけ作る。
 -- 素がクエストワープのアイコンを出す条件(MAKE_QUEST_INFO_COMMON)のうち、状態に依らない部分で先に絞る:
 -- 受注可能 = POSSI_WARP / 進行中 = PROG_WARP / 完了可能 = SUCC_WARP が YES で、その段階の Map が都市のもの。
+-- 受注可能は、POSSI_WARP が NO でも素の SCR_MAIN_QUEST_WARP_CHECK でワープできるメインクエスト
+-- (mainquest_startnpcwarp に載っているもの)があるので、それも候補に入れる。
 g.lets_go_home_quest_candidates = {}
 function Lets_go_home_quest_candidates(city)
     if g.lets_go_home_quest_candidates[city] then
@@ -77,7 +79,8 @@ function Lets_go_home_quest_candidates(city)
     local cls_list, cnt = GetClassList("QuestProgressCheck")
     for i = 0, cnt - 1 do
         local cls = GetClassByIndexFromList(cls_list, i)
-        if cls and ((TryGetProp(cls, "POSSI_WARP", "NO") == "YES" and TryGetProp(cls, "StartMap", "None") == city) or
+        if cls and (((TryGetProp(cls, "POSSI_WARP", "NO") == "YES" or GetClass("mainquest_startnpcwarp", cls.ClassName)) and
+            TryGetProp(cls, "StartMap", "None") == city) or
             (TryGetProp(cls, "PROG_WARP", "NO") == "YES" and TryGetProp(cls, "ProgMap", "None") == city) or
             (TryGetProp(cls, "SUCC_WARP", "NO") == "YES" and TryGetProp(cls, "EndMap", "None") == city)) then
             table.insert(candidates, cls.ClassID)
@@ -89,32 +92,44 @@ function Lets_go_home_quest_candidates(city)
 end
 
 -- このキャラで、いまそのクエストを使って都市へワープできるか。
--- 素のクエストワープ(QUESTION_QUEST_WARP)と同じく GET_QUEST_NPC_STATE で段階を決め、その段階の Map を見る。
+-- 素のクエストワープ(QUESTION_QUEST_WARP)と同じ関数(SCR_QUEST_CHECK_Q / GET_QUEST_NPC_STATE に pc を渡す)で
+-- 段階を決め、その段階の Map を見る。**素と別の関数(SCR_QUEST_CHECK_C)で決めないこと。**
+-- 素は g_questCheckFunc が残っていると _Q の結果で段階を決め直し、nil の段階に 'Map' を連結して落ちる。
 function Lets_go_home_quest_usable(quest_id, city)
     local questIES = GetClassByType('QuestProgressCheck', quest_id)
     if not questIES then
         return false
     end
-    local result = SCR_QUEST_CHECK_C(GetMyPCObject(), questIES.ClassName)
-    local questState = GET_QUEST_NPC_STATE(questIES, result)
+    local pc = GetMyPCObject()
+    local result = SCR_QUEST_CHECK_Q(pc, questIES.ClassName)
+    local questState = GET_QUEST_NPC_STATE(questIES, result, pc)
     return questState ~= nil and questIES[questState .. "Map"] == city
 end
 
--- このキャラで今その都市へワープできるクエストの ClassID。既定のクエストを先に、残りは ClassID 順。
-function Lets_go_home_available_quests(city)
-    local available = {}
+-- 探す順: 既定のクエスト → 残りの候補(ClassID 順)。visit が true を返したらそこで打ち切る。
+function Lets_go_home_each_quest(city, visit)
     local listed = {}
     for _, quest_id in ipairs(g.lets_go_home_quest_defaults[city] or {}) do
         listed[quest_id] = true
-        if Lets_go_home_quest_usable(quest_id, city) then
-            table.insert(available, quest_id)
+        if visit(quest_id) then
+            return
         end
     end
     for _, quest_id in ipairs(Lets_go_home_quest_candidates(city)) do
-        if not listed[quest_id] and Lets_go_home_quest_usable(quest_id, city) then
-            table.insert(available, quest_id)
+        if not listed[quest_id] and visit(quest_id) then
+            return
         end
     end
+end
+
+-- このキャラで今その都市へワープできるクエストの ClassID(設定の窓の一覧用。全件を判定する)
+function Lets_go_home_available_quests(city)
+    local available = {}
+    Lets_go_home_each_quest(city, function(quest_id)
+        if Lets_go_home_quest_usable(quest_id, city) then
+            table.insert(available, quest_id)
+        end
+    end)
     return available
 end
 
@@ -124,16 +139,21 @@ function Lets_go_home_chosen_quest(city)
     return chosen and chosen[city]
 end
 
--- ワープに使うクエスト。このキャラで選んだものが使えればそれ、使えなければ使えるものの先頭。
+-- ワープに使うクエスト。このキャラで選んだものが使えればそれ、使えなければ探す順で最初に使えるもの。
+-- ショートカットを押している間は 0.2 秒ごとに呼ばれるので、全件はそろえず見つけた時点で打ち切る。
 function Lets_go_home_pick_quest(city)
-    local available = Lets_go_home_available_quests(city)
     local chosen = Lets_go_home_chosen_quest(city)
-    for _, quest_id in ipairs(available) do
-        if quest_id == chosen then
-            return quest_id, available
-        end
+    if chosen and Lets_go_home_quest_usable(chosen, city) then
+        return chosen
     end
-    return available[1], available
+    local picked = nil
+    Lets_go_home_each_quest(city, function(quest_id)
+        if quest_id ~= chosen and Lets_go_home_quest_usable(quest_id, city) then
+            picked = quest_id
+            return true
+        end
+    end)
+    return picked
 end
 
 function lets_go_home_on_init()
@@ -345,23 +365,29 @@ function Lets_go_home_quest_list_build(quest_list)
     if city == "" then
         return
     end
-    local picked, available = Lets_go_home_pick_quest(city)
+    local picked = Lets_go_home_pick_quest(city)
+    local available = Lets_go_home_available_quests(city)
     g.vlog("lets_go_home: クエストワープの候補 map=%s 使える=%d 件 選択=%s 既定=%s", city, #available,
         tostring(Lets_go_home_chosen_quest(city)), tostring(picked))
+    -- 同じ名前のクエストが並ぶと見分けられないので、そのときだけ ClassID を添える
+    local name_count = {}
+    for _, quest_id in ipairs(available) do
+        local name = GetClassByType('QuestProgressCheck', quest_id).Name
+        name_count[name] = (name_count[name] or 0) + 1
+    end
     for i, quest_id in ipairs(available) do
-        local questIES = GetClassByType('QuestProgressCheck', quest_id)
-        quest_list:AddItem(i - 1, "{ol}" .. questIES.Name, 0, string.format("Lets_go_home_quest_settings(%d)", quest_id))
+        local name = GetClassByType('QuestProgressCheck', quest_id).Name
+        local label = name_count[name] > 1 and string.format("%s (%d)", name, quest_id) or name
+        -- 都市も一緒に渡す。一覧を開いたままホームを右クリック登録で変えても、一覧の都市へ保存する
+        quest_list:AddItem(i - 1, "{ol}" .. label, 0,
+            string.format("Lets_go_home_quest_settings('%s', %d)", city, quest_id))
         if quest_id == picked then
             quest_list:SelectItem(i - 1)
         end
     end
 end
 
-function Lets_go_home_quest_settings(quest_id)
-    local city = g.lets_go_home_settings.map
-    if city == "" then
-        return
-    end
+function Lets_go_home_quest_settings(city, quest_id)
     local cid = tostring(g.cid)
     g.lets_go_home_settings.quest[cid] = g.lets_go_home_settings.quest[cid] or {}
     g.lets_go_home_settings.quest[cid][city] = quest_id
@@ -507,9 +533,9 @@ function Lets_go_home_change_move()
         return
     end
     if save_map ~= g.map_name then
-        local quest_id, available = Lets_go_home_pick_quest(save_map)
-        g.vlog("lets_go_home: クエストワープ map=%s 選択=%s 使える=%d 件 使う=%s", save_map,
-            tostring(Lets_go_home_chosen_quest(save_map)), #available, tostring(quest_id))
+        local quest_id = Lets_go_home_pick_quest(save_map)
+        g.vlog("lets_go_home: クエストワープ map=%s 選択=%s 使う=%s", save_map,
+            tostring(Lets_go_home_chosen_quest(save_map)), tostring(quest_id))
         if quest_id then
             QUESTION_QUEST_WARP(nil, nil, nil, quest_id)
         else
