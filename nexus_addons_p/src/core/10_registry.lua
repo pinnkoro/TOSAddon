@@ -342,9 +342,9 @@ g._nexus_addons_p = {{
 }, {
     key = "lets_go_home",
     category = "char",
-    updated = "2.18.0",
-    updated_note_jp = "ホームに着いた後に倉庫番の前まで移動できるようにしました。設定の「レティーシア移動設定」を「到着後の移動先」(しない / レティーシャ / 倉庫番)に置き換えています(レティーシャ移動を ON にしていた場合は引き継ぎます)",
-    updated_note_en = "You can now move to the warehouse keeper after arriving home. The Leticia move checkbox became a 'Move after arrival' list (None / Leticia / Warehouse keeper); an enabled Leticia move carries over",
+    updated = "2.24.0",
+    updated_note_jp = "使うクエストワープをキャラごとに選べるようにしました(設定の「クエストワープ」)。ホームタウンへ今ワープできるクエストがすべて並び、選んだものが使えなくなったら残っているものを使います",
+    updated_note_en = "You can now choose the quest warp per character (Quest warp in the settings). Every quest that can warp to the hometown now is listed; if the chosen one is no longer usable, a remaining one is used",
     data = {
         use = 0,
         name = "Lets Go Home",
