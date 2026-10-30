@@ -342,7 +342,7 @@ g._nexus_addons_p = {{
 }, {
     key = "lets_go_home",
     category = "char",
-    updated = g.VER_NEXT,
+    updated = "2.24.0",
     updated_note_jp = "使うクエストワープをキャラごとに選べるようにしました(設定の「クエストワープ」)。ホームタウンへ今ワープできるクエストがすべて並び、選んだものが使えなくなったら残っているものを使います",
     updated_note_en = "You can now choose the quest warp per character (Quest warp in the settings). Every quest that can warp to the hometown now is listed; if the chosen one is no longer usable, a remaining one is used",
     data = {
