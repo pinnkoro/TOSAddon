@@ -109,7 +109,7 @@ g._nexus_addons_p = {{
 }, {
     key = "archeology_helper",
     category = "content",
-    updated = g.VER_NEXT,
+    updated = "2.25.0",
     updated_note_jp = "インベントリを検索している間も、当たった遺物を展示スロットごとのセクションに分けて表示するようにしました",
     updated_note_en = "Relics matching an inventory search are now also split into sections by exhibition slot",
     data = {
