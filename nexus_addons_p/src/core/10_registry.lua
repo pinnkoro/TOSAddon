@@ -109,9 +109,9 @@ g._nexus_addons_p = {{
 }, {
     key = "archeology_helper",
     category = "content",
-    updated = "2.17.0",
-    updated_note_jp = "「クラペダへ」でクラペダに着いたら、依頼の NPC(アイリーネ)の前へ移動するようにしました。クラペダに居るときに押すと NPC の前へ移動だけします。依頼の最後の地点のダンジョンを終えたら、クラペダへ戻るか聞くようにしました。依頼を受けたら対象マップへトークンワープし、インベントリの遺物には展示スロットの番号(1〜3)を出し、レア度 → 効果 → 数値の順に並べて表示し、新しく入った遺物には次の依頼まで NEW の印(N)を出し、展示スロットごとのセクションに分け、最後の祭壇か探査ポータルの入場画面を開いている間はインベントリをアーキオロジーだけにし、探査ポータルの入場画面は最近の設定で開きます(どれも設定で OFF にできます)。祭壇ランク上昇の使用数は最大数で始めます",
-    updated_note_en = "The Klaipeda button now moves you to the mission NPC (Airine) after arriving; pressing it while already in Klaipeda just moves you to the NPC. After the dungeon of the mission's last point, you are asked whether to return to Klaipeda. After accepting a mission you token warp to the target map, and relics in the inventory show their exhibition slot number (1-3) and are displayed sorted by rarity, effect and value, and newly obtained relics get a new mark (N) until the next mission and are split into sections by exhibition slot, the inventory shows only Archeology while the altar or portal entry window is open, and the portal entry window opens with the last settings (all can be turned off in settings). The altar rank-up dialog now starts at the maximum usable count",
+    updated = "2.25.0",
+    updated_note_jp = "インベントリを検索している間も、当たった遺物を展示スロットごとのセクションに分けて表示するようにしました",
+    updated_note_en = "Relics matching an inventory search are now also split into sections by exhibition slot",
     data = {
         use = 0,
         name = "Archeology Helper",

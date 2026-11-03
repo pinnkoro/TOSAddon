@@ -169,6 +169,12 @@ COPIES = {
         "vanilla": "_GODDESS_MGR_RANDOMOPTION_ENGRAVE_ICOR_EXEC",
         "src": "addons/goddess_icor_manager/goddess_icor_manager.lua",
     },
+    # 書き写しではないが、素の本文の作り(検索欄の取り方・一覧の取り方・EMPTY_TREE の呼び方)に頼って
+    # 同期実行の間だけ横取りしている。変わると黙って検索が効かなくなるので、同じ仕組みで見張る
+    "Mini_addons_INVENTORY_TOTAL_LIST_GET": {
+        "vanilla": "INVENTORY_TOTAL_LIST_GET",
+        "src": "addons/mini_addons/inventory/ikor_search.lua",
+    },
 }
 
 
