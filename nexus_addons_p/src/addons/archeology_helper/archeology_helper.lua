@@ -1980,10 +1980,10 @@ function Archeology_helper_relic_sort(list)
     if not inventory then
         return
     end
-    -- 検索中は素が絞り込んだ結果を詰めて並べているので触らない
+    -- 検索中は全アイテムの一覧ではなく、検索に当たって画面に出ているものだけを並べ直す
     local search = GET_CHILD_RECURSIVELY(inventory, "ItemSearch")
     if search and search:GetText() ~= "" then
-        g.vlog("archeology_helper: 検索欄に「%s」があるので遺物を並べ替えない", tostring(search:GetText()))
+        Archeology_helper_relic_sort_searched(inventory, search:GetText())
         return
     end
     -- 遺物の入る slotset ごとに、そこへ入るアイテムを**全部**集める(遺物以外も落とさない)。
@@ -2074,25 +2074,9 @@ function Archeology_helper_relic_sort(list)
     g.aoh_relic_signature = signature
     g.aoh_inventory_touched = true
     g.aoh_relic_laid_guids = {}
-    local sorted = (g.aoh_settings.relic_sort or 1) == 1
     for set_name in pairs(has_relic) do
         local entries = sets[set_name]
-        for _, entry in ipairs(entries) do
-            g.aoh_relic_laid_guids[entry.item:GetIESID()] = true
-            -- 並べ替えが OFF なら効果は引かない(位置の順に並べるだけ)
-            entry.sort_key = sorted and Archeology_helper_relic_sort_key(entry.item) or {
-                rank = 0,
-                opts = {},
-                name = entry.name,
-                index = entry.item.invIndex
-            }
-        end
-        table.sort(entries, function(a, b)
-            if not sorted then
-                return a.sort_key.index < b.sort_key.index
-            end
-            return Archeology_helper_relic_sort_less(a.sort_key, b.sort_key)
-        end)
+        Archeology_helper_relic_sort_entries(entries)
         local placed = 0
         for _, tree_entry in ipairs(trees) do
             local tree = tree_entry.tree
@@ -2134,6 +2118,98 @@ function Archeology_helper_relic_sort(list)
         end
     end
 end
+
+-- entries({item, name})を設定どおりの順に並べる。置き直す GUID も控える(1 個ずつの更新で描き直すため)
+function Archeology_helper_relic_sort_entries(entries)
+    local sorted = (g.aoh_settings.relic_sort or 1) == 1
+    for _, entry in ipairs(entries) do
+        g.aoh_relic_laid_guids[entry.item:GetIESID()] = true
+        -- 並べ替えが OFF なら効果は引かない(位置の順に並べるだけ)
+        entry.sort_key = sorted and Archeology_helper_relic_sort_key(entry.item) or {
+            rank = 0,
+            opts = {},
+            name = entry.name,
+            index = entry.item.invIndex
+        }
+    end
+    table.sort(entries, function(a, b)
+        if not sorted then
+            return a.sort_key.index < b.sort_key.index
+        end
+        return Archeology_helper_relic_sort_less(a.sort_key, b.sort_key)
+    end)
+end
+
+-- tree の元の区切りと足したセクションに、今置かれているアイテムを集める。
+-- 検索の当たりを知っているのは素(と Mini Addons の検索拡張)なので、判定を写さず画面の結果を読む
+function Archeology_helper_relic_collect_shown(tree, set_name)
+    local entries = {}
+    local seen = {}
+    local exists = false
+    for _, name in ipairs({set_name, set_name .. "_aoh2", set_name .. "_aoh3", set_name .. "_aoh0"}) do
+        local slotset = GET_CHILD_RECURSIVELY(tree, name, "ui::CSlotSet")
+        if slotset then
+            AUTO_CAST(slotset)
+            exists = true
+            for i = 0, slotset:GetSlotCount() - 1 do
+                local icon = slotset:GetSlotByIndex(i):GetIcon()
+                local icon_info = icon and icon:GetInfo()
+                local guid = icon_info and icon_info:GetIESID()
+                local inv_item = guid and not seen[guid] and session.GetInvItemByGuid(guid)
+                if inv_item and Archeology_helper_inv_item_shown(inv_item) then
+                    seen[guid] = true
+                    entries[#entries + 1] = {
+                        item = inv_item,
+                        name = TryGetProp(GetIES(inv_item:GetObject()), "ClassName", "None")
+                    }
+                end
+            end
+        end
+    end
+    return exists and entries or nil
+end
+
+-- 検索中のセクション分け。tree ごとに、検索に当たって出ているものだけを分け直す。
+-- 検索中はこの置き直しの後の「もう 1 回」でも同じものを読むので、足したセクションの中身も集める
+function Archeology_helper_relic_sort_searched(inventory, cap)
+    if (g.aoh_settings.relic_section or 1) ~= 1 then
+        return
+    end
+    local layouts = {}
+    local parts = {"search", cap, tostring(g.aoh_settings.relic_sort or 1)}
+    for _, tree_entry in ipairs(Archeology_helper_inventory_trees(inventory)) do
+        for set_name in pairs(g.aoh_relic_section_sets or {}) do
+            local entries = Archeology_helper_relic_collect_shown(tree_entry.tree, set_name)
+            if entries then
+                layouts[#layouts + 1] = {
+                    tree = tree_entry.tree,
+                    set_name = set_name,
+                    entries = entries
+                }
+                parts[#parts + 1] = tree_entry.tree:GetName()
+                for _, entry in ipairs(entries) do
+                    parts[#parts + 1] = entry.item:GetIESID() .. ":" .. tostring(entry.item.count)
+                end
+            end
+        end
+    end
+    table.sort(parts)
+    local signature = table.concat(parts, ",")
+    if not g.aoh_relic_force and signature == g.aoh_relic_signature then
+        return
+    end
+    g.aoh_relic_force = nil
+    g.aoh_relic_signature = signature
+    g.aoh_inventory_touched = true
+    g.aoh_relic_laid_guids = {}
+    for _, layout in ipairs(layouts) do
+        Archeology_helper_relic_sort_entries(layout.entries)
+        Archeology_helper_relic_lay_sections(inventory, layout.tree, layout.set_name, layout.entries)
+        g.vlog("archeology_helper: 検索「%s」の遺物をセクションに分けた %s (%d 個)", cap, layout.tree:GetName(),
+            #layout.entries)
+    end
+end
+
 -- slotset のスロットへ entries の順にアイテムを置き、余ったスロットは空にする
 function Archeology_helper_relic_fill_slotset(inventory, slotset, entries)
     while slotset:GetSlotCount() < #entries do
@@ -2328,11 +2404,13 @@ function Archeology_helper_relic_make_section(tree, treegroup, base_name, k)
     local key = base_name .. "_aoh" .. k
     local title = MAKE_INVEN_SLOTSET_NAME(tree, "ssettitle_" .. key, Archeology_helper_relic_section_title(k))
     -- 空のときに高さ 0 へ畳むので、戻す高さを控える。中身を置くまでは畳んでおく
-    -- (検索中は並べ直さないので、空の見出しだけが出てしまう)
     title:SetUserValue("AOH_HEIGHT", title:GetHeight())
     title:Resize(title:GetWidth(), 0)
     title:ShowWindow(0)
     local new_section = MAKE_INVEN_SLOTSET(tree, "sset_" .. key)
+    -- スロットも高さ 0 で始める。空のスロットを隠しても行の高さは残るので、並べ直すまでの間に
+    -- 空の 3 区切りぶんの空白が「遺物」の下に出る(2026-11-04 の実機)。中身の高さは lay_sections が決める
+    new_section:Resize(new_section:GetWidth(), 0)
     tree:Add(treegroup, title, "ssettitle_" .. key)
     local handle = tree:Add(treegroup, new_section, "sset_" .. key)
     local node = tree:GetNodeByTreeItem(handle)
