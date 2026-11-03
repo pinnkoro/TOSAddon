@@ -13,12 +13,12 @@
 | ファイル | 設定キー | 内容 |
 | --- | --- | --- |
 | [inventory_op_pop.lua](inventory_op_pop.lua) | `chat_new_btn` | アイテムを掴んだときにチャットへアイテムリンクを貼る。チャットが出ていないとき・CTRL 押下中は何もしない |
-| [ikor_search.lua](ikor_search.lua) | `icor_status_search` | `INVENTORY_TOTAL_LIST_GET` を差し替え、イコルのステータス・遺物（`Arc_`）の効果名で絞り込む。**半角スペース区切りで OR 検索** |
+| [ikor_search.lua](ikor_search.lua) | `icor_status_search` | 素の `INVENTORY_TOTAL_LIST_GET` を呼び、検索中だけ一覧を絞って、イコルのステータス・遺物（`Arc_`）の効果名でも当てる。**半角スペース区切りで OR 検索** |
 | [coin_auto_use.lua](coin_auto_use.lua) | `coin_use` | 傭兵団コイン・女神コイン・王国再建団コインなどを取得時に自動で使う（対象は `COIN_ITEM`） |
 | [inventory_open.lua](inventory_open.lua) | `inventory_mod` | インベントリを開いたときのスロットまわりの改造 |
 
 ## 注意
 
-* `ikor_search.lua` 冒頭の `inven_title_name` / `_inven_sort_type_option` は**この断片で共有している
-  トップレベルの local** です。宣言より前へ利用側を動かすと nil になり、エラーを出さずに壊れます。
+* `ikor_search.lua` は素を書き写さず、検索中だけ `session.GetInvItemSortedList` と入力欄の取得を
+  同期実行の間だけ横取りします。素が一覧や入力欄の読み方を変えたら、ここを見直してください。
 * コインの自動使用は**街でだけ**動き、女神ガチャ中は使いません（v1.0.6 / v1.0.7）。
