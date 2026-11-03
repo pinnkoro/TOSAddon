@@ -7,6 +7,8 @@
 -- 検索語が空なら素をそのまま呼ぶ。検索中は素を呼び、その同期実行の間だけ次の 2 つを横取りする(抜けるときは必ず戻す)。
 --   * session.GetInvItemSortedList … 検索に当たったアイテムだけの一覧を返す
 --   * GET_CHILD_RECURSIVELY の "ItemSearch" … 空文字を返す入力欄を返す(素の名前の絞り込みを通さない)
+--   * EMPTY_TREE_INVENTORY_OPTION_TEXT … 何もしない(素は検索語が空のときだけ呼ぶが、検索中に空文字を見せると呼ばれてしまう)
+-- 素の内部の作りに頼るので、docs/vanilla_api.py の COPIES で素の本文の変更を見張っている
 local function mini_addons_is_match_or(text, keyword_list)
     if text == nil then
         return false
@@ -127,6 +129,7 @@ function Mini_addons_INVENTORY_TOTAL_LIST_GET(frame, set_pos, is_ignore_lift_ico
 
     local saved_get_list = session.GetInvItemSortedList
     local saved_get_child = GET_CHILD_RECURSIVELY
+    local saved_empty_tree = EMPTY_TREE_INVENTORY_OPTION_TEXT
     local function filtered_list()
         local sorted_list = saved_get_list()
         local items = {}
@@ -173,14 +176,18 @@ function Mini_addons_INVENTORY_TOTAL_LIST_GET(frame, set_pos, is_ignore_lift_ico
         end
         return saved_get_child(parent, name, ...)
     end
+    EMPTY_TREE_INVENTORY_OPTION_TEXT = function()
+    end
     local ok, err = pcall(origin, frame, set_pos, is_ignore_lift_icon, inven_type_str)
     GET_CHILD_RECURSIVELY = saved_get_child
+    EMPTY_TREE_INVENTORY_OPTION_TEXT = saved_empty_tree
     if #search_keywords > 0 then
         session.GetInvItemSortedList = saved_get_list
     end
     if not ok then
         core_g.vlog("{#FF6347}mini_addons: インベントリの検索に失敗: %s{/}", tostring(err))
-        return
+        -- 検索語が空のときと同じくエラーを上げる(飲み込むと詳細ログが OFF の環境で何も残らない)
+        error(err, 0)
     end
     core_g.vlog("mini_addons: インベントリ検索 keywords=%s 当たり=%d / %d", cap, hit_count, total_count)
     if relic_stats.checked > 0 then

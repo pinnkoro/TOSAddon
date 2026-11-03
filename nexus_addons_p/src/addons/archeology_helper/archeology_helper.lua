@@ -1765,8 +1765,37 @@ function Archeology_helper_relic_item_msg(frame, msg, arg_str, arg_num)
                        (char and type(char.relic_known) == "table" and char.relic_known[arg_str] ~= nil)
     end
     if relevant then
+        -- 検索中に増えた分は、素がネイティブでスロットへ足すので検索の当たりを通らない。
+        -- 当たりの判定を写さず、素に組み立て直してもらう
+        if msg == "INV_ITEM_ADD" and (g.aoh_settings.relic_section or 1) == 1 and
+            Archeology_helper_inventory_search_text(ui.GetFrame("inventory")) ~= "" then
+            if not g.aoh_relic_search_rebuild_pending then
+                g.aoh_relic_search_rebuild_pending = true
+                ReserveScript("Archeology_helper_relic_search_rebuild()", 0.3)
+            end
+            return
+        end
         Archeology_helper_relic_sort_request()
     end
+end
+
+-- インベントリの検索欄の文字(無ければ空文字)
+function Archeology_helper_inventory_search_text(inventory)
+    local search = inventory and GET_CHILD_RECURSIVELY(inventory, "ItemSearch")
+    return search and search:GetText() or ""
+end
+
+function Archeology_helper_relic_search_rebuild()
+    g.aoh_relic_search_rebuild_pending = nil
+    local inventory = ui.GetFrame("inventory")
+    if not inventory or not Archeology_helper_active() then
+        return
+    end
+    if Archeology_helper_inventory_search_text(inventory) ~= "" then
+        g.vlog("archeology_helper: 検索中にアイテムが増えたので組み立て直す")
+        INVENTORY_TOTAL_LIST_GET(inventory)
+    end
+    Archeology_helper_relic_sort_request()
 end
 
 -- 1 個ずつの更新(ITEM_PROP_UPDATE / INV_ITEM_CHANGE_COUNT / UPDATE_LOCK_STATE。3 つ目が GUID)。
@@ -1981,9 +2010,9 @@ function Archeology_helper_relic_sort(list)
         return
     end
     -- 検索中は全アイテムの一覧ではなく、検索に当たって画面に出ているものだけを並べ直す
-    local search = GET_CHILD_RECURSIVELY(inventory, "ItemSearch")
-    if search and search:GetText() ~= "" then
-        Archeology_helper_relic_sort_searched(inventory, search:GetText())
+    local search_text = Archeology_helper_inventory_search_text(inventory)
+    if search_text ~= "" then
+        Archeology_helper_relic_sort_searched(inventory, search_text)
         return
     end
     -- 遺物の入る slotset ごとに、そこへ入るアイテムを**全部**集める(遺物以外も落とさない)。
@@ -2098,39 +2127,54 @@ function Archeology_helper_relic_sort(list)
         g.vlog("archeology_helper: 遺物を置き直した %s (%d 個 / %d か所)", set_name, #entries, placed)
         -- 素が遺物を 1 個抜いた(展示した)後は、元の「遺物」の区切りがどの tree にも見つからなくなり
         -- (0 か所)、足したセクションが古いまま残って、展示した遺物が出たままになった(2026-10-12 の実機)。
-        -- そのときは組み立て直して、区切りごと作り直す。組み立て直しは並べ直しを頼む
-        -- (Archeology_helper_INSERT_ITEM_TO_TREE)ので、見つからないままだと繰り返す。5 秒に 1 回まで
-        -- 組み立て直しても見つからないときは繰り返さない(続けて 2 回で打ち切り、見つかったら数え直す)
+        -- そのときは組み立て直して、区切りごと作り直す
         if placed > 0 then
             g.aoh_relic_rebuild_fail = 0
         elseif #entries > 0 then
-            local now = imcTime.GetAppTime()
-            g.aoh_relic_rebuild_fail = (g.aoh_relic_rebuild_fail or 0) + 1
-            if g.aoh_relic_rebuild_fail > 2 then
-                if g.aoh_relic_rebuild_fail == 3 then
-                    g.vlog("{#FF6347}archeology_helper: 組み立て直しても %s が見つからないので諦める{/}", set_name)
-                end
-            elseif not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 5.0 then
-                g.aoh_relic_rebuild_at = now
-                g.vlog("archeology_helper: %s が見つからないのでインベントリを組み立て直す", set_name)
-                INVENTORY_TOTAL_LIST_GET(inventory)
-            end
+            Archeology_helper_relic_rebuild_missing(inventory, set_name)
         end
     end
 end
 
--- entries({item, name})を設定どおりの順に並べる。置き直す GUID も控える(1 個ずつの更新で描き直すため)
-function Archeology_helper_relic_sort_entries(entries)
+-- 元の区切りが見つからないときに組み立て直す。組み立てたら true(それまでに取った tree の中身はもう使えない)。
+-- 組み立て直しは並べ直しを頼む(Archeology_helper_INSERT_ITEM_TO_TREE)ので、見つからないままだと繰り返す。
+-- 5 秒に 1 回まで。組み立て直しても見つからないときは繰り返さない(続けて 2 回で打ち切り、見つかったら数え直す)
+function Archeology_helper_relic_rebuild_missing(inventory, set_name)
+    local now = imcTime.GetAppTime()
+    g.aoh_relic_rebuild_fail = (g.aoh_relic_rebuild_fail or 0) + 1
+    if g.aoh_relic_rebuild_fail > 2 then
+        if g.aoh_relic_rebuild_fail == 3 then
+            g.vlog("{#FF6347}archeology_helper: 組み立て直しても %s が見つからないので諦める{/}", set_name)
+        end
+    elseif not g.aoh_relic_rebuild_at or now - g.aoh_relic_rebuild_at > 5.0 then
+        g.aoh_relic_rebuild_at = now
+        g.vlog("archeology_helper: %s が見つからないのでインベントリを組み立て直す", set_name)
+        INVENTORY_TOTAL_LIST_GET(inventory)
+        return true
+    end
+    return false
+end
+
+-- entries({item, name})を設定どおりの順に並べる。置き直す GUID も控える(1 個ずつの更新で描き直すため)。
+-- key_cache を渡すと GUID ごとの並びの鍵を使い回す(効果を引くので重い。検索中は tree の数だけ呼ぶ)
+function Archeology_helper_relic_sort_entries(entries, key_cache)
     local sorted = (g.aoh_settings.relic_sort or 1) == 1
     for _, entry in ipairs(entries) do
-        g.aoh_relic_laid_guids[entry.item:GetIESID()] = true
-        -- 並べ替えが OFF なら効果は引かない(位置の順に並べるだけ)
-        entry.sort_key = sorted and Archeology_helper_relic_sort_key(entry.item) or {
-            rank = 0,
-            opts = {},
-            name = entry.name,
-            index = entry.item.invIndex
-        }
+        local guid = entry.item:GetIESID()
+        g.aoh_relic_laid_guids[guid] = true
+        entry.sort_key = key_cache and key_cache[guid]
+        if not entry.sort_key then
+            -- 並べ替えが OFF なら効果は引かない(位置の順に並べるだけ)
+            entry.sort_key = sorted and Archeology_helper_relic_sort_key(entry.item) or {
+                rank = 0,
+                opts = {},
+                name = entry.name,
+                index = entry.item.invIndex
+            }
+            if key_cache then
+                key_cache[guid] = entry.sort_key
+            end
+        end
     end
     table.sort(entries, function(a, b)
         if not sorted then
@@ -2141,16 +2185,19 @@ function Archeology_helper_relic_sort_entries(entries)
 end
 
 -- tree の元の区切りと足したセクションに、今置かれているアイテムを集める。
--- 検索の当たりを知っているのは素(と Mini Addons の検索拡張)なので、判定を写さず画面の結果を読む
+-- 検索の当たりを知っているのは素(と Mini Addons の検索拡張)なので、判定を写さず画面の結果を読む。
+-- 戻り値は entries(区切りが 1 つも無ければ nil)と、元の区切りが在るか
 function Archeology_helper_relic_collect_shown(tree, set_name)
     local entries = {}
     local seen = {}
     local exists = false
+    local has_base = false
     for _, name in ipairs({set_name, set_name .. "_aoh2", set_name .. "_aoh3", set_name .. "_aoh0"}) do
         local slotset = GET_CHILD_RECURSIVELY(tree, name, "ui::CSlotSet")
         if slotset then
             AUTO_CAST(slotset)
             exists = true
+            has_base = has_base or name == set_name
             for i = 0, slotset:GetSlotCount() - 1 do
                 local icon = slotset:GetSlotByIndex(i):GetIcon()
                 local icon_info = icon and icon:GetInfo()
@@ -2166,7 +2213,7 @@ function Archeology_helper_relic_collect_shown(tree, set_name)
             end
         end
     end
-    return exists and entries or nil
+    return exists and entries or nil, has_base
 end
 
 -- 検索中のセクション分け。tree ごとに、検索に当たって出ているものだけを分け直す。
@@ -2177,10 +2224,14 @@ function Archeology_helper_relic_sort_searched(inventory, cap)
     end
     local layouts = {}
     local parts = {"search", cap, tostring(g.aoh_settings.relic_sort or 1)}
+    local missing_set = nil
     for _, tree_entry in ipairs(Archeology_helper_inventory_trees(inventory)) do
         for set_name in pairs(g.aoh_relic_section_sets or {}) do
-            local entries = Archeology_helper_relic_collect_shown(tree_entry.tree, set_name)
+            local entries, has_base = Archeology_helper_relic_collect_shown(tree_entry.tree, set_name)
             if entries then
+                if not has_base then
+                    missing_set = set_name
+                end
                 layouts[#layouts + 1] = {
                     tree = tree_entry.tree,
                     set_name = set_name,
@@ -2193,6 +2244,15 @@ function Archeology_helper_relic_sort_searched(inventory, cap)
             end
         end
     end
+    -- 素が遺物を抜くと元の区切りごと消えることがある(Archeology_helper_relic_sort と同じ)。
+    -- その中身は読めないので、素に組み立て直してもらう
+    if missing_set then
+        if Archeology_helper_relic_rebuild_missing(inventory, missing_set) then
+            return
+        end
+    elseif #layouts > 0 then
+        g.aoh_relic_rebuild_fail = 0
+    end
     table.sort(parts)
     local signature = table.concat(parts, ",")
     if not g.aoh_relic_force and signature == g.aoh_relic_signature then
@@ -2202,9 +2262,10 @@ function Archeology_helper_relic_sort_searched(inventory, cap)
     g.aoh_relic_signature = signature
     g.aoh_inventory_touched = true
     g.aoh_relic_laid_guids = {}
+    local key_cache = {}
     for _, layout in ipairs(layouts) do
-        Archeology_helper_relic_sort_entries(layout.entries)
-        Archeology_helper_relic_lay_sections(inventory, layout.tree, layout.set_name, layout.entries)
+        Archeology_helper_relic_sort_entries(layout.entries, key_cache)
+        Archeology_helper_relic_lay_sections(inventory, layout.tree, layout.set_name, layout.entries, true)
         g.vlog("archeology_helper: 検索「%s」の遺物をセクションに分けた %s (%d 個)", cap, layout.tree:GetName(),
             #layout.entries)
     end
@@ -2238,7 +2299,8 @@ end
 -- 番号 0 は展示スロットに入らないもの(増幅用・ボスの鍵など)。
 -- **元の区切りを空にして残す形は、空のスロットを隠しても行の高さが残り、大きな空白になった**(2026-10-12 の実機)
 -- ので、どの区切りも中身の行数ぶんの高さへ作り直す
-function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries)
+-- searching … 検索中。当たりの無い「遺物 1スロット」の見出しも隠す(普段は全部を出すので残す)
+function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries, searching)
     local base_name = string.sub(set_name, string.len("sset_") + 1)
     local tree_group = (g.aoh_relic_section_sets or {})[set_name]
     if type(tree_group) ~= "string" then
@@ -2308,10 +2370,15 @@ function Archeology_helper_relic_lay_sections(inventory, tree, set_name, entries
                 folded = true
             end
             Archeology_helper_relic_rebuild_slotset(inventory, section, buckets[k], folded)
-            -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので消さない)
-            if title and k ~= 1 then
+            -- 空のセクションは見出しごと高さ 0 にして見せない(1 スロットは元の区切りなので、検索中だけ消す)
+            if title then
                 local title_height = title:GetUserIValue("AOH_HEIGHT")
-                if #buckets[k] == 0 then
+                -- 1 は素が作った見出しなので、高さの控えが無い。隠す前にここで控える
+                if title_height == 0 and k == 1 then
+                    title_height = title:GetHeight()
+                    title:SetUserValue("AOH_HEIGHT", title_height)
+                end
+                if #buckets[k] == 0 and (k ~= 1 or searching) then
                     title:Resize(title:GetWidth(), 0)
                     title:ShowWindow(0)
                 elseif title_height > 0 then

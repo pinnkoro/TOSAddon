@@ -19,6 +19,7 @@
 
 ## 注意
 
-* `ikor_search.lua` は素を書き写さず、検索中だけ `session.GetInvItemSortedList` と入力欄の取得を
-  同期実行の間だけ横取りします。素が一覧や入力欄の読み方を変えたら、ここを見直してください。
+* `ikor_search.lua` は素を書き写さず、検索中だけ `session.GetInvItemSortedList` / 入力欄の取得 /
+  `EMPTY_TREE_INVENTORY_OPTION_TEXT` を同期実行の間だけ横取りします。素の本文が変わると
+  `docs/vanilla_api.py --verify-client` が落ちるので、そのときはここを見直してください。
 * コインの自動使用は**街でだけ**動き、女神ガチャ中は使いません（v1.0.6 / v1.0.7）。
