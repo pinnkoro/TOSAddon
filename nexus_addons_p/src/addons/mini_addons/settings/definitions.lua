@@ -292,7 +292,7 @@ local MAIN_FRAME_SETTINGS = {{
     text_kr = "인벤토리 검색 확장(아이커 능력치·유물 효과로도 검색) 반각 공백으로 OR 검색",
     text_en = "Extended inventory search (also matches Icor status and relic effects) OR search using half-width spaces",
     -- 「更新」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-    updated = core_g.VER_NEXT,
+    updated = "2.25.0",
     updated_note_jp = "ONのとき、ゲームのアップデート後にインベントリの個数が(0)のままになり、アイテムの並びに空白が空いて見つからなくなる不具合を直しました",
     updated_note_en = "Fixed a bug after the latest game update where, while this was on, inventory counts stayed at (0) and items were pushed apart by empty rows"
 }, {
