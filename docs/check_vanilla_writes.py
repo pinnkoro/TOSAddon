@@ -108,6 +108,9 @@ ALLOW = {
         "素を呼んだ後からは項目を足せない。素の同期実行の間だけ横取りし、必ず元へ戻す",
     "addons/mini_addons/context_menu/context_menu.lua:ui.OpenContextMenu":
         "同上。メニューが開く前に項目を足す／落とすための横取り。必ず元へ戻す",
+    "addons/mini_addons/inventory/ikor_search.lua:session.GetInvItemSortedList":
+        "素の INVENTORY_TOTAL_LIST_GET を書き写さずに検索の当たりを広げるため、素の同期実行の間だけ"
+        "絞った一覧を返す。読み取りの関数で、守っている制約は無い。pcall が失敗した経路も含めて必ず元へ戻す",
 }
 
 # 代入の見つけ方。**入れ子の繰り返しを持つ正規表現で 1 発に書かないこと。**
