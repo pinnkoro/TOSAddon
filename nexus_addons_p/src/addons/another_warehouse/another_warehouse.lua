@@ -1415,11 +1415,6 @@ end
 -- 倉庫へ入れる先は g.warehouse_goal_index(core/00_header.lua)で決める。
 -- 以前はタブの件数 + 1 番目を goal にしていたが、2026-11-10 の JP パッチで倉庫がスロット位置を持つようになり、
 -- 途中に空きがあるとアイテムのあるスロットを指してサーバーに断られるようになった。
-function Another_warehouse_no_space()
-    g.vlog("[AWH] 倉庫に入れる先が無いので格納を打ち切り")
-    ui.SysMsg(ClMsg("CannotPutBecauseMaxSlot"))
-end
-
 function Another_warehouse_check_valid(inv_item)
     local item_count = Another_warehouse_item_count()
     local max_count = Another_warehouse_get_maxcount()
@@ -1517,6 +1512,10 @@ function Another_warehouse_inv_rbtn(item_obj, slot)
             end
         end
         if inv_item.count > 1 or geItemTable.IsStack(obj.ClassID) == 1 then
+            -- 素の EXEC_PUT_ITEM_TO_ACCOUNT_WAREHOUSE は、11/10 の JP パッチから PUT_DROP_INDEX を
+            -- 「ドロップしたスロット」として読む(-1 = スロットを選ばない格納)。素は倉庫へのドロップと右クリックの
+            -- ときにしかこれを書かないので、こちらで -1 にしておかないと 0 番や前回ドロップしたスロットを指す。
+            accountwarehouse:SetUserValue("PUT_DROP_INDEX", -1)
             INPUT_NUMBER_BOX(accountwarehouse, ScpArgMsg("InputCount"), "EXEC_PUT_ITEM_TO_ACCOUNT_WAREHOUSE", max_cnt,
                 1, max_cnt, nil, iesid)
         else
@@ -1729,7 +1728,6 @@ function Another_warehouse_putitem(inv_item, iesid, count)
     if Another_warehouse_check_valid(inv_item) then
         local goal_index = g.warehouse_goal_index(item_obj)
         if goal_index == nil then
-            Another_warehouse_no_space()
             return 1
         end
         local accountwarehouse = ui.GetFrame("accountwarehouse")
@@ -1826,6 +1824,7 @@ function Another_warehouse_auto_item_start_logic(awh, is_retry)
     end
     g.awh_take_items = {}
     g.awh_put_items = {}
+    g.awh_put_tries = {}
     local function get_target_count(cls_id)
         local target_count = 0
         local is_target = false
@@ -1985,43 +1984,33 @@ function Another_warehouse_item_take(awh)
     return 1
 end
 
+-- 一括格納の後始末。シルバーの格納(money_check)はスロットを使わないので、倉庫が満杯で打ち切ったときも行う。
+function Another_warehouse_put_finish(awh)
+    awh:StopUpdateScript("Another_warehouse_item_put")
+    g.awh_put_items = {}
+    if g.awh_settings.chars[g.cid].money_check == 1 then
+        Another_warehouse_silver(awh)
+    else
+        Another_warehouse_end(awh)
+    end
+end
+
 function Another_warehouse_item_put(awh)
     local accountwarehouse = ui.GetFrame('accountwarehouse')
     if accountwarehouse:IsVisible() == 0 then
         awh:StopUpdateScript("Another_warehouse_item_put")
+        g.another_warehouse_func = false
         return 0
     end
     local next_guid, item_data = next(g.awh_put_items)
     if not next_guid then
-        if g.awh_settings.chars[g.cid].money_check == 1 then
-            Another_warehouse_silver(awh)
-        else
-            Another_warehouse_end(awh)
-        end
+        Another_warehouse_put_finish(awh)
         return 0
     end
-    local is_finished = false
+    g.awh_put_tries = g.awh_put_tries or {}
     local inv_item = session.GetInvItemByGuid(item_data.iesid)
-    if not inv_item then
-        is_finished = true
-    elseif item_data.is_putting then
-        if inv_item.count < item_data.initial_count then
-            is_finished = true
-        elseif imcTime.GetAppTime() - (item_data.put_at or 0) < 3.0 then
-            return 1 -- まだ処理中
-        else
-            -- 3 秒たっても減らないのはサーバーに断られている。以前はここで待ち続けて止まっていた
-            g.vlog("[AWH] 倉庫へ送ったのに手元から減らないので諦める: clsid=%s iesid=%s",
-                tostring(item_data.clsid), tostring(item_data.iesid))
-            local cls = GetClassByType("Item", item_data.clsid)
-            local name = cls and cls.Name or tostring(item_data.clsid)
-            ui.SysMsg(g.lang == "Japanese" and ("{#FF0000}[AWH]倉庫へ格納できませんでした：" .. name) or
-                          ("{#FF0000}[AWH]Could not store in the warehouse: " .. name))
-            g.awh_put_items[next_guid] = nil
-            return 1
-        end
-    end
-    if is_finished then
+    -- 送った後に手元から消えた / 減ったら入った
+    if not inv_item or (item_data.initial_count and inv_item.count < item_data.initial_count) then
         local count = item_data.real_put_count or item_data.count
         Another_warehouse_item_put_to(awh, item_data.iesid, count, item_data.clsid)
         if geItemTable.IsStack(item_data.clsid) == 1 then
@@ -2031,35 +2020,39 @@ function Another_warehouse_item_put(awh)
         end
         g.awh_put_items[next_guid] = nil
         if not next(g.awh_put_items) then
-            if g.awh_settings.chars[g.cid].money_check == 1 then
-                Another_warehouse_silver(awh)
-            else
-                Another_warehouse_end(awh)
-            end
+            Another_warehouse_put_finish(awh)
             return 0
         end
         return 1
     end
     if not Another_warehouse_check_valid(inv_item) then
-        awh:StopUpdateScript("Another_warehouse_item_put")
+        -- 満杯・ロック中など(メッセージは check_valid が出している)。動作中の印を戻して終える
+        g.vlog("[AWH] 格納できないアイテムがあるので一括格納を打ち切り: clsid=%s", tostring(item_data.clsid))
+        Another_warehouse_put_finish(awh)
         return 0
+    end
+    local cls = GetClassByType("Item", item_data.clsid)
+    local name = cls and cls.Name or tostring(item_data.clsid)
+    local attempt = g.warehouse_put_attempt(g.awh_put_tries, item_data.iesid, name, "AWH")
+    if attempt == "wait" then
+        return 1
+    elseif attempt == "give_up" then
+        g.awh_put_items[next_guid] = nil
+        return 1
     end
     local handle = accountwarehouse:GetUserIValue("HANDLE")
     local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
     if goal_index == nil then
-        Another_warehouse_no_space()
-        g.awh_put_items = {}
-        Another_warehouse_end(awh)
+        Another_warehouse_put_finish(awh)
         return 0
     end
     local put_count = item_data.count
     if put_count > inv_item.count then
         put_count = inv_item.count
     end
-    item_data.initial_count = inv_item.count
+    -- 再送のときは最初に送ったときの個数と比べる(減ったかどうかの基準を動かさない)
+    item_data.initial_count = item_data.initial_count or inv_item.count
     item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, item_data.iesid, tostring(put_count), handle, goal_index)
-    item_data.is_putting = true
-    item_data.put_at = imcTime.GetAppTime()
     item_data.real_put_count = put_count
     return 1
 end

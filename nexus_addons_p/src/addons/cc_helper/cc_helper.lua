@@ -1275,7 +1275,7 @@ function Cc_helper_putitem(frame, in_btn, str, step)
         return
     elseif step == 3 then
         in_btn:SetUserValue("STEP", step)
-        g.cc_helper_put_tries = nil
+        g.cc_helper_put_tries = {}
         Cc_helper_inv_to_warehouse(in_btn)
         in_btn:RunUpdateScript("Cc_helper_inv_to_warehouse", 0.2)
         return
@@ -1284,7 +1284,7 @@ function Cc_helper_putitem(frame, in_btn, str, step)
         Cc_helper_in_btn_aethergem_mgr(in_btn)
     elseif step == 5 then
         in_btn:SetUserValue("STEP", 5)
-        g.cc_helper_put_tries = nil
+        g.cc_helper_put_tries = {}
         in_btn:RunUpdateScript("Cc_helper_gem_inv_to_warehouse", 0.1)
         return
     elseif step == 6 then
@@ -1481,7 +1481,7 @@ function Cc_helper_inv_to_warehouse(in_btn)
             local value = data.value
             local iesid = g.cc_helper_settings[g.cid].items[key].iesid
             local inv_item = session.GetInvItemByGuid(iesid)
-            if inv_item and not Cc_helper_put_given_up(iesid) then
+            if inv_item and not g.warehouse_put_given_up(g.cc_helper_put_tries, iesid) then
                 if i <= 5 then
                     inventype_Tab:SelectTab(1)
                     local inventree_Equip = GET_CHILD_RECURSIVELY(inventory, "inventree_Equip")
@@ -1514,14 +1514,15 @@ function Cc_helper_inv_to_warehouse(in_btn)
                 if Cc_helper_checkvalid(inv_item) then
                     local item_cls = GetClassByType("Item", g.cc_helper_settings[g.cid].items[key].clsid)
                     local item_name = item_cls.Name
-                    local attempt = Cc_helper_put_attempt(iesid, item_name)
+                    local attempt = g.warehouse_put_attempt(g.cc_helper_put_tries, iesid, item_name, "CCH")
                     if attempt == "wait" then
                         return 1
                     elseif attempt == "send" then
                         local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
                         if goal_index == nil then
-                            Cc_helper_warehouse_full()
+                            -- 倉庫が満杯。この先の段(エーテルジェム・MCC)も倉庫へ入れるだけなので、後始末をして終える
                             in_btn:StopUpdateScript("Cc_helper_inv_to_warehouse")
+                            Cc_helper_putitem(nil, in_btn, nil, 7)
                             return 0
                         end
                         local log = g.lang == "Japanese" and "倉庫に格納しました" .. "：[" .. "{#EE82EE}" ..
@@ -1750,15 +1751,16 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
         local gem_data = g.cc_helper_gem_queue[1]
         local handle = accountwarehouse:GetUserIValue("HANDLE")
         local inv_item = session.GetInvItemByGuid(gem_data.iesid)
-        local attempt = inv_item and Cc_helper_put_attempt(gem_data.iesid, gem_data.name)
+        local attempt = inv_item and g.warehouse_put_attempt(g.cc_helper_put_tries, gem_data.iesid, gem_data.name, "CCH")
         if attempt == "wait" then
             return 1
         elseif attempt == "send" then
             local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
             if goal_index == nil then
-                Cc_helper_warehouse_full()
+                -- 倉庫が満杯。後始末をして終える
                 g.cc_helper_gem_queue = nil
                 in_btn:StopUpdateScript("Cc_helper_gem_inv_to_warehouse")
+                Cc_helper_putitem(nil, in_btn, nil, 7)
                 return 0
             end
             local log = g.lang == "Japanese" and "倉庫に格納しました：[{#EE82EE}" .. gem_data.name ..
@@ -2540,42 +2542,5 @@ function Cc_helper_checkvalid(inv_item)
     return true
 end
 
--- 倉庫への格納要求を送ってよいか。戻り値は "send" / "wait" / "give_up"。
--- 要求を送ってから手元のアイテムが消えるまでには時間差があるので、同じアイテムへの再送は 1 秒に 1 回までにする。
--- 何度送っても手元に残るのはサーバーに断られている(倉庫の仕様変更・ロック中など)ので、3 回で諦めて次へ進む。
--- 以前はここに上限が無く、断られると倉庫を閉じるまで同じアイテムを送り続けていた。
-function Cc_helper_put_attempt(iesid, item_name)
-    g.cc_helper_put_tries = g.cc_helper_put_tries or {}
-    local now = imcTime.GetAppTime()
-    local tries = g.cc_helper_put_tries[iesid]
-    if tries and tries.given_up then
-        return "give_up"
-    end
-    if tries and now - tries.at < 1.0 then
-        return "wait"
-    end
-    if tries and tries.count >= 3 then
-        tries.given_up = true
-        g.vlog("[CCH] 倉庫へ %d 回送っても入らないので諦める: %s (%s)", tries.count, tostring(item_name), tostring(iesid))
-        ui.SysMsg(g.lang == "Japanese" and ("{#FF0000}[CCH]倉庫へ格納できませんでした：" .. tostring(item_name)) or
-                      ("{#FF0000}[CCH]Could not store in the warehouse: " .. tostring(item_name)))
-        return "give_up"
-    end
-    g.cc_helper_put_tries[iesid] = {
-        at = now,
-        count = (tries and tries.count or 0) + 1
-    }
-    return "send"
-end
-
-function Cc_helper_put_given_up(iesid)
-    local tries = g.cc_helper_put_tries and g.cc_helper_put_tries[iesid]
-    return tries ~= nil and tries.given_up == true
-end
-
-function Cc_helper_warehouse_full()
-    g.vlog("[CCH] 倉庫に入れる先が無いので格納を打ち切り")
-    ui.SysMsg(ClMsg("CannotPutBecauseMaxSlot"))
-end
 -- cc_helper ここまで
 

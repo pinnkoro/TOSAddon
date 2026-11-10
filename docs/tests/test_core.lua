@@ -1842,10 +1842,53 @@ do
             }
         end
     }, {__index = saved.session})
+    local clock = 100.0
+    local saved_time, saved_clmsg, saved_sysmsg = imcTime.GetAppTime, ClMsg, ui.SysMsg
+    local msgs = {}
+    imcTime.GetAppTime = function() return clock end
+    ClMsg = function(key) return key end
+    ui.SysMsg = function(m) msgs[#msgs + 1] = m end
+    g.warehouse_reserved = {}
+
     check("倉庫: トークン無しは 0 番タブの空き(1 番)", g.warehouse_goal_index({ClassID = 300}), 1)
+    -- 送ったばかりの 1 番は、倉庫の一覧へ反映される前でも使用中と見なす(同じスロットを二度指さない)
+    check("倉庫: 送ったばかりのスロットは避ける", g.warehouse_goal_index({ClassID = 301}), 3)
     check("倉庫: 重ねられる同じアイテムがあればその番号", g.warehouse_goal_index({ClassID = 200}), 2)
+    clock = clock + g.WAREHOUSE_RESERVE_SEC + 1
+    check("倉庫: 予約は時間がたてば外れる", g.warehouse_goal_index({ClassID = 300}), 1)
     token = true
     check("倉庫: トークン中は 4 番タブの先頭", g.warehouse_goal_index({ClassID = 300}), 280)
+    -- 満杯なら nil。通知(CannotPutBecauseMaxSlot)は呼び出し側ではなくここで出す
+    token = false
+    clock = clock + 10
+    g.warehouse_reserved = {}
+    wh = {}
+    for i = 0, 59 do wh[#wh + 1] = {guid = "f" .. i, invIndex = i, cls = 500 + i, name = "z"} end
+    msgs = {}
+    check("倉庫: 満杯なら nil", g.warehouse_goal_index({ClassID = 300}), nil)
+    check("倉庫: 満杯の通知を出す", msgs[1], "CannotPutBecauseMaxSlot")
+
+    -- タブの順は番号の空間の大きさから決める(追加タブが増えても探し漏らさない)
+    check("倉庫: タブの順(350)", table.concat(g.warehouse_tab_order(350), ","), "4,3,2,1,0")
+    check("倉庫: タブの順(490)", table.concat(g.warehouse_tab_order(490), ","), "6,5,4,3,2,1,0")
+
+    -- 再送の上限(CCH / AWH 共通)
+    local tries = {}
+    msgs = {}
+    check("再送: 1 回目は送る", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    check("再送: 間隔内は待つ", g.warehouse_put_attempt(tries, "x", "X", "T"), "wait")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    check("再送: 2 回目", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    check("再送: 3 回目", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    check("再送: 上限で諦める", g.warehouse_put_attempt(tries, "x", "X", "T"), "give_up")
+    check("再送: 諦めたら知らせる", msgs[1] ~= nil and msgs[1]:find("[T]", 1, true) ~= nil, true)
+    check("再送: 諦めた印", g.warehouse_put_given_up(tries, "x"), true)
+    check("再送: 別のアイテムは関係ない", g.warehouse_put_given_up(tries, "y"), false)
+
+    imcTime.GetAppTime, ClMsg, ui.SysMsg = saved_time, saved_clmsg, saved_sysmsg
+    g.warehouse_reserved = {}
     session, geItemTable, GetIES, MONEY_NAME = saved.session, saved.geItemTable, saved.GetIES, saved.MONEY_NAME
     IT_ACCOUNT_WAREHOUSE, ITEM_TOKEN, GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT = saved.IT_ACCOUNT_WAREHOUSE,
         saved.ITEM_TOKEN, saved.TOTAL
