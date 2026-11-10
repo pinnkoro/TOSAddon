@@ -9,7 +9,7 @@
 local addon_name = "_NEXUS_ADDONS_P"
 local addon_name_lower = string.lower(addon_name)
 local author = "norisan"
-local ver = "2.25.0"
+local ver = "2.25.1"
 
 _G["ADDONS"] = _G["ADDONS"] or {}
 _G["ADDONS"][author] = _G["ADDONS"][author] or {}
@@ -1661,4 +1661,193 @@ function g.badge_tooltip(def, badge)
     -- 注記の書き忘れ。**印だけ出して中身が無い**状態なので、そうと分かる形にしておく
     -- (CLAUDE.md は updated_note_jp を省かないことにしている)。
     return ja and "{ol}更新されました" or "{ol}Updated"
+end
+
+-- ===== チーム倉庫へ入れる先(PutItemToWarehouse の goal)=====
+-- 2026-11-10 の JP パッチで、チーム倉庫は「アイテムの番号(invIndex)= 置いてあるスロット」になった
+-- (素の accountwarehouse.lua の resolve_put_goal。倉庫内でドラッグして並べ替えられる)。
+-- サーバーも goal を検査するようになり、**アイテムがあるスロットを goal に渡すと格納を断る**
+-- (ETC_20261109_083467「すでにアイテムがあるスロットには入れられません」)。
+-- 以前のように「タブの件数 + 1 番目が空いているはず」と数えると、途中に空きがあるだけで外れる。
+--
+-- 番号の空間は素と同じ: タブ t は t*70 〜 t*70+69。0 番タブは GetAccountWarehouseSlotCount() 未満だけ、
+-- 追加タブはトークン中だけ使える。全体の大きさは GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()。
+-- この番号の空間はパッチ前から同じ(パッチ前の素の get_valid_index も「タブ t = t*70〜」の中で
+-- 使われていない invIndex を探していた)。変わったのは「描画がその番号のスロットに置く」ことと「サーバーの検査」。
+
+-- タブあたりのスロット数。素(accountwarehouse.lua の max_slot_per_tab)と同じ関数から取る。
+function g.warehouse_slot_per_tab()
+    if account_warehouse ~= nil and type(account_warehouse.get_max_slot_per_tab) == "function" then
+        return account_warehouse.get_max_slot_per_tab()
+    end
+    return 70
+end
+-- 送った goal を使用中と見なしておく秒数。手元の在庫が減ってから倉庫の一覧(GetEtcItemList)へ
+-- 反映されるまでには時間差があり、その間に次のアイテムの goal を数えると**同じスロットをもう一度指して**断られる。
+g.WAREHOUSE_RESERVE_SEC = 3.0
+-- [invIndex] = {at = 送った時刻, cls = ClassID}
+g.warehouse_reserved = g.warehouse_reserved or {}
+
+-- 空きを探すタブの順。cc_helper / another_warehouse は以前から追加タブの後ろから埋めていたので、その順を守る。
+-- タブの数は固定にしない(番号の空間の大きさから決める。追加タブが増えても探し漏らさない)。
+function g.warehouse_tab_order(total)
+    local order = {}
+    local last_tab = math.ceil(total / g.warehouse_slot_per_tab()) - 1
+    for tab = last_tab, 0, -1 do
+        order[#order + 1] = tab
+    end
+    return order
+end
+
+-- 純ロジック(docs/tests/test_core.lua で検査する)。
+--   used         … [invIndex] = true のテーブル(倉庫に今あるもの + 送ったばかりのもの)
+--   stack_index  … 重ねられる同じアイテムが倉庫にあればその番号。無ければ nil
+--   tab_order    … 空きを探すタブの順
+--   total        … 番号の空間の大きさ
+--   can_put      … function(index) そのスロットへ入れられるか
+-- 戻り値: goal の番号。入れる先が無ければ nil。
+function g.warehouse_pick_goal(used, stack_index, tab_order, total, can_put)
+    if stack_index ~= nil then
+        return stack_index
+    end
+    local per_tab = g.warehouse_slot_per_tab()
+    for _, tab in ipairs(tab_order) do
+        local start_index = tab * per_tab
+        for index = start_index, math.min(start_index + per_tab, total) - 1 do
+            if not used[index] and can_put(index) then
+                return index
+            end
+        end
+    end
+    return nil
+end
+
+-- insert_obj … 入れるアイテムの IES(GetIES(inv_item:GetObject()))。
+-- 戻り値: goal の番号。倉庫に入れる先が無ければ nil。
+-- nil のときは素の resolve_put_goal と同じく CannotPutBecauseMaxSlot をここで出す
+-- (呼び出し側はメッセージを出さずに打ち切るだけでよい)。
+function g.warehouse_goal_index(insert_obj)
+    local per_tab = g.warehouse_slot_per_tab()
+    local total
+    if type(GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT) == "function" then
+        total = GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()
+    else
+        -- 関数が無いのはパッチ前のクライアント(JP 以外の地域など)。番号の空間は同じなので、
+        -- 素の lib_account.lua と同じ式で求める(上の説明を参照)。
+        total = per_tab * (1 + account_warehouse.get_max_tab())
+    end
+    local account = session.barrack.GetMyAccount()
+    local base_slot_count = account:GetAccountWarehouseSlotCount()
+    local has_token = session.loginInfo.IsPremiumState(ITEM_TOKEN) == true
+    local cls_id = insert_obj ~= nil and insert_obj.ClassID or nil
+    local is_stack = cls_id ~= nil and geItemTable.IsStack(cls_id) == 1
+
+    local used = {}
+    local stack_index = nil
+    local item_list = session.GetEtcItemList(IT_ACCOUNT_WAREHOUSE)
+    local guid_list = item_list:GetGuidList()
+    for i = 0, guid_list:Count() - 1 do
+        local wh_item = item_list:GetItemByGuid(guid_list:Get(i))
+        if wh_item ~= nil then
+            used[wh_item.invIndex] = true
+            if is_stack and stack_index == nil then
+                local obj = GetIES(wh_item:GetObject())
+                if obj.ClassName ~= MONEY_NAME and obj.ClassID == cls_id then
+                    stack_index = wh_item.invIndex
+                end
+            end
+        end
+    end
+    -- 送ったばかりの goal(一覧へまだ反映されていないかもしれない)も使用中と見なす。
+    -- 同じ種類の重ねられるアイテムを送ったばかりなら、そこへ重ねる。
+    local now = imcTime.GetAppTime()
+    for index, r in pairs(g.warehouse_reserved) do
+        if now - r.at > g.WAREHOUSE_RESERVE_SEC then
+            g.warehouse_reserved[index] = nil
+        else
+            used[index] = true
+            if is_stack and stack_index == nil and r.cls == cls_id then
+                stack_index = index
+            end
+        end
+    end
+
+    local function slot_can_put(index)
+        if index < 0 or index >= total then
+            return false
+        end
+        if index < per_tab then
+            return index < base_slot_count
+        end
+        return has_token
+    end
+
+    local goal = g.warehouse_pick_goal(used, stack_index, g.warehouse_tab_order(total), total, slot_can_put)
+    g.vlog("[倉庫] goal=%s (重ね先=%s 0番タブの枠=%d トークン=%s 全体=%d)", tostring(goal), tostring(stack_index),
+        base_slot_count, tostring(has_token), total)
+    if goal == nil then
+        ui.SysMsg(ClMsg("CannotPutBecauseMaxSlot"))
+        return nil
+    end
+    g.warehouse_reserved[goal] = {at = now, cls = cls_id}
+    return goal
+end
+
+-- 倉庫への格納要求を送ってよいか。戻り値は "send" / "wait" / "give_up"。
+--   tries … 呼び出し側が作業ごとに作り直すテーブル([iesid] = 試行の記録)
+--   tag   … 諦めたときのメッセージの頭("CCH" など)
+--   info  … 記録に残しておく値(g.warehouse_put_confirm の on_done へ渡す。省略可)
+-- 要求を送ってから手元のアイテムが減るまでには時間差があるので、同じアイテムへの再送は 1 秒に 1 回までにする。
+-- 3 回送っても手元に残り、最後に送ってから 3 秒待っても減らなければサーバーに断られている(ロック中など)
+-- と見なし、諦めて次へ進ませる。通信が重いだけの要求を「失敗」と出さないよう、最後の送信の後は長めに待つ。
+-- 再送のたびに goal は数え直すこと(送ったばかりのスロットは予約で避けられる)。
+g.WAREHOUSE_PUT_INTERVAL = 1.0
+g.WAREHOUSE_PUT_MAX_TRIES = 3
+g.WAREHOUSE_PUT_GIVE_UP_WAIT = 3.0
+function g.warehouse_put_attempt(tries, iesid, item_name, tag, info)
+    local now = imcTime.GetAppTime()
+    local t = tries[iesid]
+    if t and t.given_up then
+        return "give_up"
+    end
+    if t and t.count >= g.WAREHOUSE_PUT_MAX_TRIES then
+        if now - t.at < g.WAREHOUSE_PUT_GIVE_UP_WAIT then
+            return "wait"
+        end
+        t.given_up = true
+        g.vlog("[%s] 倉庫へ %d 回送っても入らないので諦める: %s (%s)", tag, t.count, tostring(item_name), tostring(iesid))
+        ui.SysMsg(g.lang == "Japanese" and ("{#FF0000}[" .. tag .. "]倉庫へ格納できませんでした：" .. tostring(item_name)) or
+                      ("{#FF0000}[" .. tag .. "]Could not store in the warehouse: " .. tostring(item_name)))
+        return "give_up"
+    end
+    if t and now - t.at < g.WAREHOUSE_PUT_INTERVAL then
+        return "wait"
+    end
+    if not t then
+        t = {count = 0, name = item_name, info = info}
+        tries[iesid] = t
+    end
+    t.at = now
+    t.count = t.count + 1
+    return "send"
+end
+
+function g.warehouse_put_given_up(tries, iesid)
+    local t = tries and tries[iesid]
+    return t ~= nil and t.given_up == true
+end
+
+-- 送ったアイテムのうち、手元から消えた(= 倉庫へ入った)ものを 1 回ずつ on_done(iesid, 記録) へ渡す。
+-- 「格納しました」は送ったときではなくここで出す(断られて再送したアイテムで成功の行が何度も出ないように)。
+-- 諦めた後に入ったもの(通信が重かっただけ)もここで拾うので、成功として出し直せる。
+function g.warehouse_put_confirm(tries, on_done)
+    if not tries then
+        return
+    end
+    for iesid, t in pairs(tries) do
+        if not t.logged and session.GetInvItemByGuid(iesid) == nil then
+            t.logged = true
+            on_done(iesid, t)
+        end
+    end
 end
