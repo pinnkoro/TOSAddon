@@ -1790,6 +1790,67 @@ check("子を預けていない行", (g.badge_row({key = "no_such_addon"})), nil
 g.badge_children["mini_addons"] = nil
 g.settings = saved_settings
 
+-- ===== チーム倉庫へ入れる先(g.warehouse_pick_goal / g.warehouse_goal_index)=====
+-- 2026-11-10 の JP パッチから、サーバーはアイテムのあるスロットを goal にすると格納を断る。
+-- 以前の「タブの件数 + 1」は途中に空きがあると外れていたので、実際の番号から空きを探すことを見る。
+do
+    local function usable_all(index) return index >= 0 and index < 350 end
+    -- 4 番タブ(280〜)の先頭が埋まっていて、途中に空きがある
+    local used = {[280] = true, [281] = true, [283] = true}
+    check("倉庫: 追加タブの後ろから、最初の空きスロット", g.warehouse_pick_goal(used, nil, {4, 3, 2, 1, 0}, 350, usable_all), 282)
+    check("倉庫: 重ねられるアイテムは既存の番号へ", g.warehouse_pick_goal(used, 281, {4, 3, 2, 1, 0}, 350, usable_all), 281)
+    -- トークン無し: 追加タブは使えず、0 番タブは枠の数まで
+    local function usable_no_token(index) return index >= 0 and index < 60 end
+    local used0 = {}
+    for i = 0, 9 do used0[i] = true end
+    used0[11] = true
+    check("倉庫: トークン無しは 0 番タブの空きへ", g.warehouse_pick_goal(used0, nil, {4, 3, 2, 1, 0}, 350, usable_no_token), 10)
+    local full = {}
+    for i = 0, 59 do full[i] = true end
+    check("倉庫: 入れる先が無ければ nil", g.warehouse_pick_goal(full, nil, {4, 3, 2, 1, 0}, 350, usable_no_token), nil)
+    check("倉庫: 番号の空間の外は探さない", g.warehouse_pick_goal({}, nil, {5}, 350, function() return true end), nil)
+
+    -- ゲーム API から集める側(実機と同じ形のスタブ)
+    local saved = {session = session, geItemTable = geItemTable, GetIES = GetIES, MONEY_NAME = MONEY_NAME,
+                   IT_ACCOUNT_WAREHOUSE = IT_ACCOUNT_WAREHOUSE, ITEM_TOKEN = ITEM_TOKEN,
+                   TOTAL = GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT}
+    local wh = {{guid = "a", invIndex = 0, cls = 100, name = "x"}, {guid = "b", invIndex = 2, cls = 200, name = "y"},
+                {guid = "m", invIndex = 350, cls = 900001, name = "Vis"}}
+    local token = false
+    MONEY_NAME = "Vis"
+    IT_ACCOUNT_WAREHOUSE = 99
+    ITEM_TOKEN = 1
+    GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT = function() return 350 end
+    GetIES = function(o) return o end
+    geItemTable = {IsStack = function(cls) return cls == 200 and 1 or 0 end}
+    session = setmetatable({
+        barrack = {GetMyAccount = function() return {GetAccountWarehouseSlotCount = function() return 60 end} end},
+        loginInfo = {IsPremiumState = function() return token end},
+        GetEtcItemList = function()
+            return {
+                GetGuidList = function()
+                    return {Count = function() return #wh end, Get = function(_, i) return wh[i + 1].guid end}
+                end,
+                GetItemByGuid = function(_, guid)
+                    for _, w in ipairs(wh) do
+                        if w.guid == guid then
+                            return {invIndex = w.invIndex,
+                                    GetObject = function() return {ClassID = w.cls, ClassName = w.name} end}
+                        end
+                    end
+                end
+            }
+        end
+    }, {__index = saved.session})
+    check("倉庫: トークン無しは 0 番タブの空き(1 番)", g.warehouse_goal_index({ClassID = 300}), 1)
+    check("倉庫: 重ねられる同じアイテムがあればその番号", g.warehouse_goal_index({ClassID = 200}), 2)
+    token = true
+    check("倉庫: トークン中は 4 番タブの先頭", g.warehouse_goal_index({ClassID = 300}), 280)
+    session, geItemTable, GetIES, MONEY_NAME = saved.session, saved.geItemTable, saved.GetIES, saved.MONEY_NAME
+    IT_ACCOUNT_WAREHOUSE, ITEM_TOKEN, GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT = saved.IT_ACCOUNT_WAREHOUSE,
+        saved.ITEM_TOKEN, saved.TOTAL
+end
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

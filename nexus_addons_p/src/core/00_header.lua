@@ -1662,3 +1662,88 @@ function g.badge_tooltip(def, badge)
     -- (CLAUDE.md は updated_note_jp を省かないことにしている)。
     return ja and "{ol}更新されました" or "{ol}Updated"
 end
+
+-- ===== チーム倉庫へ入れる先(PutItemToWarehouse の goal)=====
+-- 2026-11-10 の JP パッチで、チーム倉庫は「アイテムの番号(invIndex)= 置いてあるスロット」になった
+-- (素の accountwarehouse.lua の resolve_put_goal。倉庫内でドラッグして並べ替えられる)。
+-- サーバーも goal を検査するようになり、**アイテムがあるスロットを goal に渡すと格納を断る**
+-- (ETC_20261109_083467「すでにアイテムがあるスロットには入れられません」)。
+-- 以前のように「タブの件数 + 1 番目が空いているはず」と数えると、途中に空きがあるだけで外れる。
+--
+-- 番号の空間は素と同じ: タブ t は t*70 〜 t*70+69。0 番タブは GetAccountWarehouseSlotCount() 未満だけ、
+-- 追加タブはトークン中だけ使える。全体の大きさは GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()。
+
+g.WAREHOUSE_SLOT_PER_TAB = 70
+-- 空きを探すタブの順。cc_helper / another_warehouse は以前から追加タブの後ろから埋めていたので、その順を守る。
+g.WAREHOUSE_TAB_ORDER = {4, 3, 2, 1, 0}
+
+-- 純ロジック(docs/tests/test_core.lua で検査する)。
+--   used         … [invIndex] = true のテーブル(倉庫に今あるもの)
+--   stack_index  … 重ねられる同じアイテムが倉庫にあればその番号。無ければ nil
+--   tab_order    … 空きを探すタブの順
+--   total        … 番号の空間の大きさ
+--   can_put      … function(index) そのスロットへ入れられるか
+-- 戻り値: goal の番号。入れる先が無ければ nil。
+function g.warehouse_pick_goal(used, stack_index, tab_order, total, can_put)
+    if stack_index ~= nil then
+        return stack_index
+    end
+    local per_tab = g.WAREHOUSE_SLOT_PER_TAB
+    for _, tab in ipairs(tab_order) do
+        local start_index = tab * per_tab
+        for index = start_index, math.min(start_index + per_tab, total) - 1 do
+            if not used[index] and can_put(index) then
+                return index
+            end
+        end
+    end
+    return nil
+end
+
+-- insert_obj … 入れるアイテムの IES(GetIES(inv_item:GetObject()))。
+-- 戻り値: goal の番号。倉庫に入れる先が無ければ nil(呼び出し側で打ち切る。素も送らずに止める)。
+function g.warehouse_goal_index(insert_obj, tab_order)
+    local per_tab = g.WAREHOUSE_SLOT_PER_TAB
+    local total
+    if type(GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT) == "function" then
+        total = GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()
+    else
+        total = per_tab * (1 + account_warehouse.get_max_tab())
+    end
+    local account = session.barrack.GetMyAccount()
+    local base_slot_count = account:GetAccountWarehouseSlotCount()
+    local has_token = session.loginInfo.IsPremiumState(ITEM_TOKEN) == true
+    local is_stack = insert_obj ~= nil and geItemTable.IsStack(insert_obj.ClassID) == 1
+
+    local used = {}
+    local stack_index = nil
+    local item_list = session.GetEtcItemList(IT_ACCOUNT_WAREHOUSE)
+    local guid_list = item_list:GetGuidList()
+    for i = 0, guid_list:Count() - 1 do
+        local wh_item = item_list:GetItemByGuid(guid_list:Get(i))
+        if wh_item ~= nil then
+            used[wh_item.invIndex] = true
+            if is_stack and stack_index == nil then
+                local obj = GetIES(wh_item:GetObject())
+                if obj.ClassName ~= MONEY_NAME and obj.ClassID == insert_obj.ClassID then
+                    stack_index = wh_item.invIndex
+                end
+            end
+        end
+    end
+
+    local function slot_can_put(index)
+        if index < 0 or index >= total then
+            return false
+        end
+        if index < per_tab then
+            return index < base_slot_count
+        end
+        return has_token
+    end
+
+    local goal = g.warehouse_pick_goal(used, stack_index, tab_order or g.WAREHOUSE_TAB_ORDER, total, slot_can_put)
+    g.vlog("[倉庫] goal=%s (重ね先=%s 0番タブの枠=%d トークン=%s 全体=%d)", tostring(goal), tostring(stack_index),
+        base_slot_count, tostring(has_token), total)
+    return goal
+end

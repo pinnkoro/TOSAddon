@@ -1079,8 +1079,14 @@ function Monster_card_changer_put_inv_to_warehouse(monster_card_changer)
             -- 打ち切りまでに何十回も要求を出すので、1 秒に 1 回までにする。
             if not data.req_at or now - data.req_at > 1.0 then
                 data.req_at = now
-                item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, data.guid, 1,
-                    accountwarehouse:GetUserIValue("HANDLE"), nil)
+                -- 入れる先は g.warehouse_goal_index で決める(以前は nil を渡していた)。
+                -- 2026-11-10 の JP パッチからサーバーが goal を検査するので、空いているスロットを明示する。
+                -- 入れる先が無ければ送らない(上の打ち切りで「入れられなかった」と出る)。
+                local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
+                if goal_index ~= nil then
+                    item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, data.guid, 1,
+                        accountwarehouse:GetUserIValue("HANDLE"), goal_index)
+                end
             end
             return 1
         end

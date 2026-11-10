@@ -1412,34 +1412,12 @@ function Another_warehouse_item_count()
     return return_cnt
 end
 
-function Another_warehouse_get_goal_index()
-    local acc_obj = GetMyAccountObj()
-    local base_count = acc_obj.BasicAccountWarehouseSlotCount + acc_obj.MaxAccountWarehouseCount +
-                           acc_obj.AccountWareHouseExtend + acc_obj.AccountWareHouseExtendByItem
-    local tab_index = {4, 3, 2, 1, 0}
-    local accountwarehouse = ui.GetFrame('accountwarehouse')
-    local tab = GET_CHILD(accountwarehouse, "accountwarehouse_tab")
-    local slotset = GET_CHILD_RECURSIVELY(accountwarehouse, "slotset")
-    for index = 1, #tab_index do
-        local i = tab_index[index]
-        tab:SelectTab(i)
-        if i > 0 and session.loginInfo.IsPremiumState(ITEM_TOKEN) then
-            local itemcnt = GET_CHILD_RECURSIVELY(accountwarehouse, "itemcnt")
-            local num_str = string.match(itemcnt:GetText(), "{@st42}(%d+)/")
-            local left = tonumber(num_str)
-            if left < 70 then
-                return ((i - 1) * 70) + base_count + left + 1
-            end
-        else
-            for j = 1, base_count do
-                local slot = slotset:GetSlotByIndex(j)
-                AUTO_CAST(slot)
-                if slot:GetIcon() == nil then
-                    return j
-                end
-            end
-        end
-    end
+-- 倉庫へ入れる先は g.warehouse_goal_index(core/00_header.lua)で決める。
+-- 以前はタブの件数 + 1 番目を goal にしていたが、2026-11-10 の JP パッチで倉庫がスロット位置を持つようになり、
+-- 途中に空きがあるとアイテムのあるスロットを指してサーバーに断られるようになった。
+function Another_warehouse_no_space()
+    g.vlog("[AWH] 倉庫に入れる先が無いので格納を打ち切り")
+    ui.SysMsg(ClMsg("CannotPutBecauseMaxSlot"))
 end
 
 function Another_warehouse_check_valid(inv_item)
@@ -1748,8 +1726,12 @@ end
 
 function Another_warehouse_putitem(inv_item, iesid, count)
     local item_obj = GetIES(inv_item:GetObject())
-    local goal_index = Another_warehouse_get_goal_index()
     if Another_warehouse_check_valid(inv_item) then
+        local goal_index = g.warehouse_goal_index(item_obj)
+        if goal_index == nil then
+            Another_warehouse_no_space()
+            return 1
+        end
         local accountwarehouse = ui.GetFrame("accountwarehouse")
         local handle = accountwarehouse:GetUserIValue("HANDLE")
         item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, iesid, tostring(count), handle, goal_index)
@@ -2025,8 +2007,18 @@ function Another_warehouse_item_put(awh)
     elseif item_data.is_putting then
         if inv_item.count < item_data.initial_count then
             is_finished = true
-        else
+        elseif imcTime.GetAppTime() - (item_data.put_at or 0) < 3.0 then
             return 1 -- まだ処理中
+        else
+            -- 3 秒たっても減らないのはサーバーに断られている。以前はここで待ち続けて止まっていた
+            g.vlog("[AWH] 倉庫へ送ったのに手元から減らないので諦める: clsid=%s iesid=%s",
+                tostring(item_data.clsid), tostring(item_data.iesid))
+            local cls = GetClassByType("Item", item_data.clsid)
+            local name = cls and cls.Name or tostring(item_data.clsid)
+            ui.SysMsg(g.lang == "Japanese" and ("{#FF0000}[AWH]倉庫へ格納できませんでした：" .. name) or
+                          ("{#FF0000}[AWH]Could not store in the warehouse: " .. name))
+            g.awh_put_items[next_guid] = nil
+            return 1
         end
     end
     if is_finished then
@@ -2053,7 +2045,13 @@ function Another_warehouse_item_put(awh)
         return 0
     end
     local handle = accountwarehouse:GetUserIValue("HANDLE")
-    local goal_index = Another_warehouse_get_goal_index()
+    local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
+    if goal_index == nil then
+        Another_warehouse_no_space()
+        g.awh_put_items = {}
+        Another_warehouse_end(awh)
+        return 0
+    end
     local put_count = item_data.count
     if put_count > inv_item.count then
         put_count = inv_item.count
@@ -2061,6 +2059,7 @@ function Another_warehouse_item_put(awh)
     item_data.initial_count = inv_item.count
     item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, item_data.iesid, tostring(put_count), handle, goal_index)
     item_data.is_putting = true
+    item_data.put_at = imcTime.GetAppTime()
     item_data.real_put_count = put_count
     return 1
 end
