@@ -285,7 +285,7 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
-* **（次回リリース）**
+* **v2.25.1**
   * Character Change Helper / Another Warehouse / Monster Card Changer: 11/10 のゲームのアップデートで**チーム倉庫のスロットを並べ替えられる**ようになってから、
     倉庫の途中に空きスロットがあると**格納に失敗する**ようになっていたのを直しました。
     Character Change Helper では同じアイテムの「倉庫に格納しました」と `$NoData$ETC_...$` がチャットに出続け、Another Warehouse では処理が止まっていました。
