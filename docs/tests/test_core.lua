@@ -1882,10 +1882,39 @@ do
     clock = clock + g.WAREHOUSE_PUT_INTERVAL
     check("再送: 3 回目", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
     clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    -- 最後に送ってから長めに待つ(通信が重いだけの要求を失敗と出さない)
+    check("再送: 上限に達しても最後の送信の直後は待つ", g.warehouse_put_attempt(tries, "x", "X", "T"), "wait")
+    check("再送: まだ知らせない", #msgs, 0)
+    clock = clock + g.WAREHOUSE_PUT_GIVE_UP_WAIT
     check("再送: 上限で諦める", g.warehouse_put_attempt(tries, "x", "X", "T"), "give_up")
     check("再送: 諦めたら知らせる", msgs[1] ~= nil and msgs[1]:find("[T]", 1, true) ~= nil, true)
     check("再送: 諦めた印", g.warehouse_put_given_up(tries, "x"), true)
     check("再送: 別のアイテムは関係ない", g.warehouse_put_given_up(tries, "y"), false)
+    check("再送: 記録に名前と info を残す", tries["x"].name == "X" and tries["x"].info == nil, true)
+
+    -- 手元から消えたものだけを 1 回ずつ「入った」と渡す(格納ログは送ったときではなくここで出す)
+    local in_hand = {x = true}
+    local saved_get = session.GetInvItemByGuid
+    session.GetInvItemByGuid = function(guid) return in_hand[guid] and {} or nil end
+    local done = {}
+    g.warehouse_put_attempt(tries, "y", "Y", "T", {k = 1})
+    g.warehouse_put_confirm(tries, function(iesid, t) done[#done + 1] = iesid .. ":" .. t.name .. ":" .. tostring(t.info and t.info.k) end)
+    check("確認: 手元から消えたものだけ", table.concat(done, ","), "y:Y:1")
+    done = {}
+    in_hand.x = nil -- 諦めた後で入った(通信が重かっただけ)
+    g.warehouse_put_confirm(tries, function(iesid, t) done[#done + 1] = iesid .. ":" .. tostring(t.given_up) end)
+    check("確認: 諦めた後に入ったものも拾う / 二度は渡さない", table.concat(done, ","), "x:true")
+    g.warehouse_put_confirm(nil, function() error("呼ばれない") end)
+    session.GetInvItemByGuid = saved_get
+
+    -- タブあたりのスロット数は素の関数から取る
+    local saved_aw = account_warehouse
+    account_warehouse = {get_max_slot_per_tab = function() return 80 end, get_max_tab = function() return 4 end}
+    check("倉庫: タブあたりのスロット数は素から", g.warehouse_slot_per_tab(), 80)
+    check("倉庫: タブの順もそれに合わせる", table.concat(g.warehouse_tab_order(400), ","), "4,3,2,1,0")
+    account_warehouse = nil
+    check("倉庫: 素の関数が無ければ 70", g.warehouse_slot_per_tab(), 70)
+    account_warehouse = saved_aw
 
     imcTime.GetAppTime, ClMsg, ui.SysMsg = saved_time, saved_clmsg, saved_sysmsg
     g.warehouse_reserved = {}

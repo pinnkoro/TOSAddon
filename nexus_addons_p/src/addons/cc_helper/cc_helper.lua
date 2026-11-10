@@ -1473,6 +1473,7 @@ function Cc_helper_inv_to_warehouse(in_btn)
     }}
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     if accountwarehouse:IsVisible() == 1 then
+        Cc_helper_put_confirm()
         local handle = accountwarehouse:GetUserIValue("HANDLE")
         local inventory = ui.GetFrame("inventory")
         local inventype_Tab = GET_CHILD_RECURSIVELY(inventory, "inventype_Tab")
@@ -1525,10 +1526,6 @@ function Cc_helper_inv_to_warehouse(in_btn)
                             Cc_helper_putitem(nil, in_btn, nil, 7)
                             return 0
                         end
-                        local log = g.lang == "Japanese" and "倉庫に格納しました" .. "：[" .. "{#EE82EE}" ..
-                                        item_name .. "{#FFFF00}]×" .. "{#EE82EE}1" or "Item to warehousing" .. "：[" ..
-                                        "{#EE82EE}" .. item_name .. "{#FFFF00}]×" .. "{#EE82EE}1"
-                        CHAT_SYSTEM(log)
                         item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, iesid, 1, handle, goal_index)
                         imcSound.PlaySoundEvent("sys_jam_slot_equip")
                         return 1
@@ -1747,6 +1744,7 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
         end
         g.cc_helper_gem_queue = queue
     end
+    Cc_helper_put_confirm()
     if #g.cc_helper_gem_queue > 0 then
         local gem_data = g.cc_helper_gem_queue[1]
         local handle = accountwarehouse:GetUserIValue("HANDLE")
@@ -1763,10 +1761,6 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
                 Cc_helper_putitem(nil, in_btn, nil, 7)
                 return 0
             end
-            local log = g.lang == "Japanese" and "倉庫に格納しました：[{#EE82EE}" .. gem_data.name ..
-                            "{#FFFF00}]×{#EE82EE}1" or "Item to warehousing：[{#EE82EE}" .. gem_data.name ..
-                            "{#FFFF00}]×{#EE82EE}1"
-            CHAT_SYSTEM(log)
             session.ResetItemList()
             session.AddItemID(gem_data.iesid, 1)
             item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, gem_data.iesid, 1, handle, goal_index)
@@ -2507,19 +2501,10 @@ function Cc_helper_update_hair_stats()
     end
 end
 
+-- 倉庫の空きはここでは見ない(g.warehouse_goal_index が実際のスロットで判定し、無ければ打ち切る)。
+-- 以前は倉庫の件数(シルバー込み)と枠の数を比べていたが、トークンが切れて追加タブにアイテムが残っていると
+-- 件数が枠を超え、0 番タブに空きがあっても「満杯」と判定していた。
 function Cc_helper_checkvalid(inv_item)
-    local acc_obj = GetMyAccountObj()
-    local max_count = acc_obj.BasicAccountWarehouseSlotCount + acc_obj.MaxAccountWarehouseCount +
-                          acc_obj.AccountWareHouseExtend + acc_obj.AccountWareHouseExtendByItem
-    if session.loginInfo.IsPremiumState(ITEM_TOKEN) then
-        max_count = max_count + ADDITIONAL_SLOT_COUNT_BY_TOKEN + 280
-    end
-    local item_list = session.GetEtcItemList(IT_ACCOUNT_WAREHOUSE)
-    local item_count = item_list:GetSortedGuidList():Count()
-    if max_count <= item_count then
-        ui.SysMsg(ClMsg("CannotPutBecauseMaxSlot"))
-        return false
-    end
     if true == inv_item.isLockState then
         ui.SysMsg(ClMsg("MaterialItemIsLock"))
         return false
@@ -2540,6 +2525,16 @@ function Cc_helper_checkvalid(inv_item)
         return false
     end
     return true
+end
+
+-- 倉庫へ入った(手元から消えた)アイテムの「格納しました」を出す。送ったときではなくここで出す。
+function Cc_helper_put_confirm()
+    g.warehouse_put_confirm(g.cc_helper_put_tries, function(iesid, t)
+        local log = g.lang == "Japanese" and "倉庫に格納しました：[{#EE82EE}" .. tostring(t.name) ..
+                        "{#FFFF00}]×{#EE82EE}1" or "Item to warehousing：[{#EE82EE}" .. tostring(t.name) ..
+                        "{#FFFF00}]×{#EE82EE}1"
+        CHAT_SYSTEM(log)
+    end)
 end
 
 -- cc_helper ここまで

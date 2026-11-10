@@ -1415,13 +1415,10 @@ end
 -- 倉庫へ入れる先は g.warehouse_goal_index(core/00_header.lua)で決める。
 -- 以前はタブの件数 + 1 番目を goal にしていたが、2026-11-10 の JP パッチで倉庫がスロット位置を持つようになり、
 -- 途中に空きがあるとアイテムのあるスロットを指してサーバーに断られるようになった。
+-- 倉庫の空きはここでは見ない(g.warehouse_goal_index が実際のスロットで判定し、無ければ打ち切る)。
+-- 以前は倉庫の件数と枠の数を比べていたが、トークンが切れて追加タブにアイテムが残っていると
+-- 件数が枠を超え、0 番タブに空きがあっても「満杯」と判定していた。
 function Another_warehouse_check_valid(inv_item)
-    local item_count = Another_warehouse_item_count()
-    local max_count = Another_warehouse_get_maxcount()
-    if max_count <= item_count then
-        ui.SysMsg(ClMsg('CannotPutBecauseMaxSlot'))
-        return false
-    end
     if true == inv_item.isLockState then
         ui.SysMsg(ClMsg("MaterialItemIsLock"))
         return false
@@ -1984,8 +1981,20 @@ function Another_warehouse_item_take(awh)
     return 1
 end
 
+-- 諦めた後に手元から消えたアイテム(通信が重かっただけで、実は入っていた)の格納ログを出し直す。
+-- 普通に入ったものは Another_warehouse_item_put の側でログを出し、logged を立てている。
+function Another_warehouse_put_confirm(awh)
+    g.warehouse_put_confirm(g.awh_put_tries, function(iesid, t)
+        local d = t.info
+        if t.given_up and d then
+            Another_warehouse_item_put_to(awh, d.iesid, d.real_put_count or d.count, d.clsid)
+        end
+    end)
+end
+
 -- 一括格納の後始末。シルバーの格納(money_check)はスロットを使わないので、倉庫が満杯で打ち切ったときも行う。
 function Another_warehouse_put_finish(awh)
+    Another_warehouse_put_confirm(awh)
     awh:StopUpdateScript("Another_warehouse_item_put")
     g.awh_put_items = {}
     if g.awh_settings.chars[g.cid].money_check == 1 then
@@ -2008,6 +2017,7 @@ function Another_warehouse_item_put(awh)
         return 0
     end
     g.awh_put_tries = g.awh_put_tries or {}
+    Another_warehouse_put_confirm(awh)
     local inv_item = session.GetInvItemByGuid(item_data.iesid)
     -- 送った後に手元から消えた / 減ったら入った
     if not inv_item or (item_data.initial_count and inv_item.count < item_data.initial_count) then
@@ -2019,6 +2029,10 @@ function Another_warehouse_item_put(awh)
             table.insert(g.awh_new_stack_add_item, item_data.clsid .. "_" .. item_data.iesid)
         end
         g.awh_put_items[next_guid] = nil
+        local t = g.awh_put_tries[item_data.iesid]
+        if t then
+            t.logged = true
+        end
         if not next(g.awh_put_items) then
             Another_warehouse_put_finish(awh)
             return 0
@@ -2033,7 +2047,7 @@ function Another_warehouse_item_put(awh)
     end
     local cls = GetClassByType("Item", item_data.clsid)
     local name = cls and cls.Name or tostring(item_data.clsid)
-    local attempt = g.warehouse_put_attempt(g.awh_put_tries, item_data.iesid, name, "AWH")
+    local attempt = g.warehouse_put_attempt(g.awh_put_tries, item_data.iesid, name, "AWH", item_data)
     if attempt == "wait" then
         return 1
     elseif attempt == "give_up" then

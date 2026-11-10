@@ -1672,8 +1672,16 @@ end
 --
 -- 番号の空間は素と同じ: タブ t は t*70 〜 t*70+69。0 番タブは GetAccountWarehouseSlotCount() 未満だけ、
 -- 追加タブはトークン中だけ使える。全体の大きさは GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()。
+-- この番号の空間はパッチ前から同じ(パッチ前の素の get_valid_index も「タブ t = t*70〜」の中で
+-- 使われていない invIndex を探していた)。変わったのは「描画がその番号のスロットに置く」ことと「サーバーの検査」。
 
-g.WAREHOUSE_SLOT_PER_TAB = 70
+-- タブあたりのスロット数。素(accountwarehouse.lua の max_slot_per_tab)と同じ関数から取る。
+function g.warehouse_slot_per_tab()
+    if account_warehouse ~= nil and type(account_warehouse.get_max_slot_per_tab) == "function" then
+        return account_warehouse.get_max_slot_per_tab()
+    end
+    return 70
+end
 -- 送った goal を使用中と見なしておく秒数。手元の在庫が減ってから倉庫の一覧(GetEtcItemList)へ
 -- 反映されるまでには時間差があり、その間に次のアイテムの goal を数えると**同じスロットをもう一度指して**断られる。
 g.WAREHOUSE_RESERVE_SEC = 3.0
@@ -1684,7 +1692,7 @@ g.warehouse_reserved = g.warehouse_reserved or {}
 -- タブの数は固定にしない(番号の空間の大きさから決める。追加タブが増えても探し漏らさない)。
 function g.warehouse_tab_order(total)
     local order = {}
-    local last_tab = math.ceil(total / g.WAREHOUSE_SLOT_PER_TAB) - 1
+    local last_tab = math.ceil(total / g.warehouse_slot_per_tab()) - 1
     for tab = last_tab, 0, -1 do
         order[#order + 1] = tab
     end
@@ -1702,7 +1710,7 @@ function g.warehouse_pick_goal(used, stack_index, tab_order, total, can_put)
     if stack_index ~= nil then
         return stack_index
     end
-    local per_tab = g.WAREHOUSE_SLOT_PER_TAB
+    local per_tab = g.warehouse_slot_per_tab()
     for _, tab in ipairs(tab_order) do
         local start_index = tab * per_tab
         for index = start_index, math.min(start_index + per_tab, total) - 1 do
@@ -1719,11 +1727,13 @@ end
 -- nil のときは素の resolve_put_goal と同じく CannotPutBecauseMaxSlot をここで出す
 -- (呼び出し側はメッセージを出さずに打ち切るだけでよい)。
 function g.warehouse_goal_index(insert_obj)
-    local per_tab = g.WAREHOUSE_SLOT_PER_TAB
+    local per_tab = g.warehouse_slot_per_tab()
     local total
     if type(GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT) == "function" then
         total = GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT()
     else
+        -- 関数が無いのはパッチ前のクライアント(JP 以外の地域など)。番号の空間は同じなので、
+        -- 素の lib_account.lua と同じ式で求める(上の説明を参照)。
         total = per_tab * (1 + account_warehouse.get_max_tab())
     end
     local account = session.barrack.GetMyAccount()
@@ -1786,35 +1796,58 @@ end
 -- 倉庫への格納要求を送ってよいか。戻り値は "send" / "wait" / "give_up"。
 --   tries … 呼び出し側が作業ごとに作り直すテーブル([iesid] = 試行の記録)
 --   tag   … 諦めたときのメッセージの頭("CCH" など)
+--   info  … 記録に残しておく値(g.warehouse_put_confirm の on_done へ渡す。省略可)
 -- 要求を送ってから手元のアイテムが減るまでには時間差があるので、同じアイテムへの再送は 1 秒に 1 回までにする。
--- 3 回送っても手元に残るのはサーバーに断られている(ロック中など)ので、諦めて次へ進ませる。
--- 再送のたびに goal は数え直すこと(断られたスロットは予約で避けられる)。
+-- 3 回送っても手元に残り、最後に送ってから 3 秒待っても減らなければサーバーに断られている(ロック中など)
+-- と見なし、諦めて次へ進ませる。通信が重いだけの要求を「失敗」と出さないよう、最後の送信の後は長めに待つ。
+-- 再送のたびに goal は数え直すこと(送ったばかりのスロットは予約で避けられる)。
 g.WAREHOUSE_PUT_INTERVAL = 1.0
 g.WAREHOUSE_PUT_MAX_TRIES = 3
-function g.warehouse_put_attempt(tries, iesid, item_name, tag)
+g.WAREHOUSE_PUT_GIVE_UP_WAIT = 3.0
+function g.warehouse_put_attempt(tries, iesid, item_name, tag, info)
     local now = imcTime.GetAppTime()
     local t = tries[iesid]
     if t and t.given_up then
         return "give_up"
     end
-    if t and now - t.at < g.WAREHOUSE_PUT_INTERVAL then
-        return "wait"
-    end
     if t and t.count >= g.WAREHOUSE_PUT_MAX_TRIES then
+        if now - t.at < g.WAREHOUSE_PUT_GIVE_UP_WAIT then
+            return "wait"
+        end
         t.given_up = true
         g.vlog("[%s] 倉庫へ %d 回送っても入らないので諦める: %s (%s)", tag, t.count, tostring(item_name), tostring(iesid))
         ui.SysMsg(g.lang == "Japanese" and ("{#FF0000}[" .. tag .. "]倉庫へ格納できませんでした：" .. tostring(item_name)) or
                       ("{#FF0000}[" .. tag .. "]Could not store in the warehouse: " .. tostring(item_name)))
         return "give_up"
     end
-    tries[iesid] = {
-        at = now,
-        count = (t and t.count or 0) + 1
-    }
+    if t and now - t.at < g.WAREHOUSE_PUT_INTERVAL then
+        return "wait"
+    end
+    if not t then
+        t = {count = 0, name = item_name, info = info}
+        tries[iesid] = t
+    end
+    t.at = now
+    t.count = t.count + 1
     return "send"
 end
 
 function g.warehouse_put_given_up(tries, iesid)
     local t = tries and tries[iesid]
     return t ~= nil and t.given_up == true
+end
+
+-- 送ったアイテムのうち、手元から消えた(= 倉庫へ入った)ものを 1 回ずつ on_done(iesid, 記録) へ渡す。
+-- 「格納しました」は送ったときではなくここで出す(断られて再送したアイテムで成功の行が何度も出ないように)。
+-- 諦めた後に入ったもの(通信が重かっただけ)もここで拾うので、成功として出し直せる。
+function g.warehouse_put_confirm(tries, on_done)
+    if not tries then
+        return
+    end
+    for iesid, t in pairs(tries) do
+        if not t.logged and session.GetInvItemByGuid(iesid) == nil then
+            t.logged = true
+            on_done(iesid, t)
+        end
+    end
 end
