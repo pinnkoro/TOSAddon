@@ -1790,6 +1790,139 @@ check("子を預けていない行", (g.badge_row({key = "no_such_addon"})), nil
 g.badge_children["mini_addons"] = nil
 g.settings = saved_settings
 
+-- ===== チーム倉庫へ入れる先(g.warehouse_pick_goal / g.warehouse_goal_index)=====
+-- 2026-11-10 の JP パッチから、サーバーはアイテムのあるスロットを goal にすると格納を断る。
+-- 以前の「タブの件数 + 1」は途中に空きがあると外れていたので、実際の番号から空きを探すことを見る。
+do
+    local function usable_all(index) return index >= 0 and index < 350 end
+    -- 4 番タブ(280〜)の先頭が埋まっていて、途中に空きがある
+    local used = {[280] = true, [281] = true, [283] = true}
+    check("倉庫: 追加タブの後ろから、最初の空きスロット", g.warehouse_pick_goal(used, nil, {4, 3, 2, 1, 0}, 350, usable_all), 282)
+    check("倉庫: 重ねられるアイテムは既存の番号へ", g.warehouse_pick_goal(used, 281, {4, 3, 2, 1, 0}, 350, usable_all), 281)
+    -- トークン無し: 追加タブは使えず、0 番タブは枠の数まで
+    local function usable_no_token(index) return index >= 0 and index < 60 end
+    local used0 = {}
+    for i = 0, 9 do used0[i] = true end
+    used0[11] = true
+    check("倉庫: トークン無しは 0 番タブの空きへ", g.warehouse_pick_goal(used0, nil, {4, 3, 2, 1, 0}, 350, usable_no_token), 10)
+    local full = {}
+    for i = 0, 59 do full[i] = true end
+    check("倉庫: 入れる先が無ければ nil", g.warehouse_pick_goal(full, nil, {4, 3, 2, 1, 0}, 350, usable_no_token), nil)
+    check("倉庫: 番号の空間の外は探さない", g.warehouse_pick_goal({}, nil, {5}, 350, function() return true end), nil)
+
+    -- ゲーム API から集める側(実機と同じ形のスタブ)
+    local saved = {session = session, geItemTable = geItemTable, GetIES = GetIES, MONEY_NAME = MONEY_NAME,
+                   IT_ACCOUNT_WAREHOUSE = IT_ACCOUNT_WAREHOUSE, ITEM_TOKEN = ITEM_TOKEN,
+                   TOTAL = GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT}
+    local wh = {{guid = "a", invIndex = 0, cls = 100, name = "x"}, {guid = "b", invIndex = 2, cls = 200, name = "y"},
+                {guid = "m", invIndex = 350, cls = 900001, name = "Vis"}}
+    local token = false
+    MONEY_NAME = "Vis"
+    IT_ACCOUNT_WAREHOUSE = 99
+    ITEM_TOKEN = 1
+    GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT = function() return 350 end
+    GetIES = function(o) return o end
+    geItemTable = {IsStack = function(cls) return cls == 200 and 1 or 0 end}
+    session = setmetatable({
+        barrack = {GetMyAccount = function() return {GetAccountWarehouseSlotCount = function() return 60 end} end},
+        loginInfo = {IsPremiumState = function() return token end},
+        GetEtcItemList = function()
+            return {
+                GetGuidList = function()
+                    return {Count = function() return #wh end, Get = function(_, i) return wh[i + 1].guid end}
+                end,
+                GetItemByGuid = function(_, guid)
+                    for _, w in ipairs(wh) do
+                        if w.guid == guid then
+                            return {invIndex = w.invIndex,
+                                    GetObject = function() return {ClassID = w.cls, ClassName = w.name} end}
+                        end
+                    end
+                end
+            }
+        end
+    }, {__index = saved.session})
+    local clock = 100.0
+    local saved_time, saved_clmsg, saved_sysmsg = imcTime.GetAppTime, ClMsg, ui.SysMsg
+    local msgs = {}
+    imcTime.GetAppTime = function() return clock end
+    ClMsg = function(key) return key end
+    ui.SysMsg = function(m) msgs[#msgs + 1] = m end
+    g.warehouse_reserved = {}
+
+    check("倉庫: トークン無しは 0 番タブの空き(1 番)", g.warehouse_goal_index({ClassID = 300}), 1)
+    -- 送ったばかりの 1 番は、倉庫の一覧へ反映される前でも使用中と見なす(同じスロットを二度指さない)
+    check("倉庫: 送ったばかりのスロットは避ける", g.warehouse_goal_index({ClassID = 301}), 3)
+    check("倉庫: 重ねられる同じアイテムがあればその番号", g.warehouse_goal_index({ClassID = 200}), 2)
+    clock = clock + g.WAREHOUSE_RESERVE_SEC + 1
+    check("倉庫: 予約は時間がたてば外れる", g.warehouse_goal_index({ClassID = 300}), 1)
+    token = true
+    check("倉庫: トークン中は 4 番タブの先頭", g.warehouse_goal_index({ClassID = 300}), 280)
+    -- 満杯なら nil。通知(CannotPutBecauseMaxSlot)は呼び出し側ではなくここで出す
+    token = false
+    clock = clock + 10
+    g.warehouse_reserved = {}
+    wh = {}
+    for i = 0, 59 do wh[#wh + 1] = {guid = "f" .. i, invIndex = i, cls = 500 + i, name = "z"} end
+    msgs = {}
+    check("倉庫: 満杯なら nil", g.warehouse_goal_index({ClassID = 300}), nil)
+    check("倉庫: 満杯の通知を出す", msgs[1], "CannotPutBecauseMaxSlot")
+
+    -- タブの順は番号の空間の大きさから決める(追加タブが増えても探し漏らさない)
+    check("倉庫: タブの順(350)", table.concat(g.warehouse_tab_order(350), ","), "4,3,2,1,0")
+    check("倉庫: タブの順(490)", table.concat(g.warehouse_tab_order(490), ","), "6,5,4,3,2,1,0")
+
+    -- 再送の上限(CCH / AWH 共通)
+    local tries = {}
+    msgs = {}
+    check("再送: 1 回目は送る", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    check("再送: 間隔内は待つ", g.warehouse_put_attempt(tries, "x", "X", "T"), "wait")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    check("再送: 2 回目", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    check("再送: 3 回目", g.warehouse_put_attempt(tries, "x", "X", "T"), "send")
+    clock = clock + g.WAREHOUSE_PUT_INTERVAL
+    -- 最後に送ってから長めに待つ(通信が重いだけの要求を失敗と出さない)
+    check("再送: 上限に達しても最後の送信の直後は待つ", g.warehouse_put_attempt(tries, "x", "X", "T"), "wait")
+    check("再送: まだ知らせない", #msgs, 0)
+    clock = clock + g.WAREHOUSE_PUT_GIVE_UP_WAIT
+    check("再送: 上限で諦める", g.warehouse_put_attempt(tries, "x", "X", "T"), "give_up")
+    check("再送: 諦めたら知らせる", msgs[1] ~= nil and msgs[1]:find("[T]", 1, true) ~= nil, true)
+    check("再送: 諦めた印", g.warehouse_put_given_up(tries, "x"), true)
+    check("再送: 別のアイテムは関係ない", g.warehouse_put_given_up(tries, "y"), false)
+    check("再送: 記録に名前と info を残す", tries["x"].name == "X" and tries["x"].info == nil, true)
+
+    -- 手元から消えたものだけを 1 回ずつ「入った」と渡す(格納ログは送ったときではなくここで出す)
+    local in_hand = {x = true}
+    local saved_get = session.GetInvItemByGuid
+    session.GetInvItemByGuid = function(guid) return in_hand[guid] and {} or nil end
+    local done = {}
+    g.warehouse_put_attempt(tries, "y", "Y", "T", {k = 1})
+    g.warehouse_put_confirm(tries, function(iesid, t) done[#done + 1] = iesid .. ":" .. t.name .. ":" .. tostring(t.info and t.info.k) end)
+    check("確認: 手元から消えたものだけ", table.concat(done, ","), "y:Y:1")
+    done = {}
+    in_hand.x = nil -- 諦めた後で入った(通信が重かっただけ)
+    g.warehouse_put_confirm(tries, function(iesid, t) done[#done + 1] = iesid .. ":" .. tostring(t.given_up) end)
+    check("確認: 諦めた後に入ったものも拾う / 二度は渡さない", table.concat(done, ","), "x:true")
+    g.warehouse_put_confirm(nil, function() error("呼ばれない") end)
+    session.GetInvItemByGuid = saved_get
+
+    -- タブあたりのスロット数は素の関数から取る
+    local saved_aw = account_warehouse
+    account_warehouse = {get_max_slot_per_tab = function() return 80 end, get_max_tab = function() return 4 end}
+    check("倉庫: タブあたりのスロット数は素から", g.warehouse_slot_per_tab(), 80)
+    check("倉庫: タブの順もそれに合わせる", table.concat(g.warehouse_tab_order(400), ","), "4,3,2,1,0")
+    account_warehouse = nil
+    check("倉庫: 素の関数が無ければ 70", g.warehouse_slot_per_tab(), 70)
+    account_warehouse = saved_aw
+
+    imcTime.GetAppTime, ClMsg, ui.SysMsg = saved_time, saved_clmsg, saved_sysmsg
+    g.warehouse_reserved = {}
+    session, geItemTable, GetIES, MONEY_NAME = saved.session, saved.geItemTable, saved.GetIES, saved.MONEY_NAME
+    IT_ACCOUNT_WAREHOUSE, ITEM_TOKEN, GET_ACCOUNT_WAREHOUSE_TOTAL_SLOT_COUNT = saved.IT_ACCOUNT_WAREHOUSE,
+        saved.ITEM_TOKEN, saved.TOTAL
+end
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

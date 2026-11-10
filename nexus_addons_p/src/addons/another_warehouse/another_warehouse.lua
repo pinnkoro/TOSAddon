@@ -1412,43 +1412,13 @@ function Another_warehouse_item_count()
     return return_cnt
 end
 
-function Another_warehouse_get_goal_index()
-    local acc_obj = GetMyAccountObj()
-    local base_count = acc_obj.BasicAccountWarehouseSlotCount + acc_obj.MaxAccountWarehouseCount +
-                           acc_obj.AccountWareHouseExtend + acc_obj.AccountWareHouseExtendByItem
-    local tab_index = {4, 3, 2, 1, 0}
-    local accountwarehouse = ui.GetFrame('accountwarehouse')
-    local tab = GET_CHILD(accountwarehouse, "accountwarehouse_tab")
-    local slotset = GET_CHILD_RECURSIVELY(accountwarehouse, "slotset")
-    for index = 1, #tab_index do
-        local i = tab_index[index]
-        tab:SelectTab(i)
-        if i > 0 and session.loginInfo.IsPremiumState(ITEM_TOKEN) then
-            local itemcnt = GET_CHILD_RECURSIVELY(accountwarehouse, "itemcnt")
-            local num_str = string.match(itemcnt:GetText(), "{@st42}(%d+)/")
-            local left = tonumber(num_str)
-            if left < 70 then
-                return ((i - 1) * 70) + base_count + left + 1
-            end
-        else
-            for j = 1, base_count do
-                local slot = slotset:GetSlotByIndex(j)
-                AUTO_CAST(slot)
-                if slot:GetIcon() == nil then
-                    return j
-                end
-            end
-        end
-    end
-end
-
+-- 倉庫へ入れる先は g.warehouse_goal_index(core/00_header.lua)で決める。
+-- 以前はタブの件数 + 1 番目を goal にしていたが、2026-11-10 の JP パッチで倉庫がスロット位置を持つようになり、
+-- 途中に空きがあるとアイテムのあるスロットを指してサーバーに断られるようになった。
+-- 倉庫の空きはここでは見ない(g.warehouse_goal_index が実際のスロットで判定し、無ければ打ち切る)。
+-- 以前は倉庫の件数と枠の数を比べていたが、トークンが切れて追加タブにアイテムが残っていると
+-- 件数が枠を超え、0 番タブに空きがあっても「満杯」と判定していた。
 function Another_warehouse_check_valid(inv_item)
-    local item_count = Another_warehouse_item_count()
-    local max_count = Another_warehouse_get_maxcount()
-    if max_count <= item_count then
-        ui.SysMsg(ClMsg('CannotPutBecauseMaxSlot'))
-        return false
-    end
     if true == inv_item.isLockState then
         ui.SysMsg(ClMsg("MaterialItemIsLock"))
         return false
@@ -1539,6 +1509,10 @@ function Another_warehouse_inv_rbtn(item_obj, slot)
             end
         end
         if inv_item.count > 1 or geItemTable.IsStack(obj.ClassID) == 1 then
+            -- 素の EXEC_PUT_ITEM_TO_ACCOUNT_WAREHOUSE は、11/10 の JP パッチから PUT_DROP_INDEX を
+            -- 「ドロップしたスロット」として読む(-1 = スロットを選ばない格納)。素は倉庫へのドロップと右クリックの
+            -- ときにしかこれを書かないので、こちらで -1 にしておかないと 0 番や前回ドロップしたスロットを指す。
+            accountwarehouse:SetUserValue("PUT_DROP_INDEX", -1)
             INPUT_NUMBER_BOX(accountwarehouse, ScpArgMsg("InputCount"), "EXEC_PUT_ITEM_TO_ACCOUNT_WAREHOUSE", max_cnt,
                 1, max_cnt, nil, iesid)
         else
@@ -1748,8 +1722,11 @@ end
 
 function Another_warehouse_putitem(inv_item, iesid, count)
     local item_obj = GetIES(inv_item:GetObject())
-    local goal_index = Another_warehouse_get_goal_index()
     if Another_warehouse_check_valid(inv_item) then
+        local goal_index = g.warehouse_goal_index(item_obj)
+        if goal_index == nil then
+            return 1
+        end
         local accountwarehouse = ui.GetFrame("accountwarehouse")
         local handle = accountwarehouse:GetUserIValue("HANDLE")
         item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, iesid, tostring(count), handle, goal_index)
@@ -1844,6 +1821,7 @@ function Another_warehouse_auto_item_start_logic(awh, is_retry)
     end
     g.awh_take_items = {}
     g.awh_put_items = {}
+    g.awh_put_tries = {}
     local function get_target_count(cls_id)
         local target_count = 0
         local is_target = false
@@ -2003,33 +1981,46 @@ function Another_warehouse_item_take(awh)
     return 1
 end
 
+-- 諦めた後に手元から消えたアイテム(通信が重かっただけで、実は入っていた)の格納ログを出し直す。
+-- 普通に入ったものは Another_warehouse_item_put の側でログを出し、logged を立てている。
+function Another_warehouse_put_confirm(awh)
+    g.warehouse_put_confirm(g.awh_put_tries, function(iesid, t)
+        local d = t.info
+        if t.given_up and d then
+            Another_warehouse_item_put_to(awh, d.iesid, d.real_put_count or d.count, d.clsid)
+        end
+    end)
+end
+
+-- 一括格納の後始末。シルバーの格納(money_check)はスロットを使わないので、倉庫が満杯で打ち切ったときも行う。
+function Another_warehouse_put_finish(awh)
+    Another_warehouse_put_confirm(awh)
+    awh:StopUpdateScript("Another_warehouse_item_put")
+    g.awh_put_items = {}
+    if g.awh_settings.chars[g.cid].money_check == 1 then
+        Another_warehouse_silver(awh)
+    else
+        Another_warehouse_end(awh)
+    end
+end
+
 function Another_warehouse_item_put(awh)
     local accountwarehouse = ui.GetFrame('accountwarehouse')
     if accountwarehouse:IsVisible() == 0 then
         awh:StopUpdateScript("Another_warehouse_item_put")
+        g.another_warehouse_func = false
         return 0
     end
     local next_guid, item_data = next(g.awh_put_items)
     if not next_guid then
-        if g.awh_settings.chars[g.cid].money_check == 1 then
-            Another_warehouse_silver(awh)
-        else
-            Another_warehouse_end(awh)
-        end
+        Another_warehouse_put_finish(awh)
         return 0
     end
-    local is_finished = false
+    g.awh_put_tries = g.awh_put_tries or {}
+    Another_warehouse_put_confirm(awh)
     local inv_item = session.GetInvItemByGuid(item_data.iesid)
-    if not inv_item then
-        is_finished = true
-    elseif item_data.is_putting then
-        if inv_item.count < item_data.initial_count then
-            is_finished = true
-        else
-            return 1 -- まだ処理中
-        end
-    end
-    if is_finished then
+    -- 送った後に手元から消えた / 減ったら入った
+    if not inv_item or (item_data.initial_count and inv_item.count < item_data.initial_count) then
         local count = item_data.real_put_count or item_data.count
         Another_warehouse_item_put_to(awh, item_data.iesid, count, item_data.clsid)
         if geItemTable.IsStack(item_data.clsid) == 1 then
@@ -2038,29 +2029,44 @@ function Another_warehouse_item_put(awh)
             table.insert(g.awh_new_stack_add_item, item_data.clsid .. "_" .. item_data.iesid)
         end
         g.awh_put_items[next_guid] = nil
+        local t = g.awh_put_tries[item_data.iesid]
+        if t then
+            t.logged = true
+        end
         if not next(g.awh_put_items) then
-            if g.awh_settings.chars[g.cid].money_check == 1 then
-                Another_warehouse_silver(awh)
-            else
-                Another_warehouse_end(awh)
-            end
+            Another_warehouse_put_finish(awh)
             return 0
         end
         return 1
     end
     if not Another_warehouse_check_valid(inv_item) then
-        awh:StopUpdateScript("Another_warehouse_item_put")
+        -- 満杯・ロック中など(メッセージは check_valid が出している)。動作中の印を戻して終える
+        g.vlog("[AWH] 格納できないアイテムがあるので一括格納を打ち切り: clsid=%s", tostring(item_data.clsid))
+        Another_warehouse_put_finish(awh)
         return 0
     end
+    local cls = GetClassByType("Item", item_data.clsid)
+    local name = cls and cls.Name or tostring(item_data.clsid)
+    local attempt = g.warehouse_put_attempt(g.awh_put_tries, item_data.iesid, name, "AWH", item_data)
+    if attempt == "wait" then
+        return 1
+    elseif attempt == "give_up" then
+        g.awh_put_items[next_guid] = nil
+        return 1
+    end
     local handle = accountwarehouse:GetUserIValue("HANDLE")
-    local goal_index = Another_warehouse_get_goal_index()
+    local goal_index = g.warehouse_goal_index(GetIES(inv_item:GetObject()))
+    if goal_index == nil then
+        Another_warehouse_put_finish(awh)
+        return 0
+    end
     local put_count = item_data.count
     if put_count > inv_item.count then
         put_count = inv_item.count
     end
-    item_data.initial_count = inv_item.count
+    -- 再送のときは最初に送ったときの個数と比べる(減ったかどうかの基準を動かさない)
+    item_data.initial_count = item_data.initial_count or inv_item.count
     item.PutItemToWarehouse(IT_ACCOUNT_WAREHOUSE, item_data.iesid, tostring(put_count), handle, goal_index)
-    item_data.is_putting = true
     item_data.real_put_count = put_count
     return 1
 end

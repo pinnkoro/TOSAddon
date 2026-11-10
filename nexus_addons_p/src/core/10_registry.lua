@@ -86,9 +86,9 @@ g._nexus_addons_p = {{
     category = "storage",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
     -- (CLAUDE.md の「バージョン情報はリリース時にだけ上げる」。release-prep で実際の版へ置き換える)。
-    updated = "2.7.0",
-    updated_note_jp = "設定ウィンドウ(歯車)を閉じるとチーム倉庫まで一緒に閉じてしまうのを修正しました(閉じた後もインベントリの右クリックが「セットへ登録」のまま残っていたのも直しました)。お気に入りを追加しました。上部の★ボタンで編集の窓を開き、開いている間に倉庫かインベントリのアイテムを右クリックすると足せます。一覧の一番上に「お気に入り」の帯が出て、左端のタブにも★のタブが増えます(元のカテゴリからは消えません)。登録はアカウント単位です",
-    updated_note_en = "Fixed the settings window (gear) closing the whole team warehouse with it, and the inventory right-click staying on Register to set after closing it. Added favorites. The star button opens the editor; while it is open, right-click an item in the warehouse or inventory to add it. A Favorites group is pinned to the top of the list and a star tab joins the tab column (items stay in their normal category too). Favorites are stored per account",
+    updated = g.VER_NEXT,
+    updated_note_jp = "ゲームのアップデート(チーム倉庫のスロットを並べ替えられるようになった変更)の後、倉庫の途中に空きスロットがあると格納に失敗し、処理が止まることがあったのを直しました",
+    updated_note_en = "Fixed storing failing and stopping when the team warehouse has empty slots in the middle, after the game update that made warehouse slots rearrangeable",
     data = {
         use = 0,
         name = "Another Warehouse",
@@ -192,6 +192,10 @@ g._nexus_addons_p = {{
 }, {
     key = "cc_helper",
     category = "char",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    updated = g.VER_NEXT,
+    updated_note_jp = "ゲームのアップデート(チーム倉庫のスロットを並べ替えられるようになった変更)の後、倉庫への格納に失敗して、同じアイテムの「倉庫に格納しました」がチャットに出続けることがあったのを直しました",
+    updated_note_en = "Fixed storing into the team warehouse failing and the same stored-item chat line repeating endlessly, after the game update that made warehouse slots rearrangeable",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -376,6 +380,10 @@ g._nexus_addons_p = {{
 }, {
     key = "monster_card_changer",
     category = "gear",
+    -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
+    updated = g.VER_NEXT,
+    updated_note_jp = "ゲームのアップデート(チーム倉庫のスロットを並べ替えられるようになった変更)に合わせて、カードを倉庫へ戻すときに空いているスロットを指定するようにしました",
+    updated_note_en = "Cards returned to the team warehouse now go to an explicit empty slot, following the game update that made warehouse slots rearrangeable",
     data = {
         use = 0,
         name = "Monster Card Changer",
