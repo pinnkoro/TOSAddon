@@ -389,9 +389,9 @@ local SUB_FRAME_SETTINGS = {
         text_en = "Vakarine Equipment Notification in Raids"
     }, {
         name = "skill_cool_sound",
-        text_jp = "スキル連打時のクールタイムの音を消去",
-        text_kr = "스킬 연타 시의 재사용 대기시간(쿨타임) 효과음을 삭제했습니다",
-        text_en = "Removed the cooldown sound when a skill is spammed"
+        text_jp = "スキル・アイテム連打時のクールタイムの音を消去",
+        text_kr = "스킬・아이템 연타 시의 재사용 대기시간(쿨타임) 효과음을 삭제",
+        text_en = "Mute the cooldown sound when spamming skills or items"
     }},
     frames = {{
         name = "indun_enter_fit",

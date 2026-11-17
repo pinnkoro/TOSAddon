@@ -1,6 +1,6 @@
 # サウンド（sound）
 
-> BGM プレイヤー・ミュートの切り替え・スキル連打音の抑制
+> BGM プレイヤー・ミュートの切り替え・スキル／アイテム連打音の抑制
 
 | 項目 | 内容 |
 | --- | --- |
@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | [bgm.lua](bgm.lua) | `bgm` / `select_bgm` | 街で BGM プレイヤーを常に動かす。選んだ曲を覚える |
 | [toggle.lua](toggle.lua) | — | ミニマップ左下ボタンの**右クリックでミュート ⇔ 復帰**。直前の音量を `volume` に覚える |
-| [skill_sound.lua](skill_sound.lua) | `skill_cool_sound` | スキル連打時のクールタイム音を鳴らさない（`ICON_USE`） |
+| [skill_sound.lua](skill_sound.lua) | `skill_cool_sound` | クイックスロットのスキル・アイテム（装備品を除く）をクールタイム中に連打したときの音を鳴らさない（`ICON_USE`）。インベントリから使ったとき（`INV_ICON_USE`）は対象外 |
 
 ## 注意（toggle.lua）
 

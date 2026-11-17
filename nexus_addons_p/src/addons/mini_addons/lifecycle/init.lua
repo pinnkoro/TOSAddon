@@ -26,6 +26,9 @@ function Mini_addons_ON_INIT(addon, frame)
     g.setup_hook(Mini_addons_CHAT_SYSTEM, "CHAT_SYSTEM")
     -- スキル連打音消す
     g.setup_hook(Mini_addons_ICON_USE, "ICON_USE")
+    -- 先頭=false は異常とは限らない(Muteki のイベント用ラッパが手前で自分を呼ぶ形でも false)
+    core_g.vlog("mini_addons: ICON_USE を掛けた skill_cool_sound=%s 先頭=%s",
+        tostring(g.settings.skill_cool_sound), tostring(_G["ICON_USE"] == Mini_addons_ICON_USE))
     local t_hooks = now_ms()
     core_g.vlog("mini_addons: 計測 ON_INIT session=%dms settings=%dms buffs=%dms hooks=%dms 合計=%dms",
         t_session - t0, t_settings - t_session, t_buffs - t_settings, t_hooks - t_buffs, t_hooks - t0)
