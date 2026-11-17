@@ -637,7 +637,7 @@ g._nexus_addons_p = {{
     key = "mini_addons",
     category = "misc",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = g.VER_NEXT,
+    updated = "2.25.2",
     updated_note_jp = "「スキル連打時のクールタイムの音を消去」を「スキル・アイテム連打時の〜」にし、クールタイム中のポーションなどをクイックスロットから連打したときの音も消すようにしました",
     updated_note_en = "The skill spam cooldown sound option now also mutes the sound when spamming potions and other items on cooldown from the quickslot",
     data = {
