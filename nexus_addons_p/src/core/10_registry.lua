@@ -637,9 +637,9 @@ g._nexus_addons_p = {{
     key = "mini_addons",
     category = "misc",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.20.0",
-    updated_note_jp = "設定に「便利機能で OFF にした窓を隠す」を足しました(既定は OFF)。システムオプションの「便利機能」でアイテム現況(フィールドルーティングトラッカー)やミニマップの地域情報を OFF にしているのに、NPC と会話した後などにまた表示されてしまうのを隠します。便利機能を ON にしている場合は何もしません",
-    updated_note_en = "Added a setting (off by default) that keeps the item status (field looting tracker) and minimap region info windows hidden after talking to an NPC etc. when you have turned them off in the Convenience Features of the system options. Nothing changes if they are on",
+    updated = g.VER_NEXT,
+    updated_note_jp = "「スキル連打時のクールタイムの音を消去」を「スキル・アイテム連打時の〜」にし、クールタイム中のポーションなどをクイックスロットから連打したときの音も消すようにしました",
+    updated_note_en = "The skill spam cooldown sound option now also mutes the sound when spamming potions and other items on cooldown from the quickslot",
     data = {
         use = 0,
         name = "Mini Addons",
