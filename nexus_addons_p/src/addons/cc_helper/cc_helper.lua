@@ -299,6 +299,75 @@ function Cc_helper_take_item_set(n)
     end
 end
 
+-- 搬入後のキャラチェンジに Instant CC を使えるか。
+-- キャラの一覧(g.instant_cc_sorted_list。バラック順にソート済み)とキャラチェンジ本体
+-- (INSTANTCC_DO_CC)はどちらも Instant CC のものを借りる。本家の Instant CC が先に
+-- 読まれていて派生版のものが定義されていないときは、一覧が無いので使えない扱いにする。
+function Cc_helper_instant_cc_ready()
+    return g.settings.instant_cc and g.settings.instant_cc.use == 1 and type(_G["INSTANTCC_DO_CC"]) == "function" and
+               type(g.instant_cc_sorted_list) == "table"
+end
+
+-- 搬入ボタンの右クリック: 搬入が終わったら切り替えるキャラを選ぶ。
+function Cc_helper_putitem_cc_context(frame, ctrl)
+    if not Cc_helper_instant_cc_ready() then
+        ui.SysMsg(g.lang == "Japanese" and
+                      "[CCH]搬入後のキャラチェンジには Instant CC を ON にしてください" or
+                      "[CCH]Turn on Instant CC to change character after storing")
+        return
+    end
+    local title = g.lang == "Japanese" and "{ol}搬入してキャラチェンジ" or "{ol}Store, then change character"
+    local context = ui.CreateContextMenu("cc_helper_cc_context", title, 0, 0, 0, 0)
+    local count = 0
+    for _, info in ipairs(g.instant_cc_sorted_list) do
+        if info.cid ~= g.cid then
+            local job_cls = GetClassByType("Job", info.jobid)
+            local job_name = job_cls and GET_JOB_NAME(job_cls, info.gender) or ""
+            job_name = string.gsub(dic.getTranslatedStr(job_name), "{s18}", "")
+            local text = string.format("{ol}Lv%s %s (%s)          ", tostring(info.level), info.name, job_name)
+            ui.AddContextMenuItem(context, text,
+                string.format("Cc_helper_putitem_then_cc('%s', %d)", info.cid, tonumber(info.layer) or 1))
+            count = count + 1
+        end
+    end
+    g.vlog("[CCH] 搬入後キャラチェンジの候補 %d 人(全 %d 人)", count, #g.instant_cc_sorted_list)
+    if count == 0 then
+        ui.SysMsg(g.lang == "Japanese" and
+                      "[CCH]キャラの一覧がありません。一度バラック画面を開いてください" or
+                      "[CCH]No characters listed. Open the barrack screen once")
+        return
+    end
+    ui.OpenContextMenu(context)
+end
+
+-- メニューでキャラを選んだ: キャラチェンジを予約して、いつもの搬入を始める。
+-- 予約は Cc_helper_end_of_operation が拾う(搬入が最後まで終わったときだけ離脱する)。
+function Cc_helper_putitem_then_cc(cid, layer)
+    local in_btn = GET_CHILD(ui.GetFrame("accountwarehouse"), "cch_in_btn")
+    if not in_btn or in_btn:IsVisible() == 0 then
+        in_btn = GET_CHILD(ui.GetFrame("inventory"), "cch_in_btn")
+    end
+    if not in_btn then
+        return
+    end
+    g.cc_helper_pending_cc = {
+        cid = cid,
+        layer = layer
+    }
+    g.vlog("[CCH] 搬入後のキャラチェンジを予約 cid=%s layer=%s", tostring(cid), tostring(layer))
+    Cc_helper_putitem(nil, in_btn, "cc", 0)
+end
+
+-- 搬入が終わった後(ReserveScript)に呼ばれる。待っている間に Instant CC を切られていたら何もしない。
+function Cc_helper_do_pending_cc(cid, layer)
+    if not Cc_helper_instant_cc_ready() then
+        g.vlog("[CCH] Instant CC が使えないのでキャラチェンジしない")
+        return
+    end
+    g.vlog("[CCH] 搬入後のキャラチェンジを実行 cid=%s layer=%s", tostring(cid), tostring(layer))
+    _G["INSTANTCC_DO_CC"](cid, layer)
+end
+
 -- Set tab in the config frame: switch active set and refresh the slots.
 function Cc_helper_setting_switch_set(frame, ctrl, argstr, n)
     Cc_helper_switch_set(n)
@@ -351,6 +420,9 @@ function cc_helper_on_init()
 end
 
 function Cc_helper_ACCOUNTWAREHOUSE_CLOSE(my_frame, my_msg)
+    -- 搬入の途中で倉庫を閉じると搬入は止まる。予約したキャラチェンジも捨てる
+    -- (残すと、後で別の操作が終わったときに思わぬキャラチェンジが走る)。
+    g.cc_helper_pending_cc = nil
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     accountwarehouse:RemoveChild("cch_in_btn")
     accountwarehouse:RemoveChild("cch_out_btn")
@@ -413,8 +485,10 @@ function Cc_helper_accountwarehouse_btn_init()
     in_btn:SetText("{img in_arrow 20 20}")
     in_btn:SetEventScript(ui.LBUTTONUP, "Cc_helper_putitem")
     in_btn:SetSkinName("test_pvp_btn")
-    in_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}[CCH]{nl}装備を外して倉庫へ搬入します" or
-                              "{ol}[CCH]{nl}The equipment is removed{nl}and brought into the warehouse")
+    in_btn:SetEventScript(ui.RBUTTONUP, "Cc_helper_putitem_cc_context")
+    in_btn:SetTextTooltip(g.lang == "Japanese" and
+                              "{ol}[CCH]{nl}装備を外して倉庫へ搬入します{nl}左クリック: 搬入 / 右クリック: 搬入してキャラチェンジ" or
+                              "{ol}[CCH]{nl}The equipment is removed{nl}and brought into the warehouse{nl}Left: store / Right: store, then change character")
     in_btn:ShowWindow(1)
     local out_btn = accountwarehouse:CreateOrGetControl("button", "cch_out_btn", 595, 120, 30, 30)
     AUTO_CAST(out_btn)
@@ -474,8 +548,10 @@ function Cc_helper_inventory_btn_init()
         in_btn:SetText("{img in_arrow 20 20}")
         in_btn:SetEventScript(ui.LBUTTONUP, "Cc_helper_putitem")
         in_btn:SetSkinName("test_pvp_btn")
-        in_btn:SetTextTooltip(g.lang == "Japanese" and "{ol}[CCH]{nl}装備を外して倉庫へ搬入します" or
-                                  "{ol}[CCH]{nl}The equipment is removed{nl}and brought into the warehouse")
+        in_btn:SetEventScript(ui.RBUTTONUP, "Cc_helper_putitem_cc_context")
+        in_btn:SetTextTooltip(g.lang == "Japanese" and
+                                  "{ol}[CCH]{nl}装備を外して倉庫へ搬入します{nl}左クリック: 搬入 / 右クリック: 搬入してキャラチェンジ" or
+                                  "{ol}[CCH]{nl}The equipment is removed{nl}and brought into the warehouse{nl}Left: store / Right: store, then change character")
         in_btn:ShowWindow(1)
         local out_btn = inventory:CreateOrGetControl("button", "cch_out_btn", 265, 345, 30, 30)
         AUTO_CAST(out_btn)
@@ -1247,7 +1323,13 @@ function Cc_helper_inv_rbtn(item_obj, slot, iesid, awh_item)
 end
 -- putitem
 function Cc_helper_putitem(frame, in_btn, str, step)
+    -- 搬入後のキャラチェンジは右クリックのメニューから来たとき(str == "cc")だけ残す。
+    -- 左クリックや設定画面の「収納」で始めたときは、前に途中で止まった予約を捨てる。
+    if step == 0 and str ~= "cc" then
+        g.cc_helper_pending_cc = nil
+    end
     if g.another_warehouse_func == true then
+        g.cc_helper_pending_cc = nil
         ui.SysMsg(g.lang == "Japanese" and "[AWH]が作動中です" or "[AWH]is currently operating")
         return
     end
@@ -2384,6 +2466,19 @@ function Cc_helper_change_summoned_pet(companionlist)
 end
 
 function Cc_helper_end_of_operation(btn, is_mcc)
+    -- 予約されたキャラチェンジは、倉庫を閉じる前に取り出しておく
+    -- (自動クローズで ACCOUNTWAREHOUSE_CLOSE が走ると予約は消える)。
+    local pending_cc = nil
+    if btn:GetName() == "cch_in_btn" then
+        pending_cc = g.cc_helper_pending_cc
+    end
+    g.cc_helper_pending_cc = nil
+    if pending_cc then
+        -- カード窓を閉じる(0.5 秒後)・倉庫を閉じるのを待ってから離脱する
+        g.vlog("[CCH] 搬入が終わったのでキャラチェンジを予約する cid=%s layer=%s", tostring(pending_cc.cid),
+            tostring(pending_cc.layer))
+        ReserveScript(string.format("Cc_helper_do_pending_cc('%s', %d)", pending_cc.cid, pending_cc.layer), 1.0)
+    end
     local inventory = ui.GetFrame("inventory")
     local inventype_Tab = GET_CHILD_RECURSIVELY(inventory, "inventype_Tab")
     if inventype_Tab then
