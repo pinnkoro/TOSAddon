@@ -610,19 +610,80 @@ function Boss_action_monitor_setting_build(setting)
         cb:SetEventScriptArgString(ui.LBUTTONUP, c[1])
         cb:SetText("{ol}" .. c[3])
     end
-    -- 左: ボスの一覧
-    local list = setting:CreateOrGetControl("groupbox", "boss_list", 10, 80, 200, g.bam_setting_h - 140)
+    local bosses = g.bam_settings.bosses
+    -- 左: ボスの検索欄 + 一覧。検索欄が空なら登録済みのボス、何か入っていれば検索の結果を出す。
+    local search = setting:CreateOrGetControl("edit", "boss_search", 10, 80, 200, 34)
+    AUTO_CAST(search)
+    search:SetFontName("white_16_ol")
+    search:SetTextAlign("left", "center")
+    search:SetSkinName("inventory_serch")
+    search:SetTextTooltip(Boss_action_monitor_t("{ol}ボスの名前で検索して登録します（部分一致）",
+        "{ol}Search bosses by name to register (partial match)"))
+    search:SetEventScript(ui.ENTERKEY, "Boss_action_monitor_search")
+    -- 打鍵のたびに絞り込む。走査するのは最初に 1 回だけ作るボスの索引で、
+    -- 出すのも 50 件までなので、打鍵ごとに走らせてよい。空なら登録済みの一覧へ戻る。
+    g.setup_incremental_search(search, "Boss_action_monitor_search")
+    local list = setting:CreateOrGetControl("groupbox", "boss_list", 10, 118, 200, g.bam_setting_h - 214)
     AUTO_CAST(list)
     list:SetSkinName("test_frame_midle_light")
     list:EnableScrollBar(1)
+    Boss_action_monitor_build_list(list, "")
+    -- ボタンは 2 段に分ける(横に並べると「ターゲットを登録」の文字が隣へはみ出す。実機で指摘)。
+    local add = setting:CreateOrGetControl("button", "boss_add", 10, g.bam_setting_h - 90, 200, 34)
+    AUTO_CAST(add)
+    add:SetText(Boss_action_monitor_t("{ol}ターゲットを登録", "{ol}Add target"))
+    add:SetTextTooltip(Boss_action_monitor_t(
+        "{ol}今ターゲットしているモンスターを登録します{nl}（ボス以外も登録できます）",
+        "{ol}Register the monster you are targeting{nl}(non-boss monsters too)"))
+    add:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_add_target")
+    local del = setting:CreateOrGetControl("button", "boss_del", 10, g.bam_setting_h - 50, 200, 34)
+    AUTO_CAST(del)
+    del:SetText(Boss_action_monitor_t("{ol}選んだボスを削除", "{ol}Delete selected"))
+    del:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_delete_ask")
+    -- 右: 選んだボスの設定
+    local detail = setting:CreateOrGetControl("groupbox", "detail", 220, 80, g.bam_setting_w - 230,
+        g.bam_setting_h - 90)
+    AUTO_CAST(detail)
+    detail:SetSkinName("test_frame_midle_light")
+    detail:EnableScrollBar(0)
+    Boss_action_monitor_build_detail(detail)
+    g.vlog("boss_action_monitor: 設定画面を組み立てた 登録 %d 体 選択=%s", #bosses, tostring(g.bam_sel))
+end
+
+-- 左の一覧を作る。query が空なら登録済みのボス、何かあれば検索の結果。
+-- **検索欄は作り直さない**(打鍵のたびにここへ来るので、作り直すと入力が壊れる)。
+g.bam_search_max = 50
+function Boss_action_monitor_build_list(list, query)
     list:RemoveAllChild()
+    if query ~= "" then
+        local hits, total = g.bam_search(Boss_action_monitor_boss_index(), query, g.bam_search_max)
+        if #hits == 0 then
+            Boss_action_monitor_label(list, "empty", 10, 10, Boss_action_monitor_t("{ol}{#AAAAAA}見つかりません",
+                "{ol}{#AAAAAA}No match"))
+        end
+        for i, m in ipairs(hits) do
+            local registered = Boss_action_monitor_find(m.cls) ~= nil
+            local btn = list:CreateOrGetControl("button", "hit_" .. i, 6, 6 + (i - 1) * 34, 168, 30)
+            AUTO_CAST(btn)
+            btn:SetSkinName(registered and "test_pvp_btn" or "test_gray_button")
+            btn:SetText("{ol}{s14}" .. m.name)
+            btn:SetTextTooltip("{ol}" .. m.cls .. (registered and Boss_action_monitor_t("{nl}登録済み", "{nl}Registered") or
+                Boss_action_monitor_t("{nl}クリックで登録", "{nl}Click to register")))
+            btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_search_pick")
+            btn:SetEventScriptArgString(ui.LBUTTONUP, m.cls)
+        end
+        if total > #hits then
+            Boss_action_monitor_label(list, "more", 10, 10 + #hits * 34, string.format(Boss_action_monitor_t(
+                "{ol}{s13}{#AAAAAA}ほか %d 件。もっと絞ってください", "{ol}{s13}{#AAAAAA}%d more. Narrow it down"),
+                total - #hits))
+        end
+        return
+    end
     local bosses = g.bam_settings.bosses
     if #bosses == 0 then
-        local empty = list:CreateOrGetControl('richtext', 'empty', 10, 10, 180, 60)
-        AUTO_CAST(empty)
-        empty:SetText(Boss_action_monitor_t(
-            "{ol}{#AAAAAA}ボスをターゲットして{nl}「ターゲットを登録」を{nl}押してください",
-            "{ol}{#AAAAAA}Target a boss and{nl}press \"Add target\""))
+        Boss_action_monitor_label(list, "empty", 10, 10, Boss_action_monitor_t(
+            "{ol}{#AAAAAA}上の欄でボスの名前を{nl}検索するか、ボスを{nl}ターゲットして{nl}「ターゲットを登録」を{nl}押してください",
+            "{ol}{#AAAAAA}Search a boss name above,{nl}or target a boss and{nl}press \"Add target\""))
     end
     for i, b in ipairs(bosses) do
         local btn = list:CreateOrGetControl("button", "boss_" .. i, 6, 6 + (i - 1) * 34, 168, 30)
@@ -633,22 +694,77 @@ function Boss_action_monitor_setting_build(setting)
         btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_select")
         btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
     end
-    local add = setting:CreateOrGetControl("button", "boss_add", 10, g.bam_setting_h - 54, 130, 34)
-    AUTO_CAST(add)
-    add:SetText(Boss_action_monitor_t("{ol}ターゲットを登録", "{ol}Add target"))
-    add:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_add_target")
-    local del = setting:CreateOrGetControl("button", "boss_del", 145, g.bam_setting_h - 54, 65, 34)
-    AUTO_CAST(del)
-    del:SetText(Boss_action_monitor_t("{ol}削除", "{ol}Delete"))
-    del:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_delete_ask")
-    -- 右: 選んだボスの設定
-    local detail = setting:CreateOrGetControl("groupbox", "detail", 220, 80, g.bam_setting_w - 230,
-        g.bam_setting_h - 90)
-    AUTO_CAST(detail)
-    detail:SetSkinName("test_frame_midle_light")
-    detail:EnableScrollBar(0)
-    Boss_action_monitor_build_detail(detail)
-    g.vlog("boss_action_monitor: 設定画面を組み立てた 登録 %d 体 選択=%s", #bosses, tostring(g.bam_sel))
+end
+
+-- ボスの索引。モンスターの表からランクが Boss のものを 1 回だけ拾って覚える
+-- (表は数万行あるので、打鍵のたびに走査しない)。
+function Boss_action_monitor_boss_index()
+    if g.bam_boss_index then
+        return g.bam_boss_index
+    end
+    local index = {}
+    local started = imcTime.GetAppTimeMS()
+    local cls_list, count = GetClassList("Monster")
+    for i = 0, (count or 0) - 1 do
+        local cls = GetClassByIndexFromList(cls_list, i)
+        if cls and TryGetProp(cls, "MonRank", "None") == "Boss" then
+            local name = dictionary.ReplaceDicIDInCompStr(TryGetProp(cls, "Name", "") or "")
+            if name ~= "" and name ~= "None" then
+                index[#index + 1] = {
+                    cls = cls.ClassName,
+                    name = name
+                }
+            end
+        end
+    end
+    g.bam_boss_index = index
+    g.vlog("boss_action_monitor: ボスの索引を作った %d 件 / 表 %d 行 (%dms)", #index, count or 0,
+        imcTime.GetAppTimeMS() - started)
+    return index
+end
+
+-- 部分一致の検索(純ロジック)。名前と ClassName のどちらかに含まれれば当たり。英字は大文字・小文字を区別しない。
+-- 返すのは (先頭から max 件, 当たった総数)。
+function g.bam_search(index, query, max)
+    local q = string.lower(tostring(query or ""))
+    local hits, total = {}, 0
+    if q == "" then
+        return hits, 0
+    end
+    for _, m in ipairs(index) do
+        if string.find(string.lower(m.name), q, 1, true) or string.find(string.lower(m.cls), q, 1, true) then
+            total = total + 1
+            if #hits < max then
+                hits[#hits + 1] = m
+            end
+        end
+    end
+    return hits, total
+end
+
+-- 検索欄(打鍵 / Enter / 「×」から来る)。一覧だけを作り直す。
+function Boss_action_monitor_search(frame, ctrl, text)
+    local setting = ui.GetFrame(g.bam_setting_name)
+    local list = setting and GET_CHILD_RECURSIVELY(setting, "boss_list")
+    if not list then
+        return
+    end
+    AUTO_CAST(list)
+    -- 検索語は入力欄から読む。Enter から来たときの第 3 引数は検索語ではない(空の argStr)。
+    local query = (ctrl and ctrl:GetName() == "boss_search" and ctrl:GetText()) or text
+    if type(query) ~= "string" then
+        query = ""
+    end
+    Boss_action_monitor_build_list(list, query)
+end
+
+-- 検索の結果をクリック。登録して選び、登録済みの一覧へ戻す。
+function Boss_action_monitor_search_pick(parent, ctrl, cls)
+    local mon_cls = GetClass("Monster", cls)
+    g.vlog("boss_action_monitor: 検索から登録 cls=%s", tostring(cls))
+    if mon_cls then
+        Boss_action_monitor_add_cls(cls, mon_cls, false)
+    end
 end
 
 function Boss_action_monitor_label(parent, name, x, y, text)
@@ -957,6 +1073,14 @@ function Boss_action_monitor_add_target()
             "Target the boss you want to add first"))
         return
     end
+    Boss_action_monitor_add_cls(cls, mon_cls, true)
+end
+
+-- ClassName で 1 体登録して選ぶ(ターゲットからと検索からの両方)。
+-- with_map … 今のマップも一緒に覚えるか。ターゲットから登録したときだけ(そのボスの居るマップに居るので)。
+-- 検索からは街で登録することが多く、今のマップはボスと関係が無い。
+function Boss_action_monitor_add_cls(cls, mon_cls, with_map)
+    Boss_action_monitor_commit_all(ui.GetFrame(g.bam_setting_name))
     local found, i = Boss_action_monitor_find(cls)
     if found then
         g.bam_sel = i
@@ -973,7 +1097,7 @@ function Boss_action_monitor_add_target()
     bosses[#bosses + 1] = g.bam_normalize_boss({
         cls = cls,
         name = dictionary.ReplaceDicIDInCompStr(mon_cls.Name),
-        map = g.get_map_type() == "City" and "" or tostring(g.map_name or ""),
+        map = (with_map and g.get_map_type() ~= "City") and tostring(g.map_name or "") or "",
         duration = 0,
         hp = {},
         time = {}

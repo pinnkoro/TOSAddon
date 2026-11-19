@@ -101,6 +101,21 @@ local empty = boss({cls = "y"})
 check("hp が無ければ空の表", type(empty.hp) == "table" and #empty.hp, 0)
 check("map が無ければ空", empty.map, "")
 
+print("[7] ボスの検索(部分一致)")
+local index = {{cls = "Raid_boss_Naktis", name = "ナクティス"}, {cls = "Raid_boss_Naktis_hard", name = "ナクティス"},
+               {cls = "boss_Velnias", name = "ベルニアス"}}
+local hits, total = g.bam_search(index, "クティ", 50)
+check("名前の途中で当たる", total, 2)
+hits, total = g.bam_search(index, "NAKTIS_H", 50)
+check("ClassName でも当たる(大文字小文字を区別しない)", total == 1 and hits[1].cls, "Raid_boss_Naktis_hard")
+hits, total = g.bam_search(index, "ス", 1)
+check("上限で切る", #hits, 1)
+check("総数は数える", total, 3)
+hits, total = g.bam_search(index, "", 50)
+check("空なら何も返さない", #hits + total, 0)
+hits, total = g.bam_search(index, "%a", 50)
+check("パターン文字は文字として扱う", total, 0)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
