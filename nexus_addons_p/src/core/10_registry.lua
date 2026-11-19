@@ -525,6 +525,9 @@ g._nexus_addons_p = {{
 }, {
     key = "revival_timer",
     category = "battle",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定画面のタイトルが「Lets Go Home Config」になっていたのを直しました",
+    updated_note_en = "Fixed the settings window title showing \"Lets Go Home Config\"",
     data = {
         use = 0,
         name = "Revival Timer",

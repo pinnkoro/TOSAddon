@@ -285,6 +285,8 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
+* **（次回リリース）**
+  * Revival Timer: 設定画面のタイトルが「Lets Go Home Config」になっていたのを「Revival Timer Config」に直しました。
 * **v2.25.2**
   * Mini Addons: 「スキル連打時のクールタイムの音を消去」を「**スキル・アイテム連打時の**クールタイムの音を消去」にしました。
     これまではスキルだけが対象で、**クールタイム中のポーションなどをクイックスロットから連打すると音が鳴っていました**。
