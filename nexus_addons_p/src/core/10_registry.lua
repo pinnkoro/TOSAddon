@@ -166,7 +166,7 @@ g._nexus_addons_p = {{
     data = {
         use = 0,
         name = "Boss Action Monitor",
-        frame_use = false,
+        frame_use = true,
         config_func = "Boss_action_monitor_setting",
         old_init_func = ""
     }
