@@ -1,4 +1,12 @@
 -- revival_timer ここから
+-- 入力欄の自動保存の予約の通し番号(続けて打たれたぶんの古い予約を捨てるため)。
+g.revival_timer_typing_seq = 0
+
+-- 入力欄から読んだ文字列から "{ol}" を取り除く(以前の版が入力欄へ付けていたものの名残り)。
+function Revival_timer_strip_ol(text)
+    return (string.gsub(tostring(text or ""), "{ol}", ""))
+end
+
 function Revival_timer_save_settings()
     g.save_json(g.revival_timer_path, g.revival_timer_settings)
 end
@@ -18,6 +26,8 @@ function Revival_timer_load_settings()
             shortcut_l = false
         }
     end
+    -- 以前の版は入力欄に "{ol}" を付けていたので、保存された文字列に混ざっていることがある。
+    settings.set_text = Revival_timer_strip_ol(settings.set_text)
     g.revival_timer_settings = settings
     Revival_timer_save_settings()
 end
@@ -122,8 +132,14 @@ function Revival_timer_setting()
     AUTO_CAST(info_edit)
     info_edit:SetFontName("white_16_ol")
     info_edit:SetTextAlign("center", "center")
-    info_edit:SetText("{ol}" .. g.revival_timer_settings.set_text)
+    -- 入力欄には {ol} を付けない(縁取りはフォント white_16_ol が受け持つ)。
+    -- 付けると GetText() にそのまま残り、打った文字の後ろに "{ol}" が付いて保存される
+    -- ("12{ol}"。秒数は数として読めなくなり保存されなかった。実機のログで発覚)。
+    info_edit:SetText(g.revival_timer_settings.set_text)
     info_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
+    -- 打ち終えて少し手を止めたら保存する(Enter は押しても押さなくてもよい)。
+    -- 打鍵のたびの呼び出しは g.setup_incremental_search と同じ SetTypingScp。
+    info_edit:SetTypingScp("Revival_timer_typing")
     local set_second = gbox:CreateOrGetControl('richtext', 'set_second', 10, 65, 50, 20)
     AUTO_CAST(set_second)
     set_second:SetText(g.lang == "Japanese" and "{ol}秒数設定" or "{ol}Set Seconds")
@@ -132,8 +148,9 @@ function Revival_timer_setting()
     set_second_edit:SetFontName("white_16_ol")
     set_second_edit:SetTextAlign("center", "center")
     set_second_edit:SetNumberMode(1)
-    set_second_edit:SetText("{ol}" .. g.revival_timer_settings.set_second)
+    set_second_edit:SetText(tostring(g.revival_timer_settings.set_second))
     set_second_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
+    set_second_edit:SetTypingScp("Revival_timer_typing")
     local with_ptchat = gbox:CreateOrGetControl('checkbox', "with_ptchat", 10, 120, 30, 30)
     AUTO_CAST(with_ptchat)
     with_ptchat:SetCheck(g.revival_timer_settings.ptchat and 1 or 0)
@@ -170,15 +187,66 @@ function Revival_timer_setting()
     g.esc_register_destroy(addon_name_lower .. "revival_timer_setting")
 end
 
-function Revival_timer_edit_save(frame, ctrl)
+-- 入力欄を設定へ写す。from_enter … Enter で確定したとき true(打鍵の後の自動保存なら false)。
+function Revival_timer_apply_edit(ctrl, from_enter)
     local ctrl_name = ctrl:GetName()
     if ctrl_name == "info_edit" then
-        g.revival_timer_settings.set_text = ctrl:GetText()
+        g.revival_timer_settings.set_text = Revival_timer_strip_ol(ctrl:GetText())
     elseif ctrl_name == "set_second_edit" then
-        g.revival_timer_settings.set_second = tonumber(ctrl:GetText())
+        -- 空欄や 0 なら前の値を残す(nil のまま数え始めると毎回落ちる)。
+        -- 入力欄を前の値へ戻すのは Enter のときだけ。打っている途中に戻すと打ち直せない。
+        local n = tonumber(Revival_timer_strip_ol(ctrl:GetText()))
+        if n and n >= 1 then
+            g.revival_timer_settings.set_second = math.floor(n)
+        elseif from_enter then
+            ctrl:SetText(tostring(g.revival_timer_settings.set_second))
+        end
     end
+    g.vlog("revival_timer: %s を保存 (Enter=%s) set_second=%s", tostring(ctrl_name), tostring(from_enter),
+        tostring(g.revival_timer_settings.set_second))
     Revival_timer_save_settings()
-    Revival_timer_setting()
+end
+
+-- Enter で確定。**ここで設定画面を作り直さないこと。** 押した入力欄が消えると Enter の
+-- 行き先が無くなり、チャット入力欄が開く(docs/UI_RULES.md「入力欄の Enter で一覧を作り直さない」)。
+-- 以前はここで Revival_timer_setting() を呼び直していた。
+function Revival_timer_edit_save(frame, ctrl)
+    local chat = ui.GetFrame("chat")
+    g.revival_timer_chat_was_open = chat ~= nil and chat:IsVisible() == 1
+    ReserveScript("Revival_timer_after_enter()", 0.05)
+    Revival_timer_apply_edit(ctrl, true)
+end
+
+-- Enter の後、この Enter でチャット入力欄が開いてしまっていたら閉じる(前から開いていたものは触らない)。
+function Revival_timer_after_enter()
+    local chat = ui.GetFrame("chat")
+    local open = chat ~= nil and chat:IsVisible() == 1
+    g.vlog("revival_timer: Enter の後のチャット入力欄 前=%s 後=%s", tostring(g.revival_timer_chat_was_open),
+        tostring(open))
+    if open and not g.revival_timer_chat_was_open then
+        ui.CloseFrame("chat")
+    end
+end
+
+-- 打鍵のたびに呼ばれる。保存は手が止まってから(打つたびに書き出さない)。
+function Revival_timer_typing(parent, ctrl)
+    g.revival_timer_typing_seq = g.revival_timer_typing_seq + 1
+    ReserveScript(string.format("Revival_timer_typing_fire(%q, %d)", ctrl:GetName(), g.revival_timer_typing_seq), 0.5)
+end
+
+function Revival_timer_typing_fire(name, seq)
+    if seq ~= g.revival_timer_typing_seq then
+        return
+    end
+    local setting = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
+    if not setting or setting:IsVisible() ~= 1 then
+        return
+    end
+    local edit = GET_CHILD_RECURSIVELY(setting, name)
+    if edit then
+        AUTO_CAST(edit)
+        Revival_timer_apply_edit(edit, false)
+    end
 end
 
 function Revival_timer_checkbox_save(frame, ctrl)
