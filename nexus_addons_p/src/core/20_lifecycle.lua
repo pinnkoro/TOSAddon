@@ -1051,23 +1051,10 @@ function _nexus_addons_p_list_close(frame)
                             "sub_map_setting_frame", "separate_buff_custom_buff_list", "save_quest_setting",
                             "sub_slotset_setting", "Battle_ritual_setting", "Battle_ritual_skill_list",
                             "Battle_ritual_buff_list", "get_event_msg_setting", "archeology_helper_setting"}
-    -- 閉じるときに入力欄を保存する設定画面は、ここで直に破棄せずその閉じ関数を通す
-    -- (直に破棄すると、打ってすぐ一覧を閉じたときに最後の入力が保存されない)。
-    -- [suffix] = 閉じ関数の名前。本家が先に読み込まれていると関数が無いので、そのときは破棄だけ。
-    local close_funcs = {
-        revival_timer_setting = "Revival_timer_setting_close"
-    }
+    -- 直に破棄せず、ESC に登録した閉じ方を通す(閉じる前に入力欄を保存する窓があるため。
+    -- 登録が無ければ破棄するだけ / g.esc_close_frame)。
     for _, suffix in ipairs(frame_to_close) do
-        local frame_name = addon_name_lower .. suffix
-        local frame_to_close = ui.GetFrame(frame_name)
-        if frame_to_close then
-            local close_func = close_funcs[suffix] and _G[close_funcs[suffix]]
-            if type(close_func) == "function" then
-                close_func()
-            else
-                ui.DestroyFrame(frame_name)
-            end
-        end
+        g.esc_close_frame(addon_name_lower .. suffix)
     end
     ui.DestroyFrame(frame:GetName())
 end

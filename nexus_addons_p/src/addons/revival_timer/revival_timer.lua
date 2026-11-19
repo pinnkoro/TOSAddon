@@ -158,6 +158,12 @@ function Revival_timer_frame_close(frame)
 end
 
 function Revival_timer_setting()
+    -- 開いたまま開き直されたら(一覧の歯車をもう一度押すなど)、作り直す前に今の入力を写す。
+    -- 入力欄は保存済みの値で作り直すので、0.5 秒の自動保存より前の打鍵が消える。
+    local opened = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
+    if opened then
+        Revival_timer_commit_all(opened)
+    end
     local setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "revival_timer_setting", 0, 0, 0, 0)
     AUTO_CAST(setting)
     setting:Resize(240, 420)
@@ -317,8 +323,10 @@ function Revival_timer_typing_fire(name, seq)
     if seq ~= g.revival_timer_typing_seq[name] then
         return
     end
+    -- 表示中かどうかは見ない(隠れていても入力欄が在れば写す)。閉じる経路は先に写して
+    -- 通し番号を進めるので、ここで二重に写すことは無い。
     local setting = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
-    if not setting or setting:IsVisible() ~= 1 then
+    if not setting then
         return
     end
     local edit = GET_CHILD_RECURSIVELY(setting, name)
