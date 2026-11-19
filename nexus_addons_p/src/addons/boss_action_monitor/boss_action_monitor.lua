@@ -4,10 +4,16 @@
 --   HP   … 「HP 50% でシールド」のように登録。ボスの HP がその割合を下回ったら 1 回知らせる
 --   時間 … 「残り 4:30 でシールド」のように登録。その N 秒前と、その時点で知らせる
 --
--- 時間の基準は 2 つ。
---   * レイドタイマー(素の raid_timer)が動いているコンテンツでは、その残り時間に合わせる。
---     素の RAID_TIMER_UPDATE(set_time, remain_time) にイベント方式(素を先に呼ぶ)で相乗りする
---   * 動いていないときは、HUD の ▶ で自分のカウントダウン(ボスごとの「手動タイマーの長さ」)を始める
+-- 時間の基準は 3 つ。ゲームのタイマーがあればそれに合わせ、無ければ手動。
+--   * レイドタイマー(素の raid_timer)… 素の RAID_TIMER_UPDATE(set_time, remain_time) に相乗りする
+--   * 週間ボスレイドのタイマー(素の damage_meter の 7 分)… **レイドタイマーとは別物。**
+--     素の DAMAGE_METER_UPDATE_TIMER(frame) に相乗りし、frame の NOW_TIME / END_TIME から残りを出す
+--   * どちらも無いときは、HUD の ▶ で自分のカウントダウン(ボスごとの「手動タイマーの長さ」)を始める
+-- どれもイベント方式(素を先に呼ぶ)で相乗りするので、素の表示はそのまま。
+--
+-- 「週間ボス共通」(cls = "@weekly_boss")は特別な 1 件で、週間ボスレイドのマップ
+-- (Keyword に WeeklyBossMap)に居るときだけ、そこに居るどのボスにも効く。週ごとにボスが
+-- 替わっても、タイマーに沿った知らせ(例: 残り 1:00)を登録し直さずに済むようにするため。
 --
 -- weizlogy さんの HP Monitor(ボスの HP で PT チャットを出すアドオン)と同じ目的のものを
 -- 時間の知らせと合わせて作り直した。HP Monitor にはライセンスの表記が無いので、コードは流用していない。
@@ -15,6 +21,7 @@
 -- **bundle の local は 200 個が上限なので、このファイルではトップレベルの local を作らない。**
 -- 定数は g.bam_* に置く。
 
+g.bam_weekly_cls = "@weekly_boss"
 g.bam_hud_name = addon_name_lower .. "boss_action_monitor_hud"
 g.bam_setting_name = addon_name_lower .. "boss_action_monitor_setting"
 g.bam_max_bosses = 30
@@ -178,8 +185,38 @@ function Boss_action_monitor_load_settings()
     for _, b in ipairs(settings.bosses) do
         g.bam_normalize_boss(b)
     end
+    -- 「週間ボス共通」は常に一覧の先頭に置く(無ければ作る。消せない)。
+    local has_weekly = false
+    for _, b in ipairs(settings.bosses) do
+        if b.cls == g.bam_weekly_cls then
+            has_weekly = true
+        end
+    end
+    if not has_weekly then
+        table.insert(settings.bosses, 1, g.bam_normalize_boss({
+            cls = g.bam_weekly_cls,
+            name = ""
+        }))
+    end
     g.bam_settings = settings
     Boss_action_monitor_save_settings()
+end
+
+function Boss_action_monitor_is_weekly(b)
+    return b ~= nil and b.cls == g.bam_weekly_cls
+end
+
+-- 表示名。「週間ボス共通」は言語に合わせる(保存する name は空)。
+function Boss_action_monitor_display_name(b)
+    if Boss_action_monitor_is_weekly(b) then
+        return Boss_action_monitor_t("★ 週間ボス共通", "* Weekly Boss (all)")
+    end
+    return b.name
+end
+
+-- 週間ボスレイドのマップに居るか。引けなかったとき(nil)は居ない扱い。
+function Boss_action_monitor_in_weekly_map()
+    return g.map_has_keyword("WeeklyBossMap") == true
 end
 
 function Boss_action_monitor_find(cls)
@@ -206,10 +243,12 @@ function boss_action_monitor_on_init()
         g.bam_hp_now = nil
         g.bam_manual = nil
         g.bam_raid = nil
+        g.bam_weekly_boss_name = nil
         g.bam_prev_remain = nil
         g.bam_prev_source = nil
     end
     g.setup_hook_and_event(g.addon, "RAID_TIMER_UPDATE", "Boss_action_monitor_RAID_TIMER_UPDATE", true)
+    g.setup_hook_and_event(g.addon, "DAMAGE_METER_UPDATE_TIMER", "Boss_action_monitor_DAMAGE_METER_UPDATE_TIMER", true)
     if g.get_map_type() == "City" then
         g.vlog("boss_action_monitor: 街なので監視しない (map=%s stopped=%s)", tostring(g.map_name),
             tostring(g.stop_timer("boss_action_monitor_timer")))
@@ -224,8 +263,8 @@ function boss_action_monitor_on_init()
         timer:SetUpdateScript("Boss_action_monitor_tick")
         timer:Start(0.5)
     end
-    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 このマップに登録=%d", tostring(g.map_name),
-        #g.bam_settings.bosses, #Boss_action_monitor_map_bosses())
+    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 このマップに登録=%d 週間ボス=%s", tostring(g.map_name),
+        #g.bam_settings.bosses, #Boss_action_monitor_map_bosses(), tostring(Boss_action_monitor_in_weekly_map()))
 end
 
 -- OFF にされたときの後始末。**一度も ON にしていない利用者にも 1 回呼ばれる**ので、
@@ -238,11 +277,16 @@ function boss_action_monitor_on_teardown()
     Boss_action_monitor_hud_close()
 end
 
--- 今のマップで登録したボス(マップを登録してあるもの)。
+-- 今のマップで動くボス。マップを登録してあるもの + 週間ボスレイドなら「週間ボス共通」。
 function Boss_action_monitor_map_bosses()
     local result = {}
+    local weekly = Boss_action_monitor_in_weekly_map()
     for _, b in ipairs(g.bam_settings.bosses) do
-        if b.map ~= "" and b.map == g.map_name then
+        if Boss_action_monitor_is_weekly(b) then
+            if weekly then
+                result[#result + 1] = b
+            end
+        elseif b.map ~= "" and b.map == g.map_name then
             result[#result + 1] = b
         end
     end
@@ -253,8 +297,13 @@ end
 -- (レイドタイマーはボスが出る前から動くので、マップの登録でも拾えるようにしている)
 function Boss_action_monitor_active_bosses()
     local result = {}
+    local weekly = Boss_action_monitor_in_weekly_map()
     for _, b in ipairs(g.bam_settings.bosses) do
-        if (g.bam_seen and g.bam_seen[b.cls]) or (b.map ~= "" and b.map == g.map_name) then
+        if Boss_action_monitor_is_weekly(b) then
+            if weekly then
+                result[#result + 1] = b
+            end
+        elseif (g.bam_seen and g.bam_seen[b.cls]) or (b.map ~= "" and b.map == g.map_name) then
             result[#result + 1] = b
         end
     end
@@ -288,21 +337,52 @@ function Boss_action_monitor_RAID_TIMER_UPDATE(my_frame, my_msg)
     if not remain then
         return
     end
-    if not g.bam_raid then
-        g.vlog("boss_action_monitor: レイドタイマーを受け取った set=%s remain=%s map=%s", tostring(set_time),
-            tostring(remain), tostring(g.map_name))
+    Boss_action_monitor_game_timer(remain, "raid", set_time)
+end
+
+-- 素の DAMAGE_METER_UPDATE_TIMER(frame) の後に呼ばれる(週間ボスレイドの 7 分のタイマー)。
+-- 素は 0.1 秒ごとに呼ぶが、残りは秒単位なので、同じ秒なら time_step で何もしない。
+function Boss_action_monitor_DAMAGE_METER_UPDATE_TIMER(my_frame, my_msg)
+    if g.settings.boss_action_monitor.use ~= 1 or not g.bam_settings then
+        return
+    end
+    local frame = g.get_event_args(my_msg)
+    if not frame then
+        return
+    end
+    local now_time = tonumber(frame:GetUserValue("NOW_TIME"))
+    local end_time = tonumber(frame:GetUserValue("END_TIME"))
+    if not now_time or not end_time then
+        return
+    end
+    local remain = math.floor(end_time - now_time)
+    if remain < 0 then
+        return
+    end
+    Boss_action_monitor_game_timer(remain, "weekly", 420)
+end
+
+-- ゲームのタイマー(レイド / 週間ボス)から残りを受け取る。kind が HUD の表示と前回の区別に使われる。
+function Boss_action_monitor_game_timer(remain, kind, set_time)
+    if not g.bam_raid or g.bam_raid.kind ~= kind then
+        g.vlog("boss_action_monitor: ゲームのタイマーを受け取った kind=%s set=%s remain=%s map=%s", kind,
+            tostring(set_time), tostring(remain), tostring(g.map_name))
     end
     g.bam_raid = {
+        kind = kind,
         remain = remain,
         set = tonumber(set_time),
         at_ms = imcTime.GetAppTimeMS()
     }
-    -- レイドタイマーが来たら手動タイマーは要らない(二重に知らせない)。
+    -- ゲームのタイマーが来たら手動タイマーは要らない(二重に知らせない)。
     if g.bam_manual then
-        g.vlog("boss_action_monitor: レイドタイマーが来たので手動タイマーを止める")
+        g.vlog("boss_action_monitor: ゲームのタイマーが来たので手動タイマーを止める")
         g.bam_manual = nil
     end
-    Boss_action_monitor_time_step(remain, "raid")
+    if g.bam_prev_source == kind and g.bam_prev_remain == remain then
+        return
+    end
+    Boss_action_monitor_time_step(remain, kind)
     Boss_action_monitor_hud_update()
 end
 
@@ -348,12 +428,46 @@ function Boss_action_monitor_tick(_nexus_addons_p, timer)
     Boss_action_monitor_hud_update()
 end
 
+-- 週間ボスレイドのマップで、ボス(isBoss)なら「週間ボス共通」の HP の件を見る。
+-- HP の印は個別の登録とは別に持つ(同じボスを個別にも登録していれば、両方の件が動く)。
+function Boss_action_monitor_scan_weekly(weekly, handle, cls)
+    local target_info = info.GetTargetInfo(handle)
+    local stat = target_info and target_info.stat
+    if not target_info or target_info.isBoss ~= 1 or not stat or not stat.maxHP or stat.maxHP <= 0 or stat.HP <= 0 then
+        return
+    end
+    local pct = stat.HP / stat.maxHP * 100
+    if not g.bam_weekly_boss_name then
+        local mon_cls = cls and GetClass("Monster", cls)
+        g.bam_weekly_boss_name = mon_cls and dictionary.ReplaceDicIDInCompStr(mon_cls.Name) or tostring(cls)
+        g.vlog("boss_action_monitor: 週間ボスを見つけた %s handle=%d HP=%.1f%%", tostring(cls), handle, pct)
+    end
+    if not g.bam_active_cls or g.bam_active_cls == g.bam_weekly_cls then
+        g.bam_active_cls = g.bam_weekly_cls
+        g.bam_hp_now = pct
+    end
+    local key = "weekly:" .. handle
+    local state = g.bam_hp_state[key]
+    if not state then
+        state = {}
+        g.bam_hp_state[key] = state
+    end
+    for _, d in ipairs(g.bam_hp_due(weekly.hp, state, pct)) do
+        g.vlog("boss_action_monitor: HP 週間ボス共通 %s pct=%d 今=%.1f%%", tostring(cls), d.trig.pct, pct)
+        Boss_action_monitor_notify(weekly, d)
+    end
+end
+
 function Boss_action_monitor_scan()
     local objects, count = SelectObject(GetMyPCObject(), g.bam_scan_range, "ENEMY")
+    local weekly = Boss_action_monitor_in_weekly_map() and Boss_action_monitor_find(g.bam_weekly_cls)
     for i = 1, count or 0 do
         local handle = GetHandle(objects[i])
         local cls = info.GetMonsterClassName(handle)
         local b = cls and Boss_action_monitor_find(cls)
+        if weekly then
+            Boss_action_monitor_scan_weekly(weekly, handle, cls)
+        end
         if b then
             local target_info = info.GetTargetInfo(handle)
             local stat = target_info and target_info.stat
@@ -385,7 +499,8 @@ end
 
 function Boss_action_monitor_message(b, d)
     local t = d.trig
-    local label = (t.text ~= "" and t.text) or b.name
+    local label = (t.text ~= "" and t.text) or
+                      (Boss_action_monitor_is_weekly(b) and g.bam_weekly_boss_name) or Boss_action_monitor_display_name(b)
     if d.kind == "hp" then
         return string.format("%s (HP %d%%)", label, t.pct)
     elseif d.kind == "before" then
@@ -472,7 +587,11 @@ function Boss_action_monitor_hud_update()
     AUTO_CAST(hud)
     local name = GET_CHILD(hud, "name")
     name:SetOffset(10, 8)
-    name:SetText("{ol}{s14}" .. b.name)
+    if Boss_action_monitor_is_weekly(b) and g.bam_weekly_boss_name then
+        name:SetText("{ol}{s14}" .. g.bam_weekly_boss_name)
+    else
+        name:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
+    end
     local remain_text = GET_CHILD(hud, "remain")
     remain_text:SetOffset(10, 28)
     local start = GET_CHILD(hud, "start")
@@ -481,7 +600,8 @@ function Boss_action_monitor_hud_update()
     if Boss_action_monitor_raid_fresh() then
         remain = g.bam_raid.remain
         remain_text:SetText("{ol}{s18}" .. g.bam_fmt_time(remain) .. "{/}{s13} " ..
-                                Boss_action_monitor_t("レイド", "Raid"))
+                                (g.bam_raid.kind == "weekly" and Boss_action_monitor_t("週間ボス", "Weekly") or
+                                    Boss_action_monitor_t("レイド", "Raid")))
         start:ShowWindow(0)
     elseif g.bam_manual then
         remain = g.bam_prev_remain
@@ -689,8 +809,10 @@ function Boss_action_monitor_build_list(list, query)
         local btn = list:CreateOrGetControl("button", "boss_" .. i, 6, 6 + (i - 1) * 34, 168, 30)
         AUTO_CAST(btn)
         btn:SetSkinName(i == g.bam_sel and "test_pvp_btn" or "test_gray_button")
-        btn:SetText("{ol}{s14}" .. b.name)
-        btn:SetTextTooltip("{ol}" .. b.cls)
+        btn:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
+        btn:SetTextTooltip(Boss_action_monitor_is_weekly(b) and Boss_action_monitor_t(
+            "{ol}週間ボスレイドの中で、その週のボスに効きます", "{ol}Applies to the boss of the week in Weekly Boss Raid") or
+                               ("{ol}" .. b.cls))
         btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_select")
         btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
     end
@@ -798,6 +920,14 @@ function Boss_action_monitor_build_detail(detail)
         return
     end
     local w = detail:GetWidth()
+    if Boss_action_monitor_is_weekly(b) then
+        Boss_action_monitor_label(detail, "boss_name", 10, 8, "{ol}{s18}" .. Boss_action_monitor_display_name(b))
+        Boss_action_monitor_label(detail, "weekly_note", 10, 40, Boss_action_monitor_t(
+            "{ol}{s13}{#CCCCCC}週間ボスレイドの中だけで、その週のボスに効きます。{nl}残り時間は週間ボスレイドの 7 分のタイマーです",
+            "{ol}{s13}{#CCCCCC}Works only in Weekly Boss Raid, for that week's boss.{nl}Time is the raid's 7-minute timer"))
+        Boss_action_monitor_build_triggers(detail, b)
+        return
+    end
     Boss_action_monitor_label(detail, "boss_name", 10, 8, "{ol}{s18}" .. b.name .. "{/}{s13}{#AAAAAA}  " .. b.cls)
     -- マップ
     local map_cls = b.map ~= "" and GetClass("Map", b.map)
@@ -819,6 +949,12 @@ function Boss_action_monitor_build_detail(detail)
     Boss_action_monitor_label(detail, "duration_label", 10, 72,
         Boss_action_monitor_t("{ol}手動タイマーの長さ (分:秒)", "{ol}Manual timer length (m:ss)"))
     Boss_action_monitor_edit(detail, "duration", 250, 66, 80, b.duration > 0 and g.bam_fmt_time(b.duration) or "", false)
+    Boss_action_monitor_build_triggers(detail, b)
+end
+
+-- HP の件と時間の件(どのボスでも同じ形)。
+function Boss_action_monitor_build_triggers(detail, b)
+    local w = detail:GetWidth()
     -- HP
     local y = 106
     Boss_action_monitor_label(detail, "hp_head", 10, y + 4, "{ol}{#FFD700}" ..
@@ -1112,13 +1248,18 @@ function Boss_action_monitor_delete_ask()
     if not b then
         return
     end
+    if Boss_action_monitor_is_weekly(b) then
+        ui.SysMsg(Boss_action_monitor_t("「週間ボス共通」は消せません。使わないときは件を OFF にしてください",
+            "\"Weekly Boss (all)\" cannot be deleted. Turn its entries OFF instead"))
+        return
+    end
     ui.MsgBox(string.format(Boss_action_monitor_t("「%s」の設定を消しますか？", "Delete the settings for \"%s\"?"),
-        b.name), string.format("Boss_action_monitor_delete(%d)", g.bam_sel), "None")
+        Boss_action_monitor_display_name(b)), string.format("Boss_action_monitor_delete(%d)", g.bam_sel), "None")
 end
 
 function Boss_action_monitor_delete(idx)
     local b = g.bam_settings.bosses[idx]
-    if not b then
+    if not b or Boss_action_monitor_is_weekly(b) then
         return
     end
     table.remove(g.bam_settings.bosses, idx)
