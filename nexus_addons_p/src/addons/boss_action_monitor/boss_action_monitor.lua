@@ -166,6 +166,40 @@ function g.bam_hp_due(triggers, state, hp_pct)
     return result
 end
 
+-- 幅に収まるように末尾を「…」で切る(純ロジック)。ボタンや HUD の 1 行に長い名前を入れると
+-- 枠からはみ出す(「[週間ボスレイド] ヴェルニケ…」で実機で指摘)。
+-- 幅は {s14} の目安で、全角(UTF-8 で 3 バイト以上の文字)を 14、それ以外を 7 と数える。
+-- 全文はツールチップで見せること。
+function g.bam_fit_text(text, max_w)
+    text = tostring(text or "")
+    local chars, widths, total = {}, {}, 0
+    -- UTF-8 の 1 文字ずつに分ける(先頭バイトで長さが決まる)。
+    local i, n = 1, #text
+    while i <= n do
+        local b = string.byte(text, i)
+        local len = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
+        local ch = string.sub(text, i, i + len - 1)
+        i = i + len
+        local w = (len >= 3) and 14 or 7
+        chars[#chars + 1] = ch
+        widths[#widths + 1] = w
+        total = total + w
+    end
+    if total <= max_w then
+        return text, false
+    end
+    local ellipsis_w = 14
+    local out, used = {}, 0
+    for i, ch in ipairs(chars) do
+        if used + widths[i] + ellipsis_w > max_w then
+            break
+        end
+        out[#out + 1] = ch
+        used = used + widths[i]
+    end
+    return table.concat(out) .. "…", true
+end
+
 -- 残り時間 remain より後に来る、いちばん近い件(HUD の「次」)。無ければ nil。
 function g.bam_next_time(triggers, remain)
     local best
@@ -640,9 +674,9 @@ function Boss_action_monitor_hud_update()
     name:SetOffset(10, 8)
     local group_boss = Boss_action_monitor_group(b) and g.bam_group_boss_name and g.bam_group_boss_name[b.cls]
     if group_boss then
-        name:SetText("{ol}{s14}" .. group_boss)
+        name:SetText("{ol}{s14}" .. g.bam_fit_text(group_boss, 168))
     else
-        name:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
+        name:SetText("{ol}{s14}" .. g.bam_fit_text(Boss_action_monitor_display_name(b), 168))
     end
     local remain_text = GET_CHILD(hud, "remain")
     remain_text:SetOffset(10, 28)
@@ -838,8 +872,8 @@ function Boss_action_monitor_build_list(list, query)
             local btn = list:CreateOrGetControl("button", "hit_" .. i, 6, 6 + (i - 1) * 34, 168, 30)
             AUTO_CAST(btn)
             btn:SetSkinName(registered and "test_pvp_btn" or "test_gray_button")
-            btn:SetText("{ol}{s14}" .. m.name)
-            btn:SetTextTooltip("{ol}" .. m.cls .. (registered and Boss_action_monitor_t("{nl}登録済み", "{nl}Registered") or
+            btn:SetText("{ol}{s14}" .. g.bam_fit_text(m.name, 148))
+            btn:SetTextTooltip("{ol}" .. m.name .. "{nl}" .. m.cls .. (registered and Boss_action_monitor_t("{nl}登録済み", "{nl}Registered") or
                 Boss_action_monitor_t("{nl}クリックで登録", "{nl}Click to register")))
             btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_search_pick")
             btn:SetEventScriptArgString(ui.LBUTTONUP, m.cls)
@@ -861,9 +895,9 @@ function Boss_action_monitor_build_list(list, query)
         local btn = list:CreateOrGetControl("button", "boss_" .. i, 6, 6 + (i - 1) * 34, 168, 30)
         AUTO_CAST(btn)
         btn:SetSkinName(i == g.bam_sel and "test_pvp_btn" or "test_gray_button")
-        btn:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
+        btn:SetText("{ol}{s14}" .. g.bam_fit_text(Boss_action_monitor_display_name(b), 148))
         local grp = Boss_action_monitor_group(b)
-        btn:SetTextTooltip(grp and Boss_action_monitor_t(grp.tip_ja, grp.tip_en) or ("{ol}" .. b.cls))
+        btn:SetTextTooltip(grp and Boss_action_monitor_t(grp.tip_ja, grp.tip_en) or ("{ol}" .. b.name .. "{nl}" .. b.cls))
         btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_select")
         btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
     end

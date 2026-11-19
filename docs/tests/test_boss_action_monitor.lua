@@ -134,6 +134,15 @@ check("読み直しても増えない", #g.bam_settings.bosses, 3)
 check("共通は表示名が言語に合う", Boss_action_monitor_group(g.bam_settings.bosses[1]).cls, "@weekly_boss")
 check("普通のボスは共通ではない", Boss_action_monitor_group(g.bam_settings.bosses[3]), nil)
 
+print("[9] 長い名前を幅で切る")
+check("収まるならそのまま", (g.bam_fit_text("魔将ヘルガ・セルクル", 148)), "魔将ヘルガ・セルクル")
+local cut, was_cut = g.bam_fit_text("[週間ボスレイド] ヴェルニケの影", 148)
+check("はみ出すなら … で切る", was_cut, true)
+check("切った結果", cut, "[週間ボスレイド] ヴ…")
+check("英字は半分の幅で数える", (g.bam_fit_text(string.rep("a", 21), 148)), string.rep("a", 21))
+check("英字でも切る", (g.bam_fit_text(string.rep("a", 22), 148)), string.rep("a", 19) .. "…")
+check("空", (g.bam_fit_text("", 148)), "")
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
