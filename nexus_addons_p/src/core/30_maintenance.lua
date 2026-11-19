@@ -41,7 +41,7 @@
 g.backup_files = {"settings.json", "addons_menu.json", "aethergem_manager.json", "always_status.json",
                   "always_status.lua", "ancient_auto_set.json", "another_warehouse.json", "another_warehouse.lua",
                   "archeology_helper.json", "auto_pet_summon.json", "auto_repair.json", "battle_ritual.json",
-                  "boss_direction.json", "cc_helper.json", "cc_helper.lua", "characters_item_serch.json",
+                  "boss_action_monitor.json", "boss_direction.json", "cc_helper.json", "cc_helper.lua", "characters_item_serch.json",
                   "characters_item_serch_accountwarehouse.dat", "characters_item_serch_equips.dat",
                   "characters_item_serch_inventory.dat", "characters_item_serch_warehouse.dat",
                   "cupole_manager.json", "easy_buff.json", "equips.dat", "fragmentation_presets.json",

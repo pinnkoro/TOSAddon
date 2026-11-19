@@ -160,6 +160,17 @@ g._nexus_addons_p = {{
         old_init_func = ""
     }
 }, {
+    key = "boss_action_monitor",
+    category = "battle",
+    since = g.VER_NEXT,
+    data = {
+        use = 0,
+        name = "Boss Action Monitor",
+        frame_use = false,
+        config_func = "Boss_action_monitor_setting",
+        old_init_func = ""
+    }
+}, {
     key = "boss_direction",
     category = "battle",
     data = {
@@ -755,6 +766,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}Charbonさん作成{nl}パーティーメンバーの頭上にアイコンを付けます",
         etc = "{ol}Created by Charbon{nl}Add an icon above the party members' heads",
         kr = "{ol}Charbon님 제작{nl}파티 멤버의 머리 위에 아이콘을 표시"
+    },
+    ["boss_action_monitor"] = {
+        ja = "{ol}ボスの行動を HP と残り時間で前もって知らせます{nl}ボスごとに「HP 50% でシールド」「残り 4:30 でシールド」のように登録します",
+        etc = "{ol}Alerts you before boss actions by HP and remaining time{nl}Register per boss, e.g. \"shield at 50% HP\" or \"shield at 4:30 left\"",
+        kr = "{ol}보스의 행동을 HP와 남은 시간으로 미리 알림{nl}보스마다 \"HP 50%에서 실드\", \"남은 시간 4:30에 실드\"처럼 등록"
     },
     ["boss_gauge"] = {
         ja = "{ol}ボスゲージにスタン値とシールド値を表示します",

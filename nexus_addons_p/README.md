@@ -203,6 +203,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | アドオン | 概要 |
 | --- | --- |
 | [Battle Ritual](src/addons/battle_ritual/README.md) | レイド入場時に自己バフを優先度順で自動使用（ソロ限定） |
+| [Boss Action Monitor](src/addons/boss_action_monitor/README.md) | ボスの行動を HP と残り時間で前もって知らせる（ボスごとに登録） |
 | [Boss Direction](src/addons/boss_direction/README.md) | ボスが向いている方向を足元の矢印で表示 |
 | [Boss Gauge](src/addons/boss_gauge/README.md) | ボスゲージにスタン値とシールド値を追加 |
 | [Debuff Notice](src/addons/debuff_notice/README.md) | 自分がボスへ与えたデバフを大きく表示 |
@@ -285,6 +286,11 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <details>
 <summary>更新履歴 (Nexus Addons P)</summary>
 
+* **（次回リリース）**
+  * **Boss Action Monitor を追加しました。** ボスの行動を前もって知らせるアドオンです。ボスごとに、
+    「HP 50% でシールド」のような **HP の件**と、「残り 4:30 でシールド」のような**残り時間の件**を登録できます。
+    残り時間はゲームのレイドタイマーに合わせます。レイドタイマーが無いコンテンツでは、HUD の ▶ で自分のタイマーを始めます。
+    知らせはチャット欄に必ず残り、ニコチャット・PT チャット・効果音も選べます。
 * **v2.25.2**
   * Mini Addons: 「スキル連打時のクールタイムの音を消去」を「**スキル・アイテム連打時の**クールタイムの音を消去」にしました。
     これまではスキルだけが対象で、**クールタイム中のポーションなどをクイックスロットから連打すると音が鳴っていました**。
