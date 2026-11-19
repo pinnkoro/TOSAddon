@@ -11,9 +11,11 @@
 --   * どちらも無いときは、HUD の ▶ で自分のカウントダウン(ボスごとの「手動タイマーの長さ」)を始める
 -- どれもイベント方式(素を先に呼ぶ)で相乗りするので、素の表示はそのまま。
 --
--- 「週間ボス共通」(cls = "@weekly_boss")は特別な 1 件で、週間ボスレイドのマップ
--- (Keyword に WeeklyBossMap)に居るときだけ、そこに居るどのボスにも効く。週ごとにボスが
--- 替わっても、タイマーに沿った知らせ(例: 残り 1:00)を登録し直さずに済むようにするため。
+-- 「共通」の件(g.bam_groups)は特別な登録で、決まった種類のマップ(Keyword で判定)に居るときだけ、
+-- そこに居るどのボスにも効く。ボスが週ごと・回ごとに替わっても、タイマーに沿った知らせ
+-- (例: 残り 1:00)を登録し直さずに済むようにするため。
+--   @weekly_boss … 週間ボスレイド(WeeklyBossMap)
+--   @field_boss  … ボス協同戦(FieldBossMap)。キーワードは Vakarine Equip で実機確認済み
 --
 -- weizlogy さんの HP Monitor(ボスの HP で PT チャットを出すアドオン)と同じ目的のものを
 -- 時間の知らせと合わせて作り直した。HP Monitor にはライセンスの表記が無いので、コードは流用していない。
@@ -21,7 +23,29 @@
 -- **bundle の local は 200 個が上限なので、このファイルではトップレベルの local を作らない。**
 -- 定数は g.bam_* に置く。
 
-g.bam_weekly_cls = "@weekly_boss"
+-- 「共通」の登録。manual … 設定画面に「手動タイマーの長さ」を出すか(ゲームのタイマーが
+-- 届くと分かっているコンテンツでは要らない)。
+g.bam_groups = {{
+    cls = "@weekly_boss",
+    keyword = "WeeklyBossMap",
+    ja = "★ 週間ボス共通",
+    en = "* Weekly Boss (all)",
+    tip_ja = "{ol}週間ボスレイドの中で、その週のボスに効きます",
+    tip_en = "{ol}Applies to the boss of the week in Weekly Boss Raid",
+    note_ja = "{ol}{s13}{#CCCCCC}週間ボスレイドの中だけで、その週のボスに効きます。{nl}残り時間は週間ボスレイドの 7 分のタイマーです",
+    note_en = "{ol}{s13}{#CCCCCC}Works only in Weekly Boss Raid, for that week's boss.{nl}Time is the raid's 7-minute timer",
+    manual = false
+}, {
+    cls = "@field_boss",
+    keyword = "FieldBossMap",
+    ja = "★ 協同戦共通",
+    en = "* Boss Co-op (all)",
+    tip_ja = "{ol}ボス協同戦の中で、そこに居るボスに効きます",
+    tip_en = "{ol}Applies to the boss in Boss Co-op battles",
+    note_ja = "{ol}{s13}{#CCCCCC}ボス協同戦の中だけで、そこに居るボスに効きます。{nl}残り時間は、ゲームのタイマーが届けばそれ、無ければ HUD の ▶ の手動タイマーです",
+    note_en = "{ol}{s13}{#CCCCCC}Works only in Boss Co-op, for the boss there.{nl}Time is the game timer if any, otherwise the manual timer (▶ on the HUD)",
+    manual = true
+}}
 g.bam_hud_name = addon_name_lower .. "boss_action_monitor_hud"
 g.bam_setting_name = addon_name_lower .. "boss_action_monitor_setting"
 g.bam_max_bosses = 30
@@ -185,38 +209,64 @@ function Boss_action_monitor_load_settings()
     for _, b in ipairs(settings.bosses) do
         g.bam_normalize_boss(b)
     end
-    -- 「週間ボス共通」は常に一覧の先頭に置く(無ければ作る。消せない)。
-    local has_weekly = false
-    for _, b in ipairs(settings.bosses) do
-        if b.cls == g.bam_weekly_cls then
-            has_weekly = true
+    -- 「共通」の登録は常に一覧の先頭に g.bam_groups の順で置く(無ければ作る。消せない)。
+    for gi, grp in ipairs(g.bam_groups) do
+        local found = nil
+        for i, b in ipairs(settings.bosses) do
+            if b.cls == grp.cls then
+                found = i
+            end
         end
-    end
-    if not has_weekly then
-        table.insert(settings.bosses, 1, g.bam_normalize_boss({
-            cls = g.bam_weekly_cls,
+        local entry = found and table.remove(settings.bosses, found) or g.bam_normalize_boss({
+            cls = grp.cls,
             name = ""
-        }))
+        })
+        table.insert(settings.bosses, gi, entry)
     end
     g.bam_settings = settings
     Boss_action_monitor_save_settings()
 end
 
-function Boss_action_monitor_is_weekly(b)
-    return b ~= nil and b.cls == g.bam_weekly_cls
+-- 「共通」の登録なら、その定義(g.bam_groups の 1 つ)を返す。普通のボスなら nil。
+function Boss_action_monitor_group(b)
+    if not b then
+        return nil
+    end
+    for _, grp in ipairs(g.bam_groups) do
+        if grp.cls == b.cls then
+            return grp
+        end
+    end
+    return nil
 end
 
--- 表示名。「週間ボス共通」は言語に合わせる(保存する name は空)。
+-- 表示名。「共通」は言語に合わせる(保存する name は空)。
 function Boss_action_monitor_display_name(b)
-    if Boss_action_monitor_is_weekly(b) then
-        return Boss_action_monitor_t("★ 週間ボス共通", "* Weekly Boss (all)")
+    local grp = Boss_action_monitor_group(b)
+    if grp then
+        return Boss_action_monitor_t(grp.ja, grp.en)
     end
     return b.name
 end
 
--- 週間ボスレイドのマップに居るか。引けなかったとき(nil)は居ない扱い。
-function Boss_action_monitor_in_weekly_map()
-    return g.map_has_keyword("WeeklyBossMap") == true
+-- その「共通」が今のマップで効くか。Keyword が引けなかったとき(nil)は効かない扱い。
+function Boss_action_monitor_group_active(grp)
+    return g.map_has_keyword(grp.keyword) == true
+end
+
+-- 今のマップで効く「共通」の登録(ログ用に名前も)。
+function Boss_action_monitor_active_groups()
+    local result, names = {}, {}
+    for _, grp in ipairs(g.bam_groups) do
+        if Boss_action_monitor_group_active(grp) then
+            local b = Boss_action_monitor_find(grp.cls)
+            if b then
+                result[#result + 1] = b
+                names[#names + 1] = grp.cls
+            end
+        end
+    end
+    return result, table.concat(names, ",")
 end
 
 function Boss_action_monitor_find(cls)
@@ -243,7 +293,7 @@ function boss_action_monitor_on_init()
         g.bam_hp_now = nil
         g.bam_manual = nil
         g.bam_raid = nil
-        g.bam_weekly_boss_name = nil
+        g.bam_group_boss_name = {}
         g.bam_prev_remain = nil
         g.bam_prev_source = nil
     end
@@ -263,8 +313,9 @@ function boss_action_monitor_on_init()
         timer:SetUpdateScript("Boss_action_monitor_tick")
         timer:Start(0.5)
     end
-    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 このマップに登録=%d 週間ボス=%s", tostring(g.map_name),
-        #g.bam_settings.bosses, #Boss_action_monitor_map_bosses(), tostring(Boss_action_monitor_in_weekly_map()))
+    local _, group_names = Boss_action_monitor_active_groups()
+    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 このマップに登録=%d 共通=%s", tostring(g.map_name),
+        #g.bam_settings.bosses, #Boss_action_monitor_map_bosses(), group_names)
 end
 
 -- OFF にされたときの後始末。**一度も ON にしていない利用者にも 1 回呼ばれる**ので、
@@ -280,10 +331,10 @@ end
 -- 今のマップで動くボス。マップを登録してあるもの + 週間ボスレイドなら「週間ボス共通」。
 function Boss_action_monitor_map_bosses()
     local result = {}
-    local weekly = Boss_action_monitor_in_weekly_map()
     for _, b in ipairs(g.bam_settings.bosses) do
-        if Boss_action_monitor_is_weekly(b) then
-            if weekly then
+        local grp = Boss_action_monitor_group(b)
+        if grp then
+            if Boss_action_monitor_group_active(grp) then
                 result[#result + 1] = b
             end
         elseif b.map ~= "" and b.map == g.map_name then
@@ -297,10 +348,10 @@ end
 -- (レイドタイマーはボスが出る前から動くので、マップの登録でも拾えるようにしている)
 function Boss_action_monitor_active_bosses()
     local result = {}
-    local weekly = Boss_action_monitor_in_weekly_map()
     for _, b in ipairs(g.bam_settings.bosses) do
-        if Boss_action_monitor_is_weekly(b) then
-            if weekly then
+        local grp = Boss_action_monitor_group(b)
+        if grp then
+            if Boss_action_monitor_group_active(grp) then
                 result[#result + 1] = b
             end
         elseif (g.bam_seen and g.bam_seen[b.cls]) or (b.map ~= "" and b.map == g.map_name) then
@@ -428,45 +479,45 @@ function Boss_action_monitor_tick(_nexus_addons_p, timer)
     Boss_action_monitor_hud_update()
 end
 
--- 週間ボスレイドのマップで、ボス(isBoss)なら「週間ボス共通」の HP の件を見る。
+-- 「共通」が効くマップで、ボス(isBoss)ならその「共通」の HP の件を見る。
 -- HP の印は個別の登録とは別に持つ(同じボスを個別にも登録していれば、両方の件が動く)。
-function Boss_action_monitor_scan_weekly(weekly, handle, cls)
+function Boss_action_monitor_scan_group(entry, handle, cls)
     local target_info = info.GetTargetInfo(handle)
     local stat = target_info and target_info.stat
     if not target_info or target_info.isBoss ~= 1 or not stat or not stat.maxHP or stat.maxHP <= 0 or stat.HP <= 0 then
         return
     end
     local pct = stat.HP / stat.maxHP * 100
-    if not g.bam_weekly_boss_name then
+    if not g.bam_group_boss_name[entry.cls] then
         local mon_cls = cls and GetClass("Monster", cls)
-        g.bam_weekly_boss_name = mon_cls and dictionary.ReplaceDicIDInCompStr(mon_cls.Name) or tostring(cls)
-        g.vlog("boss_action_monitor: 週間ボスを見つけた %s handle=%d HP=%.1f%%", tostring(cls), handle, pct)
+        g.bam_group_boss_name[entry.cls] = mon_cls and dictionary.ReplaceDicIDInCompStr(mon_cls.Name) or tostring(cls)
+        g.vlog("boss_action_monitor: %s のボスを見つけた %s handle=%d HP=%.1f%%", entry.cls, tostring(cls), handle, pct)
     end
-    if not g.bam_active_cls or g.bam_active_cls == g.bam_weekly_cls then
-        g.bam_active_cls = g.bam_weekly_cls
+    if not g.bam_active_cls or Boss_action_monitor_group(Boss_action_monitor_find(g.bam_active_cls)) then
+        g.bam_active_cls = entry.cls
         g.bam_hp_now = pct
     end
-    local key = "weekly:" .. handle
+    local key = entry.cls .. ":" .. handle
     local state = g.bam_hp_state[key]
     if not state then
         state = {}
         g.bam_hp_state[key] = state
     end
-    for _, d in ipairs(g.bam_hp_due(weekly.hp, state, pct)) do
-        g.vlog("boss_action_monitor: HP 週間ボス共通 %s pct=%d 今=%.1f%%", tostring(cls), d.trig.pct, pct)
-        Boss_action_monitor_notify(weekly, d)
+    for _, d in ipairs(g.bam_hp_due(entry.hp, state, pct)) do
+        g.vlog("boss_action_monitor: HP %s %s pct=%d 今=%.1f%%", entry.cls, tostring(cls), d.trig.pct, pct)
+        Boss_action_monitor_notify(entry, d)
     end
 end
 
 function Boss_action_monitor_scan()
     local objects, count = SelectObject(GetMyPCObject(), g.bam_scan_range, "ENEMY")
-    local weekly = Boss_action_monitor_in_weekly_map() and Boss_action_monitor_find(g.bam_weekly_cls)
+    local groups = Boss_action_monitor_active_groups()
     for i = 1, count or 0 do
         local handle = GetHandle(objects[i])
         local cls = info.GetMonsterClassName(handle)
         local b = cls and Boss_action_monitor_find(cls)
-        if weekly then
-            Boss_action_monitor_scan_weekly(weekly, handle, cls)
+        for _, entry in ipairs(groups) do
+            Boss_action_monitor_scan_group(entry, handle, cls)
         end
         if b then
             local target_info = info.GetTargetInfo(handle)
@@ -500,7 +551,7 @@ end
 function Boss_action_monitor_message(b, d)
     local t = d.trig
     local label = (t.text ~= "" and t.text) or
-                      (Boss_action_monitor_is_weekly(b) and g.bam_weekly_boss_name) or Boss_action_monitor_display_name(b)
+                      (Boss_action_monitor_group(b) and g.bam_group_boss_name and g.bam_group_boss_name[b.cls]) or Boss_action_monitor_display_name(b)
     if d.kind == "hp" then
         return string.format("%s (HP %d%%)", label, t.pct)
     elseif d.kind == "before" then
@@ -587,8 +638,9 @@ function Boss_action_monitor_hud_update()
     AUTO_CAST(hud)
     local name = GET_CHILD(hud, "name")
     name:SetOffset(10, 8)
-    if Boss_action_monitor_is_weekly(b) and g.bam_weekly_boss_name then
-        name:SetText("{ol}{s14}" .. g.bam_weekly_boss_name)
+    local group_boss = Boss_action_monitor_group(b) and g.bam_group_boss_name and g.bam_group_boss_name[b.cls]
+    if group_boss then
+        name:SetText("{ol}{s14}" .. group_boss)
     else
         name:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
     end
@@ -810,9 +862,8 @@ function Boss_action_monitor_build_list(list, query)
         AUTO_CAST(btn)
         btn:SetSkinName(i == g.bam_sel and "test_pvp_btn" or "test_gray_button")
         btn:SetText("{ol}{s14}" .. Boss_action_monitor_display_name(b))
-        btn:SetTextTooltip(Boss_action_monitor_is_weekly(b) and Boss_action_monitor_t(
-            "{ol}週間ボスレイドの中で、その週のボスに効きます", "{ol}Applies to the boss of the week in Weekly Boss Raid") or
-                               ("{ol}" .. b.cls))
+        local grp = Boss_action_monitor_group(b)
+        btn:SetTextTooltip(grp and Boss_action_monitor_t(grp.tip_ja, grp.tip_en) or ("{ol}" .. b.cls))
         btn:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_select")
         btn:SetEventScriptArgNumber(ui.LBUTTONUP, i)
     end
@@ -920,11 +971,19 @@ function Boss_action_monitor_build_detail(detail)
         return
     end
     local w = detail:GetWidth()
-    if Boss_action_monitor_is_weekly(b) then
+    local grp = Boss_action_monitor_group(b)
+    if grp then
         Boss_action_monitor_label(detail, "boss_name", 10, 8, "{ol}{s18}" .. Boss_action_monitor_display_name(b))
-        Boss_action_monitor_label(detail, "weekly_note", 10, 40, Boss_action_monitor_t(
-            "{ol}{s13}{#CCCCCC}週間ボスレイドの中だけで、その週のボスに効きます。{nl}残り時間は週間ボスレイドの 7 分のタイマーです",
-            "{ol}{s13}{#CCCCCC}Works only in Weekly Boss Raid, for that week's boss.{nl}Time is the raid's 7-minute timer"))
+        if grp.manual then
+            -- 注記は 1 行目だけにし、手動タイマーの長さの欄を空ける
+            Boss_action_monitor_label(detail, "group_note", 10, 34, Boss_action_monitor_t(grp.note_ja, grp.note_en))
+            Boss_action_monitor_label(detail, "duration_label", 10, 76,
+                Boss_action_monitor_t("{ol}手動タイマーの長さ (分:秒)", "{ol}Manual timer length (m:ss)"))
+            Boss_action_monitor_edit(detail, "duration", 250, 70, 80,
+                b.duration > 0 and g.bam_fmt_time(b.duration) or "", false)
+        else
+            Boss_action_monitor_label(detail, "group_note", 10, 40, Boss_action_monitor_t(grp.note_ja, grp.note_en))
+        end
         Boss_action_monitor_build_triggers(detail, b)
         return
     end
@@ -1248,9 +1307,9 @@ function Boss_action_monitor_delete_ask()
     if not b then
         return
     end
-    if Boss_action_monitor_is_weekly(b) then
-        ui.SysMsg(Boss_action_monitor_t("「週間ボス共通」は消せません。使わないときは件を OFF にしてください",
-            "\"Weekly Boss (all)\" cannot be deleted. Turn its entries OFF instead"))
+    if Boss_action_monitor_group(b) then
+        ui.SysMsg(string.format(Boss_action_monitor_t("「%s」は消せません。使わないときは件を OFF にしてください",
+            "\"%s\" cannot be deleted. Turn its entries OFF instead"), Boss_action_monitor_display_name(b)))
         return
     end
     ui.MsgBox(string.format(Boss_action_monitor_t("「%s」の設定を消しますか？", "Delete the settings for \"%s\"?"),
@@ -1259,7 +1318,7 @@ end
 
 function Boss_action_monitor_delete(idx)
     local b = g.bam_settings.bosses[idx]
-    if not b or Boss_action_monitor_is_weekly(b) then
+    if not b or Boss_action_monitor_group(b) then
         return
     end
     table.remove(g.bam_settings.bosses, idx)

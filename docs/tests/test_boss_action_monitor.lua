@@ -116,6 +116,24 @@ check("空なら何も返さない", #hits + total, 0)
 hits, total = g.bam_search(index, "%a", 50)
 check("パターン文字は文字として扱う", total, 0)
 
+print("[8] 「共通」の登録は先頭に決まった順で置く(無ければ作る)")
+g.active_id = "TESTAID"
+g.save_json = function() end
+g.load_json = function()
+    return {bosses = {{cls = "boss_x", name = "X"}, {cls = "@field_boss", hp = {{pct = 30, text = "keep"}}}}}
+end
+Boss_action_monitor_load_settings()
+local order = {}
+for _, b in ipairs(g.bam_settings.bosses) do
+    order[#order + 1] = b.cls
+end
+check("並び", table.concat(order, ","), "@weekly_boss,@field_boss,boss_x")
+check("既存の共通の件は残る", g.bam_settings.bosses[2].hp[1].text, "keep")
+Boss_action_monitor_load_settings()
+check("読み直しても増えない", #g.bam_settings.bosses, 3)
+check("共通は表示名が言語に合う", Boss_action_monitor_group(g.bam_settings.bosses[1]).cls, "@weekly_boss")
+check("普通のボスは共通ではない", Boss_action_monitor_group(g.bam_settings.bosses[3]), nil)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
