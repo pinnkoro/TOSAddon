@@ -99,7 +99,7 @@ check("text は空", broken.hp[1].text, "")
 check("on は ON", broken.time[1].on, true)
 local empty = boss({cls = "y"})
 check("hp が無ければ空の表", type(empty.hp) == "table" and #empty.hp, 0)
-check("map が無ければ空", empty.map, "")
+check("以前の版の map は捨てる", boss({cls = "z", map = "weekly_f_gele_57_4"}).map, nil)
 
 print("[7] ボスの検索(部分一致)")
 local index = {{cls = "Raid_boss_Naktis", name = "ナクティス"}, {cls = "Raid_boss_Naktis_hard", name = "ナクティス"},

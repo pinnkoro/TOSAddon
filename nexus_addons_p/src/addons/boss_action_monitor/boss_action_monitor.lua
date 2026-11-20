@@ -102,7 +102,10 @@ end
 function g.bam_normalize_boss(b)
     b.cls = tostring(b.cls or "")
     b.name = type(b.name) == "string" and b.name or b.cls
-    b.map = type(b.map) == "string" and b.map or ""
+    -- 以前の版はボスごとにマップを覚えていた(そのマップに入ると、ボスを見る前から残り時間の
+    -- 知らせを動かす)。週間ボスレイドは属性ごとに同じマップを使うので、別の週の別のボスにまで
+    -- 前のボスの知らせが出ていた。機能ごと落としたので、残っていれば捨てる。
+    b.map = nil
     b.duration = math.floor(g.bam_clamp(b.duration, 0, 7200, 0))
     if type(b.hp) ~= "table" then
         b.hp = {}
@@ -348,8 +351,8 @@ function boss_action_monitor_on_init()
         timer:Start(0.5)
     end
     local _, group_names = Boss_action_monitor_active_groups()
-    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 このマップに登録=%d 共通=%s", tostring(g.map_name),
-        #g.bam_settings.bosses, #Boss_action_monitor_map_bosses(), group_names)
+    g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 共通=%s", tostring(g.map_name),
+        #g.bam_settings.bosses, group_names)
 end
 
 -- OFF にされたときの後始末。**一度も ON にしていない利用者にも 1 回呼ばれる**ので、
@@ -362,24 +365,21 @@ function boss_action_monitor_on_teardown()
     Boss_action_monitor_hud_close()
 end
 
--- 今のマップで動くボス。マップを登録してあるもの + 週間ボスレイドなら「週間ボス共通」。
-function Boss_action_monitor_map_bosses()
+-- 今のマップで効く「共通」の登録(週間ボスレイドなら「週間ボス共通」など)。
+function Boss_action_monitor_group_bosses()
     local result = {}
     for _, b in ipairs(g.bam_settings.bosses) do
         local grp = Boss_action_monitor_group(b)
-        if grp then
-            if Boss_action_monitor_group_active(grp) then
-                result[#result + 1] = b
-            end
-        elseif b.map ~= "" and b.map == g.map_name then
+        if grp and Boss_action_monitor_group_active(grp) then
             result[#result + 1] = b
         end
     end
     return result
 end
 
--- 時間の知らせを見るボス。このマップで姿を見たもの + このマップを登録してあるもの。
--- (レイドタイマーはボスが出る前から動くので、マップの登録でも拾えるようにしている)
+-- 時間の知らせを見るボス。このマップで姿を見たもの + 今のマップで効く「共通」。
+-- **個別のボスは姿を見るまで動かさない。** マップで決め打ちすると、同じマップを使う
+-- 別のボス(週間ボスレイドは属性ごとに同じマップ)にまで知らせが出る。
 function Boss_action_monitor_active_bosses()
     local result = {}
     for _, b in ipairs(g.bam_settings.bosses) do
@@ -388,14 +388,14 @@ function Boss_action_monitor_active_bosses()
             if Boss_action_monitor_group_active(grp) then
                 result[#result + 1] = b
             end
-        elseif (g.bam_seen and g.bam_seen[b.cls]) or (b.map ~= "" and b.map == g.map_name) then
+        elseif g.bam_seen and g.bam_seen[b.cls] then
             result[#result + 1] = b
         end
     end
     return result
 end
 
--- HUD に出すボス。直近に姿を見たもの、無ければこのマップを登録してある最初のもの。
+-- HUD に出すボス。直近に姿を見たもの、無ければ今のマップで効く最初の「共通」。
 function Boss_action_monitor_hud_boss()
     if g.bam_active_cls then
         local b = Boss_action_monitor_find(g.bam_active_cls)
@@ -403,7 +403,7 @@ function Boss_action_monitor_hud_boss()
             return b
         end
     end
-    return Boss_action_monitor_map_bosses()[1]
+    return Boss_action_monitor_group_bosses()[1]
 end
 
 function Boss_action_monitor_raid_fresh()
@@ -633,7 +633,7 @@ function Boss_action_monitor_nico_chat(msg)
 end
 
 -- ===== HUD =====
--- 登録したボスが居る(または登録したマップに居る)ときだけ出す。
+-- 登録したボスが居る(または「共通」が効くマップに居る)ときだけ出す。
 -- 残り時間・HP・次の時間の知らせと、手動タイマーの ▶ / ■ を持つ。
 -- HUD なので ESC のスタックには積まない(UI_RULES.md)。
 
@@ -755,7 +755,7 @@ end
 -- ===== 設定画面 =====
 --
 -- 左: 登録したボスの一覧(「ターゲットを登録」「削除」)
--- 右: 選んだボスの設定(マップ・手動タイマーの長さ・HP の件・時間の件)
+-- 右: 選んだボスの設定(手動タイマーの長さ・HP の件・時間の件)
 -- 入力欄は打ち終えて 0.5 秒たつと保存する(Enter でも確定できる)。
 -- 行が何件目かは行の名前(hp_<n> / tm_<n>)から取る。SetUserValue で持たせると、
 -- 入力欄の GetParent() から読めないことがある(Revival Timer の試作で実機で発生)。
@@ -970,7 +970,7 @@ function Boss_action_monitor_search_pick(parent, ctrl, cls)
     local mon_cls = GetClass("Monster", cls)
     g.vlog("boss_action_monitor: 検索から登録 cls=%s", tostring(cls))
     if mon_cls then
-        Boss_action_monitor_add_cls(cls, mon_cls, false)
+        Boss_action_monitor_add_cls(cls, mon_cls)
     end
 end
 
@@ -1022,26 +1022,10 @@ function Boss_action_monitor_build_detail(detail)
         return
     end
     Boss_action_monitor_label(detail, "boss_name", 10, 8, "{ol}{s18}" .. b.name .. "{/}{s13}{#AAAAAA}  " .. b.cls)
-    -- マップ
-    local map_cls = b.map ~= "" and GetClass("Map", b.map)
-    local map_label = map_cls and dictionary.ReplaceDicIDInCompStr(map_cls.Name) or
-                          Boss_action_monitor_t("(登録なし)", "(none)")
-    Boss_action_monitor_label(detail, "map", 10, 38, Boss_action_monitor_t("{ol}マップ: ", "{ol}Map: ") .. map_label)
-    local map_set = detail:CreateOrGetControl("button", "map_set", w - 190, 32, 110, 28)
-    AUTO_CAST(map_set)
-    map_set:SetText(Boss_action_monitor_t("{ol}今のマップ", "{ol}This map"))
-    map_set:SetTextTooltip(Boss_action_monitor_t(
-        "{ol}このマップに入ると、ボスが出る前からレイドタイマーの知らせを出します",
-        "{ol}In this map, time alerts work even before the boss appears"))
-    map_set:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_map_set")
-    local map_clear = detail:CreateOrGetControl("button", "map_clear", w - 76, 32, 66, 28)
-    AUTO_CAST(map_clear)
-    map_clear:SetText(Boss_action_monitor_t("{ol}解除", "{ol}Clear"))
-    map_clear:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_map_clear")
     -- 手動タイマーの長さ
-    Boss_action_monitor_label(detail, "duration_label", 10, 72,
+    Boss_action_monitor_label(detail, "duration_label", 10, 48,
         Boss_action_monitor_t("{ol}手動タイマーの長さ (分:秒)", "{ol}Manual timer length (m:ss)"))
-    Boss_action_monitor_edit(detail, "duration", 250, 66, 80, b.duration > 0 and g.bam_fmt_time(b.duration) or "", false)
+    Boss_action_monitor_edit(detail, "duration", 250, 42, 80, b.duration > 0 and g.bam_fmt_time(b.duration) or "", false)
     Boss_action_monitor_build_triggers(detail, b)
 end
 
@@ -1302,13 +1286,11 @@ function Boss_action_monitor_add_target()
             "Target the boss you want to add first"))
         return
     end
-    Boss_action_monitor_add_cls(cls, mon_cls, true)
+    Boss_action_monitor_add_cls(cls, mon_cls)
 end
 
 -- ClassName で 1 体登録して選ぶ(ターゲットからと検索からの両方)。
--- with_map … 今のマップも一緒に覚えるか。ターゲットから登録したときだけ(そのボスの居るマップに居るので)。
--- 検索からは街で登録することが多く、今のマップはボスと関係が無い。
-function Boss_action_monitor_add_cls(cls, mon_cls, with_map)
+function Boss_action_monitor_add_cls(cls, mon_cls)
     Boss_action_monitor_commit_all(ui.GetFrame(g.bam_setting_name))
     local found, i = Boss_action_monitor_find(cls)
     if found then
@@ -1326,7 +1308,6 @@ function Boss_action_monitor_add_cls(cls, mon_cls, with_map)
     bosses[#bosses + 1] = g.bam_normalize_boss({
         cls = cls,
         name = dictionary.ReplaceDicIDInCompStr(mon_cls.Name),
-        map = (with_map and g.get_map_type() ~= "City") and tostring(g.map_name or "") or "",
         duration = 0,
         hp = {},
         time = {}
@@ -1361,28 +1342,6 @@ function Boss_action_monitor_delete(idx)
     Boss_action_monitor_save_settings()
     Boss_action_monitor_rebuild()
     Boss_action_monitor_hud_update()
-end
-
-function Boss_action_monitor_map_set()
-    local b = g.bam_settings.bosses[g.bam_sel]
-    if not b then
-        return
-    end
-    Boss_action_monitor_commit_all(ui.GetFrame(g.bam_setting_name))
-    b.map = tostring(g.map_name or "")
-    Boss_action_monitor_save_settings()
-    Boss_action_monitor_rebuild()
-end
-
-function Boss_action_monitor_map_clear()
-    local b = g.bam_settings.bosses[g.bam_sel]
-    if not b then
-        return
-    end
-    Boss_action_monitor_commit_all(ui.GetFrame(g.bam_setting_name))
-    b.map = ""
-    Boss_action_monitor_save_settings()
-    Boss_action_monitor_rebuild()
 end
 
 function Boss_action_monitor_row_add(parent, ctrl, kind)
