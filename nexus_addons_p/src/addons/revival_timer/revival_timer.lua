@@ -1,4 +1,24 @@
 -- revival_timer ここから
+-- 秒数の上限。表示は「分 % 60 : 秒」なので、1 時間以上は正しく出せない。
+g.revival_timer_max_second = 3599
+
+-- 設定画面の入力欄の名前(閉じるときにまとめて保存する)。
+g.revival_timer_edit_names = {"info_edit", "set_second_edit"}
+
+-- 入力欄から読んだ文字列から "{ol}" を取り除く(以前の版が入力欄へ付けていたものの名残り)。
+function Revival_timer_strip_ol(text)
+    return (string.gsub(tostring(text or ""), "{ol}", ""))
+end
+
+-- 秒数として使える値に直す。使えなければ nil(空欄・0 以下・nan)。上限を超えたら上限に丸める。
+function Revival_timer_clamp_second(value)
+    local n = tonumber(Revival_timer_strip_ol(value))
+    if not n or n ~= n or n < 1 then
+        return nil
+    end
+    return math.min(math.floor(n), g.revival_timer_max_second)
+end
+
 function Revival_timer_save_settings()
     g.save_json(g.revival_timer_path, g.revival_timer_settings)
 end
@@ -18,6 +38,16 @@ function Revival_timer_load_settings()
             shortcut_l = false
         }
     end
+    -- 以前の版は入力欄に "{ol}" を付けていたので、保存された文字列に混ざっていることがある。
+    settings.set_text = Revival_timer_strip_ol(settings.set_text)
+    -- 以前の版は秒数を Enter でそのまま tonumber していたので、空欄や "{ol}" 混じりで確定すると
+    -- nil になって JSON からキーごと消えていた。そのままだとタイマーが毎回 nil の算術で落ちる。
+    local sec = Revival_timer_clamp_second(settings.set_second)
+    if not sec then
+        g.vlog("revival_timer: 保存された秒数が読めないので 60 に戻す (%s)", tostring(settings.set_second))
+        sec = 60
+    end
+    settings.set_second = sec
     g.revival_timer_settings = settings
     Revival_timer_save_settings()
 end
@@ -80,9 +110,39 @@ function Revival_timer_end_drag(frame)
     Revival_timer_save_settings()
 end
 
+-- 設定画面を閉じる(× と ESC の両方がここを通る)。
+-- **破棄する前に入力欄を保存すること。** 入力欄は Enter か閉じる操作でしか保存しないので、
+-- Enter を押し忘れて閉じた分はここで拾う。
+function Revival_timer_setting_close()
+    local name = addon_name_lower .. "revival_timer_setting"
+    local setting = ui.GetFrame(name)
+    if setting then
+        g.vlog("revival_timer: 設定画面を閉じる")
+        Revival_timer_commit_all(setting)
+    end
+    ui.DestroyFrame(name)
+end
+
+-- 設定画面の入力欄をすべて写し、変わっていれば書き出す。Enter を押していない入力も
+-- 効かせたいとき(閉じる・テスト表示・開き直し)に呼ぶ。
+function Revival_timer_commit_all(setting)
+    local changed = false
+    for _, edit_name in ipairs(g.revival_timer_edit_names) do
+        local edit = GET_CHILD_RECURSIVELY(setting, edit_name)
+        if edit then
+            AUTO_CAST(edit)
+            changed = Revival_timer_apply_edit(edit) or changed
+        end
+    end
+    g.vlog("revival_timer: 入力欄をまとめて写す 変更あり=%s", tostring(changed))
+    if changed then
+        Revival_timer_save_settings()
+    end
+end
+
 function Revival_timer_frame_close(frame)
     if frame:GetName() == addon_name_lower .. "revival_timer_setting" then
-        ui.DestroyFrame(frame:GetName())
+        Revival_timer_setting_close()
     else
         frame:ShowWindow(0)
         frame:SetPos(g.revival_timer_settings.x, g.revival_timer_settings.y)
@@ -91,6 +151,12 @@ function Revival_timer_frame_close(frame)
 end
 
 function Revival_timer_setting()
+    -- 開いたまま開き直されたら(一覧の歯車をもう一度押すなど)、作り直す前に今の入力を写す。
+    -- 入力欄は保存済みの値で作り直すので、Enter を押していない打鍵が消える。
+    local opened = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
+    if opened then
+        Revival_timer_commit_all(opened)
+    end
     local setting = ui.CreateNewFrame("notice_on_pc", addon_name_lower .. "revival_timer_setting", 0, 0, 0, 0)
     AUTO_CAST(setting)
     setting:Resize(240, 420)
@@ -105,7 +171,7 @@ function Revival_timer_setting()
     setting:RemoveAllChild()
     local title_text = setting:CreateOrGetControl('richtext', 'title_text', 20, 15, 50, 30)
     AUTO_CAST(title_text)
-    title_text:SetText("{ol}Lets Go Home Config")
+    title_text:SetText("{ol}Revival Timer Config")
     local close = setting:CreateOrGetControl("button", "close", 0, 0, 20, 20)
     AUTO_CAST(close)
     close:SetImage("testclose_button")
@@ -122,7 +188,13 @@ function Revival_timer_setting()
     AUTO_CAST(info_edit)
     info_edit:SetFontName("white_16_ol")
     info_edit:SetTextAlign("center", "center")
-    info_edit:SetText("{ol}" .. g.revival_timer_settings.set_text)
+    -- 入力欄には {ol} を付けない(縁取りはフォント white_16_ol が受け持つ)。
+    -- 付けると GetText() にそのまま残り、打った文字の後ろに "{ol}" が付いて保存される
+    -- ("12{ol}"。秒数は数として読めなくなり保存されなかった。実機のログで発覚)。
+    info_edit:SetText(g.revival_timer_settings.set_text)
+    -- 保存は Enter か、閉じる / テスト表示のとき(Revival_timer_commit_all)だけ。
+    -- **打鍵の後の自動保存(SetTypingScp)は付けないこと。** 打ち終えたかは推測でしか分からず、
+    -- 「60 を消して 120 と打つ」途中の 1 や打ちかけの文言が設定に入り、PT チャットへ流れる。
     info_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
     local set_second = gbox:CreateOrGetControl('richtext', 'set_second', 10, 65, 50, 20)
     AUTO_CAST(set_second)
@@ -132,7 +204,7 @@ function Revival_timer_setting()
     set_second_edit:SetFontName("white_16_ol")
     set_second_edit:SetTextAlign("center", "center")
     set_second_edit:SetNumberMode(1)
-    set_second_edit:SetText("{ol}" .. g.revival_timer_settings.set_second)
+    set_second_edit:SetText(tostring(g.revival_timer_settings.set_second))
     set_second_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
     local with_ptchat = gbox:CreateOrGetControl('checkbox', "with_ptchat", 10, 120, 30, 30)
     AUTO_CAST(with_ptchat)
@@ -167,18 +239,64 @@ function Revival_timer_setting()
                        "{ol}スタートと非表示は{nl}チャットコマンド{#FFD700}'/rtimer'" or
                        "{ol}Start and hide with the{nl}chat command{#FFD700}'/rtimer'")
     setting:ShowWindow(1)
-    g.esc_register_destroy(addon_name_lower .. "revival_timer_setting")
+    -- ESC も × と同じ後始末(入力欄の保存)を通す。
+    g.esc_register(addon_name_lower .. "revival_timer_setting", Revival_timer_setting_close)
 end
 
-function Revival_timer_edit_save(frame, ctrl)
+-- 入力欄を設定へ写す。呼ばれるのは確定したとき(Enter / 閉じる / テスト表示)だけ。
+-- 設定が変わったら true を返す。**書き出しは呼んだ側が行う**(変わっていないのに毎回書き出さない)。
+function Revival_timer_apply_edit(ctrl)
     local ctrl_name = ctrl:GetName()
+    local changed = false
     if ctrl_name == "info_edit" then
-        g.revival_timer_settings.set_text = ctrl:GetText()
+        local text = Revival_timer_strip_ol(ctrl:GetText())
+        if text ~= g.revival_timer_settings.set_text then
+            g.revival_timer_settings.set_text = text
+            changed = true
+        end
     elseif ctrl_name == "set_second_edit" then
-        g.revival_timer_settings.set_second = tonumber(ctrl:GetText())
+        -- 空欄や 0 なら前の値を残す(nil のまま数え始めると毎回落ちる)。
+        -- 上限を超えた値は上限に丸める。入力欄も、実際に効く値(残した値・丸めた値)に書き直す。
+        local n = Revival_timer_clamp_second(ctrl:GetText())
+        if n and n ~= g.revival_timer_settings.set_second then
+            g.revival_timer_settings.set_second = n
+            changed = true
+        end
+        if Revival_timer_strip_ol(ctrl:GetText()) ~= tostring(g.revival_timer_settings.set_second) then
+            ctrl:SetText(tostring(g.revival_timer_settings.set_second))
+        end
     end
-    Revival_timer_save_settings()
-    Revival_timer_setting()
+    g.vlog("revival_timer: %s を写す 変更=%s set_second=%s", tostring(ctrl_name), tostring(changed),
+        tostring(g.revival_timer_settings.set_second))
+    return changed
+end
+
+-- 入力欄を写し、変わっていれば書き出す。
+function Revival_timer_commit_edit(ctrl)
+    if Revival_timer_apply_edit(ctrl) then
+        Revival_timer_save_settings()
+    end
+end
+
+-- Enter で確定。**ここで設定画面を作り直さないこと。** 押した入力欄が消えると Enter の
+-- 行き先が無くなり、チャット入力欄が開く(docs/UI_RULES.md「入力欄の Enter で一覧を作り直さない」)。
+-- 以前はここで Revival_timer_setting() を呼び直していた。
+function Revival_timer_edit_save(frame, ctrl)
+    local chat = ui.GetFrame("chat")
+    g.revival_timer_chat_was_open = chat ~= nil and chat:IsVisible() == 1
+    ReserveScript("Revival_timer_after_enter()", 0.05)
+    Revival_timer_commit_edit(ctrl)
+end
+
+-- Enter の後、この Enter でチャット入力欄が開いてしまっていたら閉じる(前から開いていたものは触らない)。
+function Revival_timer_after_enter()
+    local chat = ui.GetFrame("chat")
+    local open = chat ~= nil and chat:IsVisible() == 1
+    g.vlog("revival_timer: Enter の後のチャット入力欄 前=%s 後=%s", tostring(g.revival_timer_chat_was_open),
+        tostring(open))
+    if open and not g.revival_timer_chat_was_open then
+        ui.CloseFrame("chat")
+    end
 end
 
 function Revival_timer_checkbox_save(frame, ctrl)
@@ -199,9 +317,10 @@ end
 function Revival_timer_test_show(frame)
     local revival_timer_setting = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
     local revival_timer = ui.GetFrame(addon_name_lower .. "revival_timer")
+    -- Enter を押していなくても、今の入力で試す。
+    Revival_timer_commit_all(revival_timer_setting)
     revival_timer:SetPos(revival_timer_setting:GetX() + revival_timer_setting:GetWidth(), revival_timer_setting:GetY())
-    g.revival_timer_start_time = imcTime.GetAppTimeMS()
-    g.revival_timer_announced = 0
+    Revival_timer_start_cycle()
     local revival_timer_timer = revival_timer:CreateOrGetControl("timer", "revival_timer_timer", 0, 0)
     AUTO_CAST(revival_timer_timer)
     revival_timer_timer:SetUpdateScript("Revival_timer_update")
@@ -234,8 +353,7 @@ function Revival_timer_EXEC_CHATMACRO(my_frame, my_msg)
             revival_timer:ShowWindow(0)
             return
         else
-            g.revival_timer_start_time = imcTime.GetAppTimeMS()
-            g.revival_timer_announced = 0
+            Revival_timer_start_cycle()
             local revival_timer_timer = revival_timer:CreateOrGetControl("timer", "revival_timer_timer", 0, 0)
             AUTO_CAST(revival_timer_timer)
             revival_timer_timer:SetUpdateScript("Revival_timer_update")
@@ -261,8 +379,7 @@ function Revival_timer_keypress(_nexus_addons_p)
         g.revival_timer_last_keypress = now
         local revival_timer = ui.GetFrame(addon_name_lower .. "revival_timer")
         if revival_timer:IsVisible() == 0 then
-            g.revival_timer_start_time = imcTime.GetAppTimeMS()
-            g.revival_timer_announced = 0
+            Revival_timer_start_cycle()
             local revival_timer_timer = revival_timer:CreateOrGetControl("timer", "revival_timer_timer", 0, 0)
             AUTO_CAST(revival_timer_timer)
             revival_timer_timer:SetUpdateScript("Revival_timer_update")
@@ -276,16 +393,18 @@ end
 
 function Revival_timer_update(revival_timer, revival_timer_timer)
     local elapsed_ms = imcTime.GetAppTimeMS() - g.revival_timer_start_time
-    local remaining_s = g.revival_timer_settings.set_second - math.floor(elapsed_ms / 1000)
+    local cycle_second = g.revival_timer_cycle_second or g.revival_timer_settings.set_second
+    local cycle_text = g.revival_timer_cycle_text or g.revival_timer_settings.set_text
+    local remaining_s = cycle_second - math.floor(elapsed_ms / 1000)
     if remaining_s < 0 then
         Revival_timer_loop_timer()
         return
     end
     local info_text = GET_CHILD(revival_timer, "info_text")
-    info_text:SetText("{ol}{#FF0000}{s20}" .. g.revival_timer_settings.set_text)
+    info_text:SetText("{ol}{#FF0000}{s20}" .. cycle_text)
     local loop_text = GET_CHILD(revival_timer, "loop_text")
-    local m = math.floor((g.revival_timer_settings.set_second / 60) % 60)
-    local s = math.floor(g.revival_timer_settings.set_second % 60)
+    local m = math.floor((cycle_second / 60) % 60)
+    local s = math.floor(cycle_second % 60)
     loop_text:SetText("{ol}Set Time : " .. string.format("%02d:%02d{/}", m, s))
     local timer_text = GET_CHILD(revival_timer, "timer_text")
     local m = math.floor((remaining_s / 60) % 60)
@@ -295,29 +414,38 @@ function Revival_timer_update(revival_timer, revival_timer_timer)
     if remaining_s <= 10 and g.revival_timer_announced == 0 then
         g.revival_timer_announced = 1
         local suffix = g.lang == "Japanese" and " 10秒前" or " 10 sec rem."
-        local msg = "/p " .. g.revival_timer_settings.set_text .. suffix
+        local msg = "/p " .. cycle_text .. suffix
         if g.revival_timer_settings.ptchat then
             _UI_CHAT(msg)
         end
         if g.revival_timer_settings.nicochat then
-            Revival_timer_NICO_CHAT("{@st55_a}" .. g.revival_timer_settings.set_text .. suffix)
+            Revival_timer_NICO_CHAT("{@st55_a}" .. cycle_text .. suffix)
         end
     elseif remaining_s <= 5 and g.revival_timer_announced == 1 then
         g.revival_timer_announced = 2
         local suffix = g.lang == "Japanese" and " 5秒前" or " 5 sec rem."
-        local msg = "/p " .. g.revival_timer_settings.set_text .. suffix
+        local msg = "/p " .. cycle_text .. suffix
         if g.revival_timer_settings.ptchat then
             _UI_CHAT(msg)
         end
         if g.revival_timer_settings.nicochat then
-            Revival_timer_NICO_CHAT("{@st55_a}" .. g.revival_timer_settings.set_text .. suffix)
+            Revival_timer_NICO_CHAT("{@st55_a}" .. cycle_text .. suffix)
         end
     end
 end
 
 function Revival_timer_loop_timer()
+    Revival_timer_start_cycle()
+end
+
+-- 1 周を始める。**秒数と文言はここで控え、周の途中では設定を読み直さないこと。**
+-- 周の途中で Enter されたときに残り秒数が飛んだり、10 秒前・5 秒前の通知が
+-- 抜けたり二度出たりしないように、変えた秒数と文言は次の周から効かせる。
+function Revival_timer_start_cycle()
     g.revival_timer_start_time = imcTime.GetAppTimeMS()
     g.revival_timer_announced = 0
+    g.revival_timer_cycle_second = g.revival_timer_settings.set_second
+    g.revival_timer_cycle_text = g.revival_timer_settings.set_text
 end
 
 function Revival_timer_NICO_CHAT(msg)

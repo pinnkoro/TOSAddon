@@ -85,6 +85,36 @@ function g.esc_register_hide(frame_name)
     end)
 end
 
+-- ESC 以外の経路でフレームを閉じるときに呼ぶ(例: 親の一覧を閉じるとき、そこから開いた窓も畳む)。
+-- **登録してある閉じ方を通す。** 直に ui.DestroyFrame すると、閉じる前に入力欄を保存する
+-- 窓(revival_timer の設定画面など)で、打ってすぐ閉じたときに最後の入力が消える。
+-- 閉じ方が無い・転んだ・閉じた後も残っているときは破棄する(必ず閉じる)。
+-- 閉じ方は ESC と同じく pcall で握る。呼んだ側(一覧を閉じる処理など)を巻き込まないため。
+function g.esc_close_frame(frame_name)
+    if not ui.GetFrame(frame_name) then
+        return
+    end
+    local close_func = nil
+    for i = #g.esc_stack, 1, -1 do
+        if g.esc_stack[i].frame == frame_name then
+            close_func = g.esc_stack[i].close
+            break
+        end
+    end
+    if close_func ~= nil and type(close_func) ~= "function" then
+        close_func = _G[close_func]
+    end
+    if type(close_func) == "function" then
+        local ok, err = pcall(close_func)
+        if not ok then
+            g.vlog("esc_close_frame: close failed frame=%s err=%s", tostring(frame_name), tostring(err))
+        end
+    end
+    if ui.GetFrame(frame_name) then
+        ui.DestroyFrame(frame_name)
+    end
+end
+
 -- 生きている(存在して表示中の)中で一番手前の登録を、外さずに返す。
 -- × ボタンで閉じた分は登録解除されないまま残るので、ここで一緒に捨てる。
 -- 戻り値の 2 つ目はスタック上の位置(esc_pop_top が外すのに使う)。

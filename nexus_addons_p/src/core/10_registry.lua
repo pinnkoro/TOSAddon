@@ -525,6 +525,9 @@ g._nexus_addons_p = {{
 }, {
     key = "revival_timer",
     category = "battle",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定画面の入力欄を、Enter を押さなくても閉じたときに保存するようにしました（タイトルの誤りも直しました）",
+    updated_note_en = "Settings inputs are now saved when you close the window, even without pressing Enter (also fixed the window title)",
     data = {
         use = 0,
         name = "Revival Timer",
