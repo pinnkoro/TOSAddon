@@ -71,11 +71,7 @@ function Instant_cc_APPS_TRY_MOVE_BARRACK_(frame, msg, str, barrack_layer)
     if not g.instant_cc_settings.per_barracks then
         for i = 1, #g.instant_cc_sorted_list do
             local info = g.instant_cc_sorted_list[i]
-            local pc_name = info.name
-            local job_cls = GetClassByType("Job", info.jobid)
-            local job_name = GET_JOB_NAME(job_cls, info.gender)
-            job_name = string.gsub(dic.getTranslatedStr(job_name), "{s18}", "")
-            local str = "Lv" .. info.level .. " " .. pc_name .. " (" .. job_name .. ")          "
+            local str = Instant_cc_menu_label(info)
             ui.AddContextMenuItem(context, str, string.format("Instant_cc_do_cc('%s',%d)", info.cid, info.layer))
         end
     else
@@ -89,16 +85,20 @@ function Instant_cc_APPS_TRY_MOVE_BARRACK_(frame, msg, str, barrack_layer)
             local info = g.instant_cc_sorted_list[i]
             local layer = info.layer
             if barrack_layer == layer then
-                local pc_name = info.name
-                local job_cls = GetClassByType("Job", info.jobid)
-                local job_name = GET_JOB_NAME(job_cls, info.gender)
-                job_name = string.gsub(dic.getTranslatedStr(job_name), "{s18}", "")
-                local str = "Lv" .. info.level .. " " .. pc_name .. " (" .. job_name .. ")          "
+                local str = Instant_cc_menu_label(info)
                 ui.AddContextMenuItem(context, str, string.format("Instant_cc_do_cc('%s',%d)", info.cid, info.layer))
             end
         end
     end
     ui.OpenContextMenu(context)
+end
+
+-- キャラ選択メニューの 1 行("Lv480 名前 (職業)")。CC Helper の「搬入してキャラチェンジ」も同じ表示にするので共有する。
+function Instant_cc_menu_label(info)
+    local job_cls = GetClassByType("Job", info.jobid)
+    local job_name = job_cls and GET_JOB_NAME(job_cls, info.gender) or ""
+    job_name = string.gsub(dic.getTranslatedStr(job_name), "{s18}", "")
+    return "Lv" .. tostring(info.level) .. " " .. tostring(info.name) .. " (" .. job_name .. ")          "
 end
 
 function Instant_cc_do_cc(cid, layer)
