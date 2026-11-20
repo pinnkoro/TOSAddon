@@ -304,13 +304,19 @@ end
 -- 状態は 2 つだけで、どちらもこの下の関数からしか触らない。
 --   g.cc_helper_in_run  … 搬入 1 回ぶんの記録。step 0 で作り、step 7(Cc_helper_in_finish)で消す。
 --                          { cc = 指定したキャラ or nil, abort = 打ち切った理由, gave_up = {[iesid] = true} }
---                          搬入が途中で止まって step 7 へ来ない経路(インベントリ満杯・取引中・倉庫を閉じた・
---                          マップ移動)では Cc_helper_in_run_discard で捨てる。
+--                          cc は右クリックのメニューから来たときだけ、step 0 の直後に書き込む。
+--                          搬入が途中で止まって step 7 へ来ない経路(インベントリ満杯・取引中・倉庫/インベントリを
+--                          閉じた・AWH が割り込んだ・マップ移動)では Cc_helper_in_run_discard で捨てる。
 --   g.cc_helper_cc_wait … 搬入が終わってから離脱するまでの待ち(1 秒)。token が一致したときだけ離脱する。
 --                          その間に搬入・搬出を始めたら Cc_helper_cancel_wait_cc で取り消す。
--- **キャラチェンジするのは搬入が最後まで成功したときだけ。** 倉庫が満杯で打ち切った・格納を
--- 諦めたアイテムが手元に残っている・MCC が無反応で抜けた、のどれかなら離脱しない
+-- **キャラチェンジするのは搬入が最後まで成功したときだけ。** 離脱しないのは次のどれか
 -- (外した装備を持ったまま別のキャラへ移ると、移った先で倉庫から取り出せない)。
+--   * 打ち切りの印(run.abort)がある … 倉庫が満杯・MCC が無反応・格納できないエーテルジェムがある・
+--                                      エーテルジェムを外せなかった(武器が 4 か所そろっていない)
+--   * step 7 の時点で、セットの装備・カードが手元(インベントリ / 装備中)に残っている
+--   * 格納を諦めたエーテルジェム(run.gave_up)が手元に残っている
+-- 装備・カードは失敗する箇所ごとに印を付けず、step 7 で最終状態をまとめて見る
+-- (ロック中で飛ばした・外し損ねた・格納を諦めた、をどれも同じ 1 か所で拾う)。
 
 -- キャラの一覧(g.instant_cc_sorted_list。バラック順にソート済み)とキャラチェンジ本体
 -- (INSTANTCC_DO_CC)はどちらも Instant CC のものを借りる。本家の Instant CC が先に
@@ -363,7 +369,9 @@ function Cc_helper_putitem_cc_context(frame, ctrl)
     ui.OpenContextMenu(context)
 end
 
--- メニューでキャラを選んだ: キャラを渡して、いつもの搬入を始める(step 0 が g.cc_helper_in_run.cc へ移す)。
+-- メニューでキャラを選んだ: いつもの搬入を始めて、できた記録へキャラを書き込む。
+-- step 0 は記録を作って更新スクリプトを予約するだけで、step 7 まで同期で進むことは無い。
+-- AWH が作動中などで記録が作られなかったときは、キャラの指定も残らない。
 function Cc_helper_putitem_then_cc(frame_name, cid, layer)
     if Cc_helper_in_running_msg() then
         return
@@ -373,12 +381,15 @@ function Cc_helper_putitem_then_cc(frame_name, cid, layer)
         g.vlog("[CCH] 搬入ボタンが無いので始めない frame=%s", tostring(frame_name))
         return
     end
-    g.cc_helper_next_cc = {
-        cid = cid,
-        layer = layer
-    }
-    g.vlog("[CCH] 搬入後のキャラチェンジを指定 cid=%s layer=%s frame=%s", tostring(cid), tostring(layer), frame_name)
-    Cc_helper_putitem(nil, in_btn, "cc", 0)
+    Cc_helper_putitem(nil, in_btn, nil, 0)
+    if g.cc_helper_in_run then
+        g.cc_helper_in_run.cc = {
+            cid = cid,
+            layer = layer
+        }
+    end
+    g.vlog("[CCH] 搬入後のキャラチェンジを指定 cid=%s layer=%s frame=%s 搬入開始=%s", tostring(cid), tostring(layer),
+        frame_name, tostring(g.cc_helper_in_run ~= nil))
 end
 
 -- 搬入を打ち切った(後始末のために step 7 へは進む)。step 7 でキャラチェンジしないよう印を付ける。
@@ -390,7 +401,8 @@ function Cc_helper_in_run_abort(reason)
     end
 end
 
--- 格納を諦めたアイテムを覚えておく(後から入ることもあるので、step 7 で手元に残っているかを見る)。
+-- 格納を諦めたエーテルジェムを覚えておく(後から入ることもあるので、step 7 で手元に残っているかを見る)。
+-- ジェムは同じ種類の予備を持っていることがあり、種類(clsid)では手元に残ったかを判定できないので個体で覚える。
 function Cc_helper_in_run_gave_up(iesid)
     local run = g.cc_helper_in_run
     if run then
@@ -413,6 +425,45 @@ function Cc_helper_cancel_wait_cc(reason)
     g.cc_helper_cc_wait = nil
 end
 
+-- セットの装備・カードのうち、まだ手元(インベントリ / 装備中)に残っているものを 1 つ返す。無ければ nil。
+-- エコモードでは伝説カードを外さないので見ない。
+function Cc_helper_in_left_item()
+    local items = g.cc_helper_settings[g.cid].items
+    local keys = {"seal", "ark", "core", "relic", "hair1", "hair2", "hair3", "leg", "god"}
+    local eco = g.cc_helper_settings.etc.eco or 0
+    for _, key in ipairs(keys) do
+        local data = items[key]
+        local iesid = data and data.iesid or ""
+        if iesid ~= "" and iesid ~= "0" and not (key == "leg" and eco ~= 0) then
+            if session.GetInvItemByGuid(iesid) then
+                return key .. " がインベントリに残っている " .. iesid
+            end
+            if session.GetEquipItemByGuid(iesid) then
+                return key .. " を装備したまま " .. iesid
+            end
+        end
+    end
+    -- カードは装備中だと GetEquipItemByGuid で引けないので、カードスロットを直接見る
+    local card_slots = {{
+        key = "god",
+        slot_index = 14
+    }, {
+        key = "leg",
+        slot_index = 13
+    }}
+    for _, c in ipairs(card_slots) do
+        local data = items[c.key]
+        local clsid = data and data.clsid or 0
+        if clsid ~= 0 and not (c.key == "leg" and eco ~= 0) then
+            local card_info = equipcard.GetCardInfo(c.slot_index)
+            if card_info and card_info:GetCardID() == clsid then
+                return c.key .. " カードを装備したまま"
+            end
+        end
+    end
+    return nil
+end
+
 -- step 7。搬入 1 回ぶんの結果を見て、キャラチェンジするかを決める。
 function Cc_helper_in_finish()
     local run = g.cc_helper_in_run
@@ -420,7 +471,7 @@ function Cc_helper_in_finish()
     if not run or not run.cc then
         return
     end
-    local reason = run.abort
+    local reason = run.abort or Cc_helper_in_left_item()
     if not reason then
         for iesid in pairs(run.gave_up) do
             if session.GetInvItemByGuid(iesid) then
@@ -1432,26 +1483,31 @@ end
 -- putitem
 function Cc_helper_putitem(frame, in_btn, str, step)
     if g.another_warehouse_func == true then
-        g.cc_helper_next_cc = nil
+        -- 途中の段で弾かれると搬入はここで止まり、step 7 へ来ない
+        if step ~= 0 then
+            Cc_helper_in_run_discard("AWH が作動中 step=" .. tostring(step))
+        end
         ui.SysMsg(g.lang == "Japanese" and "[AWH]が作動中です" or "[AWH]is currently operating")
         return
     end
     if step == 0 then
-        -- 搬入 1 回ぶんの記録を作り直す。キャラチェンジは右クリックのメニューから来たとき(str == "cc")だけ。
+        -- 搬入 1 回ぶんの記録を作り直す。キャラチェンジの指定は、右クリックのメニューから来たときだけ
+        -- 呼び出し元(Cc_helper_putitem_then_cc)がこの後に書き込む。
         -- 左クリックで始め直したときは、途中で止まった前回の記録も、離脱の待ちも捨てる。
         Cc_helper_cancel_wait_cc("搬入を始めた")
         g.cc_helper_in_run = {
-            cc = (str == "cc") and g.cc_helper_next_cc or nil,
             gave_up = {}
         }
-        g.cc_helper_next_cc = nil
         in_btn:SetUserValue("STEP", 0)
+        -- カード窓がもう開いていても搬入を始める(以前は何もせずに抜けていた)
         local monstercardslot = ui.GetFrame("monstercardslot")
-        if monstercardslot:IsVisible() == 0 then
+        local card_open = monstercardslot:IsVisible() == 1
+        if not card_open then
             MONSTERCARDSLOT_FRAME_OPEN()
-            in_btn:RunUpdateScript("Cc_helper_unequip_card_god", 0.1)
-            return
         end
+        g.vlog("[CCH] 搬入を始める カード窓が開いていた=%s", tostring(card_open))
+        in_btn:RunUpdateScript("Cc_helper_unequip_card_god", 0.1)
+        return
     elseif step == 1 then
         g.cc_helper_unequip_queue = nil
         in_btn:SetUserValue("STEP", step)
@@ -1728,8 +1784,10 @@ function Cc_helper_inv_to_warehouse(in_btn)
                         imcSound.PlaySoundEvent("sys_jam_slot_equip")
                         return 1
                     end
-                    -- "give_up": このアイテムは置いて次へ進む
-                    Cc_helper_in_run_gave_up(iesid)
+                    -- "give_up": このアイテムは置いて次へ進む(手元に残るので step 7 で拾う)
+                else
+                    -- ロック中などで倉庫へ入れられない。手元に残るので step 7 で拾う
+                    g.vlog("[CCH] 倉庫へ入れられないので飛ばす key=%s iesid=%s", key, tostring(iesid))
                 end
             end
         end
@@ -1737,6 +1795,7 @@ function Cc_helper_inv_to_warehouse(in_btn)
         Cc_helper_putitem(nil, in_btn, nil, 4)
         return 0
     end
+    Cc_helper_in_run_discard("倉庫が閉じている(装備の格納)")
     in_btn:StopUpdateScript("Cc_helper_inv_to_warehouse")
     return 0
 end
@@ -1782,6 +1841,8 @@ function Cc_helper_in_btn_aethergem_mgr(in_btn)
                 local msg = g.lang == "Japanese" and "{ol}武器4ヶ所着けてください" or
                                 "{ol}Please equip weapons in 4 slots"
                 ui.SysMsg(msg)
+                -- ジェムを外せないまま進むので、キャラチェンジはしない(確認で「いいえ」を選んだときは利用者の選択なので中止しない)
+                Cc_helper_in_run_abort("武器が4か所そろっていない(エーテルジェムを外せない) 装備数=" .. tostring(eq_count))
                 Cc_helper_putitem(nil, in_btn, nil, 6)
                 return
             end
@@ -1839,6 +1900,7 @@ end
 function Cc_helper_in_btn_agm(in_btn)
     local inventory = ui.GetFrame("inventory")
     if inventory:IsVisible() == 0 then
+        Cc_helper_in_run_discard("インベントリを閉じた(エーテルジェムの付け替え)")
         in_btn:StopUpdateScript("Cc_helper_in_btn_agm")
         return 0
     end
@@ -1893,6 +1955,8 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
     local inventory = ui.GetFrame("inventory")
     local accountwarehouse = ui.GetFrame("accountwarehouse")
     if inventory:IsVisible() == 0 or accountwarehouse:IsVisible() == 0 then
+        Cc_helper_in_run_discard("インベントリ / 倉庫を閉じた(エーテルジェムの格納)")
+        g.cc_helper_gem_queue = nil
         in_btn:StopUpdateScript("Cc_helper_gem_inv_to_warehouse")
         return 0
     end
@@ -1908,6 +1972,7 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
             end
         end
         local candidates = {}
+        local rejected = {} -- [clsid] = 倉庫へ入れられない(ロック中など)ので候補から外した数
         local inv_list = session.GetInvItemList()
         local guid_list = inv_list:GetGuidList()
         local cnt = guid_list:Count()
@@ -1916,7 +1981,11 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
             local inv_item = inv_list:GetItemByGuid(guid)
             local obj = GetIES(inv_item:GetObject())
             local id = obj.ClassID
-            if required_counts[id] and Cc_helper_checkvalid(inv_item) then
+            local valid = required_counts[id] and Cc_helper_checkvalid(inv_item)
+            if required_counts[id] and not valid then
+                rejected[id] = (rejected[id] or 0) + 1
+            end
+            if valid then
                 local level = get_current_aether_gem_level(obj)
                 table.insert(candidates, {
                     level = tonumber(level) or 0,
@@ -1939,6 +2008,16 @@ function Cc_helper_gem_inv_to_warehouse(in_btn)
             if current < limit then
                 table.insert(queue, gem)
                 added_counts[id] = current + 1
+            end
+        end
+        -- 入れられないジェムを外したせいで数が足りない種類があれば、移った先で付けられない。
+        -- 予備で足りているなら問題ないので、足りないときだけ打ち切りの印を付ける。
+        for id, n in pairs(rejected) do
+            local added = added_counts[id] or 0
+            g.vlog("[CCH] 倉庫へ入れられないエーテルジェム clsid=%d 数=%d 格納予定=%d 必要=%d", id, n, added,
+                required_counts[id])
+            if added < required_counts[id] then
+                Cc_helper_in_run_abort("格納できないエーテルジェムがある clsid=" .. tostring(id))
             end
         end
         g.cc_helper_gem_queue = queue
