@@ -1,9 +1,4 @@
 -- revival_timer ここから
--- 入力欄の自動保存の予約の通し番号(続けて打たれたぶんの古い予約を捨てるため)。
--- **入力欄ごとに持つこと。** 1 本を共有すると、文言を打ってすぐ秒数欄へ移ったときに
--- 文言の予約が捨てられ、文言が保存されない。[入力欄の名前] = 番号。
-g.revival_timer_typing_seq = g.revival_timer_typing_seq or {}
-
 -- 秒数の上限。表示は「分 % 60 : 秒」なので、1 時間以上は正しく出せない。
 g.revival_timer_max_second = 3599
 
@@ -116,8 +111,8 @@ function Revival_timer_end_drag(frame)
 end
 
 -- 設定画面を閉じる(× と ESC の両方がここを通る)。
--- **破棄する前に入力欄を保存すること。** 打鍵の後の自動保存は 0.5 秒後に予約されており、
--- それより先に窓を破棄すると予約が窓を見つけられず、最後に打った分が保存されない。
+-- **破棄する前に入力欄を保存すること。** 入力欄は Enter か閉じる操作でしか保存しないので、
+-- Enter を押し忘れて閉じた分はここで拾う。
 function Revival_timer_setting_close()
     local name = addon_name_lower .. "revival_timer_setting"
     local setting = ui.GetFrame(name)
@@ -128,17 +123,15 @@ function Revival_timer_setting_close()
     ui.DestroyFrame(name)
 end
 
--- 設定画面の入力欄をすべて写し、変わっていれば書き出す。打鍵の後の予約を待たずに
--- 今の入力を効かせたいとき(閉じる・テスト表示)に呼ぶ。
+-- 設定画面の入力欄をすべて写し、変わっていれば書き出す。Enter を押していない入力も
+-- 効かせたいとき(閉じる・テスト表示・開き直し)に呼ぶ。
 function Revival_timer_commit_all(setting)
     local changed = false
     for _, edit_name in ipairs(g.revival_timer_edit_names) do
         local edit = GET_CHILD_RECURSIVELY(setting, edit_name)
         if edit then
             AUTO_CAST(edit)
-            -- 残っている予約は捨てる(ここで写したので、後からもう一度写さない)。
-            g.revival_timer_typing_seq[edit_name] = (g.revival_timer_typing_seq[edit_name] or 0) + 1
-            changed = Revival_timer_apply_edit(edit, false) or changed
+            changed = Revival_timer_apply_edit(edit) or changed
         end
     end
     g.vlog("revival_timer: 入力欄をまとめて写す 変更あり=%s", tostring(changed))
@@ -159,7 +152,7 @@ end
 
 function Revival_timer_setting()
     -- 開いたまま開き直されたら(一覧の歯車をもう一度押すなど)、作り直す前に今の入力を写す。
-    -- 入力欄は保存済みの値で作り直すので、0.5 秒の自動保存より前の打鍵が消える。
+    -- 入力欄は保存済みの値で作り直すので、Enter を押していない打鍵が消える。
     local opened = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
     if opened then
         Revival_timer_commit_all(opened)
@@ -199,10 +192,10 @@ function Revival_timer_setting()
     -- 付けると GetText() にそのまま残り、打った文字の後ろに "{ol}" が付いて保存される
     -- ("12{ol}"。秒数は数として読めなくなり保存されなかった。実機のログで発覚)。
     info_edit:SetText(g.revival_timer_settings.set_text)
+    -- 保存は Enter か、閉じる / テスト表示のとき(Revival_timer_commit_all)だけ。
+    -- **打鍵の後の自動保存(SetTypingScp)は付けないこと。** 打ち終えたかは推測でしか分からず、
+    -- 「60 を消して 120 と打つ」途中の 1 や打ちかけの文言が設定に入り、PT チャットへ流れる。
     info_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
-    -- 打ち終えて少し手を止めたら保存する(Enter は押しても押さなくてもよい)。
-    -- 打鍵のたびの呼び出しは g.setup_incremental_search と同じ SetTypingScp。
-    info_edit:SetTypingScp("Revival_timer_typing")
     local set_second = gbox:CreateOrGetControl('richtext', 'set_second', 10, 65, 50, 20)
     AUTO_CAST(set_second)
     set_second:SetText(g.lang == "Japanese" and "{ol}秒数設定" or "{ol}Set Seconds")
@@ -213,7 +206,6 @@ function Revival_timer_setting()
     set_second_edit:SetNumberMode(1)
     set_second_edit:SetText(tostring(g.revival_timer_settings.set_second))
     set_second_edit:SetEventScript(ui.ENTERKEY, "Revival_timer_edit_save")
-    set_second_edit:SetTypingScp("Revival_timer_typing")
     local with_ptchat = gbox:CreateOrGetControl('checkbox', "with_ptchat", 10, 120, 30, 30)
     AUTO_CAST(with_ptchat)
     with_ptchat:SetCheck(g.revival_timer_settings.ptchat and 1 or 0)
@@ -251,9 +243,9 @@ function Revival_timer_setting()
     g.esc_register(addon_name_lower .. "revival_timer_setting", Revival_timer_setting_close)
 end
 
--- 入力欄を設定へ写す。from_enter … Enter で確定したとき true(打鍵の後の自動保存なら false)。
+-- 入力欄を設定へ写す。呼ばれるのは確定したとき(Enter / 閉じる / テスト表示)だけ。
 -- 設定が変わったら true を返す。**書き出しは呼んだ側が行う**(変わっていないのに毎回書き出さない)。
-function Revival_timer_apply_edit(ctrl, from_enter)
+function Revival_timer_apply_edit(ctrl)
     local ctrl_name = ctrl:GetName()
     local changed = false
     if ctrl_name == "info_edit" then
@@ -264,25 +256,24 @@ function Revival_timer_apply_edit(ctrl, from_enter)
         end
     elseif ctrl_name == "set_second_edit" then
         -- 空欄や 0 なら前の値を残す(nil のまま数え始めると毎回落ちる)。
-        -- 入力欄を前の値へ戻すのは Enter のときだけ。打っている途中に戻すと打ち直せない。
-        -- 上限を超えた値は上限に丸める(Enter のときは入力欄も丸めた値にする)。
+        -- 上限を超えた値は上限に丸める。入力欄も、実際に効く値(残した値・丸めた値)に書き直す。
         local n = Revival_timer_clamp_second(ctrl:GetText())
         if n and n ~= g.revival_timer_settings.set_second then
             g.revival_timer_settings.set_second = n
             changed = true
         end
-        if from_enter and Revival_timer_strip_ol(ctrl:GetText()) ~= tostring(g.revival_timer_settings.set_second) then
+        if Revival_timer_strip_ol(ctrl:GetText()) ~= tostring(g.revival_timer_settings.set_second) then
             ctrl:SetText(tostring(g.revival_timer_settings.set_second))
         end
     end
-    g.vlog("revival_timer: %s を写す (Enter=%s) 変更=%s set_second=%s", tostring(ctrl_name), tostring(from_enter),
-        tostring(changed), tostring(g.revival_timer_settings.set_second))
+    g.vlog("revival_timer: %s を写す 変更=%s set_second=%s", tostring(ctrl_name), tostring(changed),
+        tostring(g.revival_timer_settings.set_second))
     return changed
 end
 
 -- 入力欄を写し、変わっていれば書き出す。
-function Revival_timer_commit_edit(ctrl, from_enter)
-    if Revival_timer_apply_edit(ctrl, from_enter) then
+function Revival_timer_commit_edit(ctrl)
+    if Revival_timer_apply_edit(ctrl) then
         Revival_timer_save_settings()
     end
 end
@@ -294,10 +285,7 @@ function Revival_timer_edit_save(frame, ctrl)
     local chat = ui.GetFrame("chat")
     g.revival_timer_chat_was_open = chat ~= nil and chat:IsVisible() == 1
     ReserveScript("Revival_timer_after_enter()", 0.05)
-    -- 打鍵の後に積んだ予約は捨てる(Enter で保存したので、0.5 秒後にもう一度保存しない)。
-    local name = ctrl:GetName()
-    g.revival_timer_typing_seq[name] = (g.revival_timer_typing_seq[name] or 0) + 1
-    Revival_timer_commit_edit(ctrl, true)
+    Revival_timer_commit_edit(ctrl)
 end
 
 -- Enter の後、この Enter でチャット入力欄が開いてしまっていたら閉じる(前から開いていたものは触らない)。
@@ -308,31 +296,6 @@ function Revival_timer_after_enter()
         tostring(open))
     if open and not g.revival_timer_chat_was_open then
         ui.CloseFrame("chat")
-    end
-end
-
--- 打鍵のたびに呼ばれる。保存は手が止まってから(打つたびに書き出さない)。
-function Revival_timer_typing(parent, ctrl)
-    local name = ctrl:GetName()
-    local seq = (g.revival_timer_typing_seq[name] or 0) + 1
-    g.revival_timer_typing_seq[name] = seq
-    ReserveScript(string.format("Revival_timer_typing_fire(%q, %d)", name, seq), 0.5)
-end
-
-function Revival_timer_typing_fire(name, seq)
-    if seq ~= g.revival_timer_typing_seq[name] then
-        return
-    end
-    -- 表示中かどうかは見ない(隠れていても入力欄が在れば写す)。閉じる経路は先に写して
-    -- 通し番号を進めるので、ここで二重に写すことは無い。
-    local setting = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
-    if not setting then
-        return
-    end
-    local edit = GET_CHILD_RECURSIVELY(setting, name)
-    if edit then
-        AUTO_CAST(edit)
-        Revival_timer_commit_edit(edit, false)
     end
 end
 
@@ -354,7 +317,7 @@ end
 function Revival_timer_test_show(frame)
     local revival_timer_setting = ui.GetFrame(addon_name_lower .. "revival_timer_setting")
     local revival_timer = ui.GetFrame(addon_name_lower .. "revival_timer")
-    -- 打った直後(自動保存の 0.5 秒より前)に押されても、今の入力で試す。
+    -- Enter を押していなくても、今の入力で試す。
     Revival_timer_commit_all(revival_timer_setting)
     revival_timer:SetPos(revival_timer_setting:GetX() + revival_timer_setting:GetWidth(), revival_timer_setting:GetY())
     Revival_timer_start_cycle()
@@ -476,11 +439,8 @@ function Revival_timer_loop_timer()
 end
 
 -- 1 周を始める。**秒数と文言はここで控え、周の途中では設定を読み直さないこと。**
--- 設定画面の入力欄は打っている途中でも自動で保存されるので、毎 tick 読み直すと
--- - 秒数: 「60 を消して 120 と打つ」途中の 1 がそのまま効き、1 秒周期で PT チャットへ
---   「10秒前」「5秒前」が流れ続ける
--- - 文言: 打ちかけの文(「ボ 10秒前」)がそのままパーティーへ送られる
--- 変えた秒数と文言は次の周から効く。
+-- 周の途中で Enter されたときに残り秒数が飛んだり、10 秒前・5 秒前の通知が
+-- 抜けたり二度出たりしないように、変えた秒数と文言は次の周から効かせる。
 function Revival_timer_start_cycle()
     g.revival_timer_start_time = imcTime.GetAppTimeMS()
     g.revival_timer_announced = 0
