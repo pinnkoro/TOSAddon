@@ -56,8 +56,6 @@ g.bam_scan_range = 800
 g.bam_raid_fresh_ms = 3000
 -- 残り時間が一度にこれより大きく減ったら(読み込み画面など)、過ぎた知らせは出さない。
 g.bam_time_catchup = 10
--- 入力欄の自動保存の予約の通し番号(続けて打たれたぶんの古い予約を捨てるため)。
-g.bam_typing_seq = 0
 
 function Boss_action_monitor_t(ja, en)
     return g.lang == "Japanese" and ja or en
@@ -756,7 +754,7 @@ end
 --
 -- 左: 登録したボスの一覧(「ターゲットを登録」「削除」)
 -- 右: 選んだボスの設定(手動タイマーの長さ・HP の件・時間の件)
--- 入力欄は打ち終えて 0.5 秒たつと保存する(Enter でも確定できる)。
+-- 入力欄は Enter か、閉じる・ボスを切り替える・行を足す / 消すとき(commit_all)に保存する。
 -- 行が何件目かは行の名前(hp_<n> / tm_<n>)から取る。SetUserValue で持たせると、
 -- 入力欄の GetParent() から読めないことがある(Revival Timer の試作で実機で発生)。
 
@@ -990,8 +988,8 @@ function Boss_action_monitor_edit(parent, name, x, y, w, text, number_mode)
         edit:SetNumberMode(1)
     end
     edit:SetText(text)
-    -- 打ち終えて少し手を止めたら保存する。打鍵のたびの呼び出しは g.setup_incremental_search と同じ SetTypingScp。
-    edit:SetTypingScp("Boss_action_monitor_typing")
+    -- **打鍵の後の自動保存(SetTypingScp)は付けないこと。** 打ち終えたかは推測でしか分からず、
+    -- 「50」と打つ途中の「5」が設定に入って、ずれた時点で知らせが出る(Revival Timer で同じ判断をした)。
     edit:SetEventScript(ui.ENTERKEY, "Boss_action_monitor_edit_enter")
     return edit
 end
@@ -1185,7 +1183,7 @@ function Boss_action_monitor_commit_all(setting)
     end
 end
 
--- 入力欄 1 つぶんを保存する(Enter と、打鍵の後の自動保存の両方がここを通る)。
+-- 入力欄 1 つぶんを保存する(Enter で通る)。
 function Boss_action_monitor_commit_edit(ctrl)
     local parent = ctrl:GetParent()
     if ctrl:GetName() == "duration" then
@@ -1197,29 +1195,6 @@ function Boss_action_monitor_commit_edit(ctrl)
     local b = g.bam_settings.bosses[g.bam_sel]
     g.vlog("boss_action_monitor: 入力を保存 %s/%s boss=%s", tostring(parent and parent:GetName()),
         tostring(ctrl:GetName()), b and b.cls or "nil")
-end
-
-function Boss_action_monitor_typing(parent, ctrl)
-    local row = ctrl:GetParent()
-    g.bam_typing_seq = g.bam_typing_seq + 1
-    ReserveScript(string.format("Boss_action_monitor_typing_fire(%q, %q, %d)", tostring(row:GetName()),
-        tostring(ctrl:GetName()), g.bam_typing_seq), 0.5)
-end
-
-function Boss_action_monitor_typing_fire(row_name, ctrl_name, seq)
-    if seq ~= g.bam_typing_seq then
-        return
-    end
-    local setting = ui.GetFrame(g.bam_setting_name)
-    if not setting or setting:IsVisible() ~= 1 then
-        return
-    end
-    local row = GET_CHILD_RECURSIVELY(setting, row_name)
-    local edit = row and GET_CHILD(row, ctrl_name)
-    if edit then
-        AUTO_CAST(edit)
-        Boss_action_monitor_commit_edit(edit)
-    end
 end
 
 -- Enter。**ここで設定画面を作り直さないこと**(押した入力欄が消えるとチャット入力欄が開く。
