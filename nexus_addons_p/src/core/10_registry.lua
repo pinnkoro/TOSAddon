@@ -204,9 +204,9 @@ g._nexus_addons_p = {{
     key = "cc_helper",
     category = "char",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.25.1",
-    updated_note_jp = "ゲームのアップデート(チーム倉庫のスロットを並べ替えられるようになった変更)の後、倉庫への格納に失敗して、同じアイテムの「倉庫に格納しました」がチャットに出続けることがあったのを直しました",
-    updated_note_en = "Fixed storing into the team warehouse failing and the same stored-item chat line repeating endlessly, after the game update that made warehouse slots rearrangeable",
+    updated = g.VER_NEXT,
+    updated_note_jp = "チーム倉庫の搬入ボタン(左の矢印)を右クリックするとキャラを選べるようにしました。選んだキャラへ、搬入が終わったあと自動でキャラチェンジします(Instant CC を ON にしているときだけ)",
+    updated_note_en = "Right-clicking the store button (left arrow) at the team warehouse now lets you pick a character; after storing finishes it changes to that character automatically (requires Instant CC)",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -536,6 +536,9 @@ g._nexus_addons_p = {{
 }, {
     key = "revival_timer",
     category = "battle",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定画面の入力欄を、Enter を押さなくても閉じたときに保存するようにしました（タイトルの誤りも直しました）",
+    updated_note_en = "Settings inputs are now saved when you close the window, even without pressing Enter (also fixed the window title)",
     data = {
         use = 0,
         name = "Revival Timer",
