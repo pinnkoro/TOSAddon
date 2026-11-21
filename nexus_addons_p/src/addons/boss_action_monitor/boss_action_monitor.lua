@@ -1131,6 +1131,11 @@ function Boss_action_monitor_commit_row(row)
         local n = pct and tonumber(pct:GetText())
         if n then
             t.pct = n
+            -- 100% は付けられない(初めて見た時点で下回っている扱いになり、出ない)。黙って 99 に
+            -- 丸めると、Enter を押しても変わらないように見える(実機で指摘)。
+            if n < 1 or n > 99 then
+                ui.SysMsg(Boss_action_monitor_t("HP% は 1〜99 で入れてください", "HP% must be 1-99"))
+            end
         end
     else
         local at = GET_CHILD(row, "at")
@@ -1145,7 +1150,21 @@ function Boss_action_monitor_commit_row(row)
         end
     end
     g.bam_normalize_boss(b)
+    -- 入力欄は実際に効く値(丸めた値・読めなければ前の値)に書き直す。
+    if kind == "hp" then
+        Boss_action_monitor_sync_edit(GET_CHILD(row, "pct"), tostring(t.pct))
+    else
+        Boss_action_monitor_sync_edit(GET_CHILD(row, "at"), g.bam_fmt_time(t.at))
+        Boss_action_monitor_sync_edit(GET_CHILD(row, "before"), tostring(t.before))
+    end
     return true
+end
+
+function Boss_action_monitor_sync_edit(edit, text)
+    if edit and edit:GetText() ~= text then
+        g.vlog("boss_action_monitor: 入力欄を書き直す %s %s -> %s", edit:GetName(), edit:GetText(), text)
+        edit:SetText(text)
+    end
 end
 
 function Boss_action_monitor_commit_duration(detail)
