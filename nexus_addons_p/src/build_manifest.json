@@ -49,6 +49,7 @@
       "addons/lets_go_home/lets_go_home.lua",
       "addons/debuff_notice/debuff_notice.lua",
       "addons/boss_gauge/boss_gauge.lua",
+      "addons/boss_action_monitor/boss_action_monitor.lua",
       "addons/party_icon_only/party_icon_only.lua",
       "addons/party_keeper/party_keeper.lua",
       "addons/party_marker/party_marker.lua",
@@ -170,7 +171,7 @@
     ]
   },
   "sha256": {
-    "_nexus_addons_p.lua": "b31f88257c4f747ab0366ce3af473cfa180d7ddbf9fe8430ac17dead01ab4041",
+    "_nexus_addons_p.lua": "84f035488835a0d76c8866809f9fb5d381874622dfdd1b5149a11df21677bac9",
     "_icor_planner.lua": "89d9dd3babe862270623a0df5d59ed5b0009ae393a351e8d584f09fad46d76cd",
     "_guild_storage_list.lua": "23252bcb2a7e1f01a7a919fa75148c55fb6579f01c234281fd73e3564fae0b39"
   },

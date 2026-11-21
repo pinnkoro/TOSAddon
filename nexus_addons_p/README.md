@@ -203,6 +203,7 @@ norisan さんの [Nexus Addons](https://github.com/ajinorisan/TOSAddon-public) 
 | アドオン | 概要 |
 | --- | --- |
 | [Battle Ritual](src/addons/battle_ritual/README.md) | レイド入場時に自己バフを優先度順で自動使用（ソロ限定） |
+| [Boss Action Monitor](src/addons/boss_action_monitor/README.md) | ボスの行動を HP と残り時間で前もって知らせる（ボスごとに登録） |
 | [Boss Direction](src/addons/boss_direction/README.md) | ボスが向いている方向を足元の矢印で表示 |
 | [Boss Gauge](src/addons/boss_gauge/README.md) | ボスゲージにスタン値とシールド値を追加 |
 | [Debuff Notice](src/addons/debuff_notice/README.md) | 自分がボスへ与えたデバフを大きく表示 |
@@ -286,6 +287,11 @@ Nexus Addons P は本家をリネームした派生版のため、**両方を同
 <summary>更新履歴 (Nexus Addons P)</summary>
 
 * **（次回リリース）**
+  * **Boss Action Monitor を追加しました。** ボスの行動を前もって知らせるアドオンです。ボスごとに、
+    「HP 50% でシールド」のような **HP の件**と、「残り 4:30 でシールド」のような**残り時間の件**を登録できます。
+    残り時間はゲームのレイドタイマー（週間ボスレイドでは 7 分のタイマー）に合わせます。どちらも無いコンテンツでは、HUD の ▶ で自分のタイマーを始めます。
+    「**週間ボス共通**」「**協同戦共通**」に登録した件は、週間ボスレイド・ボス協同戦の中でそこに居るボスに効きます（ボスが替わっても登録し直さずに済みます）。
+    知らせはチャット欄に必ず残り、ニコチャット・PT チャット・効果音も選べます。
   * Revival Timer: 設定画面のタイトルが「Lets Go Home Config」になっていたのを「Revival Timer Config」に直しました。
   * Revival Timer: 設定画面の入力欄（お知らせメッセージ・秒数設定）は、**Enter を押さなくても、設定画面を閉じたとき（× / ESC）やテスト表示を押したときに保存**するようにしました。
     Enter で確定したときにチャット入力欄が開いてしまうことがあったのも直しました。
