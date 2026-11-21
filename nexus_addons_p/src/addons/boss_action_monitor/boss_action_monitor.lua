@@ -42,8 +42,9 @@ g.bam_groups = {{
     en = "* Boss Co-op (all)",
     tip_ja = "{ol}ボス協同戦の中で、そこに居るボスに効きます",
     tip_en = "{ol}Applies to the boss in Boss Co-op battles",
-    note_ja = "{ol}{s13}{#CCCCCC}ボス協同戦の中だけで、そこに居るボスに効きます。{nl}残り時間は、ゲームのタイマーが届けばそれ、無ければ HUD の ▶ の手動タイマーです",
-    note_en = "{ol}{s13}{#CCCCCC}Works only in Boss Co-op, for the boss there.{nl}Time is the game timer if any, otherwise the manual timer (▶ on the HUD)",
+    -- 右の欄の幅(約 440)に収まるよう 1 行を短くする。richtext は折り返さず、はみ出た分は切れる。
+    note_ja = "{ol}{s13}{#CCCCCC}ボス協同戦の中だけで、そこに居るボスに効きます。{nl}残り時間はゲームのタイマー(無ければ HUD の ▶ で手動)",
+    note_en = "{ol}{s13}{#CCCCCC}Works only in Boss Co-op, for the boss there.{nl}Time: the game timer, or the manual timer (▶ on HUD)",
     manual = true
 }}
 g.bam_hud_name = addon_name_lower .. "boss_action_monitor_hud"
@@ -759,7 +760,8 @@ end
 -- 入力欄の GetParent() から読めないことがある(Revival Timer の試作で実機で発生)。
 
 g.bam_setting_w = 680
-g.bam_setting_h = 580
+-- 右下の注記(2 行)まで入る高さ。580 では注記が窓の外に切れていた(実機で指摘)。
+g.bam_setting_h = 630
 
 function Boss_action_monitor_setting()
     local setting = ui.CreateNewFrame("notice_on_pc", g.bam_setting_name, 0, 0, 0, 0)
@@ -1063,8 +1065,8 @@ function Boss_action_monitor_build_triggers(detail, b)
     tm_list:EnableScrollBar(1)
     Boss_action_monitor_build_rows(tm_list, "tm", b.time)
     Boss_action_monitor_label(detail, "note", 10, y + 188, Boss_action_monitor_t(
-        "{ol}{s13}{#CCCCCC}※ 時間はレイドタイマーの残り時間です。無いときは HUD の ▶ で手動タイマーを始めます",
-        "{ol}{s13}{#CCCCCC}* Time is the raid timer's remaining time. Without it, start the manual timer with ▶ on the HUD"))
+        "{ol}{s13}{#CCCCCC}※ 時間はレイドタイマーの残り時間です。{nl}　 無いときは HUD の ▶ で手動タイマーを始めます",
+        "{ol}{s13}{#CCCCCC}* Time is the raid timer's remaining time.{nl}  Without it, start the manual timer with ▶ on the HUD"))
 end
 
 -- 行を作る。kind は "hp" / "tm"。行の名前は kind_<n>。
