@@ -1051,12 +1051,10 @@ function _nexus_addons_p_list_close(frame)
                             "sub_map_setting_frame", "separate_buff_custom_buff_list", "save_quest_setting",
                             "sub_slotset_setting", "Battle_ritual_setting", "Battle_ritual_skill_list",
                             "Battle_ritual_buff_list", "get_event_msg_setting", "archeology_helper_setting"}
+    -- 直に破棄せず、ESC に登録した閉じ方を通す(閉じる前に入力欄を保存する窓があるため。
+    -- 登録が無ければ破棄するだけ / g.esc_close_frame)。
     for _, suffix in ipairs(frame_to_close) do
-        local frame_name = addon_name_lower .. suffix
-        local frame_to_close = ui.GetFrame(frame_name)
-        if frame_to_close then
-            ui.DestroyFrame(frame_name)
-        end
+        g.esc_close_frame(addon_name_lower .. suffix)
     end
     ui.DestroyFrame(frame:GetName())
 end

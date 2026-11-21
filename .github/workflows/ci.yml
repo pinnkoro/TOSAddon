@@ -171,6 +171,11 @@ jobs:
       - name: icor_planner の数え方テスト
         run: luajit docs/tests/test_icor_planner_plan.lua
 
+      # Boss Action Monitor の知らせの判定。出なくても出すぎても、ボス戦の最中にしか
+      # 確かめられない（残り時間の跨ぎ・HP の下回りを 1 回だけ・途中から見たボス）。
+      - name: boss_action_monitor の判定テスト
+        run: luajit docs/tests/test_boss_action_monitor.lua
+
       # 素のクライアント API の使い方を docs/vanilla_api.json に固定してある。ここでは
       # 「src の使い方が一覧と一致するか」だけを見る（ランナーにゲームは入らないので、
       # 素そのものとの突き合わせは手元の --verify-client でしかできない）。

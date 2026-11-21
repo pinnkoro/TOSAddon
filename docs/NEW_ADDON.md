@@ -15,7 +15,7 @@
 | **キー** (`party_icon_only`) | 小文字 + `_`。**設定 JSON のキーであり、フォルダ名であり、関数名の接頭辞**。後から変えると利用者の設定が消えるので、**一度決めたら変えない** |
 | **表示名** (`Party Icon Only`) | 一覧に出る名前。英字。カテゴリ内はこの名前のアルファベット順に並ぶ |
 | **カテゴリ** | `g._nexus_addons_p_sections` の `name` のどれか（`storage` / `gear` / `battle` / `content` / `char` / `misc`） |
-| **設定画面を持つか** | 持つなら `config_func` に関数名、持たないなら `""` |
+| **設定画面を持つか** | 持つなら `config_func` に関数名 **かつ `frame_use = true`**、持たないなら `""` / `false`。**`config_func` だけ書いても歯車は出ない**（行の歯車は `frame_use` で出し分けている。2026-11-19 に Boss Action Monitor で踏んだ） |
 
 ---
 
@@ -62,7 +62,7 @@ end
     data = {
         use = 0,                 -- 既定は OFF
         name = "Party Icon Only",
-        frame_use = false,       -- 一覧に「窓を開く」ボタンを出すか
+        frame_use = false,       -- 一覧の行に歯車ボタンを出すか。**設定画面を持つなら true**
         config_func = "",        -- 設定画面の関数名。無ければ ""
         old_init_func = ""       -- 競合する旧個別版アドオンの ON_INIT 名。新規は ""
     }

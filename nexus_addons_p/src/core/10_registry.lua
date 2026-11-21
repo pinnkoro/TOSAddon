@@ -160,6 +160,17 @@ g._nexus_addons_p = {{
         old_init_func = ""
     }
 }, {
+    key = "boss_action_monitor",
+    category = "battle",
+    since = "2.26.0",
+    data = {
+        use = 0,
+        name = "Boss Action Monitor",
+        frame_use = true,
+        config_func = "Boss_action_monitor_setting",
+        old_init_func = ""
+    }
+}, {
     key = "boss_direction",
     category = "battle",
     data = {
@@ -193,9 +204,9 @@ g._nexus_addons_p = {{
     key = "cc_helper",
     category = "char",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.25.1",
-    updated_note_jp = "ゲームのアップデート(チーム倉庫のスロットを並べ替えられるようになった変更)の後、倉庫への格納に失敗して、同じアイテムの「倉庫に格納しました」がチャットに出続けることがあったのを直しました",
-    updated_note_en = "Fixed storing into the team warehouse failing and the same stored-item chat line repeating endlessly, after the game update that made warehouse slots rearrangeable",
+    updated = "2.26.0",
+    updated_note_jp = "チーム倉庫の搬入ボタン(左の矢印)を右クリックするとキャラを選べるようにしました。選んだキャラへ、搬入が終わったあと自動でキャラチェンジします(Instant CC を ON にしているときだけ)",
+    updated_note_en = "Right-clicking the store button (left arrow) at the team warehouse now lets you pick a character; after storing finishes it changes to that character automatically (requires Instant CC)",
     data = {
         use = 0,
         name = "Character Change Helper",
@@ -525,6 +536,9 @@ g._nexus_addons_p = {{
 }, {
     key = "revival_timer",
     category = "battle",
+    updated = "2.26.0",
+    updated_note_jp = "設定画面の入力欄を、Enter を押さなくても閉じたときに保存するようにしました（タイトルの誤りも直しました）",
+    updated_note_en = "Settings inputs are now saved when you close the window, even without pressing Enter (also fixed the window title)",
     data = {
         use = 0,
         name = "Revival Timer",
@@ -755,6 +769,11 @@ g._nexus_addons_p_trans = {
         ja = "{ol}Charbonさん作成{nl}パーティーメンバーの頭上にアイコンを付けます",
         etc = "{ol}Created by Charbon{nl}Add an icon above the party members' heads",
         kr = "{ol}Charbon님 제작{nl}파티 멤버의 머리 위에 아이콘을 표시"
+    },
+    ["boss_action_monitor"] = {
+        ja = "{ol}ボスの行動を HP と残り時間で前もって知らせます{nl}ボスごとに「HP 50% でシールド」「残り 4:30 でシールド」のように登録します",
+        etc = "{ol}Alerts you before boss actions by HP and remaining time{nl}Register per boss, e.g. \"shield at 50% HP\" or \"shield at 4:30 left\"",
+        kr = "{ol}보스의 행동을 HP와 남은 시간으로 미리 알림{nl}보스마다 \"HP 50%에서 실드\", \"남은 시간 4:30에 실드\"처럼 등록"
     },
     ["boss_gauge"] = {
         ja = "{ol}ボスゲージにスタン値とシールド値を表示します",
