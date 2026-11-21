@@ -162,7 +162,7 @@ g._nexus_addons_p = {{
 }, {
     key = "boss_action_monitor",
     category = "battle",
-    since = g.VER_NEXT,
+    since = "2.26.0",
     data = {
         use = 0,
         name = "Boss Action Monitor",
@@ -204,7 +204,7 @@ g._nexus_addons_p = {{
     key = "cc_helper",
     category = "char",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = g.VER_NEXT,
+    updated = "2.26.0",
     updated_note_jp = "チーム倉庫の搬入ボタン(左の矢印)を右クリックするとキャラを選べるようにしました。選んだキャラへ、搬入が終わったあと自動でキャラチェンジします(Instant CC を ON にしているときだけ)",
     updated_note_en = "Right-clicking the store button (left arrow) at the team warehouse now lets you pick a character; after storing finishes it changes to that character automatically (requires Instant CC)",
     data = {
@@ -536,7 +536,7 @@ g._nexus_addons_p = {{
 }, {
     key = "revival_timer",
     category = "battle",
-    updated = g.VER_NEXT,
+    updated = "2.26.0",
     updated_note_jp = "設定画面の入力欄を、Enter を押さなくても閉じたときに保存するようにしました（タイトルの誤りも直しました）",
     updated_note_en = "Settings inputs are now saved when you close the window, even without pressing Enter (also fixed the window title)",
     data = {
