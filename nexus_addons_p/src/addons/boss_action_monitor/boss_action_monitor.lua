@@ -57,6 +57,12 @@ g.bam_hud_name = addon_name_lower .. "boss_action_monitor_hud"
 g.bam_setting_name = addon_name_lower .. "boss_action_monitor_setting"
 g.bam_max_bosses = 30
 g.bam_max_rows = 15
+-- 「共通」の件の上限。週間ボス共通にはパターンの件を最初から 40 件ほど用意するので多めにとる。
+g.bam_max_group_rows = 60
+-- 週間ボスレイドのタイマーの長さ(素の WEEKLYBOSS_DPS_INIT の 60 * 7)。パターンの件の初期値を出すのに使う。
+g.bam_weekly_duration = 420
+-- 用意したパターンの件の版。上げると、まだ入っていないパターンの件を足し直す(利用者が消した件は戻さない)。
+g.bam_preset_ver = 1
 -- 敵を探す範囲。boss_direction(500)より広めにとる(レイドのボスは間合いが広い)。
 g.bam_scan_range = 800
 -- レイドタイマーが最後に届いてから、この間はレイドタイマーを基準にする(手動タイマーより優先)。
@@ -128,6 +134,7 @@ function g.bam_normalize_boss(b)
         t.on = t.on ~= false
         t.at = math.floor(g.bam_clamp(t.at, 0, 7200, 0))
         t.before = math.floor(g.bam_clamp(t.before, 0, 600, 0))
+        t.every = math.floor(g.bam_clamp(t.every, 0, 600, 0))
         t.text = type(t.text) == "string" and t.text or ""
         t.pattern = type(t.pattern) == "string" and t.pattern or ""
     end
@@ -137,6 +144,8 @@ end
 -- 時間の知らせ。残り時間が prev から now へ減ったときに、跨いだものを返す。
 -- 返すのは {trig = 件, kind = "before"(N 秒前) / "at"(その時点)} の並び。
 -- 前回が無い・残り時間が増えた(タイマーが出直した)・大きく飛んだときは何も返さない。
+-- every > 0 の件は at から every 秒ごとに繰り返す(at, at - every, at - 2*every, ... 0 まで)。
+-- 返す d.at は、そのとき跨いだ回の残り時間。
 function g.bam_time_due(triggers, prev, now)
     local result = {}
     if not prev or not now or now >= prev or prev - now > g.bam_time_catchup then
@@ -144,18 +153,34 @@ function g.bam_time_due(triggers, prev, now)
     end
     for _, t in ipairs(triggers or {}) do
         if t.on ~= false then
-            if t.before > 0 then
-                local x = t.at + t.before
-                if prev > x and x >= now then
-                    result[#result + 1] = {trig = t, kind = "before"}
+            for _, at in ipairs(g.bam_occurrences(t)) do
+                if t.before > 0 then
+                    local x = at + t.before
+                    if prev > x and x >= now then
+                        result[#result + 1] = {trig = t, kind = "before", at = at}
+                    end
                 end
-            end
-            if prev > t.at and t.at >= now then
-                result[#result + 1] = {trig = t, kind = "at"}
+                if prev > at and at >= now then
+                    result[#result + 1] = {trig = t, kind = "at", at = at}
+                end
             end
         end
     end
     return result
+end
+
+-- 件が出る残り時間の並び(多い順)。繰り返さない件は at だけ。
+function g.bam_occurrences(t)
+    local list = {t.at}
+    local every = tonumber(t.every) or 0
+    if every > 0 then
+        local at = t.at - every
+        while at >= 0 and #list < 200 do
+            list[#list + 1] = at
+            at = at - every
+        end
+    end
+    return list
 end
 
 -- HP の知らせ。state はボス 1 体(ハンドル)ごとの「もう出した」印({[件] = true})。
@@ -225,14 +250,72 @@ function g.bam_pattern_pass(triggers, patterns)
 end
 
 -- 残り時間 remain より後に来る、いちばん近い件(HUD の「次」)。無ければ nil。
+-- 返すのは (件, その回の残り時間)。繰り返す件はいちばん近い回を見る。
 function g.bam_next_time(triggers, remain)
-    local best
+    local best, best_at
     for _, t in ipairs(triggers or {}) do
-        if t.on ~= false and t.at < remain and (not best or t.at > best.at) then
-            best = t
+        if t.on ~= false then
+            for _, at in ipairs(g.bam_occurrences(t)) do
+                if at < remain then
+                    if not best_at or at > best_at then
+                        best, best_at = t, at
+                    end
+                    break
+                end
+            end
         end
     end
-    return best
+    return best, best_at
+end
+
+-- パターンの表の StartTime("18000" / "13000/43000")を読む(純ロジック)。
+-- 返すのは (最初に出るまでのミリ秒, 揺れがあるか)。2 つ書かれているものは「最短/最長」のどこかで
+-- 最初が出る(と読める)ので、早い方を返して揺れありとする(遅れて知らせるより早めの方がよい)。
+function g.bam_parse_start(text)
+    local nums = {}
+    for n in string.gmatch(tostring(text or ""), "%d+") do
+        nums[#nums + 1] = tonumber(n)
+    end
+    if #nums == 0 then
+        return nil, false
+    end
+    local min = nums[1]
+    for _, n in ipairs(nums) do
+        min = math.min(min, n)
+    end
+    return min, #nums > 1
+end
+
+-- パターンの件を最初から用意する(純ロジック)。list は Boss_action_monitor_pattern_list の形
+-- ({cls, start_ms, every, timed})。時間で出るもの(timed)だけを、まだ件の無いパターンについて足す。
+-- 残り時間は duration - 最初に出るまでの秒。間隔がタイマーより長いものは繰り返さない。
+function g.bam_pattern_preset(rows, list, duration)
+    local have = {}
+    for _, t in ipairs(rows) do
+        if t.pattern and t.pattern ~= "" then
+            have[t.pattern] = true
+        end
+    end
+    local added = 0
+    for _, p in ipairs(list) do
+        if p.timed and not have[p.cls] then
+            local at = duration - math.floor(p.start_ms / 1000)
+            if at >= 0 then
+                local every = (p.every > 0 and p.every < duration) and p.every or 0
+                rows[#rows + 1] = {
+                    on = true,
+                    at = at,
+                    -- 間隔が短いものは「何秒前」を前の回の知らせと重ねない
+                    before = (every == 0 or every > 20) and 10 or 0,
+                    every = every,
+                    text = "",
+                    pattern = p.cls
+                }
+                added = added + 1
+            end
+        end
+    end
+    return added
 end
 
 -- ===== 設定 =====
@@ -280,6 +363,7 @@ function Boss_action_monitor_load_settings()
             name = ""
         })
         table.insert(settings.bosses, gi, entry)
+        Boss_action_monitor_seed_patterns(entry, grp)
     end
     g.bam_settings = settings
     Boss_action_monitor_save_settings()
@@ -350,11 +434,21 @@ function Boss_action_monitor_pattern_list(prefix)
         for i = 0, (count or 0) - 1 do
             local cls = GetClassByIndexFromList(cls_list, i)
             local name = cls and tostring(cls.ClassName or "")
-            if name and string.sub(name, 1, #prefix) == prefix then
+            -- 常に掛かっているもの(Type が Passive)は時間で出ないので候補にしない
+            if name and string.sub(name, 1, #prefix) == prefix and TryGetProp(cls, "Type", "") ~= "Passive" then
                 local label = dictionary.ReplaceDicIDInCompStr(TryGetProp(cls, "Name", "") or "")
+                local start_ms, jitter = g.bam_parse_start(TryGetProp(cls, "StartTime", ""))
+                -- 繰り返しの間隔は、パターンが使うスキルの BasicCoolDown(素の SCR_GET_MONSKL_COOL がそのまま返す値)
+                local skill = GetClass("Skill", TryGetProp(cls, "SkillClassName", "") or "")
+                local every = math.floor((tonumber(skill and TryGetProp(skill, "BasicCoolDown", 0)) or 0) / 1000)
                 list[#list + 1] = {
                     cls = name,
-                    name = (label ~= "" and label ~= "None") and label or name
+                    name = (label ~= "" and label ~= "None") and label or name,
+                    start_ms = start_ms or 0,
+                    every = every,
+                    jitter = jitter,
+                    -- 始まってすぐ(0 秒)から在るもの(浄化石など)は時間で出るものではない
+                    timed = start_ms ~= nil and start_ms > 0
                 }
             end
         end
@@ -362,7 +456,12 @@ function Boss_action_monitor_pattern_list(prefix)
     if not ok then
         g.log_error_once("bam_pattern_list", string.format("boss_action_monitor: パターンの表を読めない(%s)", tostring(err)))
     end
-    g.vlog("boss_action_monitor: パターンの候補 %s %d 件", prefix, #list)
+    -- 初期値の元(最初の時刻・間隔)が読めているかを実機で確かめるため、全件を 1 行にまとめて出す
+    local parts = {}
+    for _, p in ipairs(list) do
+        parts[#parts + 1] = string.format("%s=%d/%d%s", p.cls, p.start_ms, p.every, p.jitter and "~" or "")
+    end
+    g.vlog("boss_action_monitor: パターンの候補 %s %d 件 (最初ms/間隔s ~は揺れ) %s", prefix, #list, table.concat(parts, " "))
     g.bam_pattern_lists[prefix] = list
     return list
 end
@@ -375,6 +474,37 @@ function Boss_action_monitor_pattern_name(grp, cls)
         end
     end
     return cls
+end
+
+-- 揺れの注記。最初に出る時刻が決まっていないパターンは、候補の名前の後ろに付ける。
+function Boss_action_monitor_pattern_jitter(grp, cls)
+    for _, p in ipairs(Boss_action_monitor_pattern_list(grp.pattern_prefix)) do
+        if p.cls == cls then
+            return p.jitter
+        end
+    end
+    return false
+end
+
+-- 週間ボス共通に、時間で出るパターンの件を初期値入りで用意する(1 回だけ。版を上げたら足りない分を足す)。
+-- **協同戦共通には用意しない。** 協同戦はタイマーの長さが決まっていない(ゲームのタイマーが届くかも
+-- 未確認)ので、残り時間に直せない。
+function Boss_action_monitor_seed_patterns(entry, grp)
+    if grp.pattern_src ~= "weekly" or (tonumber(entry.preset) or 0) >= g.bam_preset_ver then
+        return
+    end
+    if type(GetClassList) ~= "function" then
+        return
+    end
+    local list = Boss_action_monitor_pattern_list(grp.pattern_prefix)
+    if #list == 0 then
+        -- 表が読めなかった。印を付けずに次の起動でやり直す
+        return
+    end
+    local added = g.bam_pattern_preset(entry.time, list, g.bam_weekly_duration)
+    entry.preset = g.bam_preset_ver
+    g.bam_normalize_boss(entry)
+    g.vlog("boss_action_monitor: %s にパターンの件を %d 件用意した", entry.cls, added)
 end
 
 -- 今の週間ボス / 協同戦のパターン情報をサーバーへ求める。**素はコンテンツ情報の画面を開いたときに
@@ -633,8 +763,9 @@ function Boss_action_monitor_time_step(remain, source)
     end
     for _, b in ipairs(Boss_action_monitor_active_bosses()) do
         for _, d in ipairs(g.bam_time_due(Boss_action_monitor_pass(b, b.time), prev, remain)) do
-            g.vlog("boss_action_monitor: 時間 %s %s at=%d before=%d 前回=%s 今=%d (%s)", b.cls, d.kind, d.trig.at,
-                d.trig.before, tostring(prev), remain, source)
+            g.vlog("boss_action_monitor: 時間 %s %s at=%d(件 %d / %d 秒ごと) before=%d pattern=%s 前回=%s 今=%d (%s)",
+                b.cls, d.kind, d.at, d.trig.at, d.trig.every or 0, d.trig.before, tostring(d.trig.pattern), tostring(prev),
+                remain, source)
             Boss_action_monitor_notify(b, d)
         end
     end
@@ -741,9 +872,9 @@ function Boss_action_monitor_message(b, d)
         return string.format("%s (HP %d%%)", label, t.pct)
     elseif d.kind == "before" then
         return string.format(Boss_action_monitor_t("%s あと%d秒 (残り %s)", "%s in %ds (at %s)"), label, t.before,
-            g.bam_fmt_time(t.at))
+            g.bam_fmt_time(d.at or t.at))
     end
-    return string.format(Boss_action_monitor_t("%s (残り %s)", "%s now (at %s)"), label, g.bam_fmt_time(t.at))
+    return string.format(Boss_action_monitor_t("%s (残り %s)", "%s now (at %s)"), label, g.bam_fmt_time(d.at or t.at))
 end
 
 function Boss_action_monitor_notify(b, d)
@@ -860,10 +991,16 @@ function Boss_action_monitor_hud_update()
     end
     local next_text = GET_CHILD(hud, "next")
     next_text:SetOffset(10, 76)
-    local nt = remain and g.bam_next_time(Boss_action_monitor_pass(b, b.time), remain)
+    local nt, nt_at
+    if remain then
+        nt, nt_at = g.bam_next_time(Boss_action_monitor_pass(b, b.time), remain)
+    end
     if nt then
+        local grp = Boss_action_monitor_group(b)
+        local label = (nt.text ~= "" and nt.text) or
+                          (grp and nt.pattern ~= "" and Boss_action_monitor_pattern_name(grp, nt.pattern)) or ""
         next_text:SetText(string.format("{ol}{s14}{#FFD700}%s %s %s", Boss_action_monitor_t("次:", "Next:"),
-            g.bam_fmt_time(nt.at), (nt.text ~= "" and nt.text) or ""))
+            g.bam_fmt_time(nt_at), g.bam_fit_text(label, 120)))
     else
         next_text:SetText("")
     end
@@ -1259,7 +1396,18 @@ end
 function Boss_action_monitor_build_pattern_drop(row, kind, idx, t, grp)
     Boss_action_monitor_label(row, "pattern_label", 44, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}パターン",
         "{ol}{s13}{#CCCCCC}Pattern"))
-    local drop = row:CreateOrGetControl("droplist", "pattern", 116, 34, 262, 24)
+    -- 残り時間の件は右に「間隔(秒)」の欄を置く(0 なら繰り返さない)
+    local drop_w = kind == "tm" and 170 or 262
+    if kind == "tm" then
+        Boss_action_monitor_label(row, "every_label", 292, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}間隔",
+            "{ol}{s13}{#CCCCCC}Every"))
+        local every = Boss_action_monitor_edit(row, "every", 330, 34, 48, tostring(t.every or 0), true)
+        if every then
+            every:SetTextTooltip(Boss_action_monitor_t("{ol}この秒数ごとに繰り返し知らせます(0 なら 1 回だけ)",
+                "{ol}Repeat every N seconds (0 = once)"))
+        end
+    end
+    local drop = row:CreateOrGetControl("droplist", "pattern", 116, 34, drop_w, 24)
     AUTO_CAST(drop)
     drop:SetSkinName("droplist_normal")
     drop:EnableHitTest(1)
@@ -1270,7 +1418,9 @@ function Boss_action_monitor_build_pattern_drop(row, kind, idx, t, grp)
         string.format("Boss_action_monitor_pattern_pick(%q, %d, %q)", kind, idx, ""))
     local sel = 0
     for j, p in ipairs(Boss_action_monitor_pattern_list(grp.pattern_prefix)) do
-        drop:AddItem(j, "{ol}" .. p.name, 0, string.format("Boss_action_monitor_pattern_pick(%q, %d, %q)", kind, idx, p.cls))
+        -- 最初に出る時刻に揺れがあるものは名前の後ろに注記する
+        local label = p.jitter and (p.name .. Boss_action_monitor_t(" ※揺れあり", " *varies")) or p.name
+        drop:AddItem(j, "{ol}" .. label, 0, string.format("Boss_action_monitor_pattern_pick(%q, %d, %q)", kind, idx, p.cls))
         if p.cls == t.pattern then
             sel = j
         end
@@ -1351,6 +1501,11 @@ function Boss_action_monitor_commit_row(row)
         if n then
             t.before = n
         end
+        local every = GET_CHILD(row, "every")
+        local e = every and tonumber(every:GetText())
+        if e then
+            t.every = e
+        end
     end
     g.bam_normalize_boss(b)
     -- 入力欄は実際に効く値(丸めた値・読めなければ前の値)に書き直す。
@@ -1359,6 +1514,7 @@ function Boss_action_monitor_commit_row(row)
     else
         Boss_action_monitor_sync_edit(GET_CHILD(row, "at"), g.bam_fmt_time(t.at))
         Boss_action_monitor_sync_edit(GET_CHILD(row, "before"), tostring(t.before))
+        Boss_action_monitor_sync_edit(GET_CHILD(row, "every"), tostring(t.every))
     end
     return true
 end
@@ -1548,15 +1704,15 @@ function Boss_action_monitor_row_add(parent, ctrl, kind)
     end
     Boss_action_monitor_commit_all(ui.GetFrame(g.bam_setting_name))
     local rows = kind == "hp" and b.hp or b.time
-    if #rows >= g.bam_max_rows then
-        ui.SysMsg(string.format(Boss_action_monitor_t("登録できるのは %d 件までです", "Up to %d entries"),
-            g.bam_max_rows))
+    local max_rows = Boss_action_monitor_group(b) and g.bam_max_group_rows or g.bam_max_rows
+    if #rows >= max_rows then
+        ui.SysMsg(string.format(Boss_action_monitor_t("登録できるのは %d 件までです", "Up to %d entries"), max_rows))
         return
     end
     if kind == "hp" then
         rows[#rows + 1] = {on = true, pct = 50, text = "", pattern = ""}
     else
-        rows[#rows + 1] = {on = true, at = 0, before = 10, text = "", pattern = ""}
+        rows[#rows + 1] = {on = true, at = 0, before = 10, every = 0, text = "", pattern = ""}
     end
     g.bam_normalize_boss(b)
     Boss_action_monitor_save_settings()

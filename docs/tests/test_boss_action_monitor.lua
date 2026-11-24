@@ -160,6 +160,44 @@ check("パターンがある週は 4:30 で出る", #due == 1 and due[1].trig.te
 due = g.bam_time_due(g.bam_pattern_pass(bp.time, {}), 271, 269)
 check("パターンが無い週は出ない", #due, 0)
 
+print("[11] 間隔ごとに繰り返す")
+local br = boss({cls = "@weekly_boss", time = {{at = 402, before = 10, every = 50, pattern = "Weekly_FireWall"}}})
+local occ = g.bam_occurrences(br.time[1])
+check("回数", #occ, 9)
+check("2 回目は 5:52", occ[2], 352)
+check("最後は 0:02", occ[9], 2)
+local d2 = g.bam_time_due(br.time, 353, 351)
+check("2 回目もちょうどで出る", #d2 == 1 and d2[1].kind == "at" and d2[1].at, 352)
+d2 = g.bam_time_due(br.time, 363, 361)
+check("2 回目の 10 秒前も出る", #d2 == 1 and d2[1].kind == "before" and d2[1].at, 352)
+check("繰り返さない件は 1 回", #g.bam_occurrences({at = 270, every = 0}), 1)
+check("every が壊れていたら 0", boss({cls = "q", time = {{at = 10, every = "x"}}}).time[1].every, 0)
+local nt, nt_at = g.bam_next_time(br.time, 380)
+check("次は繰り返しの近い回", nt_at, 352)
+check("次の件は元の件", nt, br.time[1])
+
+print("[12] パターンの最初の時刻と、件の用意")
+local ms, jit = g.bam_parse_start("18000")
+check("1 つなら揺れなし", ms == 18000 and jit, false)
+ms, jit = g.bam_parse_start("13000/43000")
+check("2 つなら早い方", ms, 13000)
+check("2 つなら揺れあり", jit, true)
+check("空は nil", (g.bam_parse_start("")), nil)
+local plist = {{cls = "Weekly_FireWall", start_ms = 18000, every = 50, timed = true},
+               {cls = "Weekly_Thunderstroke", start_ms = 13000, every = 40, timed = true},
+               {cls = "Weekly_Ballista", start_ms = 13000, every = 10, timed = true},
+               {cls = "Weekly_StarFall", start_ms = 83000, every = 450, timed = true},
+               {cls = "Weekly_PurifyingStone", start_ms = 0, every = 999, timed = false}}
+local prows = {{at = 100, pattern = "Weekly_Thunderstroke"}}
+check("足した件数(既にあるものと時間で出ないものは足さない)", g.bam_pattern_preset(prows, plist, 420), 3)
+check("火の障壁は 6:42", prows[2].at, 402)
+check("火の障壁は 50 秒ごと", prows[2].every, 50)
+check("火の障壁は 10 秒前", prows[2].before, 10)
+check("間隔が短いものは何秒前なし", prows[3].before, 0)
+check("タイマーより長い間隔は繰り返さない", prows[4].every, 0)
+check("条件はパターン", prows[2].pattern, "Weekly_FireWall")
+check("2 回目は何も足さない", g.bam_pattern_preset(prows, plist, 420), 0)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
