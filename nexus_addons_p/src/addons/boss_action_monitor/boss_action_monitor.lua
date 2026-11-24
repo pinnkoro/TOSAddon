@@ -607,9 +607,12 @@ function boss_action_monitor_on_init()
         g.bam_prev_remain = nil
         g.bam_prev_source = nil
         g.bam_patterns = {}
+        g.bam_map_enter_ms = imcTime.GetAppTimeMS()
+        g.bam_probe_seen = {}
     end
     g.setup_hook_and_event(g.addon, "RAID_TIMER_UPDATE", "Boss_action_monitor_RAID_TIMER_UPDATE", true)
     g.setup_hook_and_event(g.addon, "DAMAGE_METER_UPDATE_TIMER", "Boss_action_monitor_DAMAGE_METER_UPDATE_TIMER", true)
+    g.setup_hook_and_event(g.addon, "NOTICE_RAID_PATTERN_ON_MSG", "Boss_action_monitor_NOTICE_RAID_PATTERN_ON_MSG", true)
     if g.get_map_type() == "City" then
         g.vlog("boss_action_monitor: 街なので監視しない (map=%s stopped=%s)", tostring(g.map_name),
             tostring(g.stop_timer("boss_action_monitor_timer")))
@@ -729,8 +732,11 @@ end
 -- ゲームのタイマー(レイド / 週間ボス)から残りを受け取る。kind が HUD の表示と前回の区別に使われる。
 function Boss_action_monitor_game_timer(remain, kind, set_time)
     if not g.bam_raid or g.bam_raid.kind ~= kind then
-        g.vlog("boss_action_monitor: ゲームのタイマーを受け取った kind=%s set=%s remain=%s map=%s", kind,
-            tostring(set_time), tostring(remain), tostring(g.map_name))
+        -- マップに入ってからタイマーが始まるまでの秒数も出す。パターンの時計がどちらから
+        -- 数えているかを、実際にパターンが出た時刻(probe の行)と突き合わせて調べるため。
+        g.vlog("boss_action_monitor: ゲームのタイマーを受け取った kind=%s set=%s remain=%s map=%s 入ってから %.1f 秒",
+            kind, tostring(set_time), tostring(remain), tostring(g.map_name),
+            (imcTime.GetAppTimeMS() - (g.bam_map_enter_ms or imcTime.GetAppTimeMS())) / 1000)
     end
     g.bam_raid = {
         kind = kind,
@@ -826,6 +832,9 @@ end
 function Boss_action_monitor_scan()
     local objects, count = SelectObject(GetMyPCObject(), g.bam_scan_range, "ENEMY")
     local groups = Boss_action_monitor_active_groups()
+    if #groups > 0 then
+        Boss_action_monitor_probe(objects, count)
+    end
     for i = 1, count or 0 do
         local handle = GetHandle(objects[i])
         local cls = info.GetMonsterClassName(handle)
@@ -858,6 +867,56 @@ function Boss_action_monitor_scan()
             end
         end
     end
+end
+
+-- ===== パターンの実測(probe) =====
+-- パターンの初期値(表の StartTime と再使用時間)が、ゲームの残り時間のどこに当たるのかを確かめるため、
+-- 「共通」のパターンが効くマップで、パターンが実際に起きた形跡を初めて見た時刻を残す。
+--   * 近くの敵で、初めて見る ClassName(特攻の突進モンスターなど、パターンが出す敵)
+--   * 自分に付いた、初めて見るバフで ClassName が Weekly_ / Field_ で始まるもの(火の障壁に当たったときなど)
+--   * 素のパターン告知(NOTICE_RAID_PATTERN_ON_MSG)
+-- 同じものは 1 回しか出さない(毎 tick 走る経路なので)。
+function Boss_action_monitor_probe_line(kind, name)
+    local key = kind .. ":" .. tostring(name)
+    g.bam_probe_seen = g.bam_probe_seen or {}
+    if g.bam_probe_seen[key] then
+        return
+    end
+    g.bam_probe_seen[key] = true
+    local remain = Boss_action_monitor_raid_fresh() and g.bam_raid.remain or nil
+    g.vlog("boss_action_monitor: probe %s %s 残り=%s 入ってから %.1f 秒", kind, tostring(name),
+        remain and g.bam_fmt_time(remain) or "-",
+        (imcTime.GetAppTimeMS() - (g.bam_map_enter_ms or imcTime.GetAppTimeMS())) / 1000)
+end
+
+function Boss_action_monitor_probe(objects, count)
+    local ok, err = pcall(function()
+        for i = 1, count or 0 do
+            local handle = GetHandle(objects[i])
+            local cls = info.GetMonsterClassName(handle)
+            if cls and cls ~= "" then
+                Boss_action_monitor_probe_line("敵", cls)
+            end
+        end
+        local my_handle = session.GetMyHandle()
+        for i = 0, info.GetBuffCount(my_handle) - 1 do
+            local buff = info.GetBuffIndexed(my_handle, i)
+            local buff_cls = buff and GetClassByType("Buff", buff.buffID)
+            local name = buff_cls and tostring(buff_cls.ClassName or "")
+            if name and (string.find(name, "^Weekly_") or string.find(name, "^Field_")) then
+                Boss_action_monitor_probe_line("バフ", name)
+            end
+        end
+    end)
+    if not ok then
+        g.log_error_once("bam_probe", string.format("boss_action_monitor: probe が失敗(%s)", tostring(err)))
+    end
+end
+
+-- 素の NOTICE_RAID_PATTERN_ON_MSG(frame, msg, argStr, argNum) の後に呼ばれる。
+function Boss_action_monitor_NOTICE_RAID_PATTERN_ON_MSG(my_frame, my_msg)
+    local _, msg, arg_str = g.get_event_args(my_msg)
+    Boss_action_monitor_probe_line("告知", tostring(msg) .. "/" .. tostring(arg_str))
 end
 
 -- ===== 知らせ =====
