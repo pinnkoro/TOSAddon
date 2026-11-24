@@ -1048,7 +1048,7 @@ end
 -- 行が何件目かは行の名前(hp_<n> / tm_<n>)から取る。SetUserValue で持たせると、
 -- 入力欄の GetParent() から読めないことがある(Revival Timer の試作で実機で発生)。
 
-g.bam_setting_w = 680
+g.bam_setting_w = 860
 -- 右下の注記(2 行)まで入る高さ。580 では注記が窓の外に切れていた(実機で指摘)。
 g.bam_setting_h = 630
 
@@ -1364,9 +1364,11 @@ function Boss_action_monitor_build_rows(list, kind, rows, grp)
     list:RemoveAllChild()
     local with_pattern = grp ~= nil and grp.pattern_src ~= nil
     local row_h = with_pattern and 64 or 32
+    -- 横の並びは行の幅から決める(右端に × を置き、メッセージの欄をその手前まで伸ばす)
+    local rw = list:GetWidth() - 20
+    local del_x = rw - 36
     for i, t in ipairs(rows) do
-        local row = list:CreateOrGetControl("groupbox", kind .. "_" .. i, 0, (i - 1) * (row_h + 2),
-            list:GetWidth() - 20, row_h)
+        local row = list:CreateOrGetControl("groupbox", kind .. "_" .. i, 0, (i - 1) * (row_h + 2), rw, row_h)
         AUTO_CAST(row)
         row:SetSkinName("None")
         row:EnableScrollBar(0)
@@ -1376,32 +1378,34 @@ function Boss_action_monitor_build_rows(list, kind, rows, grp)
         on:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_row_on")
         if kind == "hp" then
             Boss_action_monitor_edit(row, "pct", 44, 2, 56, tostring(t.pct), true)
-            Boss_action_monitor_edit(row, "text", 108, 2, 270, t.text, false)
+            Boss_action_monitor_edit(row, "text", 108, 2, del_x - 8 - 108, t.text, false)
         else
             Boss_action_monitor_edit(row, "at", 44, 2, 64, g.bam_fmt_time(t.at), false)
             Boss_action_monitor_edit(row, "before", 116, 2, 56, tostring(t.before), true)
-            Boss_action_monitor_edit(row, "text", 180, 2, 198, t.text, false)
+            Boss_action_monitor_edit(row, "text", 180, 2, del_x - 8 - 180, t.text, false)
         end
-        local del = row:CreateOrGetControl("button", "del", 386, 2, 28, 28)
+        local del = row:CreateOrGetControl("button", "del", del_x, 2, 28, 28)
         AUTO_CAST(del)
         del:SetText("{ol}{#FF6347}×")
         del:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_row_del")
         if with_pattern then
-            Boss_action_monitor_build_pattern_drop(row, kind, i, t, grp)
+            Boss_action_monitor_build_pattern_drop(row, kind, i, t, grp, del_x)
         end
     end
 end
 
 -- パターンの条件のドロップダウン。先頭は「条件なし」。選んだらその場で保存する(作り直さない)。
-function Boss_action_monitor_build_pattern_drop(row, kind, idx, t, grp)
+function Boss_action_monitor_build_pattern_drop(row, kind, idx, t, grp, del_x)
     Boss_action_monitor_label(row, "pattern_label", 44, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}パターン",
         "{ol}{s13}{#CCCCCC}Pattern"))
     -- 残り時間の件は右に「間隔(秒)」の欄を置く(0 なら繰り返さない)
-    local drop_w = kind == "tm" and 170 or 262
+    -- 右端はメッセージの欄の右端(× の手前)にそろえる
+    local right = del_x - 8
+    local drop_w = kind == "tm" and (right - 56 - 46 - 116) or (right - 116)
     if kind == "tm" then
-        Boss_action_monitor_label(row, "every_label", 292, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}間隔",
+        Boss_action_monitor_label(row, "every_label", right - 56 - 40, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}間隔",
             "{ol}{s13}{#CCCCCC}Every"))
-        local every = Boss_action_monitor_edit(row, "every", 330, 34, 48, tostring(t.every or 0), true)
+        local every = Boss_action_monitor_edit(row, "every", right - 48, 34, 48, tostring(t.every or 0), true)
         if every then
             every:SetTextTooltip(Boss_action_monitor_t("{ol}この秒数ごとに繰り返し知らせます(0 なら 1 回だけ)",
                 "{ol}Repeat every N seconds (0 = once)"))
