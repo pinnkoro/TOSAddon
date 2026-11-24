@@ -120,6 +120,12 @@ function Mini_addons_GAME_START_3SEC(frame, msg, str, num)
     core_g.register_msg("SOLO_D_TIMER_TEXT_GAUGE_UPDATE", "Mini_addons_SOLO_D_TIMER_UPDATE_TEXT_GAUGE")
     -- PTバフの表示非表示切り替え
     g.setup_hook(Mini_addons_ON_PARTYINFO_BUFFLIST_UPDATE, "ON_PARTYINFO_BUFFLIST_UPDATE")
+    -- PT 情報をバフアイコンに重ねて置けるようにする(設定 party_free_move。OFF なら素のまま)。
+    -- 素の関数は 2026-11-24 のパッチで入ったもの。**無いクライアントでは掛けない**
+    -- (掛けると素に無い名前を _G へ生やすだけになる。素の呼び出し側は nil かどうかで分岐している)
+    if type(PARTYINFO_AVOID_BUFF_OVERLAP) == "function" then
+        g.setup_hook(Mini_addons_PARTYINFO_AVOID_BUFF_OVERLAP, "PARTYINFO_AVOID_BUFF_OVERLAP")
+    end
     -- チャンネルのズレを直す
     g.setup_hook(Mini_addons_UPDATE_CURRENT_CHANNEL_TRAFFIC, "UPDATE_CURRENT_CHANNEL_TRAFFIC")
     -- インベントリイコル検索

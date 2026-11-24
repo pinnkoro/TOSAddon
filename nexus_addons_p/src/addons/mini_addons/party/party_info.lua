@@ -79,3 +79,36 @@ end
         partyinfo:Resize(80, count * 100 + 60)
     end
 end]]
+
+-- PT 情報をバフアイコンに重なる位置へも置けるようにする(設定 party_free_move)。
+--
+-- 素の PARTYINFO_AVOID_BUFF_OVERLAP(2026-11-24 のパッチで追加)は、PT 情報の窓が
+-- 自キャラのバフアイコンと縦横とも重なると、窓をアイコンの下端 + 4px へ MoveFrame する。
+-- 呼ばれるのは「窓をドラッグして離したとき(LBUTTONUP)」「バフの付け外し・更新のたび
+-- (BUFF_ON_MSG)」「PT の組み直し(PARTYINFO_CONTROLSET_AUTO_ALIGN)」の 3 か所なので、
+-- 離したときだけ止めても次のバフ更新で押し戻される。ON のときは素を丸ごと呼ばない。
+--
+-- **素が守っているもの**: 窓は hittestframe="true" なので、バフアイコンの上に置くと
+-- そのアイコンを右クリックしてバフを消せなくなる(押し出しはそれを避けるため)。
+-- 位置そのものの制約はサーバーにもネイティブにも無く、外すのは見た目と当たり判定だけ。
+-- 承知のうえで選べるよう既定は OFF にしている。
+function Mini_addons_PARTYINFO_AVOID_BUFF_OVERLAP(frame, ctrl, ...)
+    if g.settings.party_free_move ~= 1 then
+        local origin = g.FUNCS["PARTYINFO_AVOID_BUFF_OVERLAP"]
+        if origin then
+            return origin(frame, ctrl, ...)
+        end
+        return
+    end
+    -- バフ更新のたびに呼ばれるので、ログは「ドラッグして離したとき」だけ出す
+    -- (LBUTTONUP のときだけ 2 つ目の引数に押された部品が来る)。
+    if ctrl ~= nil and frame ~= nil then
+        local x, y = frame:GetX(), frame:GetY()
+        local pushed = nil
+        if type(BUFF_GET_OVERLAP_BOTTOM) == "function" then
+            pushed = BUFF_GET_OVERLAP_BOTTOM(x, y, x + frame:GetWidth(), y + frame:GetHeight())
+        end
+        core_g.vlog("mini_addons: party_free_move で PT 情報の押し出しを止めた 位置=%d,%d 大きさ=%dx%d 素なら y=%s", x,
+            y, frame:GetWidth(), frame:GetHeight(), pushed and tostring(pushed + 4) or "そのまま")
+    end
+end
