@@ -461,7 +461,7 @@ local SUB_FRAME_SETTINGS = {
         text_kr = "파티 정보를 버프 아이콘과 겹치는 위치에도 둘 수 있게 합니다(게임은 버프 아래로 밀어냅니다)",
         text_en = "Allow placing the party info where it overlaps your buff icons (the game pushes it below the buffs)",
         -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
-        since = core_g.VER_NEXT
+        since = "2.27.0"
     }, {
         name = "cupole_portion",
         text_jp = "クポルのポーションフレームを非表示に。OFFでもフレームの位置記憶",
