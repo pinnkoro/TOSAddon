@@ -143,6 +143,85 @@ check("英字は半分の幅で数える", (g.bam_fit_text(string.rep("a", 21), 
 check("英字でも切る", (g.bam_fit_text(string.rep("a", 22), 148)), string.rep("a", 19) .. "…")
 check("空", (g.bam_fit_text("", 148)), "")
 
+print("[10] パターンの条件")
+local bp = boss({cls = "@weekly_boss", time = {{at = 270, text = "火の障壁", pattern = "Weekly_FireWall"},
+                                               {at = 140, text = "条件なし"}, {at = 60, pattern = 3}}})
+check("pattern が無ければ空", bp.time[2].pattern, "")
+check("pattern が文字でなければ空", bp.time[3].pattern, "")
+local passed = g.bam_pattern_pass(bp.time, {Weekly_FireWall = true})
+check("パターンがあれば条件付きも通る", #passed, 3)
+check("通すのは元の件", passed[1], bp.time[1])
+passed = g.bam_pattern_pass(bp.time, {Weekly_Ice_Wall = true})
+check("パターンが無ければ条件付きは通さない", #passed, 2)
+check("条件なしは通る", passed[1].text, "条件なし")
+check("パターンが分からなければ条件付きは通さない", #g.bam_pattern_pass(bp.time, nil), 2)
+local due = g.bam_time_due(g.bam_pattern_pass(bp.time, {Weekly_FireWall = true}), 271, 269)
+check("パターンがある週は 4:30 で出る", #due == 1 and due[1].trig.text, "火の障壁")
+due = g.bam_time_due(g.bam_pattern_pass(bp.time, {}), 271, 269)
+check("パターンが無い週は出ない", #due, 0)
+
+print("[11] 間隔ごとに繰り返す")
+local br = boss({cls = "@weekly_boss", time = {{at = 402, before = 10, every = 50, pattern = "Weekly_FireWall"}}})
+local occ = g.bam_occurrences(br.time[1])
+check("回数", #occ, 9)
+check("2 回目は 5:52", occ[2], 352)
+check("最後は 0:02", occ[9], 2)
+local d2 = g.bam_time_due(br.time, 353, 351)
+check("2 回目もちょうどで出る", #d2 == 1 and d2[1].kind == "at" and d2[1].at, 352)
+d2 = g.bam_time_due(br.time, 363, 361)
+check("2 回目の 10 秒前も出る", #d2 == 1 and d2[1].kind == "before" and d2[1].at, 352)
+check("繰り返さない件は 1 回", #g.bam_occurrences({at = 270, every = 0}), 1)
+check("every が壊れていたら 0", boss({cls = "q", time = {{at = 10, every = "x"}}}).time[1].every, 0)
+local nt, nt_at = g.bam_next_time(br.time, 380)
+check("次は繰り返しの近い回", nt_at, 352)
+check("次の件は元の件", nt, br.time[1])
+
+print("[12] パターンの最初の時刻と、件の用意")
+local ms, jit = g.bam_parse_start("18000")
+check("1 つなら揺れなし", ms == 18000 and jit, false)
+ms, jit = g.bam_parse_start("13000/43000")
+check("2 つなら早い方", ms, 13000)
+check("2 つなら揺れあり", jit, true)
+check("空は nil", (g.bam_parse_start("")), nil)
+local plist = {{cls = "Weekly_FireWall", start_ms = 18000, every = 50, timed = true},
+               {cls = "Weekly_Thunderstroke", start_ms = 13000, every = 40, timed = true},
+               {cls = "Weekly_Ballista", start_ms = 13000, every = 10, timed = true},
+               {cls = "Weekly_StarFall", start_ms = 83000, every = 450, timed = true},
+               {cls = "Weekly_PurifyingStone", start_ms = 0, every = 999, timed = false}}
+local prows = {{at = 100, pattern = "Weekly_Thunderstroke"}}
+check("足した件数(既にあるものと時間で出ないものは足さない)", g.bam_pattern_preset(prows, plist, 420), 3)
+check("火の障壁は 6:42", prows[2].at, 402)
+check("火の障壁は 50 秒ごと", prows[2].every, 50)
+check("火の障壁は 10 秒前", prows[2].before, 10)
+check("間隔が短いものは何秒前なし", prows[3].before, 0)
+check("タイマーより長い間隔は繰り返さない", prows[4].every, 0)
+check("条件はパターン", prows[2].pattern, "Weekly_FireWall")
+check("2 回目は何も足さない", g.bam_pattern_preset(prows, plist, 420), 0)
+local done = {}
+local rows2 = {}
+check("初回は 4 件", g.bam_pattern_preset(rows2, plist, 420, done), 4)
+check("用意したものを記録する", done.Weekly_FireWall, true)
+table.remove(rows2, 1)
+check("消した件は足し直さない", g.bam_pattern_preset(rows2, plist, 420, done), 0)
+plist[#plist + 1] = {cls = "Weekly_New", start_ms = 30000, every = 60, timed = true}
+check("新しいパターンだけ足す", g.bam_pattern_preset(rows2, plist, 420, done), 1)
+
+print("[13] 間隔が短くても最後の回まで出る")
+local short = {{at = 420, before = 0, every = 2}}
+check("回数", #g.bam_occurrences(short[1]), 211)
+local d3 = g.bam_time_due(short, 21, 19)
+check("0:20 の回が出る", #d3 == 1 and d3[1].at, 20)
+d3 = g.bam_time_due(short, 1, 0)
+check("0:00 の回が出る", #d3 == 1 and d3[1].at, 0)
+d3 = g.bam_time_due({{at = 420, before = 0, every = 1}}, 31, 21)
+check("間隔 1 秒は 10 秒の跨ぎで 10 回", #d3, 10)
+local _, nat = g.bam_next_time(short, 21)
+check("次の回", nat, 20)
+_, nat = g.bam_next_time({{at = 100, every = 0}}, 50)
+check("過ぎた件は次にならない", nat, nil)
+d3 = g.bam_time_due({{at = 402, before = 10, every = 50}}, 3, 2)
+check("最後の回 0:02 のちょうどが出る", #d3 == 1 and d3[1].kind == "at" and d3[1].at, 2)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)

@@ -28,6 +28,9 @@ local DEFAULT_SETTINGS = {
     auto_gacha_start = 0,
     skill_enchant = 0,
     party_info = 0,
+    -- PT 情報をバフアイコンに重なる位置へも置けるようにする(party/party_info.lua)。
+    -- 素は 2026-11-24 のパッチから、重なるとバフの下へ押し出す
+    party_free_move = 0,
     relic_gauge = 0,
     raid_check = 0,
     coin_count = 0,
@@ -143,7 +146,7 @@ local DEFAULT_SETTINGS = {
 local SETTINGS_NAME = {"other_effect", "my_effect", "boss_effect", "channel_info", "pc_name", "quest_hide",
                        "automatch_layer", "indun_enter_fit", "convenience_hide", "equip_info", "under_staff", "raid_record", "party_buff", "chat_system",
                        "channel_display", "mini_btn", "market_display", "restart_move", "pet_init", "dialog_ctrl",
-                       "auto_cast", "coin_use", "auto_gacha", "skill_enchant", "party_info", "relic_gauge",
+                       "auto_cast", "coin_use", "auto_gacha", "skill_enchant", "party_info", "party_free_move", "relic_gauge",
                        "raid_check", "coin_count", "bgm", "vakarine", "weekly_boss_reward", "solodun_reward",
                        "cupole_portion", "goodbye_ragana", "status_upgrade", "icor_status_search", "velnice",
                        "separated_buff", "group_chat", "memberinfo", "baubas_call", "pt_buff", "chat_recv", "pet_ring",
@@ -453,6 +456,13 @@ local SUB_FRAME_SETTINGS = {
         text_kr = "파티 정보 프레임을 버프 수에 맞춰 리사이즈",
         text_en = "Resized the party information frame to match the number of buffs"
     }, {
+        name = "party_free_move",
+        text_jp = "パーティー情報をバフアイコンに重なる位置にも置けるようにします(ゲームはバフの下へ押し戻します)",
+        text_kr = "파티 정보를 버프 아이콘과 겹치는 위치에도 둘 수 있게 합니다(게임은 버프 아래로 밀어냅니다)",
+        text_en = "Allow placing the party info where it overlaps your buff icons (the game pushes it below the buffs)",
+        -- 「NEW」の印。**採番するまでは core_g.VER_NEXT を書く**(CLAUDE.md の先行採番の禁止)。
+        since = "2.27.0"
+    }, {
         name = "cupole_portion",
         text_jp = "クポルのポーションフレームを非表示に。OFFでもフレームの位置記憶",
         text_kr = "큐폴의 포션 프레임을 숨기고, OFF 상태에서도 프레임 위치를 기억합니다",
@@ -557,7 +567,7 @@ local SETTING_SECTIONS = {{
     name = "frames",
     names = {"raid_record", "mini_btn", "market_display", "restart_move", "restart_colony", "automatch_layer",
              "indun_enter_fit", "convenience_hide",
-             "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "pt_info", "party_buff",
+             "quest_hide", "channel_info", "channel_display", "auto_gacha", "party_info", "party_free_move", "pt_info", "party_buff",
              "cupole_portion", "separated_buff", "pet_ring", "daily_quest", "inventory_mod", "icor_status_search",
              "reroll_option", "enchant_tooltip", "keep_first", "boss_rank", "memberinfo", "ability_sort",
              "fragmentation"},
