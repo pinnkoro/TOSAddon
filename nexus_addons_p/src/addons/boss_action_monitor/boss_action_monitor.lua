@@ -1049,8 +1049,10 @@ end
 -- 入力欄の GetParent() から読めないことがある(Revival Timer の試作で実機で発生)。
 
 g.bam_setting_w = 860
--- 右下の注記(2 行)まで入る高さ。580 では注記が窓の外に切れていた(実機で指摘)。
-g.bam_setting_h = 630
+-- 高さ。残り時間の件の一覧は、窓の下端(右下の注記 2 行の上)まで伸ばす。
+-- 630 では「共通」の件(2 段の行)が 2 件しか見えず、確認や調整がしにくかった(実機で指摘)。
+-- 880 で「共通」は 5〜6 件、個別のボスは 11 件ほど見える。
+g.bam_setting_h = 880
 
 function Boss_action_monitor_setting()
     local setting = ui.CreateNewFrame("notice_on_pc", g.bam_setting_name, 0, 0, 0, 0)
@@ -1348,12 +1350,14 @@ function Boss_action_monitor_build_triggers(detail, b)
     tm_add:SetEventScriptArgString(ui.LBUTTONUP, "tm")
     Boss_action_monitor_label(detail, "tm_cols", 10, y + 32, "{ol}{s13}{#CCCCCC}ON      " ..
         Boss_action_monitor_t("残り      何秒前      メッセージ", "At        Sec before   Message"))
-    local tm_list = detail:CreateOrGetControl("groupbox", "tm_list", 0, y + 52, w, 130)
+    -- 下端の注記(2 行)の分を残して、窓の下まで伸ばす
+    local tm_h = math.max(130, detail:GetHeight() - (y + 52) - 56)
+    local tm_list = detail:CreateOrGetControl("groupbox", "tm_list", 0, y + 52, w, tm_h)
     AUTO_CAST(tm_list)
     tm_list:SetSkinName("None")
     tm_list:EnableScrollBar(1)
     Boss_action_monitor_build_rows(tm_list, "tm", b.time, Boss_action_monitor_group(b))
-    Boss_action_monitor_label(detail, "note", 10, y + 188, Boss_action_monitor_t(
+    Boss_action_monitor_label(detail, "note", 10, y + 52 + tm_h + 6, Boss_action_monitor_t(
         "{ol}{s13}{#CCCCCC}※ 時間はレイドタイマーの残り時間です。{nl}　 無いときは HUD の ▶ で手動タイマーを始めます",
         "{ol}{s13}{#CCCCCC}* Time is the raid timer's remaining time.{nl}  Without it, start the manual timer with ▶ on the HUD"))
 end
