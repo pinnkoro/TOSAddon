@@ -34,7 +34,10 @@ g.bam_groups = {{
     tip_en = "{ol}Applies to the boss of the week in Weekly Boss Raid",
     note_ja = "{ol}{s13}{#CCCCCC}週間ボスレイドの中だけで、その週のボスに効きます。{nl}残り時間は週間ボスレイドの 7 分のタイマーです",
     note_en = "{ol}{s13}{#CCCCCC}Works only in Weekly Boss Raid, for that week's boss.{nl}Time is the raid's 7-minute timer",
-    manual = false
+    manual = false,
+    -- パターン(boss_pattern の表)の条件。prefix … 候補に出す ClassName の頭 / src … 今のパターンの取り先
+    pattern_prefix = "Weekly_",
+    pattern_src = "weekly"
 }, {
     cls = "@field_boss",
     keyword = "FieldBossMap",
@@ -45,7 +48,10 @@ g.bam_groups = {{
     -- 右の欄の幅(約 440)に収まるよう 1 行を短くする。richtext は折り返さず、はみ出た分は切れる。
     note_ja = "{ol}{s13}{#CCCCCC}ボス協同戦の中だけで、そこに居るボスに効きます。{nl}残り時間はゲームのタイマー(無ければ HUD の ▶ で手動)",
     note_en = "{ol}{s13}{#CCCCCC}Works only in Boss Co-op, for the boss there.{nl}Time: the game timer, or the manual timer (▶ on HUD)",
-    manual = true
+    manual = true,
+    -- FieldRift_* は別のコンテンツ(フィールドの亀裂)のパターンなので含めない
+    pattern_prefix = "Field_",
+    pattern_src = "field"
 }}
 g.bam_hud_name = addon_name_lower .. "boss_action_monitor_hud"
 g.bam_setting_name = addon_name_lower .. "boss_action_monitor_setting"
@@ -116,12 +122,14 @@ function g.bam_normalize_boss(b)
         t.on = t.on ~= false
         t.pct = math.floor(g.bam_clamp(t.pct, 1, 99, 50))
         t.text = type(t.text) == "string" and t.text or ""
+        t.pattern = type(t.pattern) == "string" and t.pattern or ""
     end
     for _, t in ipairs(b.time) do
         t.on = t.on ~= false
         t.at = math.floor(g.bam_clamp(t.at, 0, 7200, 0))
         t.before = math.floor(g.bam_clamp(t.before, 0, 600, 0))
         t.text = type(t.text) == "string" and t.text or ""
+        t.pattern = type(t.pattern) == "string" and t.pattern or ""
     end
     return b
 end
@@ -200,6 +208,20 @@ function g.bam_fit_text(text, max_w)
         used = used + widths[i]
     end
     return table.concat(out) .. "…", true
+end
+
+-- パターンの条件で件を絞る(純ロジック)。patterns は今のパターンの ClassName の集合 {[ClassName] = true}。
+-- 条件の無い件(pattern = "")はそのまま通す。**今のパターンが分からない(nil)ときは、条件付きの件を通さない**
+-- (付いていないパターンの知らせを出すより、出さない方がまし)。返す件は元の表のまま(HP の印が件で引くため)。
+function g.bam_pattern_pass(triggers, patterns)
+    local result = {}
+    for _, t in ipairs(triggers or {}) do
+        local need = t.pattern
+        if need == nil or need == "" or (patterns ~= nil and patterns[need]) then
+            result[#result + 1] = t
+        end
+    end
+    return result
 end
 
 -- 残り時間 remain より後に来る、いちばん近い件(HUD の「次」)。無ければ nil。
@@ -314,6 +336,128 @@ function Boss_action_monitor_find(cls)
     return nil
 end
 
+-- ===== パターン =====
+
+-- 候補に出すパターン(boss_pattern の表のうち ClassName が prefix で始まるもの)。表の順に並べ、1 回だけ作る。
+function Boss_action_monitor_pattern_list(prefix)
+    g.bam_pattern_lists = g.bam_pattern_lists or {}
+    if g.bam_pattern_lists[prefix] then
+        return g.bam_pattern_lists[prefix]
+    end
+    local list = {}
+    local ok, err = pcall(function()
+        local cls_list, count = GetClassList("boss_pattern")
+        for i = 0, (count or 0) - 1 do
+            local cls = GetClassByIndexFromList(cls_list, i)
+            local name = cls and tostring(cls.ClassName or "")
+            if name and string.sub(name, 1, #prefix) == prefix then
+                local label = dictionary.ReplaceDicIDInCompStr(TryGetProp(cls, "Name", "") or "")
+                list[#list + 1] = {
+                    cls = name,
+                    name = (label ~= "" and label ~= "None") and label or name
+                }
+            end
+        end
+    end)
+    if not ok then
+        g.log_error_once("bam_pattern_list", string.format("boss_action_monitor: パターンの表を読めない(%s)", tostring(err)))
+    end
+    g.vlog("boss_action_monitor: パターンの候補 %s %d 件", prefix, #list)
+    g.bam_pattern_lists[prefix] = list
+    return list
+end
+
+-- パターンの表示名。表に無ければ ClassName のまま。
+function Boss_action_monitor_pattern_name(grp, cls)
+    for _, p in ipairs(Boss_action_monitor_pattern_list(grp.pattern_prefix)) do
+        if p.cls == cls then
+            return p.name
+        end
+    end
+    return cls
+end
+
+-- 今の週間ボス / 協同戦のパターン情報をサーバーへ求める。**素はコンテンツ情報の画面を開いたときに
+-- しか求めない**ので、「共通」が効くマップに入ったらこちらから 1 回求めておく(届くと session に入る)。
+function Boss_action_monitor_request_patterns(grp)
+    local ok, err = pcall(function()
+        if grp.pattern_src == "weekly" then
+            local week = session.weeklyboss.GetNowWeekNum()
+            weekly_boss.RequestWeeklyBossPatternInfo(week)
+            g.vlog("boss_action_monitor: 週間ボスのパターン情報を求めた week=%s", tostring(week))
+        elseif grp.pattern_src == "field" then
+            field_boss.RequestFieldBossPatternInfo(geTime.GetServerSystemTime())
+            g.vlog("boss_action_monitor: 協同戦のパターン情報を求めた")
+        end
+    end)
+    if not ok then
+        g.log_error_once("bam_pattern_request:" .. grp.cls,
+            string.format("boss_action_monitor: %s のパターン情報を求められない(%s)", grp.cls, tostring(err)))
+    end
+end
+
+-- 今のパターン({[ClassName] = true})。まだ届いていない・読めないときは nil。
+-- 届いたらこのマップの間は覚えておく(戦闘の途中でパターンは変わらない)。
+function Boss_action_monitor_current_patterns(grp)
+    g.bam_patterns = g.bam_patterns or {}
+    if g.bam_patterns[grp.cls] then
+        return g.bam_patterns[grp.cls]
+    end
+    local set, names, total = {}, {}, 0
+    local ok, err = pcall(function()
+        local info_obj = grp.pattern_src == "weekly" and session.weeklyboss.GetPatternInfo() or
+                             session.fieldboss.GetPatternInfo()
+        if not info_obj then
+            return
+        end
+        local function add(id)
+            local cls = GetClassByType("boss_pattern", id)
+            if cls then
+                set[cls.ClassName] = true
+                names[#names + 1] = cls.ClassName
+                total = total + 1
+            end
+        end
+        -- 素のパターン情報の画面と同じく、マップのパターンとボスのパターンの両方を見る
+        for i = 0, info_obj:GetMapPatternCount() - 1 do
+            add(info_obj:GetMapPatternIDByIndex(i))
+        end
+        for i = 0, info_obj:GetPatternCount() - 1 do
+            add(info_obj:GetPatternIDByIndex(i))
+        end
+    end)
+    if not ok then
+        g.log_error_once("bam_pattern_read:" .. grp.cls,
+            string.format("boss_action_monitor: %s のパターン情報を読めない(%s)", grp.cls, tostring(err)))
+        return nil
+    end
+    if total == 0 then
+        return nil
+    end
+    g.bam_patterns[grp.cls] = set
+    g.vlog("boss_action_monitor: %s のパターン %s", grp.cls, table.concat(names, ","))
+    return set
+end
+
+-- 「共通」の件をパターンの条件で絞る。普通のボスは条件を持たないのでそのまま。
+function Boss_action_monitor_pass(b, triggers)
+    local grp = Boss_action_monitor_group(b)
+    if not grp or not grp.pattern_src then
+        return triggers
+    end
+    local need = false
+    for _, t in ipairs(triggers or {}) do
+        if t.pattern ~= nil and t.pattern ~= "" then
+            need = true
+            break
+        end
+    end
+    if not need then
+        return triggers
+    end
+    return g.bam_pattern_pass(triggers, Boss_action_monitor_current_patterns(grp))
+end
+
 -- ===== 初期化 =====
 
 function boss_action_monitor_on_init()
@@ -332,6 +476,7 @@ function boss_action_monitor_on_init()
         g.bam_group_boss_name = {}
         g.bam_prev_remain = nil
         g.bam_prev_source = nil
+        g.bam_patterns = {}
     end
     g.setup_hook_and_event(g.addon, "RAID_TIMER_UPDATE", "Boss_action_monitor_RAID_TIMER_UPDATE", true)
     g.setup_hook_and_event(g.addon, "DAMAGE_METER_UPDATE_TIMER", "Boss_action_monitor_DAMAGE_METER_UPDATE_TIMER", true)
@@ -348,6 +493,11 @@ function boss_action_monitor_on_init()
         AUTO_CAST(timer)
         timer:SetUpdateScript("Boss_action_monitor_tick")
         timer:Start(0.5)
+    end
+    for _, grp in ipairs(g.bam_groups) do
+        if grp.pattern_src and Boss_action_monitor_group_active(grp) then
+            Boss_action_monitor_request_patterns(grp)
+        end
     end
     local _, group_names = Boss_action_monitor_active_groups()
     g.vlog("boss_action_monitor: 監視を開始 map=%s 登録 %d 体 共通=%s", tostring(g.map_name),
@@ -482,7 +632,7 @@ function Boss_action_monitor_time_step(remain, source)
         return
     end
     for _, b in ipairs(Boss_action_monitor_active_bosses()) do
-        for _, d in ipairs(g.bam_time_due(b.time, prev, remain)) do
+        for _, d in ipairs(g.bam_time_due(Boss_action_monitor_pass(b, b.time), prev, remain)) do
             g.vlog("boss_action_monitor: 時間 %s %s at=%d before=%d 前回=%s 今=%d (%s)", b.cls, d.kind, d.trig.at,
                 d.trig.before, tostring(prev), remain, source)
             Boss_action_monitor_notify(b, d)
@@ -536,7 +686,7 @@ function Boss_action_monitor_scan_group(entry, handle, cls)
         state = {}
         g.bam_hp_state[key] = state
     end
-    for _, d in ipairs(g.bam_hp_due(entry.hp, state, pct)) do
+    for _, d in ipairs(g.bam_hp_due(Boss_action_monitor_pass(entry, entry.hp), state, pct)) do
         g.vlog("boss_action_monitor: HP %s %s pct=%d 今=%.1f%%", entry.cls, tostring(cls), d.trig.pct, pct)
         Boss_action_monitor_notify(entry, d)
     end
@@ -583,8 +733,10 @@ end
 
 function Boss_action_monitor_message(b, d)
     local t = d.trig
+    local grp = Boss_action_monitor_group(b)
     local label = (t.text ~= "" and t.text) or
-                      (Boss_action_monitor_group(b) and g.bam_group_boss_name and g.bam_group_boss_name[b.cls]) or Boss_action_monitor_display_name(b)
+                      (grp and t.pattern ~= nil and t.pattern ~= "" and Boss_action_monitor_pattern_name(grp, t.pattern)) or
+                      (grp and g.bam_group_boss_name and g.bam_group_boss_name[b.cls]) or Boss_action_monitor_display_name(b)
     if d.kind == "hp" then
         return string.format("%s (HP %d%%)", label, t.pct)
     elseif d.kind == "before" then
@@ -708,7 +860,7 @@ function Boss_action_monitor_hud_update()
     end
     local next_text = GET_CHILD(hud, "next")
     next_text:SetOffset(10, 76)
-    local nt = remain and g.bam_next_time(b.time, remain)
+    local nt = remain and g.bam_next_time(Boss_action_monitor_pass(b, b.time), remain)
     if nt then
         next_text:SetText(string.format("{ol}{s14}{#FFD700}%s %s %s", Boss_action_monitor_t("次:", "Next:"),
             g.bam_fmt_time(nt.at), (nt.text ~= "" and nt.text) or ""))
@@ -1047,7 +1199,7 @@ function Boss_action_monitor_build_triggers(detail, b)
     AUTO_CAST(hp_list)
     hp_list:SetSkinName("None")
     hp_list:EnableScrollBar(1)
-    Boss_action_monitor_build_rows(hp_list, "hp", b.hp)
+    Boss_action_monitor_build_rows(hp_list, "hp", b.hp, Boss_action_monitor_group(b))
     -- 時間
     y = 296
     Boss_action_monitor_label(detail, "tm_head", 10, y + 4, "{ol}{#FFD700}" ..
@@ -1063,17 +1215,21 @@ function Boss_action_monitor_build_triggers(detail, b)
     AUTO_CAST(tm_list)
     tm_list:SetSkinName("None")
     tm_list:EnableScrollBar(1)
-    Boss_action_monitor_build_rows(tm_list, "tm", b.time)
+    Boss_action_monitor_build_rows(tm_list, "tm", b.time, Boss_action_monitor_group(b))
     Boss_action_monitor_label(detail, "note", 10, y + 188, Boss_action_monitor_t(
         "{ol}{s13}{#CCCCCC}※ 時間はレイドタイマーの残り時間です。{nl}　 無いときは HUD の ▶ で手動タイマーを始めます",
         "{ol}{s13}{#CCCCCC}* Time is the raid timer's remaining time.{nl}  Without it, start the manual timer with ▶ on the HUD"))
 end
 
 -- 行を作る。kind は "hp" / "tm"。行の名前は kind_<n>。
-function Boss_action_monitor_build_rows(list, kind, rows)
+-- grp が「共通」でパターンの条件を持てるなら、2 段目にパターンのドロップダウンを出す。
+function Boss_action_monitor_build_rows(list, kind, rows, grp)
     list:RemoveAllChild()
+    local with_pattern = grp ~= nil and grp.pattern_src ~= nil
+    local row_h = with_pattern and 64 or 32
     for i, t in ipairs(rows) do
-        local row = list:CreateOrGetControl("groupbox", kind .. "_" .. i, 0, (i - 1) * 34, list:GetWidth() - 20, 32)
+        local row = list:CreateOrGetControl("groupbox", kind .. "_" .. i, 0, (i - 1) * (row_h + 2),
+            list:GetWidth() - 20, row_h)
         AUTO_CAST(row)
         row:SetSkinName("None")
         row:EnableScrollBar(0)
@@ -1093,7 +1249,52 @@ function Boss_action_monitor_build_rows(list, kind, rows)
         AUTO_CAST(del)
         del:SetText("{ol}{#FF6347}×")
         del:SetEventScript(ui.LBUTTONUP, "Boss_action_monitor_row_del")
+        if with_pattern then
+            Boss_action_monitor_build_pattern_drop(row, kind, i, t, grp)
+        end
     end
+end
+
+-- パターンの条件のドロップダウン。先頭は「条件なし」。選んだらその場で保存する(作り直さない)。
+function Boss_action_monitor_build_pattern_drop(row, kind, idx, t, grp)
+    Boss_action_monitor_label(row, "pattern_label", 44, 38, Boss_action_monitor_t("{ol}{s13}{#CCCCCC}パターン",
+        "{ol}{s13}{#CCCCCC}Pattern"))
+    local drop = row:CreateOrGetControl("droplist", "pattern", 116, 34, 262, 24)
+    AUTO_CAST(drop)
+    drop:SetSkinName("droplist_normal")
+    drop:EnableHitTest(1)
+    drop:SetTextAlign("center", "center")
+    drop:SetTextTooltip(Boss_action_monitor_t("{ol}その回のパターン情報にこれがあるときだけ知らせます",
+        "{ol}Alert only when this pattern is in the current pattern info"))
+    drop:AddItem(0, Boss_action_monitor_t("{ol}(条件なし)", "{ol}(any)"), 0,
+        string.format("Boss_action_monitor_pattern_pick(%q, %d, %q)", kind, idx, ""))
+    local sel = 0
+    for j, p in ipairs(Boss_action_monitor_pattern_list(grp.pattern_prefix)) do
+        drop:AddItem(j, "{ol}" .. p.name, 0, string.format("Boss_action_monitor_pattern_pick(%q, %d, %q)", kind, idx, p.cls))
+        if p.cls == t.pattern then
+            sel = j
+        end
+    end
+    -- **SelectItem は項目のスクリプトを走らせうる**(mini_addons/skill_reroll の注記)。組み立て中は保存させない。
+    g.bam_building_drop = true
+    drop:SelectItem(sel)
+    g.bam_building_drop = false
+end
+
+function Boss_action_monitor_pattern_pick(kind, idx, cls)
+    if g.bam_building_drop then
+        return
+    end
+    local b = g.bam_settings.bosses[g.bam_sel]
+    local rows = b and (kind == "hp" and b.hp or b.time)
+    local t = rows and rows[idx]
+    if not t then
+        return
+    end
+    t.pattern = cls or ""
+    Boss_action_monitor_save_settings()
+    g.vlog("boss_action_monitor: パターンの条件 %s %s_%d = %s", b.cls, kind, idx, t.pattern)
+    Boss_action_monitor_hud_update()
 end
 
 -- 行の名前から (種類, 何件目) を取る。"hp_3" → "hp", 3
@@ -1353,9 +1554,9 @@ function Boss_action_monitor_row_add(parent, ctrl, kind)
         return
     end
     if kind == "hp" then
-        rows[#rows + 1] = {on = true, pct = 50, text = ""}
+        rows[#rows + 1] = {on = true, pct = 50, text = "", pattern = ""}
     else
-        rows[#rows + 1] = {on = true, at = 0, before = 10, text = ""}
+        rows[#rows + 1] = {on = true, at = 0, before = 10, text = "", pattern = ""}
     end
     g.bam_normalize_boss(b)
     Boss_action_monitor_save_settings()

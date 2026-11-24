@@ -143,6 +143,23 @@ check("英字は半分の幅で数える", (g.bam_fit_text(string.rep("a", 21), 
 check("英字でも切る", (g.bam_fit_text(string.rep("a", 22), 148)), string.rep("a", 19) .. "…")
 check("空", (g.bam_fit_text("", 148)), "")
 
+print("[10] パターンの条件")
+local bp = boss({cls = "@weekly_boss", time = {{at = 270, text = "火の障壁", pattern = "Weekly_FireWall"},
+                                               {at = 140, text = "条件なし"}, {at = 60, pattern = 3}}})
+check("pattern が無ければ空", bp.time[2].pattern, "")
+check("pattern が文字でなければ空", bp.time[3].pattern, "")
+local passed = g.bam_pattern_pass(bp.time, {Weekly_FireWall = true})
+check("パターンがあれば条件付きも通る", #passed, 3)
+check("通すのは元の件", passed[1], bp.time[1])
+passed = g.bam_pattern_pass(bp.time, {Weekly_Ice_Wall = true})
+check("パターンが無ければ条件付きは通さない", #passed, 2)
+check("条件なしは通る", passed[1].text, "条件なし")
+check("パターンが分からなければ条件付きは通さない", #g.bam_pattern_pass(bp.time, nil), 2)
+local due = g.bam_time_due(g.bam_pattern_pass(bp.time, {Weekly_FireWall = true}), 271, 269)
+check("パターンがある週は 4:30 で出る", #due == 1 and due[1].trig.text, "火の障壁")
+due = g.bam_time_due(g.bam_pattern_pass(bp.time, {}), 271, 269)
+check("パターンが無い週は出ない", #due, 0)
+
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))
     os.exit(1)
