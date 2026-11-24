@@ -163,7 +163,7 @@ g._nexus_addons_p = {{
     key = "boss_action_monitor",
     category = "battle",
     since = "2.26.0",
-    updated = g.VER_NEXT,
+    updated = "2.27.0",
     updated_note_jp = "「共通」の件にパターン（例: 火の障壁）の条件と繰り返しの間隔を付けられるようにし、週間ボス共通にパターンの件を最初から入れました",
     updated_note_en = "Common entries can require a pattern (e.g. Fire Wall) and repeat at an interval; Weekly Boss (all) now comes with pattern entries",
     data = {
@@ -654,7 +654,7 @@ g._nexus_addons_p = {{
     key = "mini_addons",
     category = "misc",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = g.VER_NEXT,
+    updated = "2.27.0",
     updated_note_jp = "設定に「パーティー情報をバフアイコンに重なる位置にも置けるようにする」を足しました(既定は OFF)。11/24 のアップデートから、PT 情報をバフアイコンに重なる位置へ動かすとバフの下へ押し戻されるようになったのを止めます",
     updated_note_en = "Added a setting (off by default) that lets you place the party info where it overlaps your buff icons. Since the 11/24 game update, the game pushes it back below the buffs",
     data = {
