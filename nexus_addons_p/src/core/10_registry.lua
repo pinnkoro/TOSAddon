@@ -654,9 +654,9 @@ g._nexus_addons_p = {{
     key = "mini_addons",
     category = "misc",
     -- 「更新」の印(g.badge_of)。**採番するまでは g.VER_NEXT を書くこと**
-    updated = "2.25.2",
-    updated_note_jp = "「スキル連打時のクールタイムの音を消去」を「スキル・アイテム連打時の〜」にし、クールタイム中のポーションなどをクイックスロットから連打したときの音も消すようにしました",
-    updated_note_en = "The skill spam cooldown sound option now also mutes the sound when spamming potions and other items on cooldown from the quickslot",
+    updated = g.VER_NEXT,
+    updated_note_jp = "設定に「パーティー情報をバフアイコンに重なる位置にも置けるようにする」を足しました(既定は OFF)。11/24 のアップデートから、PT 情報をバフアイコンに重なる位置へ動かすとバフの下へ押し戻されるようになったのを止めます",
+    updated_note_en = "Added a setting (off by default) that lets you place the party info where it overlaps your buff icons. Since the 11/24 game update, the game pushes it back below the buffs",
     data = {
         use = 0,
         name = "Mini Addons",
