@@ -638,6 +638,16 @@ function Boss_action_monitor_pattern_arrived(src)
         g.vlog("boss_action_monitor: %s のパターン情報が届いた(求めてから %.1f 秒)", src,
             (imcTime.GetAppTimeMS() - req.at_ms) / 1000)
     end
+    -- **合図より先に読んで覚えた分は捨てて読み直させる。** 実機では合図が求めてから約 14 秒後
+    -- (週間ボスのタイマーが始まるのと同時)に来て、待ち時間(5 秒)を過ぎてから読んだ分の方が先だった。
+    -- そのとき読んだのが前の週の情報でも、ここで今の情報に入れ替わる。
+    g.bam_patterns = g.bam_patterns or {}
+    for _, grp in ipairs(g.bam_groups) do
+        if grp.pattern_src == src and g.bam_patterns[grp.cls] then
+            g.bam_patterns[grp.cls] = nil
+            g.vlog("boss_action_monitor: %s のパターンを読み直す", grp.cls)
+        end
+    end
 end
 
 function Boss_action_monitor_WEEKLYBOSS_PATTERNINFO_UI_UPDATE()
