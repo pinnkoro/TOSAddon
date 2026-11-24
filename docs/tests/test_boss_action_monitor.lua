@@ -197,6 +197,30 @@ check("間隔が短いものは何秒前なし", prows[3].before, 0)
 check("タイマーより長い間隔は繰り返さない", prows[4].every, 0)
 check("条件はパターン", prows[2].pattern, "Weekly_FireWall")
 check("2 回目は何も足さない", g.bam_pattern_preset(prows, plist, 420), 0)
+local done = {}
+local rows2 = {}
+check("初回は 4 件", g.bam_pattern_preset(rows2, plist, 420, done), 4)
+check("用意したものを記録する", done.Weekly_FireWall, true)
+table.remove(rows2, 1)
+check("消した件は足し直さない", g.bam_pattern_preset(rows2, plist, 420, done), 0)
+plist[#plist + 1] = {cls = "Weekly_New", start_ms = 30000, every = 60, timed = true}
+check("新しいパターンだけ足す", g.bam_pattern_preset(rows2, plist, 420, done), 1)
+
+print("[13] 間隔が短くても最後の回まで出る")
+local short = {{at = 420, before = 0, every = 2}}
+check("回数", #g.bam_occurrences(short[1]), 211)
+local d3 = g.bam_time_due(short, 21, 19)
+check("0:20 の回が出る", #d3 == 1 and d3[1].at, 20)
+d3 = g.bam_time_due(short, 1, 0)
+check("0:00 の回が出る", #d3 == 1 and d3[1].at, 0)
+d3 = g.bam_time_due({{at = 420, before = 0, every = 1}}, 31, 21)
+check("間隔 1 秒は 10 秒の跨ぎで 10 回", #d3, 10)
+local _, nat = g.bam_next_time(short, 21)
+check("次の回", nat, 20)
+_, nat = g.bam_next_time({{at = 100, every = 0}}, 50)
+check("過ぎた件は次にならない", nat, nil)
+d3 = g.bam_time_due({{at = 402, before = 10, every = 50}}, 3, 2)
+check("最後の回 0:02 のちょうどが出る", #d3 == 1 and d3[1].kind == "at" and d3[1].at, 2)
 
 if failures > 0 then
     print(string.format("FAILED: %d 件", failures))

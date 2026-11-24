@@ -63,6 +63,9 @@ g.bam_max_group_rows = 60
 g.bam_weekly_duration = 420
 -- 用意したパターンの件の版。上げると、まだ入っていないパターンの件を足し直す(利用者が消した件は戻さない)。
 g.bam_preset_ver = 1
+-- パターン情報を求めてから、返事の合図が来なくても読み始めるまでの時間(週間ボスのタイマーは入ってから
+-- 約 14 秒後に始まるので、それより短く)。
+g.bam_pattern_wait_ms = 5000
 -- 敵を探す範囲。boss_direction(500)より広めにとる(レイドのボスは間合いが広い)。
 g.bam_scan_range = 800
 -- レイドタイマーが最後に届いてから、この間はレイドタイマーを基準にする(手動タイマーより優先)。
@@ -153,34 +156,49 @@ function g.bam_time_due(triggers, prev, now)
     end
     for _, t in ipairs(triggers or {}) do
         if t.on ~= false then
-            for _, at in ipairs(g.bam_occurrences(t)) do
-                if t.before > 0 then
-                    local x = at + t.before
-                    if prev > x and x >= now then
-                        result[#result + 1] = {trig = t, kind = "before", at = at}
-                    end
+            -- 「何秒前」は、回 x の x + before が [now, prev) に入ったとき = x が [now - before, prev - before) のとき
+            if t.before > 0 then
+                for _, at in ipairs(g.bam_occurrences_between(t, now - t.before, prev - t.before)) do
+                    result[#result + 1] = {trig = t, kind = "before", at = at}
                 end
-                if prev > at and at >= now then
-                    result[#result + 1] = {trig = t, kind = "at", at = at}
-                end
+            end
+            for _, at in ipairs(g.bam_occurrences_between(t, now, prev)) do
+                result[#result + 1] = {trig = t, kind = "at", at = at}
             end
         end
     end
     return result
 end
 
--- 件が出る残り時間の並び(多い順)。繰り返さない件は at だけ。
-function g.bam_occurrences(t)
-    local list = {t.at}
+-- 件の回(at, at - every, at - 2*every, ... 0 以上)のうち、lo <= x < hi に入るものを返す(多い順)。
+-- **全部の回を並べてから探さないこと。** 間隔を短くすると回数が増え(間隔 1 秒なら 7 分で 421 回)、
+-- 回数で打ち切ると後半の回が黙って出なくなる(レビューで指摘)。区間は毎回 10 秒以内なので、
+-- 区間に入る回の番号 k を割り算で出して、その分だけ回す。
+function g.bam_occurrences_between(t, lo, hi)
+    local result = {}
+    local at = t.at
     local every = tonumber(t.every) or 0
-    if every > 0 then
-        local at = t.at - every
-        while at >= 0 and #list < 200 do
-            list[#list + 1] = at
-            at = at - every
+    if every <= 0 then
+        if at >= lo and at < hi and at >= 0 then
+            result[1] = at
         end
+        return result
     end
-    return list
+    -- at - k*every < hi  ⇔ k > (at - hi) / every
+    -- at - k*every >= lo ⇔ k <= (at - lo) / every
+    -- at - k*every >= 0  ⇔ k <= at / every
+    local k_min = math.max(0, math.floor((at - hi) / every) + 1)
+    local k_max = math.min(math.floor((at - lo) / every), math.floor(at / every))
+    for k = k_min, k_max do
+        result[#result + 1] = at - k * every
+    end
+    return result
+end
+
+-- 件が出る残り時間の並び(多い順)。繰り返さない件は at だけ。テストと README の例の確認用
+-- (知らせの判定は bam_occurrences_between を使う)。
+function g.bam_occurrences(t)
+    return g.bam_occurrences_between(t, 0, t.at + 1)
 end
 
 -- HP の知らせ。state はボス 1 体(ハンドル)ごとの「もう出した」印({[件] = true})。
@@ -255,13 +273,14 @@ function g.bam_next_time(triggers, remain)
     local best, best_at
     for _, t in ipairs(triggers or {}) do
         if t.on ~= false then
-            for _, at in ipairs(g.bam_occurrences(t)) do
-                if at < remain then
-                    if not best_at or at > best_at then
-                        best, best_at = t, at
-                    end
-                    break
-                end
+            -- remain より小さい最初の回。繰り返す件は割り算で出す(全部の回を並べない)
+            local at = t.at
+            local every = tonumber(t.every) or 0
+            if every > 0 and at >= remain then
+                at = at - (math.floor((at - remain) / every) + 1) * every
+            end
+            if at < remain and at >= 0 and (not best_at or at > best_at) then
+                best, best_at = t, at
             end
         end
     end
@@ -289,12 +308,18 @@ end
 -- パターンの件を最初から用意する(純ロジック)。list は Boss_action_monitor_pattern_list の形
 -- ({cls, start_ms, every, timed})。時間で出るもの(timed)だけを、まだ件の無いパターンについて足す。
 -- 残り時間は duration - 最初に出るまでの秒。間隔がタイマーより長いものは繰り返さない。
-function g.bam_pattern_preset(rows, list, duration)
+-- done は「前に用意したパターン」の集合({[ClassName] = true})。足したものはここへ記録する。
+-- **done にあるものは、利用者が消していても足し直さない**(版を上げたときに消した件が戻らないように)。
+function g.bam_pattern_preset(rows, list, duration, done)
+    done = done or {}
     local have = {}
     for _, t in ipairs(rows) do
         if t.pattern and t.pattern ~= "" then
             have[t.pattern] = true
         end
+    end
+    for cls in pairs(done) do
+        have[cls] = true
     end
     local added = 0
     for _, p in ipairs(list) do
@@ -311,6 +336,7 @@ function g.bam_pattern_preset(rows, list, duration)
                     text = "",
                     pattern = p.cls
                 }
+                done[p.cls] = true
                 added = added + 1
             end
         end
@@ -462,7 +488,10 @@ function Boss_action_monitor_pattern_list(prefix)
         parts[#parts + 1] = string.format("%s=%d/%d%s", p.cls, p.start_ms, p.every, p.jitter and "~" or "")
     end
     g.vlog("boss_action_monitor: パターンの候補 %s %d 件 (最初ms/間隔s ~は揺れ) %s", prefix, #list, table.concat(parts, " "))
-    g.bam_pattern_lists[prefix] = list
+    -- 読めなかった(0 件)ときは覚えない。次に呼ばれたときに読み直す
+    if #list > 0 then
+        g.bam_pattern_lists[prefix] = list
+    end
     return list
 end
 
@@ -490,18 +519,30 @@ end
 -- **協同戦共通には用意しない。** 協同戦はタイマーの長さが決まっていない(ゲームのタイマーが届くかも
 -- 未確認)ので、残り時間に直せない。
 function Boss_action_monitor_seed_patterns(entry, grp)
-    if grp.pattern_src ~= "weekly" or (tonumber(entry.preset) or 0) >= g.bam_preset_ver then
+    if grp.pattern_src ~= "weekly" or type(GetClassList) ~= "function" then
         return
     end
-    if type(GetClassList) ~= "function" then
+    local ver = tonumber(entry.preset) or 0
+    if ver >= g.bam_preset_ver and type(entry.preset_done) == "table" then
         return
     end
     local list = Boss_action_monitor_pattern_list(grp.pattern_prefix)
     if #list == 0 then
-        -- 表が読めなかった。印を付けずに次の起動でやり直す
+        -- 表が読めなかった。印を付けずに次の読み込みでやり直す(空の一覧は覚えていない)
         return
     end
-    local added = g.bam_pattern_preset(entry.time, list, g.bam_weekly_duration)
+    if type(entry.preset_done) ~= "table" then
+        entry.preset_done = {}
+        if ver >= 1 then
+            -- 版 1 は時間で出るものを全部用意していた。記録が無いので、全部用意済みとする
+            for _, p in ipairs(list) do
+                if p.timed then
+                    entry.preset_done[p.cls] = true
+                end
+            end
+        end
+    end
+    local added = g.bam_pattern_preset(entry.time, list, g.bam_weekly_duration, entry.preset_done)
     entry.preset = g.bam_preset_ver
     g.bam_normalize_boss(entry)
     g.vlog("boss_action_monitor: %s にパターンの件を %d 件用意した", entry.cls, added)
@@ -510,6 +551,11 @@ end
 -- 今の週間ボス / 協同戦のパターン情報をサーバーへ求める。**素はコンテンツ情報の画面を開いたときに
 -- しか求めない**ので、「共通」が効くマップに入ったらこちらから 1 回求めておく(届くと session に入る)。
 function Boss_action_monitor_request_patterns(grp)
+    g.bam_pattern_req = g.bam_pattern_req or {}
+    g.bam_pattern_req[grp.pattern_src] = {
+        at_ms = imcTime.GetAppTimeMS(),
+        arrived = false
+    }
     local ok, err = pcall(function()
         if grp.pattern_src == "weekly" then
             local week = session.weeklyboss.GetNowWeekNum()
@@ -528,15 +574,29 @@ end
 
 -- 今のパターン({[ClassName] = true})。まだ届いていない・読めないときは nil。
 -- 届いたらこのマップの間は覚えておく(戦闘の途中でパターンは変わらない)。
+-- **求めた返事が届くまでは読まない。** session には前に入った週や、コンテンツ情報の画面で
+-- 見た別の週の情報が残っていることがあり(素は画面で選んだ週の番号で求める)、それを掴んで
+-- 覚えると、このマップの間ずっと違う週のパターンで判定してしまう。返事が届いた合図は、素が
+-- 画面の更新に使う WEEKLYBOSS_PATTERNINFO_UI_UPDATE / FIELDBOSS_PATTERNINFO_UI_UPDATE。
+-- 合図が来ない作りのときに備えて、求めてから g.bam_pattern_wait_ms 経てば読む。
 function Boss_action_monitor_current_patterns(grp)
     g.bam_patterns = g.bam_patterns or {}
     if g.bam_patterns[grp.cls] then
         return g.bam_patterns[grp.cls]
     end
+    local req = g.bam_pattern_req and g.bam_pattern_req[grp.pattern_src]
+    if req and not req.arrived and imcTime.GetAppTimeMS() - req.at_ms < g.bam_pattern_wait_ms then
+        return nil
+    end
     local set, names, total = {}, {}, 0
     local ok, err = pcall(function()
-        local info_obj = grp.pattern_src == "weekly" and session.weeklyboss.GetPatternInfo() or
-                             session.fieldboss.GetPatternInfo()
+        -- **and/or でつながないこと。** 週間ボスの側が nil を返すと協同戦の側を読んでしまう
+        local info_obj
+        if grp.pattern_src == "weekly" then
+            info_obj = session.weeklyboss.GetPatternInfo()
+        else
+            info_obj = session.fieldboss.GetPatternInfo()
+        end
         if not info_obj then
             return
         end
@@ -565,8 +625,27 @@ function Boss_action_monitor_current_patterns(grp)
         return nil
     end
     g.bam_patterns[grp.cls] = set
-    g.vlog("boss_action_monitor: %s のパターン %s", grp.cls, table.concat(names, ","))
+    g.vlog("boss_action_monitor: %s のパターン %s (返事の合図=%s)", grp.cls, table.concat(names, ","),
+        tostring(req and req.arrived))
     return set
+end
+
+-- 素の WEEKLYBOSS_PATTERNINFO_UI_UPDATE / FIELDBOSS_PATTERNINFO_UI_UPDATE の後に呼ばれる(= 返事が届いた)。
+function Boss_action_monitor_pattern_arrived(src)
+    local req = g.bam_pattern_req and g.bam_pattern_req[src]
+    if req and not req.arrived then
+        req.arrived = true
+        g.vlog("boss_action_monitor: %s のパターン情報が届いた(求めてから %.1f 秒)", src,
+            (imcTime.GetAppTimeMS() - req.at_ms) / 1000)
+    end
+end
+
+function Boss_action_monitor_WEEKLYBOSS_PATTERNINFO_UI_UPDATE()
+    Boss_action_monitor_pattern_arrived("weekly")
+end
+
+function Boss_action_monitor_FIELDBOSS_PATTERNINFO_UI_UPDATE()
+    Boss_action_monitor_pattern_arrived("field")
 end
 
 -- 「共通」の件をパターンの条件で絞る。普通のボスは条件を持たないのでそのまま。
@@ -607,12 +686,17 @@ function boss_action_monitor_on_init()
         g.bam_prev_remain = nil
         g.bam_prev_source = nil
         g.bam_patterns = {}
+        g.bam_pattern_req = {}
         g.bam_map_enter_ms = imcTime.GetAppTimeMS()
         g.bam_probe_seen = {}
     end
     g.setup_hook_and_event(g.addon, "RAID_TIMER_UPDATE", "Boss_action_monitor_RAID_TIMER_UPDATE", true)
     g.setup_hook_and_event(g.addon, "DAMAGE_METER_UPDATE_TIMER", "Boss_action_monitor_DAMAGE_METER_UPDATE_TIMER", true)
     g.setup_hook_and_event(g.addon, "NOTICE_RAID_PATTERN_ON_MSG", "Boss_action_monitor_NOTICE_RAID_PATTERN_ON_MSG", true)
+    g.setup_hook_and_event(g.addon, "WEEKLYBOSS_PATTERNINFO_UI_UPDATE", "Boss_action_monitor_WEEKLYBOSS_PATTERNINFO_UI_UPDATE",
+        true)
+    g.setup_hook_and_event(g.addon, "FIELDBOSS_PATTERNINFO_UI_UPDATE", "Boss_action_monitor_FIELDBOSS_PATTERNINFO_UI_UPDATE",
+        true)
     if g.get_map_type() == "City" then
         g.vlog("boss_action_monitor: 街なので監視しない (map=%s stopped=%s)", tostring(g.map_name),
             tostring(g.stop_timer("boss_action_monitor_timer")))
@@ -823,9 +907,17 @@ function Boss_action_monitor_scan_group(entry, handle, cls)
         state = {}
         g.bam_hp_state[key] = state
     end
-    for _, d in ipairs(g.bam_hp_due(Boss_action_monitor_pass(entry, entry.hp), state, pct)) do
-        g.vlog("boss_action_monitor: HP %s %s pct=%d 今=%.1f%%", entry.cls, tostring(cls), d.trig.pct, pct)
-        Boss_action_monitor_notify(entry, d)
+    -- **印は絞り込む前の全件で付ける。** 絞った後で回すと、条件が後から満たされた(パターン情報が
+    -- 遅れて届いた・戦闘中に条件を付けた)ときに、もう下回っている件がまとめて出る(レビューで指摘)。
+    -- 条件に合わない件は、そのとき黙って出したことにする。
+    for _, d in ipairs(g.bam_hp_due(entry.hp, state, pct)) do
+        if #Boss_action_monitor_pass(entry, {d.trig}) > 0 then
+            g.vlog("boss_action_monitor: HP %s %s pct=%d 今=%.1f%%", entry.cls, tostring(cls), d.trig.pct, pct)
+            Boss_action_monitor_notify(entry, d)
+        else
+            g.vlog("boss_action_monitor: HP %s pct=%d はパターンの条件に合わないので出さない (%s)", entry.cls,
+                d.trig.pct, tostring(d.trig.pattern))
+        end
     end
 end
 
